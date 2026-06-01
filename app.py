@@ -204,7 +204,6 @@ def init_db():
     with app.app_context():
         db.create_all()
         seed_data()
-        generate_alerts()
 
 init_db()
 
