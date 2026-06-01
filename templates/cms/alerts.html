@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Alert-Center — Content OS{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-xl font-bold text-white">Alert-Center</h1>
+    <p class="text-sm text-gray-500 mt-0.5">
+      {{ alerts|selectattr('resolved', 'equalto', false)|list|length }} aktive Alerts
+    </p>
+  </div>
+  <div class="flex gap-2">
+    <form method="post" action="{{ url_for('alerts_refresh') }}">
+      <button type="submit" class="btn-ghost">
+        <i class="fa-solid fa-rotate mr-2"></i>Neu generieren
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- Summary cards -->
+<div class="grid grid-cols-3 gap-4 mb-6">
+  {% set critical = alerts|selectattr('severity','equalto','critical')|selectattr('resolved','equalto',false)|list %}
+  {% set warnings = alerts|selectattr('severity','equalto','warning')|selectattr('resolved','equalto',false)|list %}
+  {% set resolved = alerts|selectattr('resolved','equalto',true)|list %}
+
+  <div class="card p-4 border-l-2 border-red-500">
+    <div class="text-xs text-red-400 font-semibold uppercase tracking-wider mb-1">Kritisch</div>
+    <div class="text-3xl font-bold text-white">{{ critical|length }}</div>
+  </div>
+  <div class="card p-4 border-l-2 border-yellow-500">
+    <div class="text-xs text-yellow-400 font-semibold uppercase tracking-wider mb-1">Warnungen</div>
+    <div class="text-3xl font-bold text-white">{{ warnings|length }}</div>
+  </div>
+  <div class="card p-4 border-l-2 border-emerald-500">
+    <div class="text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-1">Gelöst</div>
+    <div class="text-3xl font-bold text-white">{{ resolved|length }}</div>
+  </div>
+</div>
+
+<!-- Alert list -->
+<div class="space-y-2">
+  {% for alert in alerts %}
+  <div class="card px-5 py-4 flex items-start gap-4 {% if alert.resolved %}opacity-50{% endif %}"
+       id="alert-{{ alert.id }}">
+    <!-- Icon -->
+    <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5
+      {% if alert.severity == 'critical' %}bg-red-500/15
+      {% elif alert.severity == 'warning' %}bg-yellow-500/15
+      {% else %}bg-blue-500/15{% endif %}">
+      <i class="fa-solid
+        {% if alert.alert_type == 'low_stock' or alert.alert_type == 'empty_stock' %}fa-battery-empty
+        {% elif alert.alert_type == 'no_posts' %}fa-calendar-xmark
+        {% elif alert.alert_type == 'bot_error' %}fa-robot
+        {% elif alert.alert_type == 'bot_success' %}fa-check-circle
+        {% else %}fa-circle-exclamation{% endif %}
+        {% if alert.severity == 'critical' %}text-red-400
+        {% elif alert.severity == 'warning' %}text-yellow-400
+        {% else %}text-blue-400{% endif %}"></i>
+    </div>
+
+    <div class="flex-1 min-w-0">
+      <p class="text-sm font-medium text-white">{{ alert.message }}</p>
+      <div class="flex items-center gap-3 mt-1">
+        <span class="text-xs text-gray-500">{{ alert.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
+        {% if alert.account %}
+        <a href="{{ url_for('account_detail', account_id=alert.account.id) }}" class="text-xs text-indigo-400 hover:text-indigo-300">
+          {{ alert.account.name }} →
+        </a>
+        {% endif %}
+        <span class="badge text-xs
+          {% if alert.severity == 'critical' %}bg-red-500/15 text-red-400
+          {% elif alert.severity == 'warning' %}bg-yellow-500/15 text-yellow-400
+          {% else %}bg-blue-500/15 text-blue-400{% endif %}">
+          {{ {'critical':'Kritisch','warning':'Warnung','info':'Info'}.get(alert.severity, alert.severity) }}
+        </span>
+        <span class="badge text-xs bg-white/5 text-gray-500">{{ alert.alert_type }}</span>
+      </div>
+    </div>
+
+    <div class="flex-shrink-0">
+      {% if not alert.resolved %}
+      <button onclick="resolveAlert({{ alert.id }})"
+              class="text-xs text-gray-500 hover:text-emerald-400 transition-colors px-3 py-1.5 rounded-lg hover:bg-emerald-500/10">
+        <i class="fa-solid fa-check mr-1"></i>Erledigt
+      </button>
+      {% else %}
+      <span class="text-xs text-gray-600">
+        <i class="fa-solid fa-check mr-1"></i>
+        {{ alert.resolved_at.strftime('%d.%m %H:%M') if alert.resolved_at else 'Gelöst' }}
+      </span>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="card py-20 text-center">
+    <div class="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
+      <i class="fa-solid fa-shield-check text-emerald-400 text-2xl"></i>
+    </div>
+    <p class="text-gray-400 font-medium">Keine Alerts</p>
+    <p class="text-gray-600 text-sm mt-1">Alle Systeme laufen problemlos.</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function resolveAlert(id) {
+  const res = await fetch(`/api/alerts/resolve/${id}`, { method: 'POST' });
+  if ((await res.json()).ok) {
+    const el = document.getElementById(`alert-${id}`);
+    el.classList.add('opacity-30');
+    el.querySelector('button')?.remove();
+  }
+}
+</script>
+{% endblock %}

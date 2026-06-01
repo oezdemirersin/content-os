@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }} — Content OS{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-2 text-sm text-gray-500 mb-5">
+  <a href="{{ url_for('content_hub') }}" class="hover:text-white">Content Hub</a>
+  <i class="fa-solid fa-chevron-right text-xs text-gray-700"></i>
+  <span class="text-white truncate max-w-xs">{{ item.title }}</span>
+</div>
+
+<div class="flex items-start justify-between mb-6 gap-4">
+  <div class="flex-1 min-w-0">
+    <div class="flex items-center gap-3 mb-2 flex-wrap">
+      {% if item.category %}
+      <span class="badge text-xs font-semibold" style="background:{{ item.category.color }}20;color:{{ item.category.color }}">{{ item.category.name }}</span>
+      {% endif %}
+      <span class="badge bg-white/5 text-gray-400 text-xs">{{ item.content_type }}</span>
+      <span class="badge text-xs
+        {% if item.status == 'ready' %}bg-emerald-500/15 text-emerald-400
+        {% elif item.status == 'draft' %}bg-gray-500/15 text-gray-400
+        {% elif item.status == 'in_progress' %}bg-yellow-500/15 text-yellow-400
+        {% elif item.status == 'scheduled' %}bg-blue-500/15 text-blue-400
+        {% elif item.status == 'published' %}bg-indigo-500/15 text-indigo-400
+        {% elif item.status == 'error' %}bg-red-500/15 text-red-400
+        {% else %}bg-gray-500/15 text-gray-500{% endif %}">
+        {{ {'draft':'Entwurf','in_progress':'In Bearbeitung','ready':'Bereit','scheduled':'Geplant',
+            'published':'Veröffentlicht','error':'Fehler','archived':'Archiviert'}.get(item.status, item.status) }}
+      </span>
+    </div>
+    <h1 class="text-2xl font-bold text-white leading-tight">{{ item.title }}</h1>
+    <div class="flex items-center gap-3 mt-2 text-xs text-gray-500">
+      <span>Erstellt {{ item.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
+      {% if item.updated_at and item.updated_at != item.created_at %}
+      <span>· Bearbeitet {{ item.updated_at.strftime('%d.%m.%Y') }}</span>
+      {% endif %}
+      {% if item.source_name %}
+      <span>· Quelle: {{ item.source_name }}</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="flex gap-2 flex-shrink-0">
+    <a href="{{ url_for('content_edit', item_id=item.id) }}" class="btn-primary">
+      <i class="fa-solid fa-pen mr-2"></i>Bearbeiten
+    </a>
+  </div>
+</div>
+
+<div class="grid grid-cols-12 gap-5">
+  <div class="col-span-12 lg:col-span-8 space-y-5">
+    {% if item.raw_text %}
+    <div class="card p-5">
+      <h2 class="font-medium text-white text-sm mb-3">Rohtext</h2>
+      <p class="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{{ item.raw_text }}</p>
+    </div>
+    {% endif %}
+
+    {% if item.caption %}
+    <div class="card p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-medium text-white text-sm">Caption</h2>
+        <button onclick="navigator.clipboard.writeText(this.closest('.card').querySelector('p').innerText)"
+                class="text-xs text-gray-500 hover:text-white transition-colors">
+          <i class="fa-solid fa-copy mr-1"></i>Kopieren
+        </button>
+      </div>
+      <p class="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap bg-white/3 rounded-lg p-3">{{ item.caption }}</p>
+    </div>
+    {% endif %}
+
+    {% if item.ai_caption %}
+    <div class="card p-5 border border-indigo-500/20">
+      <div class="flex items-center gap-2 mb-3">
+        <i class="fa-solid fa-microchip text-indigo-400 text-xs"></i>
+        <h2 class="font-medium text-white text-sm">KI-generierter Caption</h2>
+      </div>
+      <p class="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{{ item.ai_caption }}</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="col-span-12 lg:col-span-4 space-y-4">
+    <!-- Instagram Preview -->
+    <div class="card overflow-hidden">
+      <div class="px-4 py-3 border-b border-white/5 flex items-center gap-2">
+        <i class="fa-brands fa-instagram text-pink-400 text-sm"></i>
+        <span class="text-sm font-medium text-white">Instagram-Vorschau</span>
+      </div>
+      <div class="p-4">
+        <!-- Phone mockup -->
+        <div class="bg-black rounded-2xl overflow-hidden max-w-[280px] mx-auto border border-white/10 shadow-2xl">
+          <!-- Header -->
+          <div class="flex items-center gap-2 px-3 py-2.5 border-b border-white/5">
+            <div class="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex-shrink-0"></div>
+            <div>
+              <div class="text-xs font-semibold text-white leading-none">
+                {% if item.accounts %}{{ item.accounts[0].handle or item.accounts[0].name }}{% else %}@dein_account{% endif %}
+              </div>
+              <div class="text-[10px] text-gray-500">Gesponsert</div>
+            </div>
+            <i class="fa-solid fa-ellipsis text-gray-600 text-xs ml-auto"></i>
+          </div>
+          <!-- Image placeholder -->
+          <div class="bg-[#1a1a2e] aspect-square flex items-center justify-center">
+            {% if item.media_items %}
+              <img src="{{ item.media_items[0].url }}" class="w-full h-full object-cover">
+            {% else %}
+              <div class="text-center">
+                <i class="fa-solid fa-image text-gray-700 text-4xl mb-2"></i>
+                <p class="text-xs text-gray-600">Kein Bild</p>
+              </div>
+            {% endif %}
+          </div>
+          <!-- Actions -->
+          <div class="px-3 py-2 flex items-center gap-3">
+            <i class="fa-regular fa-heart text-white text-lg"></i>
+            <i class="fa-regular fa-comment text-white text-lg"></i>
+            <i class="fa-regular fa-paper-plane text-white text-lg"></i>
+            <i class="fa-regular fa-bookmark text-white text-lg ml-auto"></i>
+          </div>
+          <!-- Caption -->
+          <div class="px-3 pb-3">
+            <p class="text-white text-xs font-semibold mb-1">
+              {% if item.accounts %}{{ item.accounts[0].handle or item.accounts[0].name }}{% else %}@dein_account{% endif %}
+            </p>
+            {% set cap = item.caption or item.title %}
+            <p class="text-white text-[11px] leading-snug">
+              {{ cap[:200] }}{% if cap|length > 200 %}… <span class="text-gray-500">mehr</span>{% endif %}
+            </p>
+            <p class="text-gray-600 text-[10px] mt-1">VOR 2 STUNDEN</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  <!-- Meta -->
+    <div class="card p-4 space-y-3">
+      <h2 class="font-medium text-white text-sm">Details</h2>
+      {% if item.source_url %}
+      <div>
+        <div class="text-xs text-gray-500 mb-0.5">Quell-URL</div>
+        <a href="{{ item.source_url }}" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 break-all">{{ item.source_url }}</a>
+      </div>
+      {% endif %}
+      {% if item.author %}
+      <div class="flex justify-between text-sm">
+        <span class="text-gray-500">Autor</span>
+        <span class="text-white">{{ item.author.name }}</span>
+      </div>
+      {% endif %}
+      {% if item.ai_score %}
+      <div class="flex justify-between text-sm">
+        <span class="text-gray-500">KI-Score</span>
+        <span class="text-white">{{ "%.0f"|format(item.ai_score * 100) }}%</span>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Accounts -->
+    {% if item.accounts %}
+    <div class="card p-4">
+      <h2 class="font-medium text-white text-sm mb-3">Zugeordnete Accounts</h2>
+      <div class="space-y-2">
+        {% for acc in item.accounts %}
+        <a href="{{ url_for('account_detail', account_id=acc.id) }}" class="flex items-center gap-2 hover:bg-white/5 rounded-lg p-1.5 transition-colors">
+          <div class="w-7 h-7 rounded-lg bg-indigo-500/20 flex items-center justify-center text-xs font-bold text-indigo-300">{{ acc.name[0] }}</div>
+          <span class="text-sm text-gray-300">{{ acc.name }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Scheduled posts -->
+    {% if item.scheduled_posts %}
+    <div class="card p-4">
+      <h2 class="font-medium text-white text-sm mb-3">Geplante Veröffentlichungen</h2>
+      <div class="space-y-2">
+        {% for post in item.scheduled_posts %}
+        <div class="text-sm text-gray-400">{{ post.scheduled_at.strftime('%d.%m.%Y %H:%M') }} — {{ post.status }}</div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

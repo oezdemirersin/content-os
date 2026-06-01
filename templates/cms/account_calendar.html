@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}Kalender {{ account.name }} — Content OS{% endblock %}
+
+{% block head %}
+<style>
+  .fc { --fc-border-color: rgba(255,255,255,0.06); --fc-page-bg-color: transparent;
+        --fc-neutral-bg-color: #1c1c27; --fc-neutral-text-color: #9ca3af;
+        --fc-today-bg-color: rgba(99,102,241,0.08); --fc-event-border-color: transparent; }
+  .fc-theme-standard td, .fc-theme-standard th { border-color: rgba(255,255,255,0.06); }
+  .fc-col-header-cell-cushion, .fc-daygrid-day-number { color: #9ca3af; text-decoration: none; font-size: 12px; }
+  .fc-button { background: #252535 !important; border-color: rgba(255,255,255,0.1) !important; color: #9ca3af !important; font-size: 12px !important; }
+  .fc-button:hover { background: #2a2a3f !important; color: #fff !important; }
+  .fc-button-active { background: #6366f1 !important; color: #fff !important; border-color: #6366f1 !important; }
+  .fc-toolbar-title { color: #fff; font-size: 16px !important; font-weight: 600; }
+  .fc-event { font-size: 11px; border-radius: 4px; padding: 1px 4px; cursor: pointer; }
+  .fc-daygrid-day { cursor: pointer; }
+  .fc-daygrid-day:hover { background: rgba(99,102,241,0.05) !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-2 text-sm text-gray-500 mb-5">
+  <a href="{{ url_for('accounts') }}" class="hover:text-white">Accounts</a>
+  <i class="fa-solid fa-chevron-right text-xs text-gray-700"></i>
+  <a href="{{ url_for('account_detail', account_id=account.id) }}" class="hover:text-white">{{ account.name }}</a>
+  <i class="fa-solid fa-chevron-right text-xs text-gray-700"></i>
+  <span class="text-white">Kalender</span>
+</div>
+
+<div class="flex items-center justify-between mb-6">
+  <div class="flex items-center gap-4">
+    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/30 to-purple-500/30 flex items-center justify-center font-bold text-indigo-300">{{ account.name[0] }}</div>
+    <div>
+      <h1 class="text-xl font-bold text-white">{{ account.name }}</h1>
+      <p class="text-sm text-gray-500">Seitenkalender · Drag & Drop zum Verschieben</p>
+    </div>
+  </div>
+  <div class="flex items-center gap-2">
+    <!-- Account switcher -->
+    <select onchange="location.href='/accounts/'+this.value+'/calendar'" class="select-field max-w-xs text-sm">
+      {% for acc in all_accounts %}
+      <option value="{{ acc.id }}" {% if acc.id == account.id %}selected{% endif %}>{{ acc.name }}</option>
+      {% endfor %}
+    </select>
+    <button onclick="openNewPostModal()" class="btn-primary">
+      <i class="fa-solid fa-plus mr-2"></i>Post planen
+    </button>
+  </div>
+</div>
+
+<!-- Stock badges -->
+<div class="flex gap-3 mb-5">
+  <div class="card px-4 py-2.5 flex items-center gap-2">
+    <i class="fa-solid fa-image text-blue-400 text-sm"></i>
+    <div>
+      <div class="text-xs text-gray-500">Feed-Vorrat</div>
+      <div class="text-sm font-bold stock-{{ account.stock_status() }}">{{ account.stock_days_display() }} Tage</div>
+    </div>
+  </div>
+  <div class="card px-4 py-2.5 flex items-center gap-2">
+    <i class="fa-solid fa-circle text-pink-400 text-sm"></i>
+    <div>
+      <div class="text-xs text-gray-500">Posting-Ziel</div>
+      <div class="text-sm font-semibold text-white">{{ account.target_feed_per_day }}×/Tag</div>
+    </div>
+  </div>
+  <div class="card px-4 py-2.5 flex items-center gap-2">
+    <i class="fa-solid fa-robot text-indigo-400 text-sm"></i>
+    <div>
+      <div class="text-xs text-gray-500">Automatisierung</div>
+      <div class="text-sm font-semibold text-white">Stufe {{ account.automation_level }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card p-5">
+  <div id="accountCalendar"></div>
+</div>
+
+<!-- Event popup -->
+<div id="eventPopup" class="hidden fixed z-50 w-80 bg-[#1c1c27] border border-white/10 rounded-xl shadow-2xl p-4">
+  <div id="popupContent"></div>
+</div>
+
+<!-- New Post Modal -->
+<div id="newPostModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+  <div class="bg-[#1c1c27] border border-white/10 rounded-2xl w-full max-w-md mx-4 shadow-2xl">
+    <div class="flex items-center justify-between p-5 border-b border-white/5">
+      <h2 class="font-semibold text-white">Neuen Post planen</h2>
+      <button onclick="closeNewPostModal()" class="text-gray-500 hover:text-white text-xl">&times;</button>
+    </div>
+    <div class="p-5 space-y-4">
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Datum & Zeit *</label>
+        <input type="datetime-local" id="newPostDate" class="input-field" required>
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Typ</label>
+        <select id="newPostType" class="select-field">
+          <option value="feed">📸 Feed</option>
+          <option value="reel">🎬 Reel</option>
+          <option value="story">⭕ Story</option>
+          <option value="carousel">🎠 Carousel</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Caption</label>
+        <textarea id="newPostCaption" rows="3" class="input-field resize-none" placeholder="Caption für diesen Post..."></textarea>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="createPost()" class="btn-primary flex-1">
+          <i class="fa-solid fa-calendar-plus mr-2"></i>Planen
+        </button>
+        <button onclick="closeNewPostModal()" class="btn-ghost">Abbrechen</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ACCOUNT_ID = {{ account.id }};
+let calendar;
+
+document.addEventListener('DOMContentLoaded', function() {
+  calendar = new FullCalendar.Calendar(document.getElementById('accountCalendar'), {
+    initialView: 'dayGridMonth',
+    locale: 'de',
+    headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,listWeek' },
+    height: 680,
+    editable: true,
+    selectable: true,
+
+    events: function(info, success, failure) {
+      fetch(`/api/calendar/events?account_id=${ACCOUNT_ID}&start=${info.startStr}&end=${info.endStr}`)
+        .then(r => r.json()).then(success).catch(failure);
+    },
+
+    // Click on empty day → open new post modal
+    dateClick: function(info) {
+      const dt = info.dateStr + 'T09:00';
+      document.getElementById('newPostDate').value = dt;
+      openNewPostModal();
+    },
+
+    // Drag & drop → reschedule
+    eventDrop: function(info) {
+      fetch(`/api/posts/${info.event.extendedProps.post_id}/reschedule`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({scheduled_at: info.event.start.toISOString().slice(0,16)})
+      }).then(r => r.json()).then(d => {
+        if (!d.ok) info.revert();
+      });
+    },
+
+    // Click event → show popup
+    eventClick: function(info) {
+      const p = info.event.extendedProps;
+      const popup = document.getElementById('eventPopup');
+      document.getElementById('popupContent').innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+          <span class="badge bg-indigo-500/15 text-indigo-400 text-xs">${p.type?.toUpperCase()}</span>
+          <button onclick="document.getElementById('eventPopup').classList.add('hidden')" class="text-gray-500 hover:text-white text-lg leading-none">&times;</button>
+        </div>
+        <p class="text-xs text-gray-400 mb-2">${info.event.start.toLocaleString('de-DE')}</p>
+        ${p.caption ? `<p class="text-sm text-gray-300 mb-3 leading-relaxed">${p.caption}</p>` : ''}
+        <div class="flex items-center justify-between">
+          <span class="badge text-xs ${p.status === 'published' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-blue-500/15 text-blue-400'}">${p.status}</span>
+          ${p.status === 'scheduled' ? `
+          <button onclick="deletePost(${p.post_id})" class="text-xs text-red-400 hover:text-red-300">
+            <i class="fa-solid fa-trash mr-1"></i>Löschen
+          </button>` : ''}
+        </div>
+      `;
+      const rect = info.el.getBoundingClientRect();
+      popup.style.top = Math.min(rect.bottom + window.scrollY + 8, window.innerHeight + window.scrollY - 200) + 'px';
+      popup.style.left = Math.min(rect.left, window.innerWidth - 320) + 'px';
+      popup.classList.remove('hidden');
+    }
+  });
+
+  calendar.render();
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#eventPopup') && !e.target.closest('.fc-event'))
+      document.getElementById('eventPopup').classList.add('hidden');
+  });
+});
+
+function openNewPostModal() { document.getElementById('newPostModal').classList.remove('hidden'); }
+function closeNewPostModal() { document.getElementById('newPostModal').classList.add('hidden'); }
+
+async function createPost() {
+  const date = document.getElementById('newPostDate').value;
+  if (!date) { alert('Bitte Datum wählen'); return; }
+
+  const res = await fetch(`/api/accounts/${ACCOUNT_ID}/posts/new`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      scheduled_at: date,
+      post_type: document.getElementById('newPostType').value,
+      caption: document.getElementById('newPostCaption').value,
+    })
+  });
+  if ((await res.json()).ok) {
+    closeNewPostModal();
+    calendar.refetchEvents();
+    document.getElementById('newPostCaption').value = '';
+  }
+}
+
+async function deletePost(id) {
+  if (!confirm('Post löschen?')) return;
+  await fetch(`/api/posts/${id}/delete`, { method: 'POST' });
+  document.getElementById('eventPopup').classList.add('hidden');
+  calendar.refetchEvents();
+}
+</script>
+{% endblock %}

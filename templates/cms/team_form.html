@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Teammitglied hinzufügen — Content OS{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-2 text-sm text-gray-500 mb-5">
+  <a href="{{ url_for('team') }}" class="hover:text-white">Team</a>
+  <i class="fa-solid fa-chevron-right text-xs text-gray-700"></i>
+  <span class="text-white">Neues Mitglied</span>
+</div>
+
+<div class="max-w-lg">
+  <h1 class="text-xl font-bold text-white mb-6">Teammitglied hinzufügen</h1>
+  <form method="post" class="space-y-5">
+    <div class="card p-5 space-y-4">
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Name *</label>
+        <input type="text" name="name" required class="input-field" placeholder="Vollständiger Name">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">E-Mail *</label>
+        <input type="email" name="email" required class="input-field" placeholder="name@example.de">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Rolle</label>
+        <select name="role" class="select-field">
+          <option value="editor">Editor — Inhalte bearbeiten</option>
+          <option value="poster">Poster — Veröffentlichen</option>
+          <option value="manager">Manager — Verwaltung</option>
+          <option value="analyst">Analyst — Nur Analytics</option>
+          <option value="owner">Owner — Voller Zugriff</option>
+        </select>
+      </div>
+    </div>
+    <div class="flex gap-3">
+      <button type="submit" class="btn-primary"><i class="fa-solid fa-check mr-2"></i>Hinzufügen</button>
+      <a href="{{ url_for('team') }}" class="btn-ghost">Abbrechen</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

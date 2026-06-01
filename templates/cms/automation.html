@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Automatisierung — Content OS{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-xl font-bold text-white">Automatisierungszentrum</h1>
+    <p class="text-sm text-gray-500 mt-0.5">{{ rules|length }} Automatisierungsregeln</p>
+  </div>
+  <a href="{{ url_for('automation_new') }}" class="btn-primary">
+    <i class="fa-solid fa-plus mr-2"></i>Neue Regel
+  </a>
+</div>
+
+<!-- Automation Level Info -->
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+  {% for level, label, desc, color in [
+    (0,'Stufe 0','Vollständig manuell','gray'),
+    (1,'Stufe 1','Auto-Entwürfe','blue'),
+    (2,'Stufe 2','Entwürfe + Freigabe','yellow'),
+    (3,'Stufe 3','Vollautomatisch','emerald'),
+    (4,'Stufe 4','Erweiterte Automatisierung','indigo'),
+  ] %}
+  <div class="card p-3 border-l-2 border-{{ color }}-500">
+    <div class="text-xs font-bold text-{{ color }}-400 mb-0.5">{{ label }}</div>
+    <div class="text-xs text-gray-500">{{ desc }}</div>
+    <div class="text-lg font-bold text-white mt-1">
+      {{ accounts | selectattr('automation_level', 'equalto', level) | list | length if accounts is defined else '—' }}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Rules List -->
+<div class="space-y-3">
+  {% for rule in rules %}
+  <div class="card p-4 flex items-center gap-4">
+    <!-- Toggle -->
+    <button onclick="toggleRule({{ rule.id }}, this)"
+            class="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 {% if rule.active %}bg-indigo-600{% else %}bg-white/10{% endif %}">
+      <span class="absolute top-0.5 {% if rule.active %}right-0.5{% else %}left-0.5{% endif %} w-4 h-4 bg-white rounded-full shadow transition-all"></span>
+    </button>
+
+    <!-- Icon -->
+    <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0
+      {% if rule.rule_type == 'city_news' %}bg-blue-500/15
+      {% elif rule.rule_type == 'food_warning' %}bg-red-500/15
+      {% elif rule.rule_type == 'confession' %}bg-purple-500/15
+      {% elif rule.rule_type == 'meme' %}bg-yellow-500/15
+      {% else %}bg-white/5{% endif %}">
+      <i class="fa-solid
+        {% if rule.rule_type == 'city_news' %}fa-newspaper text-blue-400
+        {% elif rule.rule_type == 'food_warning' %}fa-triangle-exclamation text-red-400
+        {% elif rule.rule_type == 'confession' %}fa-heart text-purple-400
+        {% elif rule.rule_type == 'meme' %}fa-face-laugh text-yellow-400
+        {% elif rule.rule_type == 'rss' %}fa-rss text-orange-400
+        {% else %}fa-robot text-gray-400{% endif %}"></i>
+    </div>
+
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-3">
+        <span class="text-sm font-semibold text-white">{{ rule.name }}</span>
+        {% if not rule.active %}
+        <span class="badge bg-gray-500/15 text-gray-500 text-xs">Pausiert</span>
+        {% else %}
+        <span class="badge bg-emerald-500/15 text-emerald-400 text-xs">Aktiv</span>
+        {% endif %}
+        <span class="badge bg-white/5 text-gray-400 text-xs">{{ rule.rule_type }}</span>
+      </div>
+      <div class="flex items-center gap-4 mt-1 text-xs text-gray-500">
+        {% if rule.account %}
+        <span><i class="fa-solid fa-layer-group mr-1"></i>{{ rule.account.name }}</span>
+        {% endif %}
+        <span><i class="fa-solid fa-clock mr-1"></i>alle {{ rule.run_interval_minutes }}min</span>
+        <span><i class="fa-solid fa-play mr-1"></i>{{ rule.run_count }}× ausgeführt</span>
+        {% if rule.error_count > 0 %}
+        <span class="text-red-400"><i class="fa-solid fa-circle-xmark mr-1"></i>{{ rule.error_count }} Fehler</span>
+        {% endif %}
+        {% if rule.last_run_at %}
+        <span>Zuletzt: {{ rule.last_run_at.strftime('%d.%m %H:%M') }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <button onclick="runNow({{ rule.id }}, this)" class="p-2 text-gray-500 hover:text-emerald-400 transition-colors" title="Jetzt ausführen">
+        <i class="fa-solid fa-play text-xs"></i>
+      </button>
+      <button onclick="showLogs({{ rule.id }}, '{{ rule.name }}')" class="p-2 text-gray-500 hover:text-blue-400 transition-colors" title="Run-Log">
+        <i class="fa-solid fa-list text-xs"></i>
+      </button>
+    </div>
+  </div>
+  {% else %}
+  <div class="card py-20 text-center">
+    <div class="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
+      <i class="fa-solid fa-robot text-gray-600 text-2xl"></i>
+    </div>
+    <p class="text-gray-400 font-medium">Noch keine Automatisierungen</p>
+    <p class="text-gray-600 text-sm mt-1">Erstelle deine erste Automatisierungsregel.</p>
+    <a href="{{ url_for('automation_new') }}" class="btn-primary inline-flex mt-4">
+      <i class="fa-solid fa-plus mr-2"></i>Neue Regel
+    </a>
+  </div>
+  {% endfor %}
+</div>
+<!-- Run-Log Modal -->
+<div id="logModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+  <div class="bg-[#1c1c27] border border-white/10 rounded-2xl w-full max-w-lg mx-4 shadow-2xl">
+    <div class="flex items-center justify-between p-5 border-b border-white/5">
+      <div>
+        <h2 class="font-semibold text-white" id="logTitle">Run-Log</h2>
+        <p class="text-xs text-gray-500 mt-0.5">Letzte 20 Ausführungen</p>
+      </div>
+      <button onclick="document.getElementById('logModal').classList.add('hidden')" class="text-gray-500 hover:text-white text-xl">&times;</button>
+    </div>
+    <div id="logContent" class="p-4 max-h-80 overflow-y-auto space-y-2">
+      <div class="text-center py-8 text-gray-500 text-sm">Lädt…</div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function runNow(id, btn) {
+  btn.querySelector('i').className = 'fa-solid fa-spinner fa-spin text-xs';
+  const res = await fetch(`/automation/${id}/run`, {method: 'POST'});
+  setTimeout(() => {
+    btn.querySelector('i').className = 'fa-solid fa-play text-xs';
+  }, 3000);
+}
+
+async function showLogs(id, name) {
+  document.getElementById('logTitle').textContent = name + ' — Log';
+  document.getElementById('logModal').classList.remove('hidden');
+  document.getElementById('logContent').innerHTML = '<div class="text-center py-8 text-gray-500 text-sm">Lädt…</div>';
+
+  const res = await fetch(`/api/automation/${id}/logs`);
+  const logs = await res.json();
+
+  if (!logs.length) {
+    document.getElementById('logContent').innerHTML = '<div class="text-center py-8 text-gray-500 text-sm">Noch keine Ausführungen.</div>';
+    return;
+  }
+
+  document.getElementById('logContent').innerHTML = logs.map(l => {
+    const started = new Date(l.started_at).toLocaleString('de-DE');
+    const duration = l.finished_at
+      ? ((new Date(l.finished_at) - new Date(l.started_at)) / 1000).toFixed(1) + 's'
+      : '—';
+    const statusColor = l.status === 'success' ? 'text-emerald-400' : l.status === 'error' ? 'text-red-400' : 'text-yellow-400';
+    const statusIcon = l.status === 'success' ? 'fa-check-circle' : l.status === 'error' ? 'fa-circle-xmark' : 'fa-spinner fa-spin';
+    return `
+      <div class="flex items-start gap-3 p-3 rounded-lg bg-white/3 border border-white/5">
+        <i class="fa-solid ${statusIcon} ${statusColor} mt-0.5 text-sm flex-shrink-0"></i>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-white">${started}</span>
+            <span class="text-xs text-gray-600">${duration}</span>
+          </div>
+          ${l.status === 'success' ? `
+            <div class="flex gap-3 mt-1 text-xs text-gray-400">
+              <span><span class="text-white font-medium">${l.items_found}</span> gefunden</span>
+              <span><span class="text-emerald-400 font-medium">${l.items_created}</span> neu</span>
+              <span><span class="text-gray-500">${l.items_skipped}</span> übersprungen</span>
+            </div>` : ''}
+          ${l.error ? `<p class="text-xs text-red-400 mt-1 truncate">${l.error}</p>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function toggleRule(id, btn) {
+  const res = await fetch(`/automation/${id}/toggle`, { method: 'POST' });
+  const d = await res.json();
+  btn.className = `relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${d.active ? 'bg-indigo-600' : 'bg-white/10'}`;
+  const dot = btn.querySelector('span');
+  dot.className = `absolute top-0.5 ${d.active ? 'right-0.5' : 'left-0.5'} w-4 h-4 bg-white rounded-full shadow transition-all`;
+  const badge = btn.closest('.card').querySelector('.badge');
+  if (badge) {
+    badge.className = `badge text-xs ${d.active ? 'bg-emerald-500/15 text-emerald-400' : 'bg-gray-500/15 text-gray-500'}`;
+    badge.textContent = d.active ? 'Aktiv' : 'Pausiert';
+  }
+}
+</script>
+{% endblock %}

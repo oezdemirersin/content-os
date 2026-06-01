@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "content-os",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["/Users/ersinozdemir/Downloads/citybot 2/content_os/app.py"],
+      "port": 5100
+    }
+  ]
+}

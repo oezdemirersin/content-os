@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% block title %}Accounts — Content OS{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-xl font-bold text-white">Accounts</h1>
+    <p class="text-sm text-gray-500 mt-0.5">{{ accounts|length }} Accounts gefunden</p>
+  </div>
+  <a href="{{ url_for('account_new') }}" class="btn-primary">
+    <i class="fa-solid fa-plus mr-2"></i>Neuer Account
+  </a>
+</div>
+
+<!-- Filters -->
+<form method="get" class="card p-4 mb-5 flex flex-wrap gap-3 items-end">
+  <div class="flex-1 min-w-40">
+    <label class="text-xs text-gray-500 mb-1 block">Suche</label>
+    <input type="text" name="q" value="{{ filters.q }}" placeholder="Name, Handle..." class="input-field">
+  </div>
+  <div class="min-w-36">
+    <label class="text-xs text-gray-500 mb-1 block">Kategorie</label>
+    <select name="category" class="select-field">
+      <option value="">Alle</option>
+      {% for cat in categories %}
+      <option value="{{ cat.id }}" {% if filters.category == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="min-w-32">
+    <label class="text-xs text-gray-500 mb-1 block">Plattform</label>
+    <select name="platform" class="select-field">
+      <option value="">Alle</option>
+      {% for p in platforms %}
+      <option value="{{ p.id }}" {% if filters.platform == p.id %}selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="min-w-28">
+    <label class="text-xs text-gray-500 mb-1 block">Status</label>
+    <select name="status" class="select-field">
+      <option value="">Alle</option>
+      <option value="active" {% if filters.status == 'active' %}selected{% endif %}>Aktiv</option>
+      <option value="paused" {% if filters.status == 'paused' %}selected{% endif %}>Pausiert</option>
+      <option value="error" {% if filters.status == 'error' %}selected{% endif %}>Fehler</option>
+    </select>
+  </div>
+  <div class="min-w-28">
+    <label class="text-xs text-gray-500 mb-1 block">Automatisierung</label>
+    <select name="automation" class="select-field">
+      <option value="">Alle</option>
+      {% for i in range(5) %}
+      <option value="{{ i }}" {% if filters.automation == i|string %}selected{% endif %}>Stufe {{ i }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="min-w-28">
+    <label class="text-xs text-gray-500 mb-1 block">Priorität</label>
+    <select name="priority" class="select-field">
+      <option value="">Alle</option>
+      <option value="critical" {% if filters.priority == 'critical' %}selected{% endif %}>Kritisch</option>
+      <option value="high" {% if filters.priority == 'high' %}selected{% endif %}>Hoch</option>
+      <option value="medium" {% if filters.priority == 'medium' %}selected{% endif %}>Mittel</option>
+      <option value="low" {% if filters.priority == 'low' %}selected{% endif %}>Niedrig</option>
+    </select>
+  </div>
+  <button type="submit" class="btn-primary">Filtern</button>
+  <a href="{{ url_for('accounts') }}" class="btn-ghost">Zurücksetzen</a>
+</form>
+
+<!-- Bulk bar -->
+<div id="accBulkBar" class="hidden card px-4 py-3 mb-4 flex items-center gap-3 border border-indigo-500/20 bg-indigo-500/5">
+  <span id="accBulkCount" class="text-sm font-medium text-indigo-400"></span>
+  <div class="flex gap-2 flex-wrap">
+    <select id="bulkAccStatus" class="select-field max-w-[150px] text-xs">
+      <option value="">Status…</option>
+      <option value="active">Aktiv</option>
+      <option value="paused">Pausiert</option>
+      <option value="inactive">Inaktiv</option>
+    </select>
+    <select id="bulkAccAuto" class="select-field max-w-[150px] text-xs">
+      <option value="">Automatisierung…</option>
+      {% for i in range(5) %}<option value="{{ i }}">Stufe {{ i }}</option>{% endfor %}
+    </select>
+    <select id="bulkAccPrio" class="select-field max-w-[140px] text-xs">
+      <option value="">Priorität…</option>
+      <option value="critical">Kritisch</option>
+      <option value="high">Hoch</option>
+      <option value="medium">Mittel</option>
+      <option value="low">Niedrig</option>
+    </select>
+    <button onclick="accBulk('status', document.getElementById('bulkAccStatus').value)" class="btn-primary text-xs py-1.5">Anwenden</button>
+    <button onclick="accBulk('automation', document.getElementById('bulkAccAuto').value)" class="btn-primary text-xs py-1.5">Automatisierung</button>
+    <button onclick="accBulk('priority', document.getElementById('bulkAccPrio').value)" class="btn-primary text-xs py-1.5">Priorität</button>
+    <button onclick="accDeselect()" class="btn-ghost text-xs py-1.5">Aufheben</button>
+  </div>
+</div>
+
+<!-- Accounts Table -->
+<div class="card overflow-hidden">
+  <table class="w-full">
+    <thead>
+      <tr class="border-b border-white/5">
+        <th class="px-5 py-3 w-8">
+          <input type="checkbox" id="selectAllAccs" onchange="toggleAllAccs(this)"
+                 class="w-4 h-4 rounded accent-indigo-500">
+        </th>
+        <th class="text-left text-xs font-medium text-gray-500 px-5 py-3">Account</th>
+        <th class="text-left text-xs font-medium text-gray-500 px-4 py-3 hidden md:table-cell">Kategorie</th>
+        <th class="text-right text-xs font-medium text-gray-500 px-4 py-3 hidden lg:table-cell">Follower</th>
+        <th class="text-center text-xs font-medium text-gray-500 px-4 py-3 hidden lg:table-cell">Vorrat</th>
+        <th class="text-center text-xs font-medium text-gray-500 px-4 py-3 hidden md:table-cell">Automatisierung</th>
+        <th class="text-center text-xs font-medium text-gray-500 px-4 py-3">Status</th>
+        <th class="text-center text-xs font-medium text-gray-500 px-4 py-3 hidden lg:table-cell">Priorität</th>
+        <th class="px-5 py-3"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-white/5">
+      {% for account in accounts %}
+      <tr class="hover:bg-white/2 transition-colors group">
+        <td class="px-5 py-3.5 w-8">
+          <input type="checkbox" class="acc-checkbox w-4 h-4 rounded accent-indigo-500"
+                 data-id="{{ account.id }}" onchange="updateAccBulk()">
+        </td>
+        <td class="px-5 py-3.5">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center text-sm font-bold text-indigo-300 flex-shrink-0">
+              {{ account.name[0] }}
+            </div>
+            <div>
+              <a href="{{ url_for('account_detail', account_id=account.id) }}" class="text-sm font-medium text-white hover:text-indigo-300 transition-colors">{{ account.name }}</a>
+              <div class="text-xs text-gray-600">{{ account.handle or '—' }}</div>
+            </div>
+          </div>
+        </td>
+        <td class="px-4 py-3.5 hidden md:table-cell">
+          {% if account.category %}
+          <span class="badge text-xs" style="background: {{ account.category.color }}20; color: {{ account.category.color }}">
+            {{ account.category.name }}
+          </span>
+          {% else %}
+          <span class="text-gray-600 text-sm">—</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3.5 text-right hidden lg:table-cell">
+          <span class="text-sm font-medium text-white">
+            {% set f = account.follower_count %}
+            {% if f >= 1000000 %}{{ "%.1f"|format(f/1000000) }}M
+            {% elif f >= 1000 %}{{ "%.1f"|format(f/1000) }}K
+            {% else %}{{ f }}{% endif %}
+          </span>
+        </td>
+        <td class="px-4 py-3.5 text-center hidden lg:table-cell">
+          <div class="flex flex-col items-center">
+            <span class="text-sm font-semibold stock-{{ account.stock_status() }}">{{ account.stock_days_display() }}T</span>
+            <div class="w-16 h-1 rounded-full bg-white/10 mt-1">
+              {% set pct = [account.stock_days_display() / 14 * 100, 100]|min %}
+              <div class="h-full rounded-full
+                {% if account.stock_status() == 'green' %}bg-emerald-400
+                {% elif account.stock_status() == 'yellow' %}bg-yellow-400
+                {% elif account.stock_status() == 'orange' %}bg-orange-400
+                {% else %}bg-red-400{% endif %}"
+                style="width: {{ pct }}%"></div>
+            </div>
+          </div>
+        </td>
+        <td class="px-4 py-3.5 text-center hidden md:table-cell">
+          <div class="inline-flex items-center gap-1">
+            {% for i in range(5) %}
+            <div class="w-1.5 h-4 rounded-sm {% if i < account.automation_level %}bg-indigo-500{% else %}bg-white/10{% endif %}"></div>
+            {% endfor %}
+          </div>
+          <div class="text-xs text-gray-600 mt-0.5">Stufe {{ account.automation_level }}</div>
+        </td>
+        <td class="px-4 py-3.5 text-center">
+          {% if account.status == 'active' %}
+          <span class="badge bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Aktiv</span>
+          {% elif account.status == 'paused' %}
+          <span class="badge bg-yellow-500/15 text-yellow-400 border border-yellow-500/20">Pause</span>
+          {% elif account.status == 'error' %}
+          <span class="badge bg-red-500/15 text-red-400 border border-red-500/20">Fehler</span>
+          {% else %}
+          <span class="badge bg-gray-500/15 text-gray-400">Inaktiv</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3.5 text-center hidden lg:table-cell">
+          {% if account.priority == 'critical' %}
+          <span class="text-xs text-red-400 font-medium">● Kritisch</span>
+          {% elif account.priority == 'high' %}
+          <span class="text-xs text-orange-400 font-medium">● Hoch</span>
+          {% elif account.priority == 'medium' %}
+          <span class="text-xs text-yellow-400 font-medium">● Mittel</span>
+          {% else %}
+          <span class="text-xs text-gray-500 font-medium">● Niedrig</span>
+          {% endif %}
+        </td>
+        <td class="px-5 py-3.5">
+          <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <a href="{{ url_for('account_detail', account_id=account.id) }}" class="p-1.5 text-gray-500 hover:text-white transition-colors" title="Details">
+              <i class="fa-solid fa-eye text-xs"></i>
+            </a>
+            <a href="{{ url_for('account_edit', account_id=account.id) }}" class="p-1.5 text-gray-500 hover:text-white transition-colors" title="Bearbeiten">
+              <i class="fa-solid fa-pen text-xs"></i>
+            </a>
+            <form method="post" action="{{ url_for('account_delete', account_id=account.id) }}" onsubmit="return confirm('Account löschen?')">
+              <button type="submit" class="p-1.5 text-gray-500 hover:text-red-400 transition-colors" title="Löschen">
+                <i class="fa-solid fa-trash text-xs"></i>
+              </button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="8" class="px-5 py-16 text-center">
+          <div class="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
+            <i class="fa-solid fa-layer-group text-gray-600 text-2xl"></i>
+          </div>
+          <p class="text-gray-400 font-medium">Keine Accounts gefunden</p>
+          <p class="text-gray-600 text-sm mt-1">Erstelle deinen ersten Account oder passe die Filter an.</p>
+          <a href="{{ url_for('account_new') }}" class="btn-primary inline-flex mt-4">
+            <i class="fa-solid fa-plus mr-2"></i>Neuer Account
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function getAccIds() {
+  return Array.from(document.querySelectorAll('.acc-checkbox:checked')).map(c => parseInt(c.dataset.id));
+}
+function updateAccBulk() {
+  const ids = getAccIds();
+  const bar = document.getElementById('accBulkBar');
+  document.getElementById('accBulkCount').textContent = ids.length + ' ausgewählt';
+  ids.length > 0 ? (bar.classList.remove('hidden'), bar.classList.add('flex')) : (bar.classList.add('hidden'), bar.classList.remove('flex'));
+}
+function accDeselect() {
+  document.querySelectorAll('.acc-checkbox').forEach(c => c.checked = false);
+  document.getElementById('selectAllAccs').checked = false;
+  updateAccBulk();
+}
+function toggleAllAccs(master) {
+  document.querySelectorAll('.acc-checkbox').forEach(c => c.checked = master.checked);
+  updateAccBulk();
+}
+async function accBulk(action, value) {
+  const ids = getAccIds();
+  if (!ids.length || !value) { alert('Accounts und Wert auswählen.'); return; }
+  const res = await fetch('/api/accounts/bulk', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ids, action, value})
+  });
+  if ((await res.json()).ok) location.reload();
+}
+</script>
+{% endblock %}

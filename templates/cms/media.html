@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block title %}Medienbibliothek — Content OS{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-xl font-bold text-white">Medienbibliothek</h1>
+    <p class="text-sm text-gray-500 mt-0.5">{{ items|length }} Dateien</p>
+  </div>
+  <button onclick="document.getElementById('uploadModal').classList.remove('hidden')" class="btn-primary">
+    <i class="fa-solid fa-upload mr-2"></i>Hochladen
+  </button>
+</div>
+
+<!-- Type tabs -->
+<div class="flex gap-1 mb-5">
+  <a href="{{ url_for('media_library') }}" class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors {% if not filters.type %}bg-white/10 text-white{% else %}text-gray-500 hover:text-white hover:bg-white/5{% endif %}">
+    Alle <span class="ml-1 text-xs text-gray-600">{{ (type_counts.image + type_counts.video + type_counts.other) }}</span>
+  </a>
+  <a href="{{ url_for('media_library', type='image') }}" class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors {% if filters.type == 'image' %}bg-white/10 text-white{% else %}text-gray-500 hover:text-white hover:bg-white/5{% endif %}">
+    <i class="fa-solid fa-image mr-1.5"></i>Bilder <span class="ml-1 text-xs text-gray-600">{{ type_counts.image }}</span>
+  </a>
+  <a href="{{ url_for('media_library', type='video') }}" class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors {% if filters.type == 'video' %}bg-white/10 text-white{% else %}text-gray-500 hover:text-white hover:bg-white/5{% endif %}">
+    <i class="fa-solid fa-video mr-1.5"></i>Videos <span class="ml-1 text-xs text-gray-600">{{ type_counts.video }}</span>
+  </a>
+</div>
+
+<!-- Filter row -->
+<form method="get" class="flex gap-3 mb-5">
+  <input type="hidden" name="type" value="{{ filters.type }}">
+  <input type="text" name="q" value="{{ filters.q }}" placeholder="Dateiname suchen..." class="input-field max-w-xs">
+  <select name="category" class="select-field max-w-xs">
+    <option value="">Alle Kategorien</option>
+    {% for cat in categories %}
+    <option value="{{ cat.id }}" {% if filters.category == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn-primary">Filtern</button>
+  <a href="{{ url_for('media_library') }}" class="btn-ghost">Reset</a>
+</form>
+
+<!-- Media Grid -->
+{% if items %}
+<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+  {% for item in items %}
+  <div class="group relative card overflow-hidden" x-data="{open: false}">
+    <!-- Preview -->
+    <div class="aspect-square bg-[#252535] flex items-center justify-center overflow-hidden">
+      {% if item.file_type == 'image' %}
+      <img src="{{ item.url }}" alt="{{ item.original_filename }}"
+           class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+           onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
+      <div class="hidden w-full h-full items-center justify-center">
+        <i class="fa-solid fa-image text-gray-600 text-3xl"></i>
+      </div>
+      {% elif item.file_type == 'video' %}
+      <div class="w-full h-full flex items-center justify-center bg-black">
+        <i class="fa-solid fa-play-circle text-gray-500 text-4xl group-hover:text-white transition-colors"></i>
+      </div>
+      {% else %}
+      <div class="w-full h-full flex items-center justify-center">
+        <i class="fa-solid fa-file text-gray-600 text-4xl"></i>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Overlay on hover -->
+    <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-2">
+      <div class="flex justify-between">
+        <button onclick="openPostModal({{ item.id }}, '{{ item.original_filename }}')"
+                class="p-1 bg-indigo-500/80 rounded text-white text-xs hover:bg-indigo-500" title="Post erstellen">
+          <i class="fa-solid fa-calendar-plus"></i>
+        </button>
+        <form method="post" action="{{ url_for('media_delete', media_id=item.id) }}" onsubmit="return confirm('Datei löschen?')">
+          <button type="submit" class="p-1 bg-red-500/80 rounded text-white text-xs hover:bg-red-500">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </form>
+      </div>
+      <div>
+        <p class="text-xs text-white truncate font-medium">{{ item.original_filename }}</p>
+        <p class="text-xs text-gray-400">
+          {% if item.file_size %}{{ "%.1f"|format(item.file_size / 1024) }} KB{% endif %}
+        </p>
+      </div>
+    </div>
+
+    <!-- Info bar -->
+    <div class="p-2 border-t border-white/5">
+      <p class="text-xs text-gray-400 truncate">{{ item.original_filename }}</p>
+      <p class="text-xs text-gray-600">
+        {{ item.file_type }}
+        {% if item.category %} · {{ item.category.name }}{% endif %}
+      </p>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card py-24 text-center">
+  <div class="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
+    <i class="fa-solid fa-photo-film text-gray-600 text-3xl"></i>
+  </div>
+  <p class="text-gray-400 font-medium text-lg mb-1">Keine Medien gefunden</p>
+  <p class="text-gray-600 text-sm mb-6">Lade deine erste Datei hoch.</p>
+  <button onclick="document.getElementById('uploadModal').classList.remove('hidden')" class="btn-primary">
+    <i class="fa-solid fa-upload mr-2"></i>Hochladen
+  </button>
+</div>
+{% endif %}
+
+<!-- Create Post from Media Modal -->
+<div id="postModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+  <div class="bg-[#1c1c27] border border-white/10 rounded-2xl w-full max-w-md mx-4 shadow-2xl">
+    <div class="flex items-center justify-between p-5 border-b border-white/5">
+      <div>
+        <h2 class="font-semibold text-white">Post aus Medium erstellen</h2>
+        <p class="text-xs text-gray-500 mt-0.5" id="postModalFilename"></p>
+      </div>
+      <button onclick="document.getElementById('postModal').classList.add('hidden')" class="text-gray-500 hover:text-white text-xl">&times;</button>
+    </div>
+    <div class="p-5 space-y-4">
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Account *</label>
+        <select id="postAccount" class="select-field">
+          <option value="">Account wählen…</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Post-Typ</label>
+        <select id="postType" class="select-field">
+          <option value="feed">📸 Feed</option>
+          <option value="reel">🎬 Reel</option>
+          <option value="story">⭕ Story</option>
+          <option value="carousel">🎠 Carousel</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Datum & Zeit</label>
+        <input type="datetime-local" id="postDate" class="input-field">
+      </div>
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Caption</label>
+        <textarea id="postCaption" rows="3" class="input-field resize-none" placeholder="Caption für diesen Post…"></textarea>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="createPostFromMedia()" class="btn-primary flex-1">
+          <i class="fa-solid fa-calendar-plus mr-2"></i>Post planen
+        </button>
+        <button onclick="document.getElementById('postModal').classList.add('hidden')" class="btn-ghost">Abbrechen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Modal -->
+<div id="uploadModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" x-data="{dragging: false}">
+  <div class="bg-[#1c1c27] border border-white/10 rounded-2xl w-full max-w-lg mx-4 shadow-2xl">
+    <div class="flex items-center justify-between p-5 border-b border-white/5">
+      <h2 class="font-semibold text-white">Dateien hochladen</h2>
+      <button onclick="document.getElementById('uploadModal').classList.add('hidden')" class="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
+    </div>
+
+    <form method="post" action="{{ url_for('media_upload') }}" enctype="multipart/form-data" class="p-5 space-y-4">
+      <!-- Drop zone -->
+      <label for="fileInput"
+             class="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-all"
+             ondragover="event.preventDefault(); this.classList.add('border-indigo-500','bg-indigo-500/10')"
+             ondragleave="this.classList.remove('border-indigo-500','bg-indigo-500/10')"
+             ondrop="event.preventDefault(); this.classList.remove('border-indigo-500','bg-indigo-500/10'); document.getElementById('fileInput').files = event.dataTransfer.files; updateFileList()">
+        <i class="fa-solid fa-cloud-arrow-up text-gray-600 text-3xl mb-3"></i>
+        <p class="text-sm text-gray-400">Dateien hierher ziehen oder <span class="text-indigo-400">auswählen</span></p>
+        <p class="text-xs text-gray-600 mt-1">JPG, PNG, GIF, MP4, MOV, WEBP</p>
+        <input id="fileInput" type="file" name="files" multiple accept="image/*,video/*" class="hidden"
+               onchange="updateFileList()">
+      </label>
+
+      <div id="fileList" class="space-y-1 max-h-32 overflow-y-auto"></div>
+
+      <div>
+        <label class="text-xs text-gray-500 mb-1.5 block">Kategorie</label>
+        <select name="category_id" class="select-field">
+          <option value="">Keine</option>
+          {% for cat in categories %}
+          <option value="{{ cat.id }}">{{ cat.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="flex gap-3">
+        <button type="submit" class="btn-primary flex-1">
+          <i class="fa-solid fa-upload mr-2"></i>Hochladen
+        </button>
+        <button type="button" onclick="document.getElementById('uploadModal').classList.add('hidden')" class="btn-ghost">Abbrechen</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentMediaId = null;
+
+function openPostModal(mediaId, filename) {
+  currentMediaId = mediaId;
+  document.getElementById('postModalFilename').textContent = filename;
+  document.getElementById('postCaption').value = '';
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(9, 0, 0, 0);
+  document.getElementById('postDate').value = tomorrow.toISOString().slice(0, 16);
+  document.getElementById('postModal').classList.remove('hidden');
+}
+
+async function createPostFromMedia() {
+  const accountId = document.getElementById('postAccount').value;
+  if (!accountId) { alert('Bitte einen Account auswählen.'); return; }
+  const res = await fetch(`/api/media/${currentMediaId}/create-post`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      account_id: parseInt(accountId),
+      post_type: document.getElementById('postType').value,
+      caption: document.getElementById('postCaption').value,
+      scheduled_at: document.getElementById('postDate').value,
+    })
+  });
+  const d = await res.json();
+  if (d.ok) {
+    document.getElementById('postModal').classList.add('hidden');
+    // brief success flash
+    const flash = document.createElement('div');
+    flash.className = 'fixed top-20 right-6 z-50 flex items-center gap-2 px-4 py-3 bg-emerald-500/15 border border-emerald-500/30 rounded-xl text-emerald-400 text-sm shadow-xl';
+    flash.innerHTML = '<i class="fa-solid fa-check-circle"></i> Post wurde geplant.';
+    document.body.appendChild(flash);
+    setTimeout(() => flash.remove(), 3000);
+  }
+}
+
+function updateFileList() {
+  const input = document.getElementById('fileInput');
+  const list = document.getElementById('fileList');
+  list.innerHTML = '';
+  Array.from(input.files).forEach(f => {
+    const size = f.size > 1024*1024 ? (f.size/1024/1024).toFixed(1)+' MB' : (f.size/1024).toFixed(0)+' KB';
+    list.innerHTML += `<div class="flex items-center gap-2 text-xs text-gray-400 bg-white/5 rounded px-3 py-1.5">
+      <i class="fa-solid fa-file text-gray-600"></i>
+      <span class="flex-1 truncate">${f.name}</span>
+      <span class="text-gray-600">${size}</span>
+    </div>`;
+  });
+}
+</script>
+{% endblock %}
