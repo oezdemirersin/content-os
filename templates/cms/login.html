@@ -1,62 +1,88 @@
 <!DOCTYPE html>
-<html lang="de" class="dark">
+<html lang="de">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login — Content OS</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>tailwind.config = { darkMode: 'class' }</script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>body { background: #0f0f14; font-family: 'Inter', sans-serif; }</style>
-</head>
-<body class="min-h-screen flex items-center justify-center bg-[#0f0f14]">
-  <div class="w-full max-w-sm mx-4">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#080b12; --surface:#0f1420; --surface2:#161c2d;
+      --border:rgba(255,255,255,0.07); --accent:#3b82f6;
+      --text:#e2e8f0; --muted:#64748b;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;
+         min-height:100vh;display:flex;align-items:center;justify-content:center}
 
-    <!-- Logo -->
-    <div class="text-center mb-8">
-      <div class="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-        <svg class="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"/>
-        </svg>
-      </div>
-      <h1 class="text-2xl font-bold text-white">Content OS</h1>
-      <p class="text-gray-500 text-sm mt-1">Melde dich an um fortzufahren</p>
+    .login-wrap{width:100%;max-width:380px;padding:0 20px}
+
+    .logo{text-align:center;margin-bottom:40px}
+    .logo h1{font-family:'Bebas Neue',sans-serif;font-size:42px;letter-spacing:4px;color:white}
+    .logo h1 span{color:var(--accent)}
+    .logo p{font-size:11px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-top:4px}
+
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:32px}
+
+    .error-msg{
+      display:flex;align-items:center;gap:8px;
+      background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);
+      border-radius:8px;padding:12px 14px;
+      font-size:13px;color:#ef4444;margin-bottom:20px
+    }
+
+    .field{margin-bottom:18px}
+    .field label{display:block;font-size:10px;font-weight:700;letter-spacing:1px;
+                  color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+    .field input{
+      width:100%;background:var(--surface2);border:1px solid var(--border);
+      border-radius:8px;padding:12px 14px;font-family:'DM Sans',sans-serif;
+      font-size:14px;color:var(--text);outline:none;transition:border-color .2s
+    }
+    .field input:focus{border-color:var(--accent)}
+    .field input::placeholder{color:var(--muted)}
+
+    .submit-btn{
+      width:100%;padding:13px;background:var(--accent);color:white;
+      border:none;border-radius:8px;font-family:'DM Sans',sans-serif;
+      font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.5px;
+      transition:background .2s;margin-top:4px
+    }
+    .submit-btn:hover{background:#2563eb}
+
+    .hint{text-align:center;font-size:12px;color:var(--muted);margin-top:20px}
+    .hint code{background:var(--surface2);padding:2px 8px;border-radius:4px;
+               font-family:monospace;color:var(--text)}
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="logo">
+      <h1>CONTENT <span>OS</span></h1>
+      <p>Multi-Account Operating System</p>
     </div>
 
-    <!-- Card -->
-    <div class="bg-[#16161e] border border-white/5 rounded-2xl p-6 shadow-2xl">
+    <div class="card">
       {% if error %}
-      <div class="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 mb-5 text-sm text-red-400">
-        <svg class="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
-        </svg>
-        {{ error }}
+      <div class="error-msg">
+        <i>⚠</i> {{ error }}
       </div>
       {% endif %}
 
-      <form method="post" class="space-y-4">
-        <div>
-          <label class="text-xs text-gray-500 mb-1.5 block font-medium">Benutzername</label>
-          <input type="text" name="username" required autofocus
-                 class="w-full bg-[#252535] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500/60 transition-colors"
-                 placeholder="admin">
+      <form method="post">
+        <div class="field">
+          <label>Benutzername</label>
+          <input type="text" name="username" placeholder="admin" required autofocus>
         </div>
-        <div>
-          <label class="text-xs text-gray-500 mb-1.5 block font-medium">Passwort</label>
-          <input type="password" name="password" required
-                 class="w-full bg-[#252535] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500/60 transition-colors"
-                 placeholder="••••••••">
+        <div class="field">
+          <label>Passwort</label>
+          <input type="password" name="password" placeholder="••••••••" required>
         </div>
-        <button type="submit"
-                class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors mt-2">
-          Anmelden
-        </button>
+        <button type="submit" class="submit-btn">ANMELDEN</button>
       </form>
     </div>
 
-    <p class="text-center text-xs text-gray-700 mt-6">
-      Standard: <span class="text-gray-500 font-mono">admin / admin123</span>
-    </p>
+    <div class="hint">Standard: <code>admin</code> / <code>admin123</code></div>
   </div>
 </body>
 </html>

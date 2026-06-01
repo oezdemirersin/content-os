@@ -1,251 +1,185 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Content OS{% endblock %}
+{% block page_title %}DASHBOARD{% endblock %}
 
 {% block content %}
-<!-- Page header -->
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-xl font-bold text-white">Dashboard</h1>
-    <p class="text-sm text-gray-500 mt-0.5">Gesamtübersicht deines Content-Netzwerks</p>
-  </div>
-  <div class="flex gap-2">
-    <a href="{{ url_for('content_new') }}" class="btn-primary">
-      <i class="fa-solid fa-plus mr-2"></i>Neuer Content
-    </a>
-  </div>
-</div>
-
-<!-- KPI Row -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="card p-5">
-    <div class="flex items-center justify-between mb-3">
-      <span class="text-xs text-gray-500 font-medium uppercase tracking-wider">Gesamtreichweite</span>
-      <div class="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center">
-        <i class="fa-solid fa-users text-indigo-400 text-sm"></i>
-      </div>
+<!-- KPI Stats -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
+  <div class="stat-card">
+    <div class="stat-label">Gesamt-Follower</div>
+    <div class="stat-value blue" id="kpi-followers">
+      {% set f = stats.total_followers %}
+      {% if f >= 1000000 %}{{ "%.1f"|format(f/1000000) }}M
+      {% elif f >= 1000 %}{{ "%.0f"|format(f/1000) }}K
+      {% else %}{{ f }}{% endif %}
     </div>
-    <div class="text-2xl font-bold text-white" id="kpi-followers">{{ "{:,}".format(stats.total_followers).replace(",", ".") }}</div>
-    <div class="text-xs mt-1 {% if stats.growth_7d >= 0 %}text-emerald-400{% else %}text-red-400{% endif %}">
-      <i class="fa-solid fa-{% if stats.growth_7d >= 0 %}arrow-up{% else %}arrow-down{% endif %} mr-1"></i>
-      {{ "{:+,}".format(stats.growth_7d).replace(",", ".") }} diese Woche
+    <div class="stat-sub {% if stats.growth_7d >= 0 %}stock-green{% else %}stock-red{% endif %}">
+      <i class="fa-solid fa-arrow-{% if stats.growth_7d >= 0 %}up{% else %}down{% endif %}"></i>
+      {% if stats.growth_7d >= 1000 %}{{ "%.1f"|format(stats.growth_7d/1000) }}K
+      {% else %}{{ stats.growth_7d }}{% endif %} diese Woche
     </div>
   </div>
-
-  <div class="card p-5">
-    <div class="flex items-center justify-between mb-3">
-      <span class="text-xs text-gray-500 font-medium uppercase tracking-wider">Aktive Accounts</span>
-      <div class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-        <i class="fa-solid fa-layer-group text-blue-400 text-sm"></i>
-      </div>
-    </div>
-    <div class="text-2xl font-bold text-white">{{ stats.total_accounts }}</div>
-    <div class="text-xs text-gray-500 mt-1">Accounts live</div>
+  <div class="stat-card">
+    <div class="stat-label">Aktive Accounts</div>
+    <div class="stat-value blue">{{ stats.total_accounts }}</div>
+    <div class="stat-sub">Seiten live</div>
   </div>
-
-  <div class="card p-5">
-    <div class="flex items-center justify-between mb-3">
-      <span class="text-xs text-gray-500 font-medium uppercase tracking-wider">Posts Heute</span>
-      <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-        <i class="fa-solid fa-calendar-check text-emerald-400 text-sm"></i>
-      </div>
-    </div>
-    <div class="text-2xl font-bold text-white">{{ stats.posts_today }}</div>
-    <div class="text-xs text-gray-500 mt-1">geplant heute</div>
+  <div class="stat-card">
+    <div class="stat-label">Posts Heute</div>
+    <div class="stat-value green">{{ stats.posts_today }}</div>
+    <div class="stat-sub">geplant</div>
   </div>
-
-  <div class="card p-5">
-    <div class="flex items-center justify-between mb-3">
-      <span class="text-xs text-gray-500 font-medium uppercase tracking-wider">Bereit</span>
-      <div class="w-8 h-8 rounded-lg bg-yellow-500/10 flex items-center justify-center">
-        <i class="fa-solid fa-inbox text-yellow-400 text-sm"></i>
-      </div>
-    </div>
-    <div class="text-2xl font-bold text-white">{{ stats.content_ready }}</div>
-    <div class="text-xs text-gray-500 mt-1">Content zur Freigabe</div>
+  <div class="stat-card">
+    <div class="stat-label">Bereit</div>
+    <div class="stat-value yellow">{{ stats.content_ready }}</div>
+    <div class="stat-sub">Content zur Freigabe</div>
   </div>
 </div>
 
 <!-- Main grid -->
-<div class="grid grid-cols-12 gap-5">
+<div style="display:grid;grid-template-columns:1fr 1fr 340px;gap:20px;margin-bottom:20px">
 
-  <!-- Follower Chart (8 cols) -->
-  <div class="col-span-12 lg:col-span-8 card p-5">
-    <div class="flex items-center justify-between mb-5">
-      <div>
-        <h2 class="font-semibold text-white">Follower-Entwicklung</h2>
-        <p class="text-xs text-gray-500 mt-0.5">Gesamt aller Accounts, letzten 30 Tage</p>
-      </div>
-      <div class="flex gap-1" x-data="{period: 30}">
-        {% for d in [7, 30, 90] %}
-        <button @click="period={{ d }}; loadChart({{ d }})"
-                :class="period === {{ d }} ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:text-white hover:bg-white/5'"
-                class="px-3 py-1 text-xs rounded-lg transition-colors">{{ d }}T</button>
+  <!-- Follower Chart -->
+  <div class="card" style="grid-column:1/3">
+    <div class="card-header">
+      <span class="card-title">FOLLOWER-ENTWICKLUNG</span>
+      <div style="display:flex;gap:6px" id="periodBtns">
+        {% for d,label in [(7,'7T'),(30,'30T'),(90,'90T')] %}
+        <button onclick="loadChart({{ d }},this)"
+                style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);
+                       background:{% if d==30 %}var(--accent){% else %}transparent{% endif %};
+                       color:{% if d==30 %}white{% else %}var(--muted){% endif %};
+                       font-family:var(--font-body);font-size:11px;font-weight:700;
+                       letter-spacing:.5px;cursor:pointer;transition:all .15s">{{ label }}</button>
         {% endfor %}
       </div>
     </div>
-    <div class="relative h-56">
-      <canvas id="followerChart"></canvas>
+    <div style="padding:20px">
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">
+          <input type="checkbox" id="forecastToggle" onchange="reloadChart()" style="accent-color:var(--accent)"> Prognose
+        </label>
+        <select id="accFilter" onchange="reloadChart()"
+                style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                       padding:4px 10px;font-size:12px;color:var(--muted);font-family:var(--font-body)">
+          <option value="">Alle Accounts</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="height:220px;position:relative"><canvas id="followerChart"></canvas></div>
     </div>
   </div>
 
-  <!-- Stock Summary (4 cols) -->
-  <div class="col-span-12 lg:col-span-4 card p-5">
-    <h2 class="font-semibold text-white mb-4">Netzwerk-Vorrat</h2>
-    <div class="space-y-3">
+  <!-- Stock Summary -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">NETZWERK-VORRAT</span>
+      <a href="{{ url_for('alerts_center') }}" style="font-size:11px;color:var(--accent2);text-decoration:none">Alerts →</a>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
       {% set total_accs = stock_summary.green + stock_summary.yellow + stock_summary.orange + stock_summary.red %}
-      {% for status, color, label, icon in [
-        ('green','emerald','14+ Tage','fa-circle-check'),
-        ('yellow','yellow','7–14 Tage','fa-circle-half-stroke'),
-        ('orange','orange','3–7 Tage','fa-circle-exclamation'),
-        ('red','red','< 3 Tage','fa-circle-xmark'),
+      {% for status,label,color,icon in [
+        ('green','14+ Tage','var(--success)','fa-circle-check'),
+        ('yellow','7–14 Tage','var(--warning)','fa-circle-half-stroke'),
+        ('orange','3–7 Tage','#f97316','fa-circle-exclamation'),
+        ('red','< 3 Tage','var(--danger)','fa-circle-xmark'),
       ] %}
       {% set count = stock_summary[status] %}
       <div>
-        <div class="flex items-center justify-between mb-1">
-          <div class="flex items-center gap-2">
-            <i class="fa-solid {{ icon }} text-{{ color }}-400 text-xs"></i>
-            <span class="text-sm text-gray-300">{{ label }}</span>
+        <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+          <div style="display:flex;align-items:center;gap:7px">
+            <i class="fa-solid {{ icon }}" style="color:{{ color }};font-size:12px"></i>
+            <span style="font-size:13px;color:var(--muted)">{{ label }}</span>
           </div>
-          <span class="text-sm font-semibold text-white">{{ count }}</span>
+          <span style="font-family:var(--font-display);font-size:18px;color:{{ color }}">{{ count }}</span>
         </div>
-        <div class="h-1.5 bg-white/5 rounded-full">
-          <div class="h-full rounded-full bg-{{ color }}-400 transition-all"
-               style="width: {{ (count / total_accs * 100)|int if total_accs else 0 }}%"></div>
+        <div style="height:4px;background:var(--surface2);border-radius:4px">
+          <div style="height:100%;border-radius:4px;background:{{ color }};width:{{ (count/total_accs*100)|int if total_accs else 0 }}%;transition:width .5s"></div>
         </div>
       </div>
       {% endfor %}
-    </div>
-    <div class="mt-4 pt-4 border-t border-white/5 flex justify-between text-xs">
-      <span class="text-gray-500">Gesamt {{ total_accs }} Accounts</span>
-      <a href="{{ url_for('alerts_center') }}" class="text-indigo-400 hover:text-indigo-300">Alle Alerts →</a>
-    </div>
-  </div>
 
-  <!-- Risiko Panel (4 cols) -->
-  <div class="col-span-12 lg:col-span-4 card p-5">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="font-semibold text-white">Risiko-Status</h2>
-      {% if stats.active_alerts > 0 %}
-      <span class="badge bg-red-500/15 text-red-400 border border-red-500/20">{{ stats.active_alerts }} Alerts</span>
-      {% else %}
-      <span class="badge bg-emerald-500/15 text-emerald-400">Alles OK</span>
+      {% if stats.critical_accounts %}
+      <div style="border-top:1px solid var(--border);padding-top:14px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--danger);text-transform:uppercase;margin-bottom:8px">
+          <i class="fa-solid fa-circle-exclamation"></i> Kritisch
+        </div>
+        {% for acc in stats.critical_accounts[:4] %}
+        <a href="{{ url_for('account_detail', account_id=acc.id) }}"
+           style="display:flex;justify-content:space-between;padding:5px 0;text-decoration:none;border-bottom:1px solid var(--border)">
+          <span style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">{{ acc.name }}</span>
+          <span style="font-size:12px;font-weight:700;color:var(--danger)">{{ acc.stock_days_display() }}T</span>
+        </a>
+        {% endfor %}
+      </div>
       {% endif %}
     </div>
-
-    {% if stats.critical_accounts %}
-    <div class="mb-3">
-      <p class="text-xs font-medium text-red-400 mb-2">
-        <i class="fa-solid fa-circle-exclamation mr-1"></i>Kritischer Vorrat
-      </p>
-      {% for acc in stats.critical_accounts[:4] %}
-      <a href="{{ url_for('account_detail', account_id=acc.id) }}"
-         class="flex items-center justify-between py-1.5 hover:bg-white/5 rounded-lg px-2 transition-colors">
-        <span class="text-sm text-gray-300 truncate">{{ acc.name }}</span>
-        <span class="text-xs text-red-400 font-medium">{{ acc.stock_days_display() }}T</span>
-      </a>
-      {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if stats.warning_accounts %}
-    <div>
-      <p class="text-xs font-medium text-orange-400 mb-2">
-        <i class="fa-solid fa-triangle-exclamation mr-1"></i>Niedriger Vorrat
-      </p>
-      {% for acc in stats.warning_accounts[:4] %}
-      <a href="{{ url_for('account_detail', account_id=acc.id) }}"
-         class="flex items-center justify-between py-1.5 hover:bg-white/5 rounded-lg px-2 transition-colors">
-        <span class="text-sm text-gray-300 truncate">{{ acc.name }}</span>
-        <span class="text-xs text-orange-400 font-medium">{{ acc.stock_days_display() }}T</span>
-      </a>
-      {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if not stats.critical_accounts and not stats.warning_accounts %}
-    <div class="text-center py-8">
-      <div class="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-3">
-        <i class="fa-solid fa-shield-check text-emerald-400 text-xl"></i>
-      </div>
-      <p class="text-sm text-gray-400">Alle Accounts haben ausreichend Content-Vorrat.</p>
-    </div>
-    {% endif %}
   </div>
+</div>
 
-  <!-- Account Übersicht (8 cols) -->
-  <div class="col-span-12 lg:col-span-8 card">
-    <div class="flex items-center justify-between p-5 border-b border-white/5">
-      <h2 class="font-semibold text-white">Top Accounts</h2>
-      <a href="{{ url_for('accounts') }}" class="text-xs text-indigo-400 hover:text-indigo-300">Alle anzeigen →</a>
+<!-- Bottom row -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px">
+
+  <!-- Top Accounts -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">TOP ACCOUNTS</span>
+      <a href="{{ url_for('accounts') }}" style="font-size:11px;color:var(--accent2);text-decoration:none">Alle →</a>
     </div>
-    <div class="divide-y divide-white/5">
-      {% for account in accounts %}
-      <a href="{{ url_for('account_detail', account_id=account.id) }}"
-         class="flex items-center gap-4 px-5 py-3.5 hover:bg-white/3 transition-colors">
-        <!-- Avatar -->
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500/30 to-purple-500/30 flex items-center justify-center text-sm font-bold text-indigo-300 flex-shrink-0">
-          {{ account.name[0] }}
+    <div>
+      {% for acc in accounts[:8] %}
+      <a href="{{ url_for('account_detail', account_id=acc.id) }}"
+         style="display:flex;align-items:center;gap:12px;padding:11px 20px;
+                border-bottom:1px solid var(--border);text-decoration:none;transition:background .1s"
+         onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+        <div style="width:32px;height:32px;border-radius:8px;background:rgba(59,130,246,.15);
+                    display:flex;align-items:center;justify-content:center;
+                    font-family:var(--font-display);font-size:16px;color:var(--accent2);flex-shrink:0">
+          {{ acc.name[0] }}
         </div>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-white truncate">{{ account.name }}</span>
-            {% if account.status == 'active' %}
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0"></span>
-            {% elif account.status == 'paused' %}
-            <span class="w-1.5 h-1.5 rounded-full bg-yellow-400 flex-shrink-0"></span>
-            {% else %}
-            <span class="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>
-            {% endif %}
-          </div>
-          <div class="text-xs text-gray-500 mt-0.5">
-            {{ account.category.name if account.category else '—' }}
-            {% if account.handle %} · {{ account.handle }}{% endif %}
-          </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ acc.name }}</div>
+          <div style="font-size:11px;color:var(--muted)">{{ acc.category.name if acc.category else '—' }}</div>
         </div>
-        <div class="text-right flex-shrink-0">
-          <div class="text-sm font-medium text-white">
-            {% set f = account.follower_count %}
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-family:var(--font-display);font-size:15px;color:var(--text)">
+            {% set f = acc.follower_count %}
             {% if f >= 1000000 %}{{ "%.1f"|format(f/1000000) }}M
-            {% elif f >= 1000 %}{{ "%.1f"|format(f/1000) }}K
+            {% elif f >= 1000 %}{{ "%.0f"|format(f/1000) }}K
             {% else %}{{ f }}{% endif %}
           </div>
-          <div class="text-xs font-medium stock-{{ account.stock_status() }} mt-0.5">
-            {{ account.stock_days_display() }}T Vorrat
-          </div>
-        </div>
-        <div class="flex-shrink-0">
-          <div class="text-xs text-gray-600 bg-white/5 px-2 py-0.5 rounded-md">
-            Stufe {{ account.automation_level }}
-          </div>
+          <div style="font-size:10px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
         </div>
       </a>
       {% endfor %}
     </div>
   </div>
 
-  <!-- Recent Content (4 cols) -->
-  <div class="col-span-12 lg:col-span-4 card">
-    <div class="flex items-center justify-between p-5 border-b border-white/5">
-      <h2 class="font-semibold text-white">Letzter Content</h2>
-      <a href="{{ url_for('content_hub') }}" class="text-xs text-indigo-400 hover:text-indigo-300">Alle →</a>
+  <!-- Recent Content -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">LETZTER CONTENT</span>
+      <a href="{{ url_for('content_hub') }}" style="font-size:11px;color:var(--accent2);text-decoration:none">Alle →</a>
     </div>
-    <div class="divide-y divide-white/5">
+    <div>
       {% for item in recent_content %}
       <a href="{{ url_for('content_detail', item_id=item.id) }}"
-         class="flex items-start gap-3 px-4 py-3 hover:bg-white/3 transition-colors">
-        <div class="w-2 h-2 rounded-full mt-1.5 flex-shrink-0
-          {% if item.status == 'ready' %}bg-emerald-400
-          {% elif item.status == 'draft' %}bg-gray-500
-          {% elif item.status == 'in_progress' %}bg-yellow-400
-          {% elif item.status == 'published' %}bg-blue-400
-          {% elif item.status == 'error' %}bg-red-400
-          {% else %}bg-gray-600{% endif %}"></div>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm text-gray-200 leading-tight truncate">{{ item.title }}</p>
-          <div class="flex items-center gap-2 mt-1">
-            <span class="text-xs text-gray-600">{{ item.category.name if item.category else '—' }}</span>
-            <span class="text-xs text-gray-700">·</span>
-            <span class="text-xs text-gray-600">{{ item.created_at.strftime('%d.%m') }}</span>
+         style="display:flex;align-items:start;gap:10px;padding:11px 20px;
+                border-bottom:1px solid var(--border);text-decoration:none;transition:background .1s"
+         onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+        <div style="width:7px;height:7px;border-radius:50%;margin-top:4px;flex-shrink:0;
+          background:{% if item.status=='ready' %}var(--success)
+          {% elif item.status=='draft' %}var(--muted)
+          {% elif item.status=='in_progress' %}var(--warning)
+          {% elif item.status=='published' %}var(--accent)
+          {% elif item.status=='error' %}var(--danger)
+          {% else %}var(--muted){% endif %}"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ item.title }}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">
+            {{ item.category.name if item.category else '—' }} · {{ item.created_at.strftime('%d.%m') }}
           </div>
         </div>
       </a>
@@ -253,44 +187,34 @@
     </div>
   </div>
 
-  <!-- Aktivitäts-Feed (4 cols) -->
-  <div class="col-span-12 lg:col-span-4 card">
-    <div class="flex items-center justify-between p-5 border-b border-white/5">
-      <h2 class="font-semibold text-white">Aktivitäten</h2>
-      <span class="text-xs text-gray-500">Live</span>
+  <!-- Activity Feed -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">AKTIVITÄTEN</span>
+      <span style="font-size:10px;color:var(--muted);letter-spacing:1px">LIVE</span>
     </div>
     {% if recent_activity %}
-    <div class="divide-y divide-white/5 max-h-80 overflow-y-auto">
+    <div style="max-height:420px;overflow-y:auto">
       {% for log in recent_activity %}
-      <div class="flex items-start gap-3 px-4 py-3">
-        <div class="w-7 h-7 rounded-lg flex-shrink-0 flex items-center justify-center mt-0.5
-          {% if 'created' in log.action %}bg-emerald-500/15
-          {% elif 'updated' in log.action or 'edit' in log.action %}bg-blue-500/15
-          {% elif 'deleted' in log.action %}bg-red-500/15
-          {% elif 'scheduled' in log.action %}bg-indigo-500/15
-          {% else %}bg-white/5{% endif %}">
-          <i class="fa-solid text-xs
-            {% if 'created' in log.action %}fa-plus text-emerald-400
-            {% elif 'updated' in log.action or 'edit' in log.action %}fa-pen text-blue-400
-            {% elif 'deleted' in log.action %}fa-trash text-red-400
-            {% elif 'scheduled' in log.action %}fa-calendar text-indigo-400
-            {% else %}fa-circle-dot text-gray-400{% endif %}"></i>
+      <div style="display:flex;align-items:start;gap:10px;padding:10px 20px;border-bottom:1px solid var(--border)">
+        <div style="width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;
+          background:{% if 'created' in log.action %}rgba(34,197,94,.1){% elif 'updated' in log.action %}rgba(59,130,246,.1){% elif 'deleted' in log.action %}rgba(239,68,68,.1){% else %}var(--surface2){% endif %}">
+          <i class="fa-solid fa-{% if 'created' in log.action %}plus{% elif 'updated' in log.action or 'edit' in log.action %}pen{% elif 'deleted' in log.action %}trash{% elif 'scheduled' in log.action %}calendar{% else %}circle-dot{% endif %}"
+             style="font-size:10px;color:{% if 'created' in log.action %}var(--success){% elif 'updated' in log.action %}var(--accent2){% elif 'deleted' in log.action %}var(--danger){% else %}var(--muted){% endif %}"></i>
         </div>
-        <div class="flex-1 min-w-0">
-          <p class="text-xs text-gray-300 leading-snug">{{ log.description }}</p>
-          <div class="flex items-center gap-2 mt-1">
-            <span class="text-xs text-gray-600">{{ log.user.username if log.user else 'System' }}</span>
-            <span class="text-xs text-gray-700">·</span>
-            <span class="text-xs text-gray-600">{{ log.created_at.strftime('%d.%m %H:%M') }}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:var(--text);line-height:1.4">{{ log.description }}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px">
+            {{ log.user.username if log.user else 'System' }} · {{ log.created_at.strftime('%d.%m %H:%M') }}
           </div>
         </div>
       </div>
       {% endfor %}
     </div>
     {% else %}
-    <div class="py-12 text-center">
-      <i class="fa-solid fa-clock-rotate-left text-gray-700 text-2xl mb-3"></i>
-      <p class="text-sm text-gray-600">Noch keine Aktivitäten</p>
+    <div style="padding:40px;text-align:center">
+      <i class="fa-solid fa-clock-rotate-left" style="font-size:28px;color:var(--border);margin-bottom:10px;display:block"></i>
+      <div style="font-size:13px;color:var(--muted)">Noch keine Aktivitäten</div>
     </div>
     {% endif %}
   </div>
@@ -300,79 +224,66 @@
 
 {% block scripts %}
 <script>
-const chartLabels = {{ chart_labels|safe }};
-const chartData = {{ chart_data|safe }};
-const forecastData = {{ forecast|safe }};
+let followerChart, currentDays = 30;
 
-let followerChart;
-function initChart(labels, data, forecast) {
+async function loadChart(days, btn) {
+  currentDays = days || currentDays;
+  document.querySelectorAll('#periodBtns button').forEach(b => {
+    b.style.background = 'transparent'; b.style.color = 'var(--muted)'; b.style.borderColor = 'var(--border)';
+  });
+  if (btn) { btn.style.background='var(--accent)'; btn.style.color='white'; btn.style.borderColor='var(--accent)'; }
+
+  const accId = document.getElementById('accFilter').value;
+  const withFc = document.getElementById('forecastToggle').checked;
+  let url = `/api/analytics/growth?days=${currentDays}${accId?'&account_id='+accId:''}${withFc?'&forecast=1':''}`;
+  const d = await (await fetch(url)).json();
+
+  const allLabels = withFc ? [...d.labels,...(d.forecast_labels||[])] : d.labels;
+  const histData  = withFc ? [...d.data,...Array(d.forecast_labels?.length||0).fill(null)] : d.data;
+  const fcData    = withFc ? [...Array(d.data.length-1).fill(null), d.data[d.data.length-1],...(d.forecast_data||[])] : [];
+
   const ctx = document.getElementById('followerChart').getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,0,220);
+  grad.addColorStop(0,'rgba(59,130,246,0.25)');
+  grad.addColorStop(1,'rgba(59,130,246,0)');
+
+  const datasets = [{
+    label:'Follower', data:histData,
+    borderColor:'#3b82f6', backgroundColor:grad,
+    borderWidth:2, tension:0.4, fill:true,
+    pointRadius:0, pointHoverRadius:5, pointHoverBackgroundColor:'#3b82f6',
+    spanGaps:false,
+  }];
+  if (withFc && fcData.length) datasets.push({
+    label:'Prognose', data:fcData,
+    borderColor:'#3b82f6', borderDash:[5,5], borderWidth:1.5,
+    tension:0.4, fill:false, pointRadius:0, backgroundColor:'transparent', spanGaps:false,
+  });
+
   if (followerChart) followerChart.destroy();
-
-  const gradient = ctx.createLinearGradient(0, 0, 0, 200);
-  gradient.addColorStop(0, 'rgba(99,102,241,0.3)');
-  gradient.addColorStop(1, 'rgba(99,102,241,0)');
-
-  // Build combined labels + forecast labels
-  const forecastLabels = [];
-  for (let i = 1; i <= (forecast?.length || 0); i++) {
-    const d = new Date(); d.setDate(d.getDate() + i);
-    forecastLabels.push(d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}));
-  }
-  const allLabels = [...labels, ...forecastLabels];
-  const histData = [...data, ...Array(forecastLabels.length).fill(null)];
-  const forecastDataset = [...Array(labels.length).fill(null), data[data.length-1], ...(forecast || [])];
-
   followerChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: allLabels,
-      datasets: [
-        {
-          label: 'Follower',
-          data: histData,
-          borderColor: '#6366f1',
-          backgroundColor: gradient,
-          borderWidth: 2, tension: 0.4, fill: true,
-          pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: '#6366f1',
-          spanGaps: false,
-        },
-        {
-          label: 'Prognose',
-          data: forecastDataset,
-          borderColor: '#6366f1',
-          borderDash: [4, 4],
-          borderWidth: 1.5, tension: 0.4, fill: false,
-          pointRadius: 0, backgroundColor: 'transparent',
-          spanGaps: false,
-        }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#1c1c27', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-          titleColor: '#9ca3af', bodyColor: '#fff',
-          callbacks: { label: c => (c.dataset.label === 'Prognose' ? '〜 ' : ' ') + (c.raw || 0).toLocaleString('de-DE') + ' Follower' }
+    type:'line', data:{labels:allLabels, datasets},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:'var(--surface)',
+          borderColor:'var(--border)', borderWidth:1,
+          titleColor:'var(--muted)', bodyColor:'var(--text)',
+          callbacks:{label:c=>(c.dataset.label==='Prognose'?'~ ':' ')+c.raw?.toLocaleString('de-DE')+' Follower'}
         }
       },
-      scales: {
-        x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } },
-        y: { grid: { color: 'rgba(255,255,255,0.04)' },
-             ticks: { callback: v => v >= 1000000 ? (v/1000000).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(0)+'K' : v } }
+      scales:{
+        x:{grid:{display:false}, ticks:{maxTicksLimit:10}},
+        y:{grid:{color:'rgba(255,255,255,0.04)'},
+           ticks:{callback:v=>v>=1000000?(v/1000000).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'K':v}}
       }
     }
   });
 }
 
-async function loadChart(days) {
-  const res = await fetch(`/api/analytics/growth?days=${days}&forecast=1`);
-  const d = await res.json();
-  initChart(d.labels, d.data, d.forecast_data);
-}
-
-initChart(chartLabels, chartData, forecastData);
+function reloadChart() { loadChart(currentDays); }
+loadChart(30, document.querySelectorAll('#periodBtns button')[1]);
 </script>
 {% endblock %}
