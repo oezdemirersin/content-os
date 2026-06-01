@@ -1,178 +1,167 @@
 {% extends "base.html" %}
 {% block title %}Content Hub — Content OS{% endblock %}
+{% block page_title %}CONTENT HUB{% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-xl font-bold text-white">Content Hub</h1>
-    <p class="text-sm text-gray-500 mt-0.5">{{ items|length }} Inhalte</p>
-  </div>
-  <a href="{{ url_for('content_new') }}" class="btn-primary">
-    <i class="fa-solid fa-plus mr-2"></i>Neuer Content
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <div style="font-size:13px;color:var(--muted)">{{ items|length }} Inhalte</div>
+  <a href="{{ url_for('content_new') }}" class="btn btn-primary">
+    <i class="fa-solid fa-plus"></i> Neuer Content
   </a>
 </div>
 
 <!-- Status tabs -->
-<div class="flex gap-1 mb-5 overflow-x-auto pb-1">
-  <a href="{{ url_for('content_hub') }}" class="px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors {% if not filters.status %}bg-white/10 text-white{% else %}text-gray-500 hover:text-white hover:bg-white/5{% endif %}">
-    Alle <span class="ml-1 text-xs text-gray-600">{{ status_counts.values()|sum }}</span>
+<div style="display:flex;gap:6px;margin-bottom:20px;overflow-x:auto;padding-bottom:2px">
+  {% set all_count = status_counts.values()|sum %}
+  <a href="{{ url_for('content_hub') }}"
+     style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:.3px;
+            white-space:nowrap;text-decoration:none;transition:all .15s;
+            {% if not filters.status %}background:var(--accent);color:white;{% else %}border:1px solid var(--border);color:var(--muted);{% endif %}">
+    Alle <span style="opacity:.7">{{ all_count }}</span>
   </a>
-  {% for s, label, color in [
-    ('draft','Entwurf','gray'),('in_progress','In Bearb.','yellow'),('ready','Bereit','emerald'),
-    ('scheduled','Geplant','blue'),('published','Live','indigo'),('error','Fehler','red'),('archived','Archiv','gray')
-  ] %}
-  <a href="{{ url_for('content_hub', status=s) }}" class="px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors {% if filters.status == s %}bg-white/10 text-white{% else %}text-gray-500 hover:text-white hover:bg-white/5{% endif %}">
-    {{ label }} <span class="ml-1 text-xs text-gray-600">{{ status_counts[s] }}</span>
+  {% for s,label,color in [('draft','Entwurf','gray'),('in_progress','In Bearbeitung','yellow'),
+     ('ready','Bereit','green'),('scheduled','Geplant','blue'),('published','Live','blue'),
+     ('error','Fehler','red'),('archived','Archiv','gray')] %}
+  <a href="{{ url_for('content_hub', status=s) }}"
+     style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:.3px;
+            white-space:nowrap;text-decoration:none;transition:all .15s;
+            {% if filters.status==s %}background:var(--accent);color:white;{% else %}border:1px solid var(--border);color:var(--muted);{% endif %}">
+    {{ label }} <span style="opacity:.7">{{ status_counts[s] }}</span>
   </a>
   {% endfor %}
 </div>
 
-<!-- Filter row -->
-<form method="get" class="flex flex-wrap gap-3 mb-5">
-  <input type="hidden" name="status" value="{{ filters.status }}">
-  <input type="text" name="q" value="{{ filters.q }}" placeholder="Suchen..." class="input-field max-w-xs">
-  <select name="category" class="select-field max-w-xs">
-    <option value="">Alle Kategorien</option>
-    {% for cat in categories %}
-    <option value="{{ cat.id }}" {% if filters.category == cat.id %}selected{% endif %}>{{ cat.name }}</option>
-    {% endfor %}
-  </select>
-  <select name="type" class="select-field max-w-[140px]">
-    <option value="">Alle Typen</option>
-    {% for t in ['feed','reel','story','carousel'] %}
-    <option value="{{ t }}" {% if filters.type == t %}selected{% endif %}>{{ t.capitalize() }}</option>
-    {% endfor %}
-  </select>
-  <button type="submit" class="btn-primary">Filtern</button>
-  <a href="{{ url_for('content_hub') }}" class="btn-ghost">Reset</a>
-</form>
-
-<!-- Bulk action bar (shown when items selected) -->
-<div id="bulkBar" class="hidden card px-4 py-3 mb-4 flex items-center gap-3 border border-indigo-500/20 bg-indigo-500/5">
-  <span id="bulkCount" class="text-sm font-medium text-indigo-400"></span>
-  <div class="flex gap-2 flex-1 flex-wrap">
-    <select id="bulkStatus" class="select-field max-w-[160px] text-xs">
-      <option value="">Status setzen…</option>
-      {% for s, l in [('draft','Entwurf'),('in_progress','In Bearbeitung'),('ready','Bereit'),('archived','Archiviert')] %}
-      <option value="{{ s }}">{{ l }}</option>
-      {% endfor %}
-    </select>
-    <select id="bulkCategory" class="select-field max-w-[160px] text-xs">
-      <option value="">Kategorie setzen…</option>
+<!-- Filter row + Bulk bar -->
+<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+  <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex:1">
+    <input type="hidden" name="status" value="{{ filters.status }}">
+    <input type="text" name="q" value="{{ filters.q }}" placeholder="Suchen…" class="input-field" style="max-width:240px">
+    <select name="category" class="select-field" style="max-width:180px">
+      <option value="">Alle Kategorien</option>
       {% for cat in categories %}
-      <option value="{{ cat.id }}">{{ cat.name }}</option>
+      <option value="{{ cat.id }}" {% if filters.category==cat.id %}selected{% endif %}>{{ cat.name }}</option>
       {% endfor %}
     </select>
-    <select id="bulkAccount" class="select-field max-w-[180px] text-xs">
-      <option value="">Account zuweisen…</option>
-      {% for acc in labels %}
+    <select name="type" class="select-field" style="max-width:130px">
+      <option value="">Alle Typen</option>
+      {% for t in ['feed','reel','story','carousel'] %}
+      <option value="{{ t }}" {% if filters.type==t %}selected{% endif %}>{{ t.capitalize() }}</option>
       {% endfor %}
     </select>
-    <button onclick="bulkAction('status', document.getElementById('bulkStatus').value)" class="btn-primary text-xs py-1.5">Status anwenden</button>
-    <button onclick="bulkAction('category', document.getElementById('bulkCategory').value)" class="btn-primary text-xs py-1.5">Kategorie</button>
-    <button onclick="bulkAction('delete', null)" class="px-3 py-1.5 text-xs rounded-lg bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors">
-      <i class="fa-solid fa-trash mr-1"></i>Löschen
-    </button>
-    <button onclick="deselectAll()" class="btn-ghost text-xs py-1.5">Auswahl aufheben</button>
-  </div>
+    <button type="submit" class="btn btn-primary">Filtern</button>
+    <a href="{{ url_for('content_hub') }}" class="btn btn-ghost">Reset</a>
+  </form>
 </div>
 
-<!-- Content Grid -->
-<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" id="contentGrid">
+<!-- Bulk bar -->
+<div id="bulkBar" style="display:none;align-items:center;gap:12px;padding:12px 20px;
+     background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);
+     border-radius:10px;margin-bottom:16px">
+  <span id="bulkCount" style="font-size:13px;font-weight:600;color:var(--accent2)"></span>
+  <select id="bulkStatus" class="select-field" style="width:auto;font-size:12px;padding:6px 10px">
+    <option value="">Status setzen…</option>
+    {% for s,l in [('draft','Entwurf'),('in_progress','In Bearbeitung'),('ready','Bereit'),('archived','Archiviert')] %}
+    <option value="{{ s }}">{{ l }}</option>
+    {% endfor %}
+  </select>
+  <select id="bulkCat" class="select-field" style="width:auto;font-size:12px;padding:6px 10px">
+    <option value="">Kategorie…</option>
+    {% for cat in categories %}
+    <option value="{{ cat.id }}">{{ cat.name }}</option>
+    {% endfor %}
+  </select>
+  <button onclick="bulkAction('status',document.getElementById('bulkStatus').value)" class="btn btn-primary" style="font-size:12px;padding:6px 14px">Status</button>
+  <button onclick="bulkAction('category',document.getElementById('bulkCat').value)" class="btn btn-ghost" style="font-size:12px;padding:6px 14px">Kategorie</button>
+  <button onclick="bulkAction('delete',null)" class="btn btn-danger" style="font-size:12px;padding:6px 14px">
+    <i class="fa-solid fa-trash"></i> Löschen
+  </button>
+  <button onclick="deselectAll()" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;margin-left:auto">Aufheben</button>
+</div>
+
+<!-- Grid -->
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
   {% for item in items %}
-  <div class="card hover:border-white/10 transition-colors group relative" data-id="{{ item.id }}">
-    <!-- Select checkbox -->
-    <div class="absolute top-3 left-3 z-10">
-      <input type="checkbox" class="item-checkbox w-4 h-4 rounded accent-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity"
-             data-id="{{ item.id }}" onchange="updateBulkBar()">
+  <div class="card" style="position:relative;transition:border-color .15s"
+       onmouseover="this.style.borderColor='rgba(255,255,255,0.12)'" onmouseout="this.style.borderColor='var(--border)'">
+    <!-- Checkbox -->
+    <div style="position:absolute;top:14px;left:14px;z-index:2">
+      <input type="checkbox" class="item-checkbox" data-id="{{ item.id }}" onchange="updateBulkBar()"
+             style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;
+                    opacity:0;transition:opacity .15s" class="item-cb">
     </div>
 
-    <div class="p-4 pl-9">
-      <div class="flex items-start justify-between gap-3 mb-3">
-        <div class="flex items-center gap-2 flex-wrap">
-          <span class="w-2 h-2 rounded-full flex-shrink-0
-            {% if item.status == 'ready' %}bg-emerald-400
-            {% elif item.status == 'draft' %}bg-gray-500
-            {% elif item.status == 'in_progress' %}bg-yellow-400
-            {% elif item.status == 'scheduled' %}bg-blue-400
-            {% elif item.status == 'published' %}bg-indigo-400
-            {% elif item.status == 'error' %}bg-red-400
-            {% else %}bg-gray-600{% endif %}"></span>
+    <div style="padding:16px 16px 12px 38px">
+      <!-- Meta row -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:7px;height:7px;border-radius:50%;
+            background:{% if item.status=='ready' %}var(--success){% elif item.status=='draft' %}var(--muted)
+            {% elif item.status=='in_progress' %}var(--warning){% elif item.status=='scheduled' %}var(--accent)
+            {% elif item.status=='published' %}var(--accent2){% elif item.status=='error' %}var(--danger)
+            {% else %}var(--muted){% endif %}"></div>
           {% if item.category %}
-          <span class="text-xs font-medium" style="color:{{ item.category.color }}">{{ item.category.name }}</span>
+          <span style="font-size:11px;font-weight:700;color:{{ item.category.color }}">{{ item.category.name }}</span>
           {% endif %}
-          <span class="badge bg-white/5 text-gray-400 text-xs">{{ item.content_type }}</span>
+          <span style="font-size:10px;color:var(--muted);background:var(--surface2);padding:2px 7px;border-radius:4px">{{ item.content_type }}</span>
         </div>
-        <span class="text-xs text-gray-600 flex-shrink-0">{{ item.created_at.strftime('%d.%m') }}</span>
+        <span style="font-size:11px;color:var(--muted)">{{ item.created_at.strftime('%d.%m') }}</span>
       </div>
 
-      <h3 class="text-sm font-semibold text-white leading-snug mb-2 line-clamp-2">{{ item.title }}</h3>
+      <!-- Title -->
+      <div style="font-size:13px;font-weight:600;color:var(--text);line-height:1.45;margin-bottom:8px;
+                  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{ item.title }}</div>
 
-      {% if item.caption %}
-      <p class="text-xs text-gray-500 line-clamp-2 mb-3">{{ item.caption }}</p>
-      {% elif item.raw_text %}
-      <p class="text-xs text-gray-500 line-clamp-2 mb-3">{{ item.raw_text }}</p>
-      {% endif %}
-
-      {% if item.source_name %}
-      <div class="flex items-center gap-1.5 text-xs text-gray-600 mb-3">
-        <i class="fa-solid fa-link text-gray-700"></i>
-        <span class="truncate">{{ item.source_name }}</span>
-      </div>
+      {% set preview = item.caption or item.raw_text %}
+      {% if preview %}
+      <div style="font-size:12px;color:var(--muted);line-height:1.4;margin-bottom:10px;
+                  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{ preview }}</div>
       {% endif %}
 
       {% if item.accounts %}
-      <div class="flex flex-wrap gap-1 mb-2">
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">
         {% for acc in item.accounts[:3] %}
-        <span class="badge bg-indigo-500/10 text-indigo-400 text-xs">{{ acc.name }}</span>
+        <span class="badge badge-blue" style="font-size:10px">{{ acc.name }}</span>
         {% endfor %}
         {% if item.accounts|length > 3 %}
-        <span class="badge bg-white/5 text-gray-500 text-xs">+{{ item.accounts|length - 3 }}</span>
+        <span class="badge badge-gray" style="font-size:10px">+{{ item.accounts|length-3 }}</span>
         {% endif %}
       </div>
       {% endif %}
     </div>
 
-    <div class="px-4 py-3 border-t border-white/5 flex items-center justify-between">
-      <!-- Quick status change -->
-      <select class="text-xs rounded-lg border-0 bg-transparent cursor-pointer focus:outline-none
-        {% if item.status == 'ready' %}text-emerald-400
-        {% elif item.status == 'draft' %}text-gray-400
-        {% elif item.status == 'in_progress' %}text-yellow-400
-        {% elif item.status == 'scheduled' %}text-blue-400
-        {% elif item.status == 'published' %}text-indigo-400
-        {% elif item.status == 'error' %}text-red-400
-        {% else %}text-gray-500{% endif %}"
-        onchange="quickStatus({{ item.id }}, this)"
-        onclick="event.stopPropagation()">
-        {% for s, l in [('draft','Entwurf'),('in_progress','In Bearbeitung'),('ready','Bereit'),
-                        ('scheduled','Geplant'),('published','Veröffentlicht'),('archived','Archiviert'),('error','Fehler')] %}
-        <option value="{{ s }}" {% if item.status == s %}selected{% endif %}
-                class="bg-[#1c1c27] text-white">{{ l }}</option>
+    <!-- Footer -->
+    <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <!-- Quick status -->
+      <select onchange="quickStatus({{ item.id }},this)" onclick="event.stopPropagation()"
+              style="background:transparent;border:none;outline:none;cursor:pointer;font-family:var(--font-body);font-size:12px;font-weight:700;
+                color:{% if item.status=='ready' %}var(--success){% elif item.status=='draft' %}var(--muted)
+                {% elif item.status=='in_progress' %}var(--warning){% elif item.status=='scheduled' %}var(--accent2)
+                {% elif item.status=='published' %}var(--accent){% elif item.status=='error' %}var(--danger)
+                {% else %}var(--muted){% endif %}">
+        {% for s,l in [('draft','Entwurf'),('in_progress','In Bearbeitung'),('ready','Bereit'),
+                       ('scheduled','Geplant'),('published','Veröffentlicht'),('archived','Archiviert'),('error','Fehler')] %}
+        <option value="{{ s }}" {% if item.status==s %}selected{% endif %} style="background:var(--surface2);color:var(--text)">{{ l }}</option>
         {% endfor %}
       </select>
-
-      <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <a href="{{ url_for('distribute', content_id=item.id) }}" class="p-1.5 text-gray-500 hover:text-indigo-400 transition-colors" title="Verteilen">
-          <i class="fa-solid fa-arrows-split-up-and-left text-xs"></i>
+      <div style="display:flex;gap:2px">
+        <a href="{{ url_for('distribute', content_id=item.id) }}" class="icon-btn" style="font-size:12px;padding:5px" title="Verteilen">
+          <i class="fa-solid fa-arrows-split-up-and-left"></i>
         </a>
-        <a href="{{ url_for('content_detail', item_id=item.id) }}" class="p-1.5 text-gray-500 hover:text-white transition-colors" title="Details">
-          <i class="fa-solid fa-eye text-xs"></i>
+        <a href="{{ url_for('content_detail', item_id=item.id) }}" class="icon-btn" style="font-size:12px;padding:5px">
+          <i class="fa-solid fa-eye"></i>
         </a>
-        <a href="{{ url_for('content_edit', item_id=item.id) }}" class="p-1.5 text-gray-500 hover:text-white transition-colors" title="Bearbeiten">
-          <i class="fa-solid fa-pen text-xs"></i>
+        <a href="{{ url_for('content_edit', item_id=item.id) }}" class="icon-btn" style="font-size:12px;padding:5px">
+          <i class="fa-solid fa-pen"></i>
         </a>
       </div>
     </div>
   </div>
   {% else %}
-  <div class="col-span-full py-20 text-center">
-    <div class="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
-      <i class="fa-solid fa-inbox text-gray-600 text-2xl"></i>
-    </div>
-    <p class="text-gray-400 font-medium">Keine Inhalte gefunden</p>
-    <a href="{{ url_for('content_new') }}" class="btn-primary inline-flex mt-4">
-      <i class="fa-solid fa-plus mr-2"></i>Neuer Content
+  <div style="grid-column:1/-1;text-align:center;padding:80px 20px">
+    <i class="fa-solid fa-inbox" style="font-size:36px;color:var(--border);display:block;margin-bottom:14px"></i>
+    <div style="font-size:14px;color:var(--muted);margin-bottom:14px">Keine Inhalte gefunden</div>
+    <a href="{{ url_for('content_new') }}" class="btn btn-primary">
+      <i class="fa-solid fa-plus"></i> Neuer Content
     </a>
   </div>
   {% endfor %}
@@ -180,72 +169,50 @@
 {% endblock %}
 
 {% block scripts %}
+<style>
+.card:hover .item-cb, .item-checkbox:checked { opacity:1 !important; }
+</style>
 <script>
 function getSelectedIds() {
-  return Array.from(document.querySelectorAll('.item-checkbox:checked')).map(c => parseInt(c.dataset.id));
+  return Array.from(document.querySelectorAll('.item-checkbox:checked')).map(c=>parseInt(c.dataset.id));
 }
-
 function updateBulkBar() {
   const ids = getSelectedIds();
   const bar = document.getElementById('bulkBar');
-  const count = document.getElementById('bulkCount');
-  if (ids.length > 0) {
-    bar.classList.remove('hidden');
-    bar.classList.add('flex');
-    count.textContent = ids.length + ' ausgewählt';
-  } else {
-    bar.classList.add('hidden');
-    bar.classList.remove('flex');
-  }
-  // Keep checkboxes visible when selected
-  document.querySelectorAll('.item-checkbox').forEach(cb => {
-    cb.style.opacity = cb.checked ? '1' : '';
-  });
+  document.getElementById('bulkCount').textContent = ids.length + ' ausgewählt';
+  bar.style.display = ids.length ? 'flex' : 'none';
 }
-
 function deselectAll() {
-  document.querySelectorAll('.item-checkbox').forEach(cb => { cb.checked = false; cb.style.opacity = ''; });
+  document.querySelectorAll('.item-checkbox').forEach(c=>{c.checked=false;c.style.opacity='';});
   updateBulkBar();
 }
-
 async function bulkAction(action, value) {
   const ids = getSelectedIds();
   if (!ids.length) return;
-  if (!value && action !== 'delete') { alert('Bitte einen Wert wählen.'); return; }
-  if (action === 'delete' && !confirm(`${ids.length} Inhalte löschen?`)) return;
-
+  if (!value && action!=='delete') { alert('Bitte einen Wert wählen.'); return; }
+  if (action==='delete' && !confirm(`${ids.length} Inhalte löschen?`)) return;
   const res = await fetch('/api/content/bulk', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ids, action, value})
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ids, action, value})
   });
-  const d = await res.json();
-  if (d.ok) location.reload();
+  if ((await res.json()).ok) location.reload();
 }
-
 async function quickStatus(id, sel) {
-  const status = sel.value;
   await fetch(`/content/${id}/status`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({status})
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({status:sel.value})
   });
-  // Update color
-  const colors = {draft:'text-gray-400',in_progress:'text-yellow-400',ready:'text-emerald-400',
-                  scheduled:'text-blue-400',published:'text-indigo-400',error:'text-red-400',archived:'text-gray-500'};
-  sel.className = sel.className.replace(/text-\w+-\d+/g, '').trim() + ' ' + (colors[status] || 'text-gray-400') +
-    ' text-xs rounded-lg border-0 bg-transparent cursor-pointer focus:outline-none';
+  const colors = {draft:'var(--muted)',in_progress:'var(--warning)',ready:'var(--success)',
+                  scheduled:'var(--accent2)',published:'var(--accent)',error:'var(--danger)',archived:'var(--muted)'};
+  sel.style.color = colors[sel.value] || 'var(--muted)';
 }
-
-// Select all with ctrl+a
+// Ctrl+A select all
 document.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'a' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+  if ((e.ctrlKey||e.metaKey) && e.key==='a' && !['INPUT','TEXTAREA'].includes(e.target.tagName)) {
     e.preventDefault();
-    const allChecked = getSelectedIds().length === document.querySelectorAll('.item-checkbox').length;
-    document.querySelectorAll('.item-checkbox').forEach(cb => {
-      cb.checked = !allChecked;
-      cb.style.opacity = !allChecked ? '1' : '';
-    });
+    const all = document.querySelectorAll('.item-checkbox');
+    const allChecked = getSelectedIds().length === all.length;
+    all.forEach(c=>{c.checked=!allChecked;c.style.opacity=!allChecked?'1':'';});
     updateBulkBar();
   }
 });

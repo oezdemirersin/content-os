@@ -1,15 +1,19 @@
 {% extends "base.html" %}
 {% block title %}{{ code }} — Content OS{% endblock %}
+{% block page_title %}{{ code }}{% endblock %}
+
 {% block content %}
-<div class="flex flex-col items-center justify-center min-h-[60vh] text-center">
-  <div class="text-8xl font-black text-white/5 mb-4">{{ code }}</div>
-  <div class="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mb-6">
-    <i class="fa-solid fa-{% if code == 404 %}magnifying-glass{% else %}circle-exclamation{% endif %} text-red-400 text-2xl"></i>
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;text-align:center">
+  <div style="font-family:var(--font-display);font-size:120px;line-height:1;color:rgba(255,255,255,.04);margin-bottom:-20px">{{ code }}</div>
+  <div style="width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:20px;
+    {% if code==404 %}background:rgba(59,130,246,.1){% else %}background:rgba(239,68,68,.1){% endif %}">
+    <i class="fa-solid fa-{% if code==404 %}magnifying-glass{% else %}circle-exclamation{% endif %}"
+       style="font-size:24px;color:{% if code==404 %}var(--accent2){% else %}var(--danger){% endif %}"></i>
   </div>
-  <h1 class="text-2xl font-bold text-white mb-2">{{ title }}</h1>
-  <p class="text-gray-500 mb-8 max-w-sm">{{ message }}</p>
-  <a href="{{ url_for('dashboard') }}" class="btn-primary">
-    <i class="fa-solid fa-house mr-2"></i>Zum Dashboard
+  <h1 style="font-family:var(--font-display);font-size:28px;letter-spacing:1px;margin-bottom:10px">{{ title }}</h1>
+  <p style="color:var(--muted);font-size:14px;max-width:400px;margin-bottom:28px;line-height:1.6">{{ message }}</p>
+  <a href="{{ url_for('dashboard') }}" class="btn btn-primary">
+    <i class="fa-solid fa-house"></i> Zum Dashboard
   </a>
 </div>
 {% endblock %}

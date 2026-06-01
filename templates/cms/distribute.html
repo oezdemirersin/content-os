@@ -1,214 +1,156 @@
 {% extends "base.html" %}
 {% block title %}Verteilungssystem — Content OS{% endblock %}
+{% block page_title %}VERTEILUNGSSYSTEM{% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-xl font-bold text-white">Verteilungssystem</h1>
-    <p class="text-sm text-gray-500 mt-0.5">Content → mehrere Accounts in einem Schritt</p>
-  </div>
-</div>
+<div style="font-size:13px;color:var(--muted);margin-bottom:24px">Content → mehrere Accounts in einem Schritt</div>
 
-<div class="grid grid-cols-12 gap-5">
+<div style="display:grid;grid-template-columns:300px 1fr;gap:20px">
 
-  <!-- Left: Content auswählen -->
-  <div class="col-span-12 lg:col-span-4">
-    <div class="card overflow-hidden sticky top-20">
-      <div class="p-4 border-b border-white/5">
-        <h2 class="font-semibold text-white text-sm">Content auswählen</h2>
-        <p class="text-xs text-gray-500 mt-0.5">Nur "Bereit"-Inhalte</p>
-      </div>
-      <div class="divide-y divide-white/5 max-h-[60vh] overflow-y-auto">
-        {% for c in ready_items %}
-        <a href="{{ url_for('distribute', content_id=c.id) }}"
-           class="flex items-start gap-3 px-4 py-3 hover:bg-white/5 transition-colors {% if item and item.id == c.id %}bg-indigo-500/10 border-l-2 border-indigo-500{% endif %}">
-          <div class="w-2 h-2 rounded-full mt-1.5 flex-shrink-0
-            {% if c.category %}bg-blue-400{% else %}bg-gray-500{% endif %}"></div>
-          <div class="flex-1 min-w-0">
-            <p class="text-sm text-gray-200 truncate">{{ c.title }}</p>
-            <div class="flex items-center gap-2 mt-0.5">
-              {% if c.category %}
-              <span class="text-xs" style="color:{{ c.category.color }}">{{ c.category.name }}</span>
-              {% endif %}
-              {% if c.accounts %}
-              <span class="text-xs text-gray-600">{{ c.accounts|length }} Accounts</span>
-              {% endif %}
-            </div>
+  <!-- Left: Content list -->
+  <div class="card" style="overflow:hidden;position:sticky;top:72px;max-height:calc(100vh - 100px);display:flex;flex-direction:column">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--muted);text-transform:uppercase">BEREIT ZUR VERTEILUNG</div>
+    </div>
+    <div style="overflow-y:auto;flex:1">
+      {% for c in ready_items %}
+      <a href="{{ url_for('distribute', content_id=c.id) }}"
+         style="display:flex;align-items:start;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);text-decoration:none;transition:background .1s;
+                {% if item and item.id==c.id %}background:rgba(59,130,246,.08);border-left:2px solid var(--accent){% endif %}"
+         onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='{% if item and item.id==c.id %}rgba(59,130,246,.08){% endif %}'">
+        <div style="width:7px;height:7px;border-radius:50%;margin-top:4px;flex-shrink:0;
+          background:{% if c.category %}{{ c.category.color }}{% else %}var(--muted){% endif %}"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;color:var(--text);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{ c.title }}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px">
+            {% if c.category %}<span style="color:{{ c.category.color }}">{{ c.category.name }}</span>{% endif %}
+            {% if c.accounts %} · {{ c.accounts|length }} Accounts{% endif %}
           </div>
-        </a>
-        {% else %}
-        <div class="py-10 text-center">
-          <i class="fa-solid fa-inbox text-gray-700 text-2xl mb-2"></i>
-          <p class="text-sm text-gray-500">Kein Content mit Status "Bereit"</p>
-          <a href="{{ url_for('content_hub') }}" class="text-xs text-indigo-400 mt-1 block">Content Hub →</a>
         </div>
-        {% endfor %}
+      </a>
+      {% else %}
+      <div style="padding:32px 16px;text-align:center;font-size:12px;color:var(--muted)">
+        Kein Content mit Status "Bereit"
       </div>
+      {% endfor %}
     </div>
   </div>
 
   <!-- Right: Distribution -->
-  <div class="col-span-12 lg:col-span-8">
+  <div>
     {% if item %}
 
-    <!-- Selected content preview -->
-    <div class="card p-5 mb-4">
-      <div class="flex items-start justify-between gap-4">
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2 mb-2">
-            {% if item.category %}
-            <span class="badge text-xs font-semibold" style="background:{{ item.category.color }}20;color:{{ item.category.color }}">{{ item.category.name }}</span>
-            {% endif %}
-            <span class="badge bg-emerald-500/15 text-emerald-400 text-xs">Bereit</span>
+    <!-- Content preview -->
+    <div class="card" style="padding:20px;margin-bottom:16px">
+      <div style="display:flex;align-items:start;justify-content:space-between;gap:12px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+            {% if item.category %}<span class="badge" style="background:{{ item.category.color }}18;color:{{ item.category.color }}">{{ item.category.name }}</span>{% endif %}
+            <span class="badge badge-green">Bereit</span>
           </div>
-          <h2 class="text-lg font-bold text-white leading-snug mb-2">{{ item.title }}</h2>
-          {% if item.caption %}
-          <p class="text-sm text-gray-400 line-clamp-3">{{ item.caption }}</p>
-          {% endif %}
+          <h2 style="font-family:var(--font-display);font-size:20px;letter-spacing:.5px;margin-bottom:6px;line-height:1.2">{{ item.title }}</h2>
+          {% if item.caption %}<p style="font-size:13px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">{{ item.caption }}</p>{% endif %}
         </div>
-        <a href="{{ url_for('content_detail', item_id=item.id) }}" class="btn-ghost flex-shrink-0 text-xs">
-          <i class="fa-solid fa-eye mr-1"></i>Details
+        <a href="{{ url_for('content_detail', item_id=item.id) }}" class="btn btn-ghost" style="flex-shrink:0">
+          <i class="fa-solid fa-eye"></i> Details
         </a>
       </div>
     </div>
 
     <!-- Auto-distribute -->
     {% if item.category %}
-    <div class="card p-4 mb-4 border border-indigo-500/20 bg-indigo-500/5">
-      <div class="flex items-center justify-between">
-        <div>
-          <div class="flex items-center gap-2 mb-1">
-            <i class="fa-solid fa-wand-magic-sparkles text-indigo-400 text-sm"></i>
-            <span class="text-sm font-semibold text-white">Auto-Verteilung</span>
-          </div>
-          <p class="text-xs text-gray-400">
-            Automatisch allen Accounts mit Kategorie
-            <span class="font-medium" style="color:{{ item.category.color }}">{{ item.category.name }}</span>
-            zuweisen.
-          </p>
+    <div style="padding:16px 20px;border-radius:12px;border:1px solid rgba(59,130,246,.25);background:rgba(59,130,246,.06);margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent2);font-size:13px"></i>
+          <span style="font-size:13px;font-weight:700;color:var(--text)">Auto-Verteilung</span>
         </div>
-        <form method="post" action="{{ url_for('distribute_auto') }}">
-          <input type="hidden" name="content_id" value="{{ item.id }}">
-          <button type="submit" class="btn-primary flex-shrink-0">
-            <i class="fa-solid fa-bolt mr-2"></i>Auto zuweisen
-          </button>
-        </form>
+        <p style="font-size:12px;color:var(--muted)">Alle Accounts mit Kategorie <span style="font-weight:700;color:{{ item.category.color }}">{{ item.category.name }}</span> automatisch zuweisen</p>
       </div>
+      <form method="post" action="{{ url_for('distribute_auto') }}" style="flex-shrink:0">
+        <input type="hidden" name="content_id" value="{{ item.id }}">
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-bolt"></i> Auto zuweisen</button>
+      </form>
     </div>
     {% endif %}
 
     <!-- Manual distribution -->
-    <form method="post" action="{{ url_for('distribute_manual') }}" x-data="{selected: [], postType: 'feed'}">
+    <form method="post" action="{{ url_for('distribute_manual') }}" x-data="{selected:[]}">
       <input type="hidden" name="content_id" value="{{ item.id }}">
 
-      <div class="card overflow-hidden mb-4">
-        <div class="p-4 border-b border-white/5 flex items-center justify-between">
-          <div>
-            <h3 class="font-semibold text-white text-sm">Manuell zuweisen</h3>
-            <p class="text-xs text-gray-500 mt-0.5">Accounts auswählen und Post-Zeit festlegen</p>
-          </div>
-          <div class="flex items-center gap-3">
-            <span class="text-xs text-gray-500" x-text="selected.length + ' ausgewählt'"></span>
-            <button type="button" @click="selected = {{ all_accounts | map(attribute='id') | list | tojson }}"
-                    class="text-xs text-indigo-400 hover:text-indigo-300">Alle</button>
-            <button type="button" @click="selected = []" class="text-xs text-gray-500 hover:text-white">Keine</button>
+      <div class="card" style="overflow:hidden;margin-bottom:12px">
+        <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--muted);text-transform:uppercase">ACCOUNTS AUSWÄHLEN</span>
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="font-size:12px;color:var(--accent2)" x-text="selected.length + ' ausgewählt'"></span>
+            <button type="button" @click="selected={{ all_accounts|map(attribute='id')|list|tojson }}" style="background:none;border:none;font-size:12px;color:var(--accent2);cursor:pointer;font-family:var(--font-body)">Alle</button>
+            <button type="button" @click="selected=[]" style="background:none;border:none;font-size:12px;color:var(--muted);cursor:pointer;font-family:var(--font-body)">Keine</button>
           </div>
         </div>
-
-        <!-- Category filter tabs -->
-        <div class="px-4 pt-3 flex gap-1 flex-wrap" x-data="{catFilter: ''}">
-          <button type="button" @click="catFilter = ''" :class="catFilter === '' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white hover:bg-white/5'"
-                  class="px-2.5 py-1 text-xs rounded-lg transition-colors">Alle</button>
-          {% for cat in categories %}
-          <button type="button" @click="catFilter = '{{ cat.name }}'" :class="catFilter === '{{ cat.name }}' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white hover:bg-white/5'"
-                  class="px-2.5 py-1 text-xs rounded-lg transition-colors" style="--cat-color: {{ cat.color }}">
-            {{ cat.name }}
-          </button>
-          {% endfor %}
-        </div>
-
-        <div class="divide-y divide-white/5 max-h-72 overflow-y-auto">
+        <div style="max-height:300px;overflow-y:auto">
           {% for acc in all_accounts %}
-          <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 cursor-pointer">
-            <input type="checkbox" name="account_ids" value="{{ acc.id }}"
-                   x-model="selected" :value="{{ acc.id }}"
-                   class="w-4 h-4 rounded accent-indigo-500">
-            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center text-xs font-bold text-indigo-300 flex-shrink-0">
-              {{ acc.name[0] }}
-            </div>
-            <div class="flex-1 min-w-0">
-              <span class="text-sm font-medium text-gray-200">{{ acc.name }}</span>
-              <div class="flex items-center gap-2 mt-0.5">
-                {% if acc.category %}
-                <span class="text-xs" style="color:{{ acc.category.color }}">{{ acc.category.name }}</span>
-                {% endif %}
-                <span class="text-xs text-gray-600">
-                  {% set f = acc.follower_count %}
-                  {% if f >= 1000 %}{{ "%.0f"|format(f/1000) }}K{% else %}{{ f }}{% endif %}
-                </span>
+          <label style="display:flex;align-items:center;gap:12px;padding:11px 20px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s"
+                 onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+            <input type="checkbox" name="account_ids" :value="{{ acc.id }}" x-model="selected" value="{{ acc.id }}"
+                   style="width:14px;height:14px;accent-color:var(--accent);flex-shrink:0">
+            <div style="width:32px;height:32px;border-radius:8px;background:rgba(59,130,246,.12);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:16px;color:var(--accent2);flex-shrink:0">{{ acc.name[0] }}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;color:var(--text)">{{ acc.name }}</div>
+              <div style="font-size:11px;color:var(--muted)">
+                {% if acc.category %}<span style="color:{{ acc.category.color }}">{{ acc.category.name }}</span>{% endif %}
+                {% if item.category and acc.category and item.category.id==acc.category.id %} <span style="color:var(--accent2)">✓ Match</span>{% endif %}
               </div>
             </div>
-            <div class="flex-shrink-0 text-right">
-              <div class="text-xs font-medium stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
-              {% if item.category and acc.category and item.category.id == acc.category.id %}
-              <span class="text-xs text-indigo-400">✓ Match</span>
-              {% endif %}
+            <div style="text-align:right;flex-shrink:0">
+              <div style="font-family:var(--font-display);font-size:14px;color:var(--text)">
+                {% if acc.follower_count>=1000 %}{{ "%.0f"|format(acc.follower_count/1000) }}K{% else %}{{ acc.follower_count }}{% endif %}
+              </div>
+              <div style="font-size:10px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
             </div>
           </label>
           {% endfor %}
         </div>
       </div>
 
-      <!-- Post settings -->
-      <div class="card p-4 mb-4">
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="text-xs text-gray-500 mb-1.5 block">Post-Typ</label>
-            <select name="post_type" x-model="postType" class="select-field">
-              <option value="feed">📸 Feed</option>
-              <option value="reel">🎬 Reel</option>
-              <option value="story">⭕ Story</option>
-              <option value="carousel">🎠 Carousel</option>
-            </select>
-          </div>
-          <div>
-            <label class="text-xs text-gray-500 mb-1.5 block">Datum & Zeit (optional)</label>
-            <input type="datetime-local" name="schedule_time" class="input-field"
-                   placeholder="Leer = auto">
-          </div>
+      <div class="card" style="padding:16px 20px;margin-bottom:12px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>
+          <label class="form-label">Post-Typ</label>
+          <select name="post_type" class="select-field">
+            <option value="feed">📸 Feed</option>
+            <option value="reel">🎬 Reel</option>
+            <option value="story">⭕ Story</option>
+            <option value="carousel">🎠 Carousel</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Datum & Zeit (optional)</label>
+          <input type="datetime-local" name="schedule_time" class="input-field">
         </div>
       </div>
 
-      <button type="submit" class="btn-primary w-full py-3 text-base"
-              :disabled="selected.length === 0"
-              :class="selected.length === 0 ? 'opacity-50 cursor-not-allowed' : ''">
-        <i class="fa-solid fa-paper-plane mr-2"></i>
-        <span x-text="selected.length > 0 ? selected.length + ' Account(s) zuweisen & planen' : 'Accounts auswählen'"></span>
+      <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:14px"
+              :disabled="selected.length===0" :style="selected.length===0?'opacity:.5;cursor:not-allowed':''">
+        <i class="fa-solid fa-paper-plane"></i>
+        <span x-text="selected.length>0?selected.length+' Account(s) zuweisen & planen':'Accounts auswählen'"></span>
       </button>
     </form>
 
-    <!-- Already assigned -->
     {% if item.accounts %}
-    <div class="card p-4 mt-4">
-      <h3 class="text-sm font-semibold text-white mb-3">Bereits zugewiesen</h3>
-      <div class="flex flex-wrap gap-2">
+    <div class="card" style="padding:16px 20px;margin-top:14px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:12px">BEREITS ZUGEWIESEN</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
         {% for acc in item.accounts %}
-        <span class="badge bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-3 py-1">
-          {{ acc.name }}
-        </span>
+        <span class="badge badge-blue">{{ acc.name }}</span>
         {% endfor %}
       </div>
     </div>
     {% endif %}
 
     {% else %}
-    <!-- No content selected -->
-    <div class="card py-24 text-center">
-      <div class="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
-        <i class="fa-solid fa-arrows-split-up-and-left text-gray-600 text-3xl"></i>
-      </div>
-      <h2 class="text-lg font-semibold text-white mb-2">Content auswählen</h2>
-      <p class="text-gray-500 text-sm">Wähle links einen Inhalt aus, um ihn auf mehrere Accounts zu verteilen.</p>
+    <div style="text-align:center;padding:80px 20px">
+      <i class="fa-solid fa-arrows-split-up-and-left" style="font-size:40px;color:var(--border);display:block;margin-bottom:16px"></i>
+      <div style="font-size:15px;font-weight:600;color:var(--muted);margin-bottom:6px">Content auswählen</div>
+      <div style="font-size:13px;color:var(--muted)">Wähle links einen Inhalt aus.</div>
     </div>
     {% endif %}
   </div>

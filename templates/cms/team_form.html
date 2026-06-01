@@ -1,27 +1,24 @@
 {% extends "base.html" %}
 {% block title %}Teammitglied hinzufügen — Content OS{% endblock %}
+{% block page_title %}NEUES MITGLIED{% endblock %}
 
 {% block content %}
-<div class="flex items-center gap-2 text-sm text-gray-500 mb-5">
-  <a href="{{ url_for('team') }}" class="hover:text-white">Team</a>
-  <i class="fa-solid fa-chevron-right text-xs text-gray-700"></i>
-  <span class="text-white">Neues Mitglied</span>
+<div style="margin-bottom:20px">
+  <a href="{{ url_for('team') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Team</a>
 </div>
-
-<div class="max-w-lg">
-  <h1 class="text-xl font-bold text-white mb-6">Teammitglied hinzufügen</h1>
-  <form method="post" class="space-y-5">
-    <div class="card p-5 space-y-4">
+<div style="max-width:480px">
+  <form method="post" style="display:flex;flex-direction:column;gap:16px">
+    <div class="card" style="padding:24px;display:flex;flex-direction:column;gap:16px">
       <div>
-        <label class="text-xs text-gray-500 mb-1.5 block">Name *</label>
+        <label class="form-label">Name *</label>
         <input type="text" name="name" required class="input-field" placeholder="Vollständiger Name">
       </div>
       <div>
-        <label class="text-xs text-gray-500 mb-1.5 block">E-Mail *</label>
+        <label class="form-label">E-Mail *</label>
         <input type="email" name="email" required class="input-field" placeholder="name@example.de">
       </div>
       <div>
-        <label class="text-xs text-gray-500 mb-1.5 block">Rolle</label>
+        <label class="form-label">Rolle</label>
         <select name="role" class="select-field">
           <option value="editor">Editor — Inhalte bearbeiten</option>
           <option value="poster">Poster — Veröffentlichen</option>
@@ -31,9 +28,9 @@
         </select>
       </div>
     </div>
-    <div class="flex gap-3">
-      <button type="submit" class="btn-primary"><i class="fa-solid fa-check mr-2"></i>Hinzufügen</button>
-      <a href="{{ url_for('team') }}" class="btn-ghost">Abbrechen</a>
+    <div style="display:flex;gap:10px">
+      <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Hinzufügen</button>
+      <a href="{{ url_for('team') }}" class="btn btn-ghost">Abbrechen</a>
     </div>
   </form>
 </div>

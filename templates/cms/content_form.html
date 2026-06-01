@@ -1,95 +1,103 @@
 {% extends "base.html" %}
 {% block title %}{% if item %}Content bearbeiten{% else %}Neuer Content{% endif %} — Content OS{% endblock %}
+{% block page_title %}{% if item %}CONTENT BEARBEITEN{% else %}NEUER CONTENT{% endif %}{% endblock %}
 
 {% block content %}
-<div class="flex items-center gap-2 text-sm text-gray-500 mb-5">
-  <a href="{{ url_for('content_hub') }}" class="hover:text-white">Content Hub</a>
-  <i class="fa-solid fa-chevron-right text-xs text-gray-700"></i>
-  <span class="text-white">{% if item %}Bearbeiten{% else %}Neuer Content{% endif %}</span>
+<div style="margin-bottom:20px">
+  <a href="{{ url_for('content_hub') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Content Hub</a>
 </div>
 
-<div class="max-w-3xl">
-  <h1 class="text-xl font-bold text-white mb-6">{% if item %}Content bearbeiten{% else %}Neuer Content{% endif %}</h1>
+<div style="max-width:760px;display:flex;flex-direction:column;gap:16px">
+  <form method="post" style="display:contents">
 
-  <form method="post" class="space-y-5">
-    <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-white text-sm">Grunddaten</h2>
-      <div>
-        <label class="text-xs text-gray-500 mb-1.5 block">Titel *</label>
-        <input type="text" name="title" id="titleInput" value="{{ item.title if item else '' }}" required class="input-field" placeholder="Schlagzeile / Titel des Inhalts" autocomplete="off">
-        <div id="dupWarning" class="hidden mt-2 flex items-center gap-2 text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-2">
-          <i class="fa-solid fa-triangle-exclamation"></i>
-          <span>Ähnlicher Inhalt bereits vorhanden — bitte prüfen ob Duplikat.</span>
-        </div>
-      </div>
-      <div class="grid grid-cols-2 gap-4">
+    <div class="card">
+      <div class="card-header"><span class="card-title">GRUNDDATEN</span></div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Kategorie</label>
-          <select name="category_id" class="select-field">
-            <option value="">Keine</option>
-            {% for cat in categories %}
-            <option value="{{ cat.id }}" {% if item and item.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
-            {% endfor %}
-          </select>
+          <label class="form-label">Titel *</label>
+          <input type="text" name="title" id="titleInput" value="{{ item.title if item else '' }}" required
+                 class="input-field" placeholder="Schlagzeile / Titel des Inhalts" autocomplete="off">
+          <div id="dupWarning" style="display:none;margin-top:8px;display:flex;align-items:center;gap:8px;
+               padding:10px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);
+               border-radius:8px;font-size:12px;color:var(--warning)">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            Ähnlicher Inhalt bereits vorhanden — mögliches Duplikat.
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px">
+          <div>
+            <label class="form-label">Kategorie</label>
+            <select name="category_id" class="select-field">
+              <option value="">Keine</option>
+              {% for cat in categories %}
+              <option value="{{ cat.id }}" {% if item and item.category_id==cat.id %}selected{% endif %}>{{ cat.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Typ</label>
+            <select name="content_type" class="select-field">
+              {% for t in ['feed','reel','story','carousel'] %}
+              <option value="{{ t }}" {% if item and item.content_type==t %}selected{% endif %}>{{ t.capitalize() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Status</label>
+            <select name="status" class="select-field">
+              {% for s,l in [('draft','Entwurf'),('in_progress','In Bearbeitung'),('ready','Bereit'),('scheduled','Geplant'),('published','Veröffentlicht'),('archived','Archiviert')] %}
+              <option value="{{ s }}" {% if item and item.status==s %}selected{% endif %}>{{ l }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Quelle</label>
+            <input type="text" name="source_name" value="{{ item.source_name if item else '' }}" class="input-field" placeholder="z.B. BKA, dpa">
+          </div>
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Content-Typ</label>
-          <select name="content_type" class="select-field">
-            {% for t in ['feed','reel','story','carousel'] %}
-            <option value="{{ t }}" {% if item and item.content_type == t %}selected{% endif %}>{{ t.capitalize() }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Status</label>
-          <select name="status" class="select-field">
-            {% for s, label in [('draft','Entwurf'),('in_progress','In Bearbeitung'),('ready','Bereit'),('scheduled','Geplant'),('published','Veröffentlicht'),('archived','Archiviert')] %}
-            <option value="{{ s }}" {% if item and item.status == s %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Quelle</label>
-          <input type="text" name="source_name" value="{{ item.source_name if item else '' }}" class="input-field" placeholder="z.B. BKA, dpa, RSS">
-        </div>
-        <div class="col-span-2">
-          <label class="text-xs text-gray-500 mb-1.5 block">Quell-URL</label>
-          <input type="url" name="source_url" value="{{ item.source_url if item else '' }}" class="input-field" placeholder="https://...">
+          <label class="form-label">Quell-URL</label>
+          <input type="url" name="source_url" value="{{ item.source_url if item else '' }}" class="input-field" placeholder="https://…">
         </div>
       </div>
     </div>
 
-    <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-white text-sm">Inhalt</h2>
-      <div>
-        <label class="text-xs text-gray-500 mb-1.5 block">Rohtext / Artikel</label>
-        <textarea name="raw_text" rows="5" class="input-field resize-none" placeholder="Originaler Text, Artikel oder Zusammenfassung...">{{ item.raw_text if item else '' }}</textarea>
-      </div>
-      <div>
-        <label class="text-xs text-gray-500 mb-1.5 block">Caption (Instagram)</label>
-        <textarea name="caption" rows="6" class="input-field resize-none" placeholder="Finaler Instagram Caption mit Hashtags...">{{ item.caption if item else '' }}</textarea>
+    <div class="card">
+      <div class="card-header"><span class="card-title">INHALT</span></div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label class="form-label">Rohtext / Artikel</label>
+          <textarea name="raw_text" rows="5" class="input-field" style="resize:vertical"
+                    placeholder="Originaler Text, Artikel oder Zusammenfassung…">{{ item.raw_text if item else '' }}</textarea>
+        </div>
+        <div>
+          <label class="form-label">Caption (Instagram)</label>
+          <textarea name="caption" rows="6" class="input-field" style="resize:vertical"
+                    placeholder="Finaler Instagram Caption mit Hashtags…">{{ item.caption if item else '' }}</textarea>
+        </div>
       </div>
     </div>
 
-    <div class="card p-5 space-y-3">
-      <h2 class="font-medium text-white text-sm">Accounts zuordnen</h2>
-      <div class="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+    <div class="card">
+      <div class="card-header"><span class="card-title">ACCOUNTS ZUORDNEN</span></div>
+      <div style="padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;max-height:200px;overflow-y:auto">
         {% for acc in accounts %}
-        <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-white/5 cursor-pointer">
+        <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;transition:background .1s"
+               onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
           <input type="checkbox" name="account_ids" value="{{ acc.id }}"
                  {% if item and acc in item.accounts %}checked{% endif %}
-                 class="w-4 h-4 rounded accent-indigo-500">
-          <span class="text-sm text-gray-300">{{ acc.name }}</span>
+                 style="width:14px;height:14px;accent-color:var(--accent);flex-shrink:0">
+          <span style="font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ acc.name }}</span>
         </label>
         {% endfor %}
       </div>
     </div>
 
-    <div class="flex gap-3">
-      <button type="submit" class="btn-primary">
-        <i class="fa-solid fa-check mr-2"></i>{% if item %}Speichern{% else %}Erstellen{% endif %}
+    <div style="display:flex;gap:10px">
+      <button type="submit" class="btn btn-primary">
+        <i class="fa-solid fa-check"></i> {% if item %}Speichern{% else %}Erstellen{% endif %}
       </button>
-      <a href="{{ url_for('content_hub') }}" class="btn-ghost">Abbrechen</a>
+      <a href="{{ url_for('content_hub') }}" class="btn btn-ghost">Abbrechen</a>
     </div>
   </form>
 </div>
@@ -98,18 +106,18 @@
 {% block scripts %}
 <script>
 let dupTimer;
-document.getElementById('titleInput')?.addEventListener('input', function() {
+const input = document.getElementById('titleInput');
+const warning = document.getElementById('dupWarning');
+input?.addEventListener('input', function() {
   clearTimeout(dupTimer);
-  const val = this.value.trim();
-  if (val.length < 10) { document.getElementById('dupWarning').classList.add('hidden'); return; }
+  if (this.value.trim().length < 10) { warning.style.display='none'; return; }
   dupTimer = setTimeout(async () => {
     const res = await fetch('/api/content/duplicate-check', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({title: val})
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({title: this.value.trim()})
     });
     const d = await res.json();
-    document.getElementById('dupWarning').classList.toggle('hidden', !d.is_duplicate);
+    warning.style.display = d.is_duplicate ? 'flex' : 'none';
   }, 500);
 });
 </script>

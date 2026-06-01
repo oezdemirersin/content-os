@@ -1,240 +1,238 @@
 {% extends "base.html" %}
 {% block title %}{{ account.name }} — Content OS{% endblock %}
+{% block page_title %}{{ account.name | upper }}{% endblock %}
 
 {% block content %}
-<!-- Breadcrumb -->
-<div class="flex items-center gap-2 text-sm text-gray-500 mb-5">
-  <a href="{{ url_for('accounts') }}" class="hover:text-white transition-colors">Accounts</a>
-  <i class="fa-solid fa-chevron-right text-xs text-gray-700"></i>
-  <span class="text-white">{{ account.name }}</span>
-</div>
-
-<!-- Header -->
-<div class="flex items-start justify-between mb-6">
-  <div class="flex items-center gap-4">
-    <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/30 to-purple-500/30 flex items-center justify-center text-2xl font-bold text-indigo-300">
-      {{ account.name[0] }}
-    </div>
-    <div>
-      <div class="flex items-center gap-3">
-        <h1 class="text-2xl font-bold text-white">{{ account.name }}</h1>
-        {% if account.status == 'active' %}
-        <span class="badge bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">Aktiv</span>
-        {% elif account.status == 'paused' %}
-        <span class="badge bg-yellow-500/15 text-yellow-400">Pausiert</span>
-        {% else %}
-        <span class="badge bg-red-500/15 text-red-400">{{ account.status }}</span>
-        {% endif %}
-      </div>
-      <div class="flex items-center gap-3 mt-1 text-sm text-gray-500">
-        {% if account.handle %}<span>{{ account.handle }}</span>{% endif %}
-        {% if account.category %}<span>· {{ account.category.name }}</span>{% endif %}
-        {% if account.platform %}<span>· {{ account.platform.name }}</span>{% endif %}
-      </div>
-    </div>
-  </div>
-  <div class="flex gap-2">
-    <a href="{{ url_for('account_calendar', account_id=account.id) }}" class="btn-ghost">
-      <i class="fa-solid fa-calendar-days mr-2"></i>Kalender
+<!-- Back + Actions -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <a href="{{ url_for('accounts') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Accounts</a>
+  <div style="display:flex;gap:8px">
+    <a href="{{ url_for('account_calendar', account_id=account.id) }}" class="btn btn-ghost">
+      <i class="fa-solid fa-calendar-days"></i> Kalender
     </a>
-    <a href="{{ url_for('ai_config_detail', account_id=account.id) }}" class="btn-ghost">
-      <i class="fa-solid fa-microchip mr-2"></i>KI-Config
+    <a href="{{ url_for('ai_config_detail', account_id=account.id) }}" class="btn btn-ghost">
+      <i class="fa-solid fa-microchip"></i> KI-Config
     </a>
-    <button onclick="document.getElementById('followerModal').classList.remove('hidden')" class="btn-ghost">
-      <i class="fa-solid fa-arrow-up-right-dots mr-2"></i>Follower
+    <button onclick="document.getElementById('followerModal').classList.remove('hidden')" class="btn btn-ghost">
+      <i class="fa-solid fa-arrow-up-right-dots"></i> Follower
     </button>
-    <a href="{{ url_for('account_edit', account_id=account.id) }}" class="btn-primary">
-      <i class="fa-solid fa-pen mr-2"></i>Bearbeiten
+    <a href="{{ url_for('account_edit', account_id=account.id) }}" class="btn btn-primary">
+      <i class="fa-solid fa-pen"></i> Bearbeiten
     </a>
   </div>
 </div>
 
-<!-- KPI Row -->
-<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-  <div class="card p-4">
-    <div class="text-xs text-gray-500 mb-1">Follower</div>
-    <div class="text-xl font-bold text-white">
-      {% set f = account.follower_count %}
-      {% if f >= 1000000 %}{{ "%.1f"|format(f/1000000) }}M
-      {% elif f >= 1000 %}{{ "%.1f"|format(f/1000) }}K
-      {% else %}{{ f }}{% endif %}
+<!-- Account header -->
+<div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">
+  <div style="width:56px;height:56px;border-radius:14px;background:rgba(59,130,246,.12);
+              display:flex;align-items:center;justify-content:center;
+              font-family:var(--font-display);font-size:28px;color:var(--accent2)">
+    {{ account.name[0] }}
+  </div>
+  <div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <h1 style="font-family:var(--font-display);font-size:28px;letter-spacing:1px">{{ account.name }}</h1>
+      {% if account.status == 'active' %}
+      <span class="badge badge-green">Aktiv</span>
+      {% elif account.status == 'paused' %}
+      <span class="badge badge-yellow">Pausiert</span>
+      {% else %}
+      <span class="badge badge-red">{{ account.status }}</span>
+      {% endif %}
     </div>
-  </div>
-  <div class="card p-4">
-    <div class="text-xs text-gray-500 mb-1">Automatisierung</div>
-    <div class="text-xl font-bold text-white">Stufe {{ account.automation_level }}</div>
-  </div>
-  <div class="card p-4">
-    <div class="text-xs text-gray-500 mb-1">Priorität</div>
-    <div class="text-xl font-bold text-white capitalize">{{ account.priority }}</div>
-  </div>
-  <div class="card p-4">
-    <div class="text-xs text-gray-500 mb-1">Posting-Ziel</div>
-    <div class="text-xl font-bold text-white">{{ account.target_feed_per_day }}×/Tag</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:3px">
+      {{ account.handle or '' }}{% if account.handle and account.category %} · {% endif %}
+      {{ account.category.name if account.category else '' }}{% if account.platform %} · {{ account.platform.name }}{% endif %}
+    </div>
   </div>
 </div>
 
-<!-- Per-type stock row -->
-<div class="grid grid-cols-3 gap-4 mb-6">
-  {% for label, days, icon, color in [
-    ('Feed-Vorrat', feed_days, 'fa-image', 'blue'),
-    ('Story-Vorrat', story_days, 'fa-circle', 'pink'),
-    ('Reels geplant', reel_count, 'fa-film', 'purple'),
-  ] %}
-  <div class="card p-4">
-    <div class="flex items-center gap-2 mb-2">
-      <i class="fa-solid {{ icon }} text-{{ color }}-400 text-xs"></i>
-      <span class="text-xs text-gray-500">{{ label }}</span>
-    </div>
-    {% if loop.index < 3 %}
-    <div class="text-2xl font-bold stock-{% if days >= 14 %}green{% elif days >= 7 %}yellow{% elif days >= 3 %}orange{% else %}red{% endif %}">{{ days }}T</div>
-    <div class="mt-2 h-1.5 bg-white/5 rounded-full">
-      <div class="h-full rounded-full {% if days >= 14 %}bg-emerald-400{% elif days >= 7 %}bg-yellow-400{% elif days >= 3 %}bg-orange-400{% else %}bg-red-400{% endif %}"
-           style="width: {{ [days / 14 * 100, 100]|min }}%"></div>
-    </div>
-    {% else %}
-    <div class="text-2xl font-bold text-purple-400">{{ days }}</div>
-    {% endif %}
-  </div>
-  {% endfor %}
-</div>
-
-<!-- Account alerts -->
+<!-- Alerts -->
 {% if account_alerts %}
-<div class="space-y-2 mb-5">
+<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
   {% for alert in account_alerts %}
-  <div class="flex items-center gap-3 px-4 py-3 rounded-xl
-    {% if alert.severity == 'critical' %}bg-red-500/10 border border-red-500/20
-    {% else %}bg-yellow-500/10 border border-yellow-500/20{% endif %}">
-    <i class="fa-solid fa-triangle-exclamation {% if alert.severity == 'critical' %}text-red-400{% else %}text-yellow-400{% endif %} text-sm flex-shrink-0"></i>
-    <span class="text-sm {% if alert.severity == 'critical' %}text-red-300{% else %}text-yellow-300{% endif %}">{{ alert.message }}</span>
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:10px;
+    {% if alert.severity=='critical' %}background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2)
+    {% else %}background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2){% endif %}">
+    <i class="fa-solid fa-triangle-exclamation" style="font-size:13px;
+      color:{% if alert.severity=='critical' %}var(--danger){% else %}var(--warning){% endif %}"></i>
+    <span style="font-size:13px;
+      color:{% if alert.severity=='critical' %}#fca5a5{% else %}#fcd34d{% endif %}">{{ alert.message }}</span>
   </div>
   {% endfor %}
 </div>
 {% endif %}
 
-<div class="grid grid-cols-12 gap-5">
-  <!-- Follower Chart -->
-  <div class="col-span-12 lg:col-span-8 card p-5">
-    <h2 class="font-semibold text-white mb-4">Follower-Entwicklung (30 Tage)</h2>
-    <div class="h-48 relative">
+<!-- KPIs -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px">
+  <div class="stat-card">
+    <div class="stat-label">Follower</div>
+    <div class="stat-value blue">
+      {% set f = account.follower_count %}
+      {% if f >= 1000000 %}{{ "%.1f"|format(f/1000000) }}M
+      {% elif f >= 1000 %}{{ "%.0f"|format(f/1000) }}K
+      {% else %}{{ f }}{% endif %}
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Automation</div>
+    <div class="stat-value blue">Stufe {{ account.automation_level }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Priorität</div>
+    <div class="stat-value" style="color:{% if account.priority=='critical' %}var(--danger){% elif account.priority=='high' %}var(--warning){% else %}var(--accent2){% endif %}">
+      {{ {'critical':'KRITISCH','high':'HOCH','medium':'MITTEL','low':'NIEDRIG'}.get(account.priority,'—') }}
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Posting-Ziel</div>
+    <div class="stat-value blue">{{ account.target_feed_per_day }}×</div>
+    <div class="stat-sub">pro Tag</div>
+  </div>
+</div>
+
+<!-- Stock per type -->
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
+  {% for label,days,icon in [('Feed-Vorrat',feed_days,'fa-image'),('Story-Vorrat',story_days,'fa-circle'),('Reels geplant',reel_count,'fa-film')] %}
+  <div class="stat-card" style="display:flex;align-items:center;gap:14px">
+    <i class="fa-solid {{ icon }}" style="font-size:20px;color:var(--muted)"></i>
+    <div>
+      <div class="stat-label">{{ label }}</div>
+      {% if loop.index < 3 %}
+      <div style="font-family:var(--font-display);font-size:28px;line-height:1;
+        color:{% if days >= 14 %}var(--success){% elif days >= 7 %}var(--warning){% elif days >= 3 %}#f97316{% else %}var(--danger){% endif %}">
+        {{ days }}T
+      </div>
+      {% else %}
+      <div style="font-family:var(--font-display);font-size:28px;line-height:1;color:var(--accent2)">{{ days }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Chart + Details -->
+<div style="display:grid;grid-template-columns:1fr 320px;gap:20px;margin-bottom:20px">
+  <div class="card">
+    <div class="card-header"><span class="card-title">FOLLOWER-ENTWICKLUNG (30 TAGE)</span></div>
+    <div style="padding:20px;height:220px;position:relative">
       <canvas id="accChart"></canvas>
     </div>
   </div>
-
-  <!-- Info Panel -->
-  <div class="col-span-12 lg:col-span-4 card p-5 space-y-4">
-    <h2 class="font-semibold text-white">Details</h2>
-    <div class="space-y-3">
-      <div class="flex justify-between text-sm">
-        <span class="text-gray-500">Plattform</span>
-        <span class="text-white">{{ account.platform.name if account.platform else '—' }}</span>
+  <div class="card">
+    <div class="card-header"><span class="card-title">DETAILS</span></div>
+    <div style="padding:4px 0">
+      {% for label, value in [
+        ('Plattform', account.platform.name if account.platform else '—'),
+        ('Feed / Tag', account.target_feed_per_day),
+        ('Story / Tag', account.target_story_per_day),
+        ('Mindestvorrat', account.min_stock_days|string + ' Tage'),
+        ('Optimalvorrat', account.optimal_stock_days|string + ' Tage'),
+      ] %}
+      <div style="display:flex;justify-content:space-between;padding:11px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-size:12px;color:var(--muted)">{{ label }}</span>
+        <span style="font-size:13px;font-weight:600;color:var(--text)">{{ value }}</span>
       </div>
-      <div class="flex justify-between text-sm">
-        <span class="text-gray-500">Feed / Tag</span>
-        <span class="text-white">{{ account.target_feed_per_day }}</span>
-      </div>
-      <div class="flex justify-between text-sm">
-        <span class="text-gray-500">Story / Tag</span>
-        <span class="text-white">{{ account.target_story_per_day }}</span>
-      </div>
-      <div class="flex justify-between text-sm">
-        <span class="text-gray-500">Mindestvorrat</span>
-        <span class="text-white">{{ account.min_stock_days }} Tage</span>
-      </div>
-      <div class="flex justify-between text-sm">
-        <span class="text-gray-500">Optimalvorrat</span>
-        <span class="text-white">{{ account.optimal_stock_days }} Tage</span>
-      </div>
+      {% endfor %}
       {% if account.notes %}
-      <div class="pt-2 border-t border-white/5">
-        <div class="text-xs text-gray-500 mb-1">Notizen</div>
-        <p class="text-sm text-gray-300">{{ account.notes }}</p>
+      <div style="padding:14px 20px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px">Notizen</div>
+        <div style="font-size:13px;color:var(--text)">{{ account.notes }}</div>
       </div>
       {% endif %}
     </div>
   </div>
+</div>
 
-  <!-- Upcoming Posts -->
-  <div class="col-span-12 card">
-    <div class="flex items-center justify-between p-5 border-b border-white/5">
-      <h2 class="font-semibold text-white">Geplante Posts</h2>
-      <span class="text-xs text-gray-500">{{ upcoming|length }} geplant</span>
-    </div>
-    {% if upcoming %}
-    <div class="divide-y divide-white/5">
+<!-- Upcoming Posts -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">GEPLANTE POSTS</span>
+    <span style="font-size:12px;color:var(--muted)">{{ upcoming|length }} geplant</span>
+  </div>
+  {% if upcoming %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Datum</th>
+        <th>Typ</th>
+        <th>Caption</th>
+        <th style="text-align:center">Status</th>
+      </tr>
+    </thead>
+    <tbody>
       {% for post in upcoming %}
-      <div class="flex items-center gap-4 px-5 py-3.5">
-        <div class="w-14 text-center flex-shrink-0">
-          <div class="text-lg font-bold text-white">{{ post.scheduled_at.strftime('%d') }}</div>
-          <div class="text-xs text-gray-600">{{ post.scheduled_at.strftime('%b %H:%M') }}</div>
-        </div>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2">
-            <span class="badge bg-indigo-500/15 text-indigo-400 text-xs">{{ post.post_type.upper() }}</span>
-            <span class="badge
-              {% if post.status == 'scheduled' %}bg-blue-500/15 text-blue-400
-              {% elif post.status == 'published' %}bg-emerald-500/15 text-emerald-400
-              {% else %}bg-gray-500/15 text-gray-400{% endif %} text-xs">
-              {{ post.status }}
-            </span>
-          </div>
-          {% if post.caption %}
-          <p class="text-sm text-gray-400 mt-1 truncate">{{ post.caption }}</p>
-          {% endif %}
-        </div>
-      </div>
+      <tr>
+        <td>
+          <div style="font-family:var(--font-display);font-size:18px;line-height:1;color:var(--text)">{{ post.scheduled_at.strftime('%d') }}</div>
+          <div style="font-size:11px;color:var(--muted)">{{ post.scheduled_at.strftime('%b %H:%M') }}</div>
+        </td>
+        <td><span class="badge badge-blue" style="text-transform:uppercase">{{ post.post_type }}</span></td>
+        <td style="max-width:320px">
+          <span style="font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">
+            {{ post.caption or '—' }}
+          </span>
+        </td>
+        <td style="text-align:center">
+          <span class="badge {% if post.status=='scheduled' %}badge-blue{% elif post.status=='published' %}badge-green{% else %}badge-gray{% endif %}">
+            {{ post.status }}
+          </span>
+        </td>
+      </tr>
       {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="padding:48px;text-align:center">
+    <i class="fa-solid fa-calendar-xmark" style="font-size:28px;color:var(--border);display:block;margin-bottom:10px"></i>
+    <div style="color:var(--muted);font-size:13px">Keine geplanten Posts</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Follower Modal -->
+<div id="followerModal" class="hidden" style="position:fixed;inset:0;z-index:200;
+     display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:380px;margin:20px;padding:28px;box-shadow:0 24px 64px rgba(0,0,0,.5)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <span style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">FOLLOWER AKTUALISIEREN</span>
+      <button onclick="document.getElementById('followerModal').classList.add('hidden')"
+              style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">&times;</button>
     </div>
-    {% else %}
-    <div class="py-12 text-center">
-      <i class="fa-solid fa-calendar-xmark text-gray-700 text-3xl mb-3"></i>
-      <p class="text-gray-500">Keine geplanten Posts</p>
+    <label class="form-label">Neue Followerzahl</label>
+    <input type="number" id="newFollowerCount" value="{{ account.follower_count }}" min="0"
+           class="input-field" style="font-size:18px;font-weight:700;margin-bottom:8px">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">
+      Aktuell: <strong style="color:var(--text)">{{ account.follower_count | int | string }}</strong>
     </div>
-    {% endif %}
+    <div style="display:flex;gap:10px">
+      <button onclick="updateFollowers({{ account.id }})" class="btn btn-primary" style="flex:1">
+        <i class="fa-solid fa-check"></i> Speichern & Snapshot
+      </button>
+      <button onclick="document.getElementById('followerModal').classList.add('hidden')" class="btn btn-ghost">Abbrechen</button>
+    </div>
   </div>
 </div>
 {% endblock %}
-
-<!-- Follower Update Modal -->
-<div id="followerModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-  <div class="bg-[#1c1c27] border border-white/10 rounded-2xl w-full max-w-sm mx-4 shadow-2xl p-6">
-    <div class="flex items-center justify-between mb-5">
-      <h2 class="font-semibold text-white">Follower aktualisieren</h2>
-      <button onclick="document.getElementById('followerModal').classList.add('hidden')" class="text-gray-500 hover:text-white text-xl">&times;</button>
-    </div>
-    <div class="mb-4">
-      <label class="text-xs text-gray-500 mb-1.5 block">Neue Followerzahl</label>
-      <input type="number" id="newFollowerCount" value="{{ account.follower_count }}" min="0"
-             class="input-field text-lg font-bold">
-      <p class="text-xs text-gray-600 mt-1">Aktuell: <span class="text-white">{{ account.follower_count | int | string }}</span></p>
-    </div>
-    <div class="flex gap-3">
-      <button onclick="updateFollowers({{ account.id }})" class="btn-primary flex-1">
-        <i class="fa-solid fa-check mr-2"></i>Speichern & Snapshot
-      </button>
-      <button onclick="document.getElementById('followerModal').classList.add('hidden')" class="btn-ghost">Abbrechen</button>
-    </div>
-  </div>
-</div>
 
 {% block scripts %}
 <script>
 async function updateFollowers(accountId) {
   const count = parseInt(document.getElementById('newFollowerCount').value);
-  if (isNaN(count) || count < 0) { alert('Ungültige Zahl'); return; }
+  if (isNaN(count)||count<0) return;
   const res = await fetch(`/api/accounts/${accountId}/update-followers`, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({follower_count: count})
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({follower_count:count})
   });
   const d = await res.json();
   if (d.ok) {
     document.getElementById('followerModal').classList.add('hidden');
-    const flash = document.createElement('div');
-    flash.className = 'fixed top-20 right-6 z-50 flex items-center gap-2 px-4 py-3 bg-emerald-500/15 border border-emerald-500/30 rounded-xl text-emerald-400 text-sm shadow-xl';
-    flash.innerHTML = `<i class="fa-solid fa-check-circle"></i> Follower: ${d.old.toLocaleString('de-DE')} → ${d.new.toLocaleString('de-DE')}`;
-    document.body.appendChild(flash);
-    setTimeout(() => { flash.remove(); location.reload(); }, 2000);
+    const f=document.createElement('div');
+    f.style.cssText='position:fixed;top:80px;right:24px;z-index:300;display:flex;align-items:center;gap:8px;padding:12px 20px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.2);border-radius:10px;font-size:13px;color:#22c55e;font-weight:600;box-shadow:0 8px 32px rgba(0,0,0,.4)';
+    f.innerHTML='<i class="fa-solid fa-check-circle"></i> Follower aktualisiert';
+    document.body.appendChild(f);
+    setTimeout(()=>{f.remove();location.reload();},2000);
   }
 }
 </script>
@@ -242,18 +240,18 @@ async function updateFollowers(accountId) {
 const labels = {{ chart_labels|safe }};
 const data = {{ chart_data|safe }};
 const ctx = document.getElementById('accChart').getContext('2d');
-const gradient = ctx.createLinearGradient(0, 0, 0, 180);
-gradient.addColorStop(0, 'rgba(99,102,241,0.25)');
-gradient.addColorStop(1, 'rgba(99,102,241,0)');
+const grad = ctx.createLinearGradient(0,0,0,200);
+grad.addColorStop(0,'rgba(59,130,246,0.25)');
+grad.addColorStop(1,'rgba(59,130,246,0)');
 new Chart(ctx, {
-  type: 'line',
-  data: { labels, datasets: [{ data, borderColor: '#6366f1', backgroundColor: gradient, borderWidth: 2, tension: 0.4, fill: true, pointRadius: 0 }] },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } },
-      y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { callback: v => v >= 1000 ? (v/1000).toFixed(0)+'K' : v } }
+  type:'line',
+  data:{labels,datasets:[{data,borderColor:'#3b82f6',backgroundColor:grad,borderWidth:2,tension:.4,fill:true,pointRadius:0}]},
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{grid:{display:false},ticks:{maxTicksLimit:6}},
+      y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v}}
     }
   }
 });

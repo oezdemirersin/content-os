@@ -1,71 +1,71 @@
 {% extends "base.html" %}
 {% block title %}Neue Automatisierung — Content OS{% endblock %}
+{% block page_title %}NEUE AUTOMATISIERUNG{% endblock %}
 
 {% block content %}
-<div class="flex items-center gap-2 text-sm text-gray-500 mb-5">
-  <a href="{{ url_for('automation') }}" class="hover:text-white">Automatisierung</a>
-  <i class="fa-solid fa-chevron-right text-xs text-gray-700"></i>
-  <span class="text-white">Neue Regel</span>
+<div style="margin-bottom:20px">
+  <a href="{{ url_for('automation') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Automatisierung</a>
 </div>
 
-<div class="max-w-2xl">
-  <h1 class="text-xl font-bold text-white mb-6">Neue Automatisierungsregel</h1>
+<div style="max-width:640px;display:flex;flex-direction:column;gap:16px">
+  <form method="post" style="display:contents">
 
-  <form method="post" class="space-y-5">
-    <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-white text-sm">Grundkonfiguration</h2>
-      <div>
-        <label class="text-xs text-gray-500 mb-1.5 block">Name *</label>
-        <input type="text" name="name" required class="input-field" placeholder="z.B. Frankfurt News RSS">
+    <div class="card">
+      <div class="card-header"><span class="card-title">GRUNDKONFIGURATION</span></div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label class="form-label">Name *</label>
+          <input type="text" name="name" required class="input-field" placeholder="z.B. Frankfurt RSS">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+          <div>
+            <label class="form-label">Typ</label>
+            <select name="rule_type" class="select-field">
+              <option value="rss">RSS-Feed</option>
+              <option value="city_news">Stadt-News</option>
+              <option value="food_warning">Lebensmittelwarnung</option>
+              <option value="confession">Beichten</option>
+              <option value="meme">Meme</option>
+              <option value="reddit">Reddit</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Account</label>
+            <select name="account_id" class="select-field">
+              <option value="">Alle / Kein</option>
+              {% for acc in accounts %}
+              <option value="{{ acc.id }}">{{ acc.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Intervall (Minuten)</label>
+            <input type="number" name="run_interval_minutes" value="60" min="5" class="input-field">
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" name="active" id="active" checked style="width:16px;height:16px;accent-color:var(--accent)">
+          <label for="active" style="font-size:13px;color:var(--text);cursor:pointer">Direkt aktivieren</label>
+        </div>
       </div>
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Typ</label>
-          <select name="rule_type" class="select-field">
-            <option value="rss">RSS-Feed</option>
-            <option value="city_news">Stadt-News</option>
-            <option value="food_warning">Lebensmittelwarnung</option>
-            <option value="confession">Beichten</option>
-            <option value="meme">Meme</option>
-            <option value="reddit">Reddit</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-        <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Account</label>
-          <select name="account_id" class="select-field">
-            <option value="">Alle / Kein spezifischer</option>
-            {% for acc in accounts %}
-            <option value="{{ acc.id }}">{{ acc.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Intervall (Minuten)</label>
-          <input type="number" name="run_interval_minutes" value="60" min="5" class="input-field">
-        </div>
-        <div class="flex items-center gap-3 pt-5">
-          <input type="checkbox" name="active" id="active" checked class="w-4 h-4 rounded accent-indigo-500">
-          <label for="active" class="text-sm text-gray-300">Direkt aktivieren</label>
-        </div>
-      </div>
     </div>
 
-    <div class="card p-5 space-y-3">
-      <h2 class="font-medium text-white text-sm">Quellen-Konfiguration (JSON)</h2>
-      <p class="text-xs text-gray-500">Konfiguriere Quellen und Parameter als JSON-Objekt.</p>
-      <textarea name="source_config" rows="5" class="input-field resize-none font-mono text-xs" placeholder='{"url": "https://example.com/rss", "keywords": ["Frankfurt", "Nachrichten"]}'>{}</textarea>
+    <div class="card" style="padding:20px">
+      <label class="form-label">Quellen-Konfiguration (JSON)</label>
+      <textarea name="source_config" rows="5" class="input-field" style="resize:vertical;font-family:monospace;font-size:12px"
+                placeholder='{"url": "https://example.com/rss", "keywords": ["Frankfurt"]}'>{}</textarea>
     </div>
 
-    <div class="card p-5 space-y-3">
-      <h2 class="font-medium text-white text-sm">Aktionen-Konfiguration (JSON)</h2>
-      <p class="text-xs text-gray-500">Was soll nach dem Sammeln passieren?</p>
-      <textarea name="action_config" rows="5" class="input-field resize-none font-mono text-xs" placeholder='{"generate_caption": true, "auto_schedule": false, "notify_team": true}'>{}</textarea>
+    <div class="card" style="padding:20px">
+      <label class="form-label">Aktionen-Konfiguration (JSON)</label>
+      <textarea name="action_config" rows="4" class="input-field" style="resize:vertical;font-family:monospace;font-size:12px"
+                placeholder='{"generate_caption": true, "auto_schedule": false}'>{}</textarea>
     </div>
 
-    <div class="flex gap-3">
-      <button type="submit" class="btn-primary"><i class="fa-solid fa-check mr-2"></i>Erstellen</button>
-      <a href="{{ url_for('automation') }}" class="btn-ghost">Abbrechen</a>
+    <div style="display:flex;gap:10px">
+      <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Erstellen</button>
+      <a href="{{ url_for('automation') }}" class="btn btn-ghost">Abbrechen</a>
     </div>
   </form>
 </div>

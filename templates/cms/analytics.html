@@ -1,179 +1,148 @@
 {% extends "base.html" %}
 {% block title %}Analytics — Content OS{% endblock %}
+{% block page_title %}ANALYTICS{% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-xl font-bold text-white">Analytics</h1>
-    <p class="text-sm text-gray-500 mt-0.5">Wachstum & Performance deines Netzwerks</p>
-  </div>
-  <div class="flex gap-2 items-center">
-    <div class="flex gap-1" id="periodBtns">
-      {% for d, label in [(7,'7T'),(30,'30T'),(90,'90T')] %}
-      <button onclick="loadGrowth({{ d }}, this)"
-              class="px-3 py-1.5 text-xs rounded-lg transition-colors {% if d == 30 %}bg-indigo-600 text-white{% else %}text-gray-500 hover:text-white hover:bg-white/5{% endif %}">
-        {{ label }}
-      </button>
-      {% endfor %}
-    </div>
-    <a href="{{ url_for('analytics_export') }}" class="btn-ghost text-xs">
-      <i class="fa-solid fa-download mr-2"></i>CSV Export
-    </a>
-  </div>
-</div>
-
 <!-- KPIs -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-  <div class="card p-5">
-    <div class="text-xs text-gray-500 mb-1">Gesamt-Follower</div>
-    <div class="text-2xl font-bold text-white">
-      {% if total_followers >= 1000000 %}{{ "%.1f"|format(total_followers/1000000) }}M
-      {% elif total_followers >= 1000 %}{{ "%.1f"|format(total_followers/1000) }}K
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
+  <div class="stat-card">
+    <div class="stat-label">Gesamt-Follower</div>
+    <div class="stat-value blue">
+      {% if total_followers>=1000000 %}{{ "%.1f"|format(total_followers/1000000) }}M
+      {% elif total_followers>=1000 %}{{ "%.0f"|format(total_followers/1000) }}K
       {% else %}{{ total_followers }}{% endif %}
     </div>
   </div>
-  <div class="card p-5">
-    <div class="text-xs text-gray-500 mb-1">Aktive Accounts</div>
-    <div class="text-2xl font-bold text-white">{{ accounts|length }}</div>
+  <div class="stat-card">
+    <div class="stat-label">Aktive Accounts</div>
+    <div class="stat-value blue">{{ accounts|length }}</div>
   </div>
-  <div class="card p-5">
-    <div class="text-xs text-gray-500 mb-1">Größter Account</div>
+  <div class="stat-card">
+    <div class="stat-label">Größter Account</div>
     {% if accounts %}
-    <div class="text-lg font-bold text-white truncate">{{ accounts[0].name }}</div>
-    <div class="text-xs text-gray-500">{{ "%.0f"|format(accounts[0].follower_count/1000) }}K Follower</div>
+    <div class="stat-value blue" style="font-size:24px;line-height:1.1">{{ accounts[0].name }}</div>
+    <div class="stat-sub">{{ "%.0f"|format(accounts[0].follower_count/1000) }}K Follower</div>
     {% endif %}
   </div>
-  <div class="card p-5">
-    <div class="text-xs text-gray-500 mb-1">Kategorien</div>
-    <div class="text-2xl font-bold text-white">{{ cat_stats|length }}</div>
+  <div class="stat-card">
+    <div class="stat-label">Kategorien</div>
+    <div class="stat-value blue">{{ cat_stats|length }}</div>
+    <div style="display:flex;gap:4px;margin-top:8px">
+      <a href="{{ url_for('analytics_export') }}" class="btn btn-ghost" style="font-size:11px;padding:5px 12px">
+        <i class="fa-solid fa-download"></i> CSV
+      </a>
+    </div>
   </div>
 </div>
 
-<div class="grid grid-cols-12 gap-5 mb-5">
-  <!-- Growth Chart -->
-  <div class="col-span-12 lg:col-span-8 card p-5">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="font-semibold text-white">Follower-Wachstum</h2>
-      <div class="flex items-center gap-2">
-        <select id="accountFilter" onchange="reloadChart()" class="select-field text-xs max-w-[160px]">
+<!-- Charts row -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+  <!-- Growth chart -->
+  <div class="card" style="grid-column:1/3">
+    <div class="card-header">
+      <span class="card-title">FOLLOWER-WACHSTUM</span>
+      <div style="display:flex;align-items:center;gap:12px">
+        <select id="accFilter" onchange="reloadChart()"
+                style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;
+                       padding:5px 10px;font-size:12px;color:var(--muted);font-family:var(--font-body)">
           <option value="">Alle Accounts</option>
           {% for acc in accounts %}
           <option value="{{ acc.id }}">{{ acc.name }}</option>
           {% endfor %}
         </select>
-        <label class="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
-          <input type="checkbox" id="forecastToggle" onchange="reloadChart()" class="accent-indigo-500">
-          Prognose
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">
+          <input type="checkbox" id="forecastToggle" onchange="reloadChart()" style="accent-color:var(--accent)"> Prognose
         </label>
+        <div style="display:flex;gap:4px" id="periodBtns">
+          {% for d,label in [(7,'7T'),(30,'30T'),(90,'90T')] %}
+          <button onclick="loadGrowth({{ d }},this)"
+                  style="padding:4px 12px;border-radius:20px;border:1px solid var(--border);
+                         background:{% if d==30 %}var(--accent){% else %}transparent{% endif %};
+                         color:{% if d==30 %}white{% else %}var(--muted){% endif %};
+                         font-family:var(--font-body);font-size:11px;font-weight:700;cursor:pointer;transition:all .15s">{{ label }}</button>
+          {% endfor %}
+        </div>
       </div>
     </div>
-    <div class="h-64 relative">
-      <canvas id="growthChart"></canvas>
-    </div>
+    <div style="padding:20px;height:240px;position:relative"><canvas id="growthChart"></canvas></div>
   </div>
+</div>
 
-  <!-- Category breakdown -->
-  <div class="col-span-12 lg:col-span-4 card p-5">
-    <h2 class="font-semibold text-white mb-4">Nach Kategorie</h2>
-    <div class="space-y-3">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+  <!-- Daily delta -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">TÄGLICHES WACHSTUM</span>
+      <span style="font-size:11px;color:var(--muted)">Follower-Delta</span>
+    </div>
+    <div style="padding:20px;height:180px;position:relative"><canvas id="deltaChart"></canvas></div>
+  </div>
+  <!-- Engagement -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">ENGAGEMENT-RATE</span>
+      <span style="font-size:11px;color:var(--muted)">Ø alle Accounts</span>
+    </div>
+    <div style="padding:20px;height:180px;position:relative"><canvas id="engChart"></canvas></div>
+  </div>
+</div>
+
+<!-- Category comparison -->
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header"><span class="card-title">KATEGORIE-VERGLEICH</span></div>
+  <div style="padding:20px;height:200px;position:relative"><canvas id="catChart"></canvas></div>
+</div>
+
+<!-- Category breakdown -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+  <div class="card">
+    <div class="card-header"><span class="card-title">NACH KATEGORIE</span></div>
+    <div style="padding:4px 0">
       {% for cat in cat_stats %}
-      <div>
-        <div class="flex justify-between text-sm mb-1">
-          <span class="text-gray-300">{{ cat.name }}</span>
-          <span class="text-gray-500">{{ cat.pct }}%</span>
+      <div style="padding:12px 20px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span style="font-size:13px;font-weight:600;color:var(--text)">{{ cat.name }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ cat.pct }}% · {{ cat.accounts }} Accounts</span>
         </div>
-        <div class="h-1.5 bg-white/5 rounded-full">
-          <div class="h-full rounded-full" style="width:{{ cat.pct }}%; background:{{ cat.color }}"></div>
+        <div style="height:4px;background:var(--surface2);border-radius:4px">
+          <div style="height:100%;border-radius:4px;background:{{ cat.color }};width:{{ cat.pct }}%;transition:width .5s"></div>
         </div>
-        <div class="text-xs text-gray-600 mt-0.5">
-          {% if cat.followers >= 1000 %}{{ "%.0f"|format(cat.followers/1000) }}K{% else %}{{ cat.followers }}{% endif %}
-          Follower · {{ cat.accounts }} Accounts
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">
+          {% if cat.followers>=1000000 %}{{ "%.1f"|format(cat.followers/1000000) }}M
+          {% elif cat.followers>=1000 %}{{ "%.0f"|format(cat.followers/1000) }}K
+          {% else %}{{ cat.followers }}{% endif %} Follower
         </div>
       </div>
       {% endfor %}
     </div>
   </div>
-</div>
 
-<!-- Daily Growth + Engagement Row -->
-<div class="grid grid-cols-12 gap-5 mb-5">
-  <div class="col-span-12 lg:col-span-7 card p-5">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="font-semibold text-white">Tägliches Wachstum</h2>
-      <span class="text-xs text-gray-500">Follower-Delta pro Tag</span>
-    </div>
-    <div class="h-40 relative">
-      <canvas id="deltaChart"></canvas>
-    </div>
-  </div>
-  <div class="col-span-12 lg:col-span-5 card p-5">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="font-semibold text-white">Engagement-Rate</h2>
-      <span class="text-xs text-gray-500">Ø alle Accounts</span>
-    </div>
-    <div class="h-40 relative">
-      <canvas id="engChart"></canvas>
-    </div>
-  </div>
-</div>
-
-<!-- Category Comparison -->
-<div class="card p-5 mb-5">
-  <h2 class="font-semibold text-white mb-4">Kategorie-Vergleich</h2>
-  <div class="h-48 relative">
-    <canvas id="catChart"></canvas>
-  </div>
-</div>
-
-<!-- Account Table -->
-<div class="card overflow-hidden">
-  <div class="p-5 border-b border-white/5 flex items-center justify-between">
-    <h2 class="font-semibold text-white">Account-Ranking</h2>
-    <span class="text-xs text-gray-500">Nach Follower</span>
-  </div>
-  <table class="w-full">
-    <thead>
-      <tr class="border-b border-white/5">
-        <th class="text-left text-xs font-medium text-gray-500 px-5 py-3">#</th>
-        <th class="text-left text-xs font-medium text-gray-500 px-4 py-3">Account</th>
-        <th class="text-left text-xs font-medium text-gray-500 px-4 py-3 hidden md:table-cell">Kategorie</th>
-        <th class="text-right text-xs font-medium text-gray-500 px-4 py-3">Follower</th>
-        <th class="text-right text-xs font-medium text-gray-500 px-4 py-3 hidden lg:table-cell">Anteil</th>
-        <th class="text-center text-xs font-medium text-gray-500 px-5 py-3 hidden lg:table-cell">Vorrat</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-white/5">
-      {% for acc in accounts %}
-      <tr class="hover:bg-white/2 transition-colors">
-        <td class="px-5 py-3 text-sm text-gray-600 font-medium">{{ loop.index }}</td>
-        <td class="px-4 py-3">
-          <a href="{{ url_for('account_detail', account_id=acc.id) }}" class="flex items-center gap-3 hover:text-indigo-300 transition-colors">
-            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center text-xs font-bold text-indigo-300">{{ acc.name[0] }}</div>
-            <span class="text-sm font-medium text-white">{{ acc.name }}</span>
-          </a>
-        </td>
-        <td class="px-4 py-3 hidden md:table-cell">
-          {% if acc.category %}
-          <span class="text-xs" style="color:{{ acc.category.color }}">{{ acc.category.name }}</span>
-          {% else %}<span class="text-gray-600">—</span>{% endif %}
-        </td>
-        <td class="px-4 py-3 text-right">
-          <span class="text-sm font-semibold text-white">
-            {% if acc.follower_count >= 1000000 %}{{ "%.1f"|format(acc.follower_count/1000000) }}M
-            {% elif acc.follower_count >= 1000 %}{{ "%.1f"|format(acc.follower_count/1000) }}K
+  <!-- Account ranking -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">ACCOUNT-RANKING</span></div>
+    <div style="padding:4px 0">
+      {% for acc in accounts[:10] %}
+      <a href="{{ url_for('account_detail', account_id=acc.id) }}"
+         style="display:flex;align-items:center;gap:12px;padding:10px 20px;
+                border-bottom:1px solid var(--border);text-decoration:none;transition:background .1s"
+         onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+        <span style="font-family:var(--font-display);font-size:16px;color:var(--muted);width:24px;flex-shrink:0">{{ loop.index }}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ acc.name }}</div>
+          {% if acc.category %}<div style="font-size:11px;color:{{ acc.category.color }}">{{ acc.category.name }}</div>{% endif %}
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-family:var(--font-display);font-size:16px;color:var(--text)">
+            {% if acc.follower_count>=1000000 %}{{ "%.1f"|format(acc.follower_count/1000000) }}M
+            {% elif acc.follower_count>=1000 %}{{ "%.0f"|format(acc.follower_count/1000) }}K
             {% else %}{{ acc.follower_count }}{% endif %}
-          </span>
-        </td>
-        <td class="px-4 py-3 text-right hidden lg:table-cell">
-          <span class="text-xs text-gray-500">{{ "%.1f"|format(acc.follower_count / total_followers * 100 if total_followers else 0) }}%</span>
-        </td>
-        <td class="px-5 py-3 text-center hidden lg:table-cell">
-          <span class="text-xs font-medium stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</span>
-        </td>
-      </tr>
+          </div>
+          <div style="font-size:10px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
+        </div>
+      </a>
       {% endfor %}
-    </tbody>
-  </table>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
@@ -184,156 +153,64 @@ let growthChart, currentDays = 30;
 async function loadGrowth(days, btn) {
   currentDays = days || currentDays;
   document.querySelectorAll('#periodBtns button').forEach(b => {
-    b.className = 'px-3 py-1.5 text-xs rounded-lg transition-colors text-gray-500 hover:text-white hover:bg-white/5';
+    b.style.background='transparent'; b.style.color='var(--muted)'; b.style.borderColor='var(--border)';
   });
-  if (btn) btn.className = 'px-3 py-1.5 text-xs rounded-lg transition-colors bg-indigo-600 text-white';
+  if (btn) { btn.style.background='var(--accent)'; btn.style.color='white'; btn.style.borderColor='var(--accent)'; }
 
-  const accountId = document.getElementById('accountFilter').value;
-  const withForecast = document.getElementById('forecastToggle').checked;
-  let url = `/api/analytics/growth?days=${currentDays}`;
-  if (accountId) url += `&account_id=${accountId}`;
-  if (withForecast) url += `&forecast=1`;
-
-  const res = await fetch(url);
-  const d = await res.json();
+  const accId = document.getElementById('accFilter').value;
+  const fc = document.getElementById('forecastToggle').checked;
+  let url = `/api/analytics/growth?days=${currentDays}${accId?'&account_id='+accId:''}${fc?'&forecast=1':''}`;
+  const d = await (await fetch(url)).json();
 
   const ctx = document.getElementById('growthChart').getContext('2d');
-  const gradient = ctx.createLinearGradient(0, 0, 0, 250);
-  gradient.addColorStop(0, 'rgba(99,102,241,0.25)');
-  gradient.addColorStop(1, 'rgba(99,102,241,0)');
+  const grad = ctx.createLinearGradient(0,0,0,240);
+  grad.addColorStop(0,'rgba(59,130,246,.25)'); grad.addColorStop(1,'rgba(59,130,246,0)');
 
-  const allLabels = withForecast ? [...d.labels, ...(d.forecast_labels || [])] : d.labels;
-  const histData  = withForecast ? [...d.data, ...Array(d.forecast_labels?.length || 0).fill(null)] : d.data;
-  const forecastDs = withForecast
-    ? [...Array(d.data.length - 1).fill(null), d.data[d.data.length-1], ...(d.forecast_data || [])]
-    : [];
-
-  const datasets = [{
-    label: 'Follower', data: histData,
-    borderColor: '#6366f1', backgroundColor: gradient,
-    borderWidth: 2, tension: 0.4, fill: true, pointRadius: 0,
-    pointHoverRadius: 4, pointHoverBackgroundColor: '#6366f1', spanGaps: false,
-  }];
-
-  if (withForecast && forecastDs.length) {
-    datasets.push({
-      label: 'Prognose', data: forecastDs,
-      borderColor: '#6366f1', borderDash: [4,4], borderWidth: 1.5,
-      tension: 0.4, fill: false, pointRadius: 0, backgroundColor: 'transparent', spanGaps: false,
-    });
-  }
+  const allLabels = fc ? [...d.labels,...(d.forecast_labels||[])] : d.labels;
+  const histData  = fc ? [...d.data,...Array(d.forecast_labels?.length||0).fill(null)] : d.data;
+  const fcData    = fc ? [...Array(d.data.length-1).fill(null),d.data[d.data.length-1],...(d.forecast_data||[])] : [];
+  const datasets  = [{label:'Follower',data:histData,borderColor:'#3b82f6',backgroundColor:grad,borderWidth:2,tension:.4,fill:true,pointRadius:0,spanGaps:false}];
+  if (fc&&fcData.length) datasets.push({label:'Prognose',data:fcData,borderColor:'#3b82f6',borderDash:[5,5],borderWidth:1.5,tension:.4,fill:false,pointRadius:0,backgroundColor:'transparent',spanGaps:false});
 
   if (growthChart) growthChart.destroy();
   growthChart = new Chart(ctx, {
-    type: 'line',
-    data: { labels: allLabels, datasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: {
-        backgroundColor: '#1c1c27', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-        callbacks: { label: c => (c.dataset.label === 'Prognose' ? '〜 ' : ' ') + (c.raw||0).toLocaleString('de-DE') + ' Follower' }
-      }},
-      scales: {
-        x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } },
-        y: { grid: { color: 'rgba(255,255,255,0.04)' },
-             ticks: { callback: v => v >= 1000000 ? (v/1000000).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(0)+'K' : v } }
-      }
-    }
+    type:'line', data:{labels:allLabels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'var(--surface)',borderColor:'var(--border)',borderWidth:1,titleColor:'var(--muted)',bodyColor:'var(--text)',callbacks:{label:c=>(c.dataset.label==='Prognose'?'~ ':' ')+c.raw?.toLocaleString('de-DE')+' Follower'}}},
+      scales:{x:{grid:{display:false},ticks:{maxTicksLimit:10}},y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{callback:v=>v>=1000000?(v/1000000).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'K':v}}}}
   });
 }
 
 function reloadChart() { loadGrowth(currentDays); }
 
-// Category comparison bar chart
-const catData = {{ cat_stats | tojson }};
+async function loadDelta() {
+  const d = await (await fetch('/api/analytics/daily-growth?days=30')).json();
+  new Chart(document.getElementById('deltaChart').getContext('2d'), {
+    type:'bar', data:{labels:d.labels,datasets:[{data:d.deltas,
+      backgroundColor:d.deltas.map(v=>v>=0?'rgba(34,197,94,.4)':'rgba(239,68,68,.4)'),
+      borderColor:d.deltas.map(v=>v>=0?'var(--success)':'var(--danger)'),borderWidth:1,borderRadius:3}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'var(--surface)',borderColor:'var(--border)',borderWidth:1,bodyColor:'var(--text)',callbacks:{label:c=>(c.raw>=0?'+':'')+c.raw.toLocaleString('de-DE')+' Follower'}}},
+      scales:{x:{grid:{display:false},ticks:{maxTicksLimit:8}},y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{callback:v=>(v>=0?'+':'')+v}}}}
+  });
+  const engCtx = document.getElementById('engChart').getContext('2d');
+  const engG = engCtx.createLinearGradient(0,0,0,150);
+  engG.addColorStop(0,'rgba(236,72,153,.2)'); engG.addColorStop(1,'rgba(236,72,153,0)');
+  new Chart(engCtx, {
+    type:'line', data:{labels:d.labels,datasets:[{data:d.engagement,borderColor:'#ec4899',backgroundColor:engG,borderWidth:2,tension:.4,fill:true,pointRadius:0}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{grid:{display:false},ticks:{maxTicksLimit:8}},y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{callback:v=>v.toFixed(1)+'%'}}}}
+  });
+}
+
+const catData = {{ cat_stats|tojson }};
 new Chart(document.getElementById('catChart').getContext('2d'), {
-  type: 'bar',
-  data: {
-    labels: catData.map(c => c.name),
-    datasets: [{
-      data: catData.map(c => c.followers),
-      backgroundColor: catData.map(c => c.color + '80'),
-      borderColor: catData.map(c => c.color),
-      borderWidth: 1, borderRadius: 6,
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-    plugins: { legend: { display: false }, tooltip: {
-      backgroundColor: '#1c1c27', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-      callbacks: { label: c => ' ' + c.raw.toLocaleString('de-DE') + ' Follower' }
-    }},
-    scales: {
-      x: { grid: { color: 'rgba(255,255,255,0.04)' },
-           ticks: { callback: v => v >= 1000000 ? (v/1000000).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(0)+'K' : v } },
-      y: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 11 } } }
-    }
-  }
+  type:'bar', data:{labels:catData.map(c=>c.name),datasets:[{data:catData.map(c=>c.followers),
+    backgroundColor:catData.map(c=>c.color+'50'),borderColor:catData.map(c=>c.color),borderWidth:1,borderRadius:6}]},
+  options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:{backgroundColor:'var(--surface)',borderColor:'var(--border)',borderWidth:1,bodyColor:'var(--text)',callbacks:{label:c=>' '+c.raw.toLocaleString('de-DE')+' Follower'}}},
+    scales:{x:{grid:{color:'rgba(255,255,255,.04)'},ticks:{callback:v=>v>=1000000?(v/1000000).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'K':v}},y:{grid:{display:false},ticks:{font:{size:11}}}}}
 });
 
 loadGrowth(30, document.querySelectorAll('#periodBtns button')[1]);
-
-// Daily delta + engagement charts
-async function loadDelta() {
-  const res = await fetch('/api/analytics/daily-growth?days=30');
-  const d = await res.json();
-
-  // Delta chart (bar)
-  new Chart(document.getElementById('deltaChart').getContext('2d'), {
-    type: 'bar',
-    data: {
-      labels: d.labels,
-      datasets: [{
-        data: d.deltas,
-        backgroundColor: d.deltas.map(v => v >= 0 ? 'rgba(16,185,129,0.5)' : 'rgba(239,68,68,0.5)'),
-        borderColor:     d.deltas.map(v => v >= 0 ? '#10b981' : '#ef4444'),
-        borderWidth: 1, borderRadius: 3,
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: {
-        backgroundColor: '#1c1c27', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-        callbacks: { label: c => (c.raw >= 0 ? '+' : '') + c.raw.toLocaleString('de-DE') + ' Follower' }
-      }},
-      scales: {
-        x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
-        y: { grid: { color: 'rgba(255,255,255,0.04)' },
-             ticks: { callback: v => (v >= 0 ? '+' : '') + v } }
-      }
-    }
-  });
-
-  // Engagement chart (line)
-  const engCtx = document.getElementById('engChart').getContext('2d');
-  const engGrad = engCtx.createLinearGradient(0, 0, 0, 150);
-  engGrad.addColorStop(0, 'rgba(236,72,153,0.25)');
-  engGrad.addColorStop(1, 'rgba(236,72,153,0)');
-  new Chart(engCtx, {
-    type: 'line',
-    data: {
-      labels: d.labels,
-      datasets: [{
-        data: d.engagement,
-        borderColor: '#ec4899', backgroundColor: engGrad,
-        borderWidth: 2, tension: 0.4, fill: true, pointRadius: 0,
-        pointHoverRadius: 4, pointHoverBackgroundColor: '#ec4899',
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: {
-        backgroundColor: '#1c1c27', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
-        callbacks: { label: c => ' ' + c.raw.toFixed(2) + '% Engagement' }
-      }},
-      scales: {
-        x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
-        y: { grid: { color: 'rgba(255,255,255,0.04)' },
-             ticks: { callback: v => v.toFixed(1) + '%' } }
-      }
-    }
-  });
-}
 loadDelta();
 </script>
 {% endblock %}

@@ -1,144 +1,112 @@
 {% extends "base.html" %}
 {% block title %}Einstellungen — Content OS{% endblock %}
+{% block page_title %}EINSTELLUNGEN{% endblock %}
 
 {% block content %}
-<div class="mb-6">
-  <h1 class="text-xl font-bold text-white">Einstellungen</h1>
-  <p class="text-sm text-gray-500 mt-0.5">Kategorien, Labels und Plattformen verwalten</p>
-</div>
-
-<div class="grid grid-cols-12 gap-5">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
 
   <!-- Categories -->
-  <div class="col-span-12 lg:col-span-6">
-    <div class="card overflow-hidden" x-data="{editing: null}">
-      <div class="p-4 border-b border-white/5 flex items-center justify-between">
-        <h2 class="font-semibold text-white text-sm">Kategorien</h2>
-        <span class="text-xs text-gray-500">{{ categories|length }} gesamt</span>
-      </div>
-      <div class="divide-y divide-white/5 max-h-80 overflow-y-auto">
-        {% for cat in categories %}
-        <div x-show="editing !== {{ cat.id }}" class="flex items-center gap-3 px-4 py-2.5 group">
-          <div class="w-3 h-3 rounded-full flex-shrink-0" style="background:{{ cat.color }}"></div>
-          <i class="fa-solid fa-{{ cat.icon }} text-xs flex-shrink-0" style="color:{{ cat.color }}"></i>
-          <span class="text-sm text-gray-300 flex-1">{{ cat.name }}</span>
-          <span class="text-xs text-gray-600">{{ cat.accounts|length }}×</span>
-          <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button @click="editing = {{ cat.id }}" class="p-1 text-gray-500 hover:text-white transition-colors">
-              <i class="fa-solid fa-pen text-xs"></i>
-            </button>
-            <form method="post" action="{{ url_for('category_delete', cat_id=cat.id) }}"
-                  onsubmit="return confirm('Kategorie löschen? Alle zugehörigen Accounts werden getrennt.')">
-              <button type="submit" class="p-1 text-gray-500 hover:text-red-400 transition-colors">
-                <i class="fa-solid fa-trash text-xs"></i>
-              </button>
-            </form>
-          </div>
-        </div>
-        <!-- Inline edit form -->
-        <div x-show="editing === {{ cat.id }}" class="px-4 py-3 bg-white/3">
-          <form method="post" action="{{ url_for('category_edit', cat_id=cat.id) }}" class="flex gap-2 items-center">
-            <input type="text" name="name" value="{{ cat.name }}" required class="input-field flex-1 text-xs py-1.5">
-            <input type="text" name="icon" value="{{ cat.icon }}" class="input-field w-24 text-xs py-1.5" placeholder="icon">
-            <input type="color" name="color" value="{{ cat.color }}" class="h-8 w-8 rounded bg-transparent border border-white/10 cursor-pointer p-0.5 flex-shrink-0">
-            <button type="submit" class="p-1.5 bg-indigo-600 hover:bg-indigo-500 rounded text-white text-xs">
-              <i class="fa-solid fa-check"></i>
-            </button>
-            <button type="button" @click="editing = null" class="p-1.5 text-gray-500 hover:text-white text-xs">
-              <i class="fa-solid fa-xmark"></i>
-            </button>
+  <div class="card" style="overflow:hidden" x-data="{editing:null}">
+    <div class="card-header">
+      <span class="card-title">KATEGORIEN</span>
+      <span style="font-size:12px;color:var(--muted)">{{ categories|length }} gesamt</span>
+    </div>
+    <div style="max-height:320px;overflow-y:auto">
+      {% for cat in categories %}
+      <div x-show="editing !== {{ cat.id }}" style="display:flex;align-items:center;gap:10px;padding:11px 20px;border-bottom:1px solid var(--border)" class="cat-row">
+        <div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:{{ cat.color }}"></div>
+        <span style="font-size:13px;color:var(--text);flex:1">{{ cat.name }}</span>
+        <span style="font-size:11px;color:var(--muted)">{{ cat.accounts|length }}×</span>
+        <div style="display:flex;gap:2px;opacity:0;transition:opacity .15s" class="cat-actions">
+          <button @click="editing={{ cat.id }}" class="icon-btn" style="font-size:12px;padding:5px"><i class="fa-solid fa-pen"></i></button>
+          <form method="post" action="{{ url_for('category_delete', cat_id=cat.id) }}" onsubmit="return confirm('Kategorie löschen?')">
+            <button type="submit" class="icon-btn" style="font-size:12px;padding:5px;color:var(--danger)"><i class="fa-solid fa-trash"></i></button>
           </form>
         </div>
-        {% endfor %}
       </div>
-      <div class="p-4 border-t border-white/5">
-        <form method="post" action="{{ url_for('category_new') }}" class="flex gap-2">
-          <input type="text" name="name" required placeholder="Neue Kategorie…" class="input-field flex-1 text-sm">
-          <input type="text" name="icon" placeholder="icon" class="input-field w-20 text-sm">
-          <input type="color" name="color" value="#6366f1" class="h-10 w-10 rounded bg-transparent border border-white/10 cursor-pointer p-0.5 flex-shrink-0">
-          <button type="submit" class="btn-primary flex-shrink-0 px-3">
-            <i class="fa-solid fa-plus"></i>
-          </button>
+      <div x-show="editing === {{ cat.id }}" style="padding:10px 16px;background:rgba(59,130,246,.05);border-bottom:1px solid var(--border)">
+        <form method="post" action="{{ url_for('category_edit', cat_id=cat.id) }}" style="display:flex;gap:8px;align-items:center">
+          <input type="text" name="name" value="{{ cat.name }}" required class="input-field" style="flex:1;font-size:12px;padding:6px 10px">
+          <input type="text" name="icon" value="{{ cat.icon }}" class="input-field" style="width:80px;font-size:12px;padding:6px 10px" placeholder="icon">
+          <input type="color" name="color" value="{{ cat.color }}" style="width:34px;height:34px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px;flex-shrink:0">
+          <button type="submit" class="btn btn-primary" style="padding:6px 12px;font-size:12px"><i class="fa-solid fa-check"></i></button>
+          <button type="button" @click="editing=null" class="btn btn-ghost" style="padding:6px 12px;font-size:12px">✕</button>
         </form>
       </div>
+      {% endfor %}
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid var(--border)">
+      <form method="post" action="{{ url_for('category_new') }}" style="display:flex;gap:8px;align-items:center">
+        <input type="text" name="name" required placeholder="Neue Kategorie…" class="input-field" style="flex:1;font-size:13px">
+        <input type="text" name="icon" placeholder="icon" class="input-field" style="width:70px;font-size:13px">
+        <input type="color" name="color" value="#3b82f6" style="width:36px;height:36px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px;flex-shrink:0">
+        <button type="submit" class="btn btn-primary" style="padding:8px 14px"><i class="fa-solid fa-plus"></i></button>
+      </form>
     </div>
   </div>
 
   <!-- Labels -->
-  <div class="col-span-12 lg:col-span-6">
-    <div class="card overflow-hidden">
-      <div class="p-4 border-b border-white/5 flex items-center justify-between">
-        <h2 class="font-semibold text-white text-sm">Labels</h2>
-        <span class="text-xs text-gray-500">{{ labels|length }} gesamt</span>
-      </div>
-      <div class="p-4 flex flex-wrap gap-2 max-h-64 overflow-y-auto">
-        {% for label in labels %}
-        <div class="group flex items-center gap-1 rounded-lg border px-2.5 py-1" style="background:{{ label.color }}15; border-color:{{ label.color }}30">
-          <span class="text-xs font-medium" style="color:{{ label.color }}">{{ label.name }}</span>
-          <form method="post" action="{{ url_for('label_delete', label_id=label.id) }}"
-                onsubmit="return confirm('Label löschen?')" class="opacity-0 group-hover:opacity-100 transition-opacity ml-1">
-            <button type="submit" class="text-gray-600 hover:text-red-400 transition-colors leading-none">
-              <i class="fa-solid fa-xmark text-xs"></i>
-            </button>
-          </form>
-        </div>
-        {% endfor %}
-      </div>
-      <div class="p-4 border-t border-white/5">
-        <form method="post" action="{{ url_for('label_new') }}" class="flex gap-2">
-          <input type="text" name="name" required placeholder="Neues Label…" class="input-field flex-1 text-sm">
-          <input type="color" name="color" value="#6366f1" class="h-10 w-10 rounded bg-transparent border border-white/10 cursor-pointer p-0.5 flex-shrink-0">
-          <button type="submit" class="btn-primary flex-shrink-0 px-3">
-            <i class="fa-solid fa-plus"></i>
-          </button>
+  <div class="card" style="overflow:hidden">
+    <div class="card-header">
+      <span class="card-title">LABELS</span>
+      <span style="font-size:12px;color:var(--muted)">{{ labels|length }} gesamt</span>
+    </div>
+    <div style="padding:16px 20px;display:flex;flex-wrap:wrap;gap:8px;min-height:80px;max-height:280px;overflow-y:auto">
+      {% for label in labels %}
+      <div style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;border:1px solid {{ label.color }}40;background:{{ label.color }}15" class="label-item">
+        <span style="font-size:12px;font-weight:700;color:{{ label.color }}">{{ label.name }}</span>
+        <form method="post" action="{{ url_for('label_delete', label_id=label.id) }}" onsubmit="return confirm('Label löschen?')" style="margin:0">
+          <button type="submit" style="background:none;border:none;color:{{ label.color }};opacity:.5;cursor:pointer;font-size:13px;padding:0;line-height:1;display:flex" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5">×</button>
         </form>
       </div>
+      {% endfor %}
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid var(--border)">
+      <form method="post" action="{{ url_for('label_new') }}" style="display:flex;gap:8px;align-items:center">
+        <input type="text" name="name" required placeholder="Neues Label…" class="input-field" style="flex:1;font-size:13px">
+        <input type="color" name="color" value="#3b82f6" style="width:36px;height:36px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px;flex-shrink:0">
+        <button type="submit" class="btn btn-primary" style="padding:8px 14px"><i class="fa-solid fa-plus"></i></button>
+      </form>
     </div>
   </div>
 
   <!-- Platforms -->
-  <div class="col-span-12 lg:col-span-6">
-    <div class="card overflow-hidden">
-      <div class="p-4 border-b border-white/5">
-        <h2 class="font-semibold text-white text-sm">Plattformen</h2>
-      </div>
-      <div class="divide-y divide-white/5">
-        {% for p in platforms %}
-        <div class="flex items-center gap-3 px-4 py-3">
-          <i class="fa-brands fa-{{ p.icon }} text-sm" style="color:{{ p.color }}"></i>
-          <span class="text-sm text-gray-300 flex-1">{{ p.name }}</span>
-          <span class="text-xs text-gray-600">{{ p.accounts|length }} Accounts</span>
-        </div>
-        {% endfor %}
-      </div>
-      <div class="p-4 border-t border-white/5">
-        <form method="post" action="{{ url_for('platform_new') }}" class="flex gap-2">
-          <input type="text" name="name" required placeholder="z.B. Twitter" class="input-field flex-1 text-sm">
-          <input type="text" name="icon" placeholder="icon" class="input-field w-20 text-sm">
-          <input type="color" name="color" value="#6366f1" class="h-10 w-10 rounded bg-transparent border border-white/10 cursor-pointer p-0.5 flex-shrink-0">
-          <button type="submit" class="btn-primary flex-shrink-0 px-3">
-            <i class="fa-solid fa-plus"></i>
-          </button>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <!-- System Info -->
-  <div class="col-span-12 lg:col-span-6">
-    <div class="card p-5 space-y-3">
-      <h2 class="font-semibold text-white text-sm">System</h2>
-      {% for label, value in [
-        ('Version','1.0.0'),('Datenbank','SQLite'),
-        ('Kategorien', categories|length),('Labels', labels|length),('Plattformen', platforms|length)
-      ] %}
-      <div class="flex justify-between text-sm">
-        <span class="text-gray-500">{{ label }}</span>
-        <span class="text-white">{{ value }}</span>
+  <div class="card" style="overflow:hidden">
+    <div class="card-header"><span class="card-title">PLATTFORMEN</span></div>
+    <div>
+      {% for p in platforms %}
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border)">
+        <i class="fa-brands fa-{{ p.icon }}" style="font-size:16px;color:{{ p.color }};width:20px;text-align:center"></i>
+        <span style="font-size:13px;color:var(--text);flex:1">{{ p.name }}</span>
+        <span style="font-size:12px;color:var(--muted)">{{ p.accounts|length }} Accounts</span>
       </div>
       {% endfor %}
     </div>
+    <div style="padding:14px 20px;border-top:1px solid var(--border)">
+      <form method="post" action="{{ url_for('platform_new') }}" style="display:flex;gap:8px;align-items:center">
+        <input type="text" name="name" required placeholder="z.B. Twitter" class="input-field" style="flex:1;font-size:13px">
+        <input type="text" name="icon" placeholder="icon" class="input-field" style="width:70px;font-size:13px">
+        <input type="color" name="color" value="#3b82f6" style="width:36px;height:36px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px;flex-shrink:0">
+        <button type="submit" class="btn btn-primary" style="padding:8px 14px"><i class="fa-solid fa-plus"></i></button>
+      </form>
+    </div>
+  </div>
+
+  <!-- System -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="card-header"><span class="card-title">SYSTEM</span></div>
+    {% for label,value in [('Version','1.0.0'),('Datenbank','SQLite / PostgreSQL'),
+       ('Kategorien',categories|length),('Labels',labels|length),('Plattformen',platforms|length)] %}
+    <div style="display:flex;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border)">
+      <span style="font-size:13px;color:var(--muted)">{{ label }}</span>
+      <span style="font-size:13px;font-weight:600;color:var(--text)">{{ value }}</span>
+    </div>
+    {% endfor %}
   </div>
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+<style>.cat-row:hover .cat-actions { opacity:1 !important; }</style>
 {% endblock %}

@@ -1,77 +1,66 @@
 {% extends "base.html" %}
 {% block title %}Kalender — Content OS{% endblock %}
-
-{% block head %}
-<style>
-  .fc { --fc-border-color: rgba(255,255,255,0.06); --fc-page-bg-color: transparent;
-        --fc-neutral-bg-color: #1c1c27; --fc-neutral-text-color: #9ca3af;
-        --fc-today-bg-color: rgba(99,102,241,0.08); --fc-event-border-color: transparent; }
-  .fc-theme-standard td, .fc-theme-standard th { border-color: rgba(255,255,255,0.06); }
-  .fc-col-header-cell-cushion, .fc-daygrid-day-number { color: #9ca3af; text-decoration: none; font-size: 12px; }
-  .fc-daygrid-day-number:hover { color: #fff; }
-  .fc-button { background: #252535 !important; border-color: rgba(255,255,255,0.1) !important; color: #9ca3af !important; font-size: 12px !important; }
-  .fc-button:hover { background: #2a2a3f !important; color: #fff !important; }
-  .fc-button-active { background: #6366f1 !important; color: #fff !important; border-color: #6366f1 !important; }
-  .fc-toolbar-title { color: #fff; font-size: 16px !important; font-weight: 600; }
-  .fc-event { font-size: 11px; border-radius: 4px; padding: 1px 4px; }
-  .fc-event-title { font-weight: 500; }
-  .fc-more-link { color: #6366f1 !important; font-size: 11px; }
-</style>
-{% endblock %}
+{% block page_title %}KALENDER{% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-xl font-bold text-white">Globaler Kalender</h1>
-    <p class="text-sm text-gray-500 mt-0.5">Alle geplanten Posts aller Accounts</p>
-  </div>
-  <div class="flex gap-2 items-center" x-data="{account: ''}">
-    <select x-model="account" @change="calendar.refetchEvents()" id="calAccountFilter" class="select-field max-w-xs">
-      <option value="">Alle Accounts</option>
-      {% for acc in accounts %}
-      <option value="{{ acc.id }}">{{ acc.name }}</option>
-      {% endfor %}
-    </select>
-  </div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+  <div style="font-size:13px;color:var(--muted)">Alle geplanten Posts · Klick auf freien Tag = neuer Post</div>
+  <select id="calAccountFilter" onchange="calendar.refetchEvents()"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                 padding:8px 14px;font-size:13px;color:var(--text);font-family:var(--font-body)">
+    <option value="">Alle Accounts</option>
+    {% for acc in accounts %}
+    <option value="{{ acc.id }}">{{ acc.name }}</option>
+    {% endfor %}
+  </select>
 </div>
 
 <!-- Legend -->
-<div class="flex items-center gap-4 mb-4 flex-wrap">
-  <div class="flex items-center gap-1.5 text-xs text-gray-400"><span class="w-3 h-3 rounded bg-blue-500"></span> Geplant</div>
-  <div class="flex items-center gap-1.5 text-xs text-gray-400"><span class="w-3 h-3 rounded bg-emerald-500"></span> Veröffentlicht</div>
-  <div class="flex items-center gap-1.5 text-xs text-gray-400"><span class="w-3 h-3 rounded bg-red-500"></span> Fehler</div>
-  <div class="flex items-center gap-1.5 text-xs text-gray-400"><span class="w-3 h-3 rounded bg-gray-500"></span> Entwurf</div>
+<div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+  {% for color,label in [('#3b82f6','Geplant'),('#22c55e','Veröffentlicht'),('#ef4444','Fehler'),('#64748b','Entwurf')] %}
+  <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)">
+    <span style="width:10px;height:10px;border-radius:3px;background:{{ color }};flex-shrink:0"></span> {{ label }}
+  </div>
+  {% endfor %}
 </div>
 
-<div class="card p-5">
-  <div id="calendar"></div>
+<div class="card" style="padding:20px">
+  <div id="mainCalendar"></div>
 </div>
 
-<!-- New Post Modal (global calendar) -->
-<div id="globalPostModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-  <div class="bg-[#1c1c27] border border-white/10 rounded-2xl w-full max-w-md mx-4 shadow-2xl">
-    <div class="flex items-center justify-between p-5 border-b border-white/5">
-      <h2 class="font-semibold text-white">Neuen Post planen</h2>
-      <button onclick="document.getElementById('globalPostModal').classList.add('hidden')" class="text-gray-500 hover:text-white text-xl">&times;</button>
+<!-- Event Popup -->
+<div id="eventPopup" style="display:none;position:fixed;z-index:200;width:300px;
+     background:var(--surface);border:1px solid var(--border);border-radius:14px;
+     box-shadow:0 16px 48px rgba(0,0,0,.5);padding:16px"></div>
+
+<!-- New Post Modal -->
+<div id="newPostModal" style="display:none;position:fixed;inset:0;z-index:200;
+     align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:440px;margin:20px;box-shadow:0 24px 64px rgba(0,0,0,.5)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:1px solid var(--border)">
+      <span style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">NEUEN POST PLANEN</span>
+      <button onclick="document.getElementById('newPostModal').style.display='none'"
+              style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">&times;</button>
     </div>
-    <div class="p-5 space-y-4">
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
       <div>
-        <label class="text-xs text-gray-500 mb-1.5 block">Account *</label>
-        <select id="globalPostAccount" class="select-field">
+        <label class="form-label">Account *</label>
+        <select id="modalAccount" class="select-field">
           <option value="">Account wählen…</option>
           {% for acc in accounts %}
           <option value="{{ acc.id }}">{{ acc.name }}</option>
           {% endfor %}
         </select>
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Datum & Zeit *</label>
-          <input type="datetime-local" id="globalPostDate" class="input-field">
+          <label class="form-label">Datum & Zeit *</label>
+          <input type="datetime-local" id="modalDate" class="input-field">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Typ</label>
-          <select id="globalPostType" class="select-field">
+          <label class="form-label">Typ</label>
+          <select id="modalType" class="select-field">
             <option value="feed">📸 Feed</option>
             <option value="reel">🎬 Reel</option>
             <option value="story">⭕ Story</option>
@@ -80,111 +69,101 @@
         </div>
       </div>
       <div>
-        <label class="text-xs text-gray-500 mb-1.5 block">Caption</label>
-        <textarea id="globalPostCaption" rows="3" class="input-field resize-none" placeholder="Caption…"></textarea>
+        <label class="form-label">Caption</label>
+        <textarea id="modalCaption" rows="3" class="input-field" style="resize:none" placeholder="Caption…"></textarea>
       </div>
-      <div class="flex gap-3">
-        <button onclick="createGlobalPost()" class="btn-primary flex-1">
-          <i class="fa-solid fa-calendar-plus mr-2"></i>Planen
+      <div style="display:flex;gap:10px">
+        <button onclick="createPost()" class="btn btn-primary" style="flex:1">
+          <i class="fa-solid fa-calendar-plus"></i> Planen
         </button>
-        <button onclick="document.getElementById('globalPostModal').classList.add('hidden')" class="btn-ghost">Abbrechen</button>
+        <button onclick="document.getElementById('newPostModal').style.display='none'" class="btn btn-ghost">Abbrechen</button>
       </div>
     </div>
   </div>
-</div>
-
-<!-- Event Popup -->
-<div id="eventPopup" class="hidden fixed z-50 w-72 bg-[#1c1c27] border border-white/10 rounded-xl shadow-2xl p-4">
-  <div id="popupContent"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 let calendar;
-document.addEventListener('DOMContentLoaded', function() {
-  const calEl = document.getElementById('calendar');
-  calendar = new FullCalendar.Calendar(calEl, {
+document.addEventListener('DOMContentLoaded', () => {
+  calendar = new FullCalendar.Calendar(document.getElementById('mainCalendar'), {
     initialView: 'dayGridMonth',
     locale: 'de',
-    headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,listWeek' },
+    headerToolbar: { left:'prev,next today', center:'title', right:'dayGridMonth,timeGridWeek,listWeek' },
     height: 680,
     editable: true,
-
-    events: function(info, success, failure) {
-      const accountId = document.getElementById('calAccountFilter').value;
-      let url = `/api/calendar/events?start=${info.startStr}&end=${info.endStr}`;
-      if (accountId) url += `&account_id=${accountId}`;
-      fetch(url).then(r => r.json()).then(success).catch(failure);
+    selectable: true,
+    events: fetchEvents,
+    dateClick: info => {
+      document.getElementById('modalDate').value = info.dateStr + 'T09:00';
+      document.getElementById('modalCaption').value = '';
+      document.getElementById('newPostModal').style.display = 'flex';
     },
-
-    eventDrop: function(info) {
-      const postId = info.event.extendedProps.post_id;
-      if (!postId) { info.revert(); return; }
-      fetch(`/api/posts/${postId}/reschedule`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+    eventDrop: info => {
+      const id = info.event.extendedProps.post_id;
+      if (!id) { info.revert(); return; }
+      fetch(`/api/posts/${id}/reschedule`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({scheduled_at: info.event.start.toISOString().slice(0,16)})
-      }).then(r => r.json()).then(d => { if (!d.ok) info.revert(); });
+      }).then(r=>r.json()).then(d=>{ if (!d.ok) info.revert(); });
     },
-
-    eventResize: function(info) {
-      info.revert(); // posts don't have duration
-    },
-
-    dateClick: function(info) {
-      document.getElementById('globalPostDate').value = info.dateStr + 'T09:00';
-      document.getElementById('globalPostCaption').value = '';
-      document.getElementById('globalPostModal').classList.remove('hidden');
-    },
-
-    eventClick: function(info) {
-      const popup = document.getElementById('eventPopup');
+    eventClick: info => {
       const p = info.event.extendedProps;
-      document.getElementById('popupContent').innerHTML = `
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-semibold text-indigo-400">${p.type?.toUpperCase()}</span>
-          <button onclick="document.getElementById('eventPopup').classList.add('hidden')" class="text-gray-500 hover:text-white text-lg leading-none">&times;</button>
+      const popup = document.getElementById('eventPopup');
+      popup.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span class="badge badge-blue" style="text-transform:uppercase">${p.type}</span>
+          <button onclick="this.closest('#eventPopup').style.display='none'"
+                  style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">&times;</button>
         </div>
-        <p class="text-sm font-semibold text-white mb-1">${p.account}</p>
-        <p class="text-xs text-gray-400 mb-2">${info.event.start.toLocaleString('de-DE')}</p>
-        ${p.caption ? `<p class="text-xs text-gray-500 border-t border-white/5 pt-2">${p.caption}…</p>` : ''}
-        <div class="mt-2 flex items-center gap-2">
-          <span class="badge text-xs ${p.status === 'published' ? 'bg-emerald-500/15 text-emerald-400' : p.status === 'failed' ? 'bg-red-500/15 text-red-400' : 'bg-blue-500/15 text-blue-400'}">${p.status}</span>
-        </div>
-      `;
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">${p.account}</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">${info.event.start.toLocaleString('de-DE')}</div>
+        ${p.caption ? `<div style="font-size:12px;color:var(--muted);border-top:1px solid var(--border);padding-top:10px;line-height:1.5">${p.caption}…</div>` : ''}
+        <div style="margin-top:10px;display:flex;align-items:center;justify-content:space-between">
+          <span class="badge ${p.status==='published'?'badge-green':p.status==='failed'?'badge-red':'badge-blue'}">${p.status}</span>
+          ${p.status==='scheduled'?`<button onclick="deletePost(${p.post_id})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px"><i class="fa-solid fa-trash" style="margin-right:4px"></i>Löschen</button>`:''}
+        </div>`;
       const rect = info.el.getBoundingClientRect();
-      popup.style.top = (rect.bottom + window.scrollY + 8) + 'px';
-      popup.style.left = Math.min(rect.left, window.innerWidth - 300) + 'px';
-      popup.classList.remove('hidden');
+      popup.style.top = Math.min(rect.bottom + window.scrollY + 8, window.innerHeight + window.scrollY - 220) + 'px';
+      popup.style.left = Math.min(rect.left, window.innerWidth - 320) + 'px';
+      popup.style.display = 'block';
     }
   });
   calendar.render();
 
   document.getElementById('calAccountFilter').addEventListener('change', () => calendar.refetchEvents());
   document.addEventListener('click', e => {
-    if (!e.target.closest('#eventPopup') && !e.target.closest('.fc-event') && !e.target.closest('#globalPostModal'))
-      document.getElementById('eventPopup').classList.add('hidden');
+    if (!e.target.closest('#eventPopup') && !e.target.closest('.fc-event') && !e.target.closest('#newPostModal'))
+      document.getElementById('eventPopup').style.display = 'none';
   });
 });
 
-async function createGlobalPost() {
-  const accountId = document.getElementById('globalPostAccount').value;
-  const date = document.getElementById('globalPostDate').value;
-  if (!accountId || !date) { alert('Account und Datum sind Pflicht.'); return; }
+function fetchEvents(info, success, failure) {
+  const accId = document.getElementById('calAccountFilter').value;
+  let url = `/api/calendar/events?start=${info.startStr}&end=${info.endStr}${accId?'&account_id='+accId:''}`;
+  fetch(url).then(r=>r.json()).then(success).catch(failure);
+}
 
-  const res = await fetch(`/api/accounts/${accountId}/posts/new`, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      scheduled_at: date,
-      post_type: document.getElementById('globalPostType').value,
-      caption: document.getElementById('globalPostCaption').value,
-    })
+async function createPost() {
+  const accId = document.getElementById('modalAccount').value;
+  const date = document.getElementById('modalDate').value;
+  if (!accId || !date) { alert('Account und Datum sind Pflicht.'); return; }
+  const res = await fetch(`/api/accounts/${accId}/posts/new`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({scheduled_at:date, post_type:document.getElementById('modalType').value, caption:document.getElementById('modalCaption').value})
   });
   if ((await res.json()).ok) {
-    document.getElementById('globalPostModal').classList.add('hidden');
+    document.getElementById('newPostModal').style.display = 'none';
     calendar.refetchEvents();
   }
+}
+
+async function deletePost(id) {
+  if (!confirm('Post löschen?')) return;
+  await fetch(`/api/posts/${id}/delete`, {method:'POST'});
+  document.getElementById('eventPopup').style.display = 'none';
+  calendar.refetchEvents();
 }
 </script>
 {% endblock %}

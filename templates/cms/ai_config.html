@@ -1,145 +1,116 @@
 {% extends "base.html" %}
 {% block title %}KI-Config {{ account.name }} — Content OS{% endblock %}
+{% block page_title %}KI-CONFIG{% endblock %}
 
 {% block content %}
-<div class="flex items-center gap-2 text-sm text-gray-500 mb-5">
-  <a href="{{ url_for('ai_config_list') }}" class="hover:text-white">KI-Zentrale</a>
-  <i class="fa-solid fa-chevron-right text-xs text-gray-700"></i>
-  <span class="text-white">{{ account.name }}</span>
-</div>
-
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-xl font-bold text-white">KI-Konfiguration</h1>
-    <p class="text-sm text-gray-500 mt-0.5">{{ account.name }}</p>
-  </div>
-  <!-- Account switcher -->
-  <select onchange="location.href='/ai/'+this.value" class="select-field max-w-xs">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <a href="{{ url_for('ai_config_list') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← KI-Zentrale</a>
+  <select onchange="location.href='/ai/'+this.value"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                 padding:8px 14px;font-size:13px;color:var(--text);font-family:var(--font-body)">
     {% for acc in accounts %}
-    <option value="{{ acc.id }}" {% if acc.id == account.id %}selected{% endif %}>{{ acc.name }}</option>
+    <option value="{{ acc.id }}" {% if acc.id==account.id %}selected{% endif %}>{{ acc.name }}</option>
     {% endfor %}
   </select>
 </div>
 
-<div class="max-w-2xl">
-  <form method="post" class="space-y-5">
+<div style="max-width:680px">
+  <form method="post" style="display:flex;flex-direction:column;gap:16px">
 
-    <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-white text-sm flex items-center gap-2">
-        <i class="fa-solid fa-heading text-indigo-400 text-xs"></i>Headline
-      </h2>
-      <div class="grid grid-cols-3 gap-4">
+    <div class="card">
+      <div class="card-header"><span class="card-title">HEADLINE</span></div>
+      <div style="padding:20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Min. Wörter</label>
+          <label class="form-label">Min. Wörter</label>
           <input type="number" name="headline_min_words" value="{{ cfg.headline_min_words }}" min="1" class="input-field">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Max. Wörter</label>
+          <label class="form-label">Max. Wörter</label>
           <input type="number" name="headline_max_words" value="{{ cfg.headline_max_words }}" min="1" class="input-field">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Stil</label>
+          <label class="form-label">Stil</label>
           <select name="headline_style" class="select-field">
             {% for s in ['neutral','reißerisch','sachlich','emotional','lokal'] %}
-            <option value="{{ s }}" {% if cfg.headline_style == s %}selected{% endif %}>{{ s.capitalize() }}</option>
+            <option value="{{ s }}" {% if cfg.headline_style==s %}selected{% endif %}>{{ s.capitalize() }}</option>
             {% endfor %}
           </select>
         </div>
       </div>
     </div>
 
-    <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-white text-sm flex items-center gap-2">
-        <i class="fa-solid fa-align-left text-indigo-400 text-xs"></i>Caption
-      </h2>
-      <div class="grid grid-cols-2 gap-4">
+    <div class="card">
+      <div class="card-header"><span class="card-title">CAPTION</span></div>
+      <div style="padding:20px;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px">
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Min. Wörter</label>
+          <label class="form-label">Min. Wörter</label>
           <input type="number" name="caption_min_words" value="{{ cfg.caption_min_words }}" min="10" class="input-field">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Max. Wörter</label>
+          <label class="form-label">Max. Wörter</label>
           <input type="number" name="caption_max_words" value="{{ cfg.caption_max_words }}" min="10" class="input-field">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Tonalität</label>
+          <label class="form-label">Tonalität</label>
           <select name="caption_tone" class="select-field">
             {% for t in ['informativ','emotional','locker','seriös','humorvoll','direkt','aktivierend'] %}
-            <option value="{{ t }}" {% if cfg.caption_tone == t %}selected{% endif %}>{{ t.capitalize() }}</option>
+            <option value="{{ t }}" {% if cfg.caption_tone==t %}selected{% endif %}>{{ t.capitalize() }}</option>
             {% endfor %}
           </select>
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Anzahl Hashtags</label>
+          <label class="form-label">Hashtags</label>
           <input type="number" name="caption_hashtags" value="{{ cfg.caption_hashtags }}" min="0" max="30" class="input-field">
         </div>
       </div>
     </div>
 
-    <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-white text-sm flex items-center gap-2">
-        <i class="fa-solid fa-image text-indigo-400 text-xs"></i>Bildstil
-      </h2>
-      <div class="grid grid-cols-2 gap-4">
+    <div class="card">
+      <div class="card-header"><span class="card-title">POSTING & FREIGABE</span></div>
+      <div style="padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Stil</label>
-          <select name="image_style" class="select-field">
-            {% for s in ['news','meme','minimalistisch','modern','dunkel','hell'] %}
-            <option value="{{ s }}" {% if cfg.image_style == s %}selected{% endif %}>{{ s.capitalize() }}</option>
-            {% endfor %}
-          </select>
+          <label class="form-label">Posting-Zeiten (Komma-getrennt)</label>
+          <input type="text" name="posting_times" value="{{ cfg.get_posting_times()|join(', ') }}" class="input-field" placeholder="09:00, 18:00">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Primärfarbe</label>
-          <div class="flex gap-2">
-            <input type="color" name="primary_color" value="{{ cfg.primary_color }}" class="h-10 w-12 rounded bg-transparent border border-white/10 cursor-pointer p-0.5">
-            <input type="text" value="{{ cfg.primary_color }}" class="input-field" readonly>
-          </div>
-        </div>
-        <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Akzentfarbe</label>
-          <div class="flex gap-2">
-            <input type="color" name="accent_color" value="{{ cfg.accent_color }}" class="h-10 w-12 rounded bg-transparent border border-white/10 cursor-pointer p-0.5">
-            <input type="text" value="{{ cfg.accent_color }}" class="input-field" readonly>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-white text-sm flex items-center gap-2">
-        <i class="fa-solid fa-clock text-indigo-400 text-xs"></i>Posting & Freigabe
-      </h2>
-      <div>
-        <label class="text-xs text-gray-500 mb-1.5 block">Posting-Zeiten (kommagetrennt, z.B. 09:00, 18:00)</label>
-        <input type="text" name="posting_times" value="{{ cfg.get_posting_times()|join(', ') }}" class="input-field" placeholder="09:00, 12:00, 18:00">
-      </div>
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">KI-Modell</label>
+          <label class="form-label">KI-Modell</label>
           <select name="ai_model" class="select-field">
             {% for m in ['claude-sonnet-4-6','claude-opus-4-8','claude-haiku-4-5-20251001'] %}
-            <option value="{{ m }}" {% if cfg.ai_model == m %}selected{% endif %}>{{ m.replace('claude-','') }}</option>
+            <option value="{{ m }}" {% if cfg.ai_model==m %}selected{% endif %}>{{ m.replace('claude-','').split('-4')[0] }}</option>
             {% endfor %}
           </select>
         </div>
-        <div class="flex items-center gap-3 pt-5">
-          <input type="checkbox" name="auto_approve" id="auto_approve" {% if cfg.auto_approve %}checked{% endif %} class="w-4 h-4 rounded accent-indigo-500">
-          <label for="auto_approve" class="text-sm text-gray-300">Auto-Freigabe aktivieren</label>
+        <div>
+          <label class="form-label">Primärfarbe</label>
+          <div style="display:flex;gap:8px">
+            <input type="color" name="primary_color" value="{{ cfg.primary_color }}" style="width:40px;height:40px;border-radius:7px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px">
+            <input type="text" value="{{ cfg.primary_color }}" class="input-field" readonly style="flex:1">
+          </div>
+        </div>
+        <div>
+          <label class="form-label">Akzentfarbe</label>
+          <div style="display:flex;gap:8px">
+            <input type="color" name="accent_color" value="{{ cfg.accent_color }}" style="width:40px;height:40px;border-radius:7px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px">
+            <input type="text" value="{{ cfg.accent_color }}" class="input-field" readonly style="flex:1">
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding-top:16px">
+          <input type="checkbox" name="auto_approve" id="auto_approve" {% if cfg.auto_approve %}checked{% endif %}
+                 style="width:16px;height:16px;accent-color:var(--accent)">
+          <label for="auto_approve" style="font-size:13px;color:var(--text);cursor:pointer">Auto-Freigabe aktivieren</label>
         </div>
       </div>
     </div>
 
-    <div class="card p-5 space-y-3">
-      <h2 class="font-medium text-white text-sm flex items-center gap-2">
-        <i class="fa-solid fa-user-tie text-indigo-400 text-xs"></i>Persona / System-Prompt
-      </h2>
-      <textarea name="persona" rows="5" class="input-field resize-none" placeholder="Definiere den Charakter und die Sprache dieser Seite...">{{ cfg.persona or '' }}</textarea>
+    <div class="card" style="padding:20px">
+      <label class="form-label">Persona / System-Prompt</label>
+      <textarea name="persona" rows="5" class="input-field" style="resize:vertical"
+                placeholder="Definiere den Charakter und die Sprache dieser Seite…">{{ cfg.persona or '' }}</textarea>
     </div>
 
-    <div class="flex gap-3">
-      <button type="submit" class="btn-primary"><i class="fa-solid fa-check mr-2"></i>Speichern</button>
-      <a href="{{ url_for('ai_config_list') }}" class="btn-ghost">Abbrechen</a>
+    <div style="display:flex;gap:10px">
+      <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Speichern</button>
+      <a href="{{ url_for('ai_config_list') }}" class="btn btn-ghost">Abbrechen</a>
     </div>
   </form>
 </div>

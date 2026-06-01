@@ -1,120 +1,118 @@
 {% extends "base.html" %}
-{% block title %}{% if account %}Account bearbeiten{% else %}Neuer Account{% endif %} — Content OS{% endblock %}
+{% block title %}{% if account %}{{ account.name }} bearbeiten{% else %}Neuer Account{% endif %} — Content OS{% endblock %}
+{% block page_title %}{% if account %}ACCOUNT BEARBEITEN{% else %}NEUER ACCOUNT{% endif %}{% endblock %}
 
 {% block content %}
-<div class="flex items-center gap-2 text-sm text-gray-500 mb-5">
-  <a href="{{ url_for('accounts') }}" class="hover:text-white">Accounts</a>
-  <i class="fa-solid fa-chevron-right text-xs text-gray-700"></i>
-  <span class="text-white">{% if account %}{{ account.name }}{% else %}Neuer Account{% endif %}</span>
+<div style="margin-bottom:20px">
+  <a href="{{ url_for('accounts') }}" style="font-size:12px;color:var(--muted);text-decoration:none">
+    ← Accounts
+  </a>
 </div>
 
-<div class="max-w-2xl">
-  <h1 class="text-xl font-bold text-white mb-6">{% if account %}Account bearbeiten{% else %}Neuer Account{% endif %}</h1>
+<div style="max-width:680px">
+  <form method="post" style="display:flex;flex-direction:column;gap:16px">
 
-  <form method="post" class="space-y-5">
-    <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-white text-sm">Grunddaten</h2>
-      <div class="grid grid-cols-2 gap-4">
-        <div class="col-span-2">
-          <label class="text-xs text-gray-500 mb-1.5 block">Name *</label>
-          <input type="text" name="name" value="{{ account.name if account else '' }}" required class="input-field" placeholder="z.B. Frankfurt News">
+    <div class="card">
+      <div class="card-header"><span class="card-title">GRUNDDATEN</span></div>
+      <div style="padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div style="grid-column:1/3">
+          <label class="form-label">Name *</label>
+          <input type="text" name="name" value="{{ account.name if account else '' }}" required
+                 class="input-field" placeholder="z.B. Frankfurt News">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Handle / Username</label>
-          <input type="text" name="handle" value="{{ account.handle if account else '' }}" class="input-field" placeholder="@username">
+          <label class="form-label">Handle / Username</label>
+          <input type="text" name="handle" value="{{ account.handle if account else '' }}"
+                 class="input-field" placeholder="@username">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Follower</label>
-          <input type="number" name="follower_count" value="{{ account.follower_count if account else 0 }}" class="input-field" min="0">
+          <label class="form-label">Follower</label>
+          <input type="number" name="follower_count" value="{{ account.follower_count if account else 0 }}"
+                 class="input-field" min="0">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Plattform *</label>
+          <label class="form-label">Plattform *</label>
           <select name="platform_id" required class="select-field">
             {% for p in platforms %}
-            <option value="{{ p.id }}" {% if account and account.platform_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+            <option value="{{ p.id }}" {% if account and account.platform_id==p.id %}selected{% endif %}>{{ p.name }}</option>
             {% endfor %}
           </select>
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Kategorie</label>
+          <label class="form-label">Kategorie</label>
           <select name="category_id" class="select-field">
             <option value="">Keine</option>
             {% for cat in categories %}
-            <option value="{{ cat.id }}" {% if account and account.category_id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+            <option value="{{ cat.id }}" {% if account and account.category_id==cat.id %}selected{% endif %}>{{ cat.name }}</option>
             {% endfor %}
           </select>
         </div>
       </div>
     </div>
 
-    <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-white text-sm">Betrieb</h2>
-      <div class="grid grid-cols-2 gap-4">
+    <div class="card">
+      <div class="card-header"><span class="card-title">BETRIEB</span></div>
+      <div style="padding:20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Status</label>
+          <label class="form-label">Status</label>
           <select name="status" class="select-field">
-            {% for s in ['active', 'paused', 'error', 'inactive'] %}
-            <option value="{{ s }}" {% if account and account.status == s %}selected{% endif %}>
-              {{ {'active':'Aktiv','paused':'Pausiert','error':'Fehler','inactive':'Inaktiv'}[s] }}
-            </option>
+            {% for s,l in [('active','Aktiv'),('paused','Pausiert'),('error','Fehler'),('inactive','Inaktiv')] %}
+            <option value="{{ s }}" {% if account and account.status==s %}selected{% endif %}>{{ l }}</option>
             {% endfor %}
           </select>
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Priorität</label>
+          <label class="form-label">Priorität</label>
           <select name="priority" class="select-field">
-            {% for p in ['critical', 'high', 'medium', 'low'] %}
-            <option value="{{ p }}" {% if account and account.priority == p %}selected{% endif %}>
-              {{ {'critical':'Kritisch','high':'Hoch','medium':'Mittel','low':'Niedrig'}[p] }}
-            </option>
+            {% for p,l in [('critical','Kritisch'),('high','Hoch'),('medium','Mittel'),('low','Niedrig')] %}
+            <option value="{{ p }}" {% if account and account.priority==p %}selected{% endif %}>{{ l }}</option>
             {% endfor %}
           </select>
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Automatisierungsstufe</label>
+          <label class="form-label">Automatisierungsstufe</label>
           <select name="automation_level" class="select-field">
-            <option value="0" {% if account and account.automation_level == 0 %}selected{% endif %}>0 — Vollständig manuell</option>
-            <option value="1" {% if account and account.automation_level == 1 %}selected{% endif %}>1 — Auto-Entwürfe</option>
-            <option value="2" {% if account and account.automation_level == 2 %}selected{% endif %}>2 — Entwürfe + Freigabe</option>
-            <option value="3" {% if account and account.automation_level == 3 %}selected{% endif %}>3 — Vollautomatisch</option>
-            <option value="4" {% if account and account.automation_level == 4 %}selected{% endif %}>4 — Erweiterte Automatisierung</option>
+            {% for i,l in [(0,'0 — Manuell'),(1,'1 — Auto-Entwürfe'),(2,'2 — Entwürfe + Freigabe'),(3,'3 — Vollautomatisch'),(4,'4 — Erweitert')] %}
+            <option value="{{ i }}" {% if account and account.automation_level==i %}selected{% endif %}>{{ l }}</option>
+            {% endfor %}
           </select>
         </div>
       </div>
     </div>
 
-    <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-white text-sm">Content-Ziele</h2>
-      <div class="grid grid-cols-3 gap-4">
+    <div class="card">
+      <div class="card-header"><span class="card-title">CONTENT-ZIELE</span></div>
+      <div style="padding:20px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Feed / Tag</label>
+          <label class="form-label">Feed / Tag</label>
           <input type="number" name="target_feed_per_day" value="{{ account.target_feed_per_day if account else 1 }}" step="0.5" min="0" class="input-field">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Story / Tag</label>
+          <label class="form-label">Story / Tag</label>
           <input type="number" name="target_story_per_day" value="{{ account.target_story_per_day if account else 2 }}" step="0.5" min="0" class="input-field">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Mindestvorrat (Tage)</label>
+          <label class="form-label">Mindestvorrat (T)</label>
           <input type="number" name="min_stock_days" value="{{ account.min_stock_days if account else 3 }}" min="1" class="input-field">
         </div>
         <div>
-          <label class="text-xs text-gray-500 mb-1.5 block">Optimalvorrat (Tage)</label>
+          <label class="form-label">Optimalvorrat (T)</label>
           <input type="number" name="optimal_stock_days" value="{{ account.optimal_stock_days if account else 14 }}" min="1" class="input-field">
         </div>
       </div>
     </div>
 
-    <div class="card p-5">
-      <label class="text-xs text-gray-500 mb-1.5 block">Notizen</label>
-      <textarea name="notes" rows="3" class="input-field resize-none" placeholder="Interne Notizen...">{{ account.notes if account else '' }}</textarea>
+    <div class="card" style="padding:20px">
+      <label class="form-label">Notizen</label>
+      <textarea name="notes" rows="3" class="input-field" style="resize:vertical"
+                placeholder="Interne Notizen…">{{ account.notes if account else '' }}</textarea>
     </div>
 
-    <div class="flex gap-3">
-      <button type="submit" class="btn-primary">
-        <i class="fa-solid fa-check mr-2"></i>{% if account %}Speichern{% else %}Erstellen{% endif %}
+    <div style="display:flex;gap:10px">
+      <button type="submit" class="btn btn-primary">
+        <i class="fa-solid fa-check"></i> {% if account %}Speichern{% else %}Erstellen{% endif %}
       </button>
-      <a href="{{ url_for('accounts') }}" class="btn-ghost">Abbrechen</a>
+      <a href="{{ url_for('accounts') }}" class="btn btn-ghost">Abbrechen</a>
     </div>
   </form>
 </div>

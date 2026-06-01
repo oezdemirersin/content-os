@@ -1,104 +1,88 @@
 {% extends "base.html" %}
 {% block title %}Alert-Center — Content OS{% endblock %}
+{% block page_title %}ALERT-CENTER{% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <div>
-    <h1 class="text-xl font-bold text-white">Alert-Center</h1>
-    <p class="text-sm text-gray-500 mt-0.5">
-      {{ alerts|selectattr('resolved', 'equalto', false)|list|length }} aktive Alerts
-    </p>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <div style="font-size:13px;color:var(--muted)">
+    {{ alerts|selectattr('resolved','equalto',false)|list|length }} aktive Alerts
   </div>
-  <div class="flex gap-2">
-    <form method="post" action="{{ url_for('alerts_refresh') }}">
-      <button type="submit" class="btn-ghost">
-        <i class="fa-solid fa-rotate mr-2"></i>Neu generieren
-      </button>
-    </form>
+  <form method="post" action="{{ url_for('alerts_refresh') }}">
+    <button type="submit" class="btn btn-ghost">
+      <i class="fa-solid fa-rotate"></i> Neu generieren
+    </button>
+  </form>
+</div>
+
+<!-- Summary -->
+{% set critical = alerts|selectattr('severity','equalto','critical')|selectattr('resolved','equalto',false)|list %}
+{% set warnings = alerts|selectattr('severity','equalto','warning')|selectattr('resolved','equalto',false)|list %}
+{% set resolved = alerts|selectattr('resolved','equalto',true)|list %}
+
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
+  <div class="stat-card" style="border-left:3px solid var(--danger)">
+    <div class="stat-label">Kritisch</div>
+    <div class="stat-value red">{{ critical|length }}</div>
+  </div>
+  <div class="stat-card" style="border-left:3px solid var(--warning)">
+    <div class="stat-label">Warnungen</div>
+    <div class="stat-value yellow">{{ warnings|length }}</div>
+  </div>
+  <div class="stat-card" style="border-left:3px solid var(--success)">
+    <div class="stat-label">Gelöst</div>
+    <div class="stat-value green">{{ resolved|length }}</div>
   </div>
 </div>
 
-<!-- Summary cards -->
-<div class="grid grid-cols-3 gap-4 mb-6">
-  {% set critical = alerts|selectattr('severity','equalto','critical')|selectattr('resolved','equalto',false)|list %}
-  {% set warnings = alerts|selectattr('severity','equalto','warning')|selectattr('resolved','equalto',false)|list %}
-  {% set resolved = alerts|selectattr('resolved','equalto',true)|list %}
-
-  <div class="card p-4 border-l-2 border-red-500">
-    <div class="text-xs text-red-400 font-semibold uppercase tracking-wider mb-1">Kritisch</div>
-    <div class="text-3xl font-bold text-white">{{ critical|length }}</div>
-  </div>
-  <div class="card p-4 border-l-2 border-yellow-500">
-    <div class="text-xs text-yellow-400 font-semibold uppercase tracking-wider mb-1">Warnungen</div>
-    <div class="text-3xl font-bold text-white">{{ warnings|length }}</div>
-  </div>
-  <div class="card p-4 border-l-2 border-emerald-500">
-    <div class="text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-1">Gelöst</div>
-    <div class="text-3xl font-bold text-white">{{ resolved|length }}</div>
-  </div>
-</div>
-
-<!-- Alert list -->
-<div class="space-y-2">
+<!-- Alerts -->
+<div style="display:flex;flex-direction:column;gap:8px">
   {% for alert in alerts %}
-  <div class="card px-5 py-4 flex items-start gap-4 {% if alert.resolved %}opacity-50{% endif %}"
-       id="alert-{{ alert.id }}">
+  <div id="alert-{{ alert.id }}" style="display:flex;align-items:start;gap:14px;padding:16px 20px;
+       border-radius:10px;transition:opacity .3s;
+       {% if alert.resolved %}opacity:.4;background:var(--surface);border:1px solid var(--border)
+       {% elif alert.severity=='critical' %}background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.2)
+       {% elif alert.severity=='warning' %}background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2)
+       {% else %}background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2){% endif %}">
+
     <!-- Icon -->
-    <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5
-      {% if alert.severity == 'critical' %}bg-red-500/15
-      {% elif alert.severity == 'warning' %}bg-yellow-500/15
-      {% else %}bg-blue-500/15{% endif %}">
-      <i class="fa-solid
-        {% if alert.alert_type == 'low_stock' or alert.alert_type == 'empty_stock' %}fa-battery-empty
-        {% elif alert.alert_type == 'no_posts' %}fa-calendar-xmark
-        {% elif alert.alert_type == 'bot_error' %}fa-robot
-        {% elif alert.alert_type == 'bot_success' %}fa-check-circle
-        {% else %}fa-circle-exclamation{% endif %}
-        {% if alert.severity == 'critical' %}text-red-400
-        {% elif alert.severity == 'warning' %}text-yellow-400
-        {% else %}text-blue-400{% endif %}"></i>
+    <div style="width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+      {% if alert.severity=='critical' %}background:rgba(239,68,68,.15){% elif alert.severity=='warning' %}background:rgba(245,158,11,.15){% else %}background:rgba(59,130,246,.15){% endif %}">
+      <i class="fa-solid {% if 'stock' in alert.alert_type %}fa-battery-empty{% elif 'posts' in alert.alert_type %}fa-calendar-xmark{% elif 'error' in alert.alert_type %}fa-robot{% else %}fa-circle-exclamation{% endif %}"
+         style="font-size:14px;color:{% if alert.severity=='critical' %}var(--danger){% elif alert.severity=='warning' %}var(--warning){% else %}var(--accent2){% endif %}"></i>
     </div>
 
-    <div class="flex-1 min-w-0">
-      <p class="text-sm font-medium text-white">{{ alert.message }}</p>
-      <div class="flex items-center gap-3 mt-1">
-        <span class="text-xs text-gray-500">{{ alert.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:5px">{{ alert.message }}</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--muted)">{{ alert.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
         {% if alert.account %}
-        <a href="{{ url_for('account_detail', account_id=alert.account.id) }}" class="text-xs text-indigo-400 hover:text-indigo-300">
-          {{ alert.account.name }} →
-        </a>
+        <a href="{{ url_for('account_detail', account_id=alert.account.id) }}"
+           style="font-size:11px;color:var(--accent2);text-decoration:none">{{ alert.account.name }} →</a>
         {% endif %}
-        <span class="badge text-xs
-          {% if alert.severity == 'critical' %}bg-red-500/15 text-red-400
-          {% elif alert.severity == 'warning' %}bg-yellow-500/15 text-yellow-400
-          {% else %}bg-blue-500/15 text-blue-400{% endif %}">
+        <span class="badge {% if alert.severity=='critical' %}badge-red{% elif alert.severity=='warning' %}badge-yellow{% else %}badge-blue{% endif %}">
           {{ {'critical':'Kritisch','warning':'Warnung','info':'Info'}.get(alert.severity, alert.severity) }}
         </span>
-        <span class="badge text-xs bg-white/5 text-gray-500">{{ alert.alert_type }}</span>
       </div>
     </div>
 
-    <div class="flex-shrink-0">
+    <div style="flex-shrink:0">
       {% if not alert.resolved %}
       <button onclick="resolveAlert({{ alert.id }})"
-              class="text-xs text-gray-500 hover:text-emerald-400 transition-colors px-3 py-1.5 rounded-lg hover:bg-emerald-500/10">
-        <i class="fa-solid fa-check mr-1"></i>Erledigt
+              class="btn btn-ghost" style="font-size:12px;padding:6px 14px;color:var(--success);border-color:rgba(34,197,94,.3)">
+        <i class="fa-solid fa-check"></i> Erledigt
       </button>
       {% else %}
-      <span class="text-xs text-gray-600">
-        <i class="fa-solid fa-check mr-1"></i>
-        {{ alert.resolved_at.strftime('%d.%m %H:%M') if alert.resolved_at else 'Gelöst' }}
+      <span style="font-size:11px;color:var(--muted)">
+        ✓ {{ alert.resolved_at.strftime('%d.%m %H:%M') if alert.resolved_at else 'Gelöst' }}
       </span>
       {% endif %}
     </div>
   </div>
   {% else %}
-  <div class="card py-20 text-center">
-    <div class="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
-      <i class="fa-solid fa-shield-check text-emerald-400 text-2xl"></i>
-    </div>
-    <p class="text-gray-400 font-medium">Keine Alerts</p>
-    <p class="text-gray-600 text-sm mt-1">Alle Systeme laufen problemlos.</p>
+  <div style="text-align:center;padding:80px 20px">
+    <i class="fa-solid fa-shield-check" style="font-size:36px;color:var(--success);display:block;margin-bottom:14px;opacity:.5"></i>
+    <div style="font-size:15px;font-weight:600;color:var(--muted);margin-bottom:6px">Keine Alerts</div>
+    <div style="font-size:13px;color:var(--muted)">Alle Systeme laufen problemlos.</div>
   </div>
   {% endfor %}
 </div>
@@ -107,10 +91,10 @@
 {% block scripts %}
 <script>
 async function resolveAlert(id) {
-  const res = await fetch(`/api/alerts/resolve/${id}`, { method: 'POST' });
+  const res = await fetch(`/api/alerts/resolve/${id}`, {method:'POST'});
   if ((await res.json()).ok) {
     const el = document.getElementById(`alert-${id}`);
-    el.classList.add('opacity-30');
+    el.style.opacity='.35';
     el.querySelector('button')?.remove();
   }
 }
