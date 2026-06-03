@@ -9,6 +9,9 @@
     <a href="{{ url_for('calendar_ical') }}" class="btn btn-ghost" style="font-size:11px;padding:5px 12px" title="Als .ics exportieren">
       <i class="fa-solid fa-calendar-arrow-down"></i> iCal
     </a>
+    <a href="{{ url_for('calendar_print') }}" target="_blank" class="btn btn-ghost" style="font-size:11px;padding:5px 12px" title="Druckansicht">
+      <i class="fa-solid fa-print"></i> Drucken
+    </a>
   </div>
   <select id="calAccountFilter" onchange="calendar.refetchEvents()"
           style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;

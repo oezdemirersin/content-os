@@ -85,12 +85,27 @@
       </div>
     </div>
 
-    <!-- Info -->
+    <!-- Info + Tags -->
     <div style="padding:8px 10px">
-      <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ item.original_filename }}</div>
+      <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+           title="{{ item.original_filename }}">{{ item.original_filename }}</div>
       <div style="font-size:10px;color:var(--muted);margin-top:2px">
         {{ item.file_type }}{% if item.file_size %} · {{ "%.0f"|format(item.file_size/1024) }}KB{% endif %}
       </div>
+      {% set tags = item.get_tags() %}
+      {% if tags %}
+      <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:5px">
+        {% for tag in tags %}
+        <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(59,130,246,.15);color:var(--accent2)">#{{ tag }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <button onclick="editTags({{ item.id }}, {{ item.get_tags()|tojson }})"
+              style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:10px;margin-top:4px;padding:0;
+                     font-family:var(--font-body);transition:color .15s"
+              onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">
+        <i class="fa-solid fa-tag" style="font-size:9px"></i> Tags bearbeiten
+      </button>
     </div>
   </div>
   {% endfor %}
@@ -250,6 +265,19 @@
 .media-card:hover .media-img { transform:scale(1.05); }
 </style>
 <script>
+// ── Tags ──
+async function editTags(id, currentTags) {
+  const current = currentTags.join(', ');
+  const input = prompt('Tags (kommagetrennt):', current);
+  if (input === null) return;
+  const tags = input.split(',').map(t => t.trim()).filter(Boolean);
+  const res = await fetch(`/api/media/${id}/tags`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({tags})
+  });
+  if ((await res.json()).ok) { showToast('Tags gespeichert.'); setTimeout(()=>location.reload(), 700); }
+}
+
 // ── Lightbox ──
 function openLightbox(url, name, size) {
   document.getElementById('lightboxImg').src = url;

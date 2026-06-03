@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Posting-Plan {{ start.strftime('%d.%m') }} – {{ end.strftime('%d.%m.%Y') }}</title>
+  <style>
+    @page { margin: 20mm; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #1a202c; }
+    h1 { font-size: 22px; font-weight: 800; letter-spacing: 2px; margin-bottom: 4px; }
+    .sub { font-size: 11px; color: #64748b; margin-bottom: 24px; }
+    .filter-bar { display: flex; gap: 12px; margin-bottom: 16px; }
+    select { padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+         color: #64748b; padding: 8px 12px; border-bottom: 2px solid #e2e8f0; }
+    td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+    .day-header { background: #f1f5f9; font-weight: 700; font-size: 11px; letter-spacing: .5px;
+                  padding: 6px 12px; color: #334155; border-left: 3px solid #3b82f6; }
+    .badge { display: inline-flex; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+    .badge-feed    { background: #dbeafe; color: #1d4ed8; }
+    .badge-reel    { background: #fce7f3; color: #be185d; }
+    .badge-story   { background: #d1fae5; color: #065f46; }
+    .badge-carousel{ background: #fef3c7; color: #92400e; }
+    .caption { color: #64748b; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .no-print { margin-bottom: 20px; display: flex; gap: 10px; align-items: center; }
+    @media print { .no-print { display: none !important; } }
+    .logo { font-weight: 900; letter-spacing: 3px; font-size: 14px; color: #3b82f6; margin-bottom: 16px; }
+    .stat-row { display: flex; gap: 24px; margin-bottom: 20px; }
+    .stat { text-align: center; }
+    .stat-num { font-size: 24px; font-weight: 800; color: #3b82f6; }
+    .stat-lbl { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
+    footer { margin-top: 24px; font-size: 10px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+  </style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="window.print()" style="padding:8px 20px;background:#3b82f6;color:white;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px">
+    🖨️ Drucken / Als PDF speichern
+  </button>
+  <form style="display:flex;gap:8px;align-items:center">
+    <select name="account_id" onchange="location.search='?account_id='+this.value+'&days={{ days }}'">
+      <option value="">Alle Accounts</option>
+      {% for acc in accounts %}
+      <option value="{{ acc.id }}" {% if account_id==acc.id %}selected{% endif %}>{{ acc.name }}</option>
+      {% endfor %}
+    </select>
+    <select name="days" onchange="location.search='?account_id={{ account_id or '' }}&days='+this.value">
+      {% for d,l in [(7,'7 Tage'),(14,'14 Tage'),(30,'30 Tage')] %}
+      <option value="{{ d }}" {% if days==d %}selected{% endif %}>{{ l }}</option>
+      {% endfor %}
+    </select>
+    <a href="{{ url_for('calendar_ical') }}{% if account_id %}?account_id={{ account_id }}{% endif %}"
+       style="padding:7px 14px;border:1px solid #e2e8f0;border-radius:6px;text-decoration:none;color:#64748b;font-size:12px">
+      📅 iCal Download
+    </a>
+  </form>
+</div>
+
+<div class="logo">CONTENT OS</div>
+<h1>POSTING-PLAN</h1>
+<div class="sub">{{ start.strftime('%d. %B') }} – {{ end.strftime('%d. %B %Y') }} · {{ posts|length }} Posts</div>
+
+<div class="stat-row">
+  {% set by_type = namespace(feed=0,reel=0,story=0,carousel=0) %}
+  {% for p in posts %}
+    {% if p.post_type=='feed' %}{% set by_type.feed = by_type.feed + 1 %}
+    {% elif p.post_type=='reel' %}{% set by_type.reel = by_type.reel + 1 %}
+    {% elif p.post_type=='story' %}{% set by_type.story = by_type.story + 1 %}
+    {% elif p.post_type=='carousel' %}{% set by_type.carousel = by_type.carousel + 1 %}{% endif %}
+  {% endfor %}
+  {% for num,lbl in [(posts|length,'Gesamt'),(by_type.feed,'Feed'),(by_type.reel,'Reels'),(by_type.story,'Stories')] %}
+  <div class="stat"><div class="stat-num">{{ num }}</div><div class="stat-lbl">{{ lbl }}</div></div>
+  {% endfor %}
+</div>
+
+{% set current_day = namespace(val=None) %}
+<table>
+  <thead>
+    <tr>
+      <th style="width:80px">Zeit</th>
+      <th style="width:140px">Account</th>
+      <th style="width:70px">Typ</th>
+      <th>Caption</th>
+      <th style="width:70px">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in posts %}
+    {% set day = p.scheduled_at.strftime('%A, %d. %B %Y') %}
+    {% if day != current_day.val %}
+    {% set current_day.val = day %}
+    <tr><td colspan="5" class="day-header">{{ day }}</td></tr>
+    {% endif %}
+    <tr>
+      <td style="font-weight:700;white-space:nowrap">{{ p.scheduled_at.strftime('%H:%M') }}</td>
+      <td style="font-weight:600">{{ p.account.name if p.account else '—' }}</td>
+      <td><span class="badge badge-{{ p.post_type }}">{{ p.post_type }}</span></td>
+      <td class="caption">{{ p.caption or '(kein Text)' }}</td>
+      <td style="font-size:10px;color:{% if p.status=='published' %}#16a34a{% else %}#64748b{% endif %}">
+        {{ 'Veröffentlicht' if p.status=='published' else 'Geplant' }}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" style="text-align:center;padding:32px;color:#94a3b8">Keine Posts in diesem Zeitraum</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<footer>
+  Erstellt mit Content OS · {{ start.strftime('%d.%m.%Y') }} · Nur für interne Verwendung
+</footer>
+</body>
+</html>

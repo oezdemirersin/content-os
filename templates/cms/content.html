@@ -318,6 +318,40 @@ async function quickStatus(id, sel) {
                   scheduled:'var(--accent2)',published:'var(--accent)',error:'var(--danger)',archived:'var(--muted)'};
   sel.style.color = colors[sel.value] || 'var(--muted)';
 }
+// ── Filter-State via localStorage merken ──
+(function() {
+  const form = document.querySelector('form[method="get"]');
+  if (!form) return;
+  const KEY = 'contentFilters';
+  // Beim Laden: gespeicherte Filter wiederherstellen wenn URL keine hat
+  const params = new URLSearchParams(location.search);
+  if (!params.has('q') && !params.has('category') && !params.has('type') && !params.has('status')) {
+    const saved = sessionStorage.getItem(KEY);
+    if (saved) {
+      const f = JSON.parse(saved);
+      // Nur wenn nicht leer
+      if (Object.values(f).some(v => v)) {
+        Object.entries(f).forEach(([k, v]) => {
+          const el = form.querySelector(`[name="${k}"]`);
+          if (el && v) el.value = v;
+        });
+      }
+    }
+  }
+  // Beim Absenden: Filter speichern
+  form.addEventListener('submit', () => {
+    const data = {};
+    ['q','category','type','status'].forEach(k => {
+      data[k] = form.querySelector(`[name="${k}"]`)?.value || '';
+    });
+    sessionStorage.setItem(KEY, JSON.stringify(data));
+  });
+  // Reset-Link: Filter löschen
+  document.querySelector('a[href*="content_hub"]')?.addEventListener('click', () => {
+    sessionStorage.removeItem(KEY);
+  });
+})();
+
 // ── View toggle ──
 function setView(v) {
   localStorage.setItem('contentView', v);

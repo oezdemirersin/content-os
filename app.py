@@ -815,7 +815,11 @@ def content_hub():
 
     query = ContentItem.query
     if q:
-        query = query.filter(ContentItem.title.ilike(f'%{q}%'))
+        query = query.filter(
+            ContentItem.title.ilike(f'%{q}%') |
+            ContentItem.caption.ilike(f'%{q}%') |
+            ContentItem.raw_text.ilike(f'%{q}%')
+        )
     if status:
         query = query.filter_by(status=status)
     if category_id:
@@ -1275,11 +1279,13 @@ def automation_toggle(rule_id):
 def automation_run(rule_id):
     """Trigger manual run of an automation rule."""
     rule = AutomationRule.query.get_or_404(rule_id)
-    log = AutomationRunLog(rule_id=rule_id)
-    db.session.add(log)
-    db.session.commit()
     threading.Thread(target=run_automation_rule, args=(rule_id,), daemon=True).start()
-    return jsonify({'ok': True, 'message': 'Gestartet', 'created': 0})
+    # Kurz warten damit der Thread starten kann
+    import time; time.sleep(0.3)
+    last_log = AutomationRunLog.query.filter_by(rule_id=rule_id)\
+        .order_by(AutomationRunLog.started_at.desc()).first()
+    created = last_log.items_created if last_log else 0
+    return jsonify({'ok': True, 'message': 'Gestartet', 'created': created})
 
 
 # ─────────────────────── AI CONFIG ───────────────────────
@@ -1343,6 +1349,32 @@ def team_new():
         flash(f'Teammitglied "{member.name}" hinzugefügt.', 'success')
         return redirect(url_for('team'))
     return render_template('team_form.html', member=None, active_page='team')
+
+
+@app.route('/team/<int:member_id>/edit', methods=['GET', 'POST'])
+def team_edit(member_id):
+    member = TeamMember.query.get_or_404(member_id)
+    if request.method == 'POST':
+        d = request.form
+        member.name = d.get('name', member.name)
+        member.email = d.get('email', member.email)
+        member.role = d.get('role', member.role)
+        member.active = d.get('active') == 'on'
+        db.session.commit()
+        flash(f'"{member.name}" aktualisiert.', 'success')
+        log_activity('team_updated', f'Teammitglied {member.name} bearbeitet')
+        return redirect(url_for('team'))
+    return render_template('team_form.html', member=member, active_page='team')
+
+
+@app.route('/team/<int:member_id>/delete', methods=['POST'])
+def team_delete(member_id):
+    member = TeamMember.query.get_or_404(member_id)
+    name = member.name
+    db.session.delete(member)
+    db.session.commit()
+    flash(f'"{name}" entfernt.', 'success')
+    return redirect(url_for('team'))
 
 
 # ─────────────────────── ALERTS ───────────────────────
@@ -2039,7 +2071,7 @@ def beichten_dashboard():
     else:
         items = items.filter(ContentItem.source_name.ilike('%beicht%'))
     items = items.order_by(ContentItem.created_at.desc()).all()
-    return render_template('beichten.html', items=items, active_page='content')
+    return render_template('beichten.html', items=items, active_page='beichten')
 
 
 # ─────────────────────── ACCOUNT GROUPS ───────────────────────
@@ -2374,6 +2406,105 @@ def analytics_compare():
             'category': acc.category.name if acc.category else '—',
         }
     return jsonify(result)
+
+
+# ─────────────────────── SETTINGS IMPORT / EXPORT ───────────────────────
+
+@app.route('/settings/export')
+def settings_export():
+    from flask import Response
+    data = {
+        'exported_at': datetime.utcnow().isoformat(),
+        'categories': [{'name': c.name, 'color': c.color, 'icon': c.icon} for c in Category.query.all()],
+        'labels': [{'name': l.name, 'color': l.color} for l in Label.query.all()],
+        'platforms': [{'name': p.name, 'icon': p.icon, 'color': p.color} for p in Platform.query.all()],
+        'groups': [{'name': g.name, 'color': g.color, 'description': g.description} for g in AccountGroup.query.all()],
+        'templates': [{'name': t.name, 'content_type': t.content_type, 'caption_template': t.caption_template,
+                       'hashtags': t.hashtags, 'notes': t.notes} for t in ContentTemplate.query.all()],
+    }
+    return Response(json.dumps(data, ensure_ascii=False, indent=2), mimetype='application/json',
+        headers={'Content-Disposition': f'attachment; filename=content-os-config-{datetime.now().strftime("%Y%m%d")}.json'})
+
+
+@app.route('/settings/import', methods=['POST'])
+def settings_import():
+    f = request.files.get('config_file')
+    if not f:
+        flash('Keine Datei ausgewählt.', 'error')
+        return redirect(url_for('settings'))
+    try:
+        data = json.loads(f.read().decode('utf-8'))
+    except Exception:
+        flash('Ungültige JSON-Datei.', 'error')
+        return redirect(url_for('settings'))
+
+    imported = 0
+    for cat in data.get('categories', []):
+        if not Category.query.filter_by(name=cat['name']).first():
+            db.session.add(Category(name=cat['name'], color=cat.get('color','#3b82f6'), icon=cat.get('icon','folder')))
+            imported += 1
+    for lbl in data.get('labels', []):
+        if not Label.query.filter_by(name=lbl['name']).first():
+            db.session.add(Label(name=lbl['name'], color=lbl.get('color','#3b82f6')))
+            imported += 1
+    for tmpl in data.get('templates', []):
+        if not ContentTemplate.query.filter_by(name=tmpl['name']).first():
+            db.session.add(ContentTemplate(name=tmpl['name'], content_type=tmpl.get('content_type','feed'),
+                caption_template=tmpl.get('caption_template',''), hashtags=tmpl.get('hashtags',''),
+                notes=tmpl.get('notes','')))
+            imported += 1
+    db.session.commit()
+    flash(f'{imported} Einträge importiert.', 'success')
+    return redirect(url_for('settings'))
+
+
+# ─────────────────────── AUTO ARCHIV ───────────────────────
+
+@app.route('/api/content/auto-archive', methods=['POST'])
+def content_auto_archive():
+    days = request.get_json().get('days', 90)
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    items = ContentItem.query.filter(
+        ContentItem.created_at < cutoff,
+        ContentItem.status.in_(['draft', 'in_progress'])
+    ).all()
+    for item in items:
+        item.status = 'archived'
+    db.session.commit()
+    return jsonify({'ok': True, 'archived': len(items)})
+
+
+# ─────────────────────── MEDIA TAGS ───────────────────────
+
+@app.route('/api/media/<int:media_id>/tags', methods=['POST'])
+def media_tags_update(media_id):
+    item = MediaItem.query.get_or_404(media_id)
+    tags = request.get_json().get('tags', [])
+    item.tags = json.dumps([t.strip() for t in tags if t.strip()])
+    db.session.commit()
+    return jsonify({'ok': True, 'tags': item.get_tags()})
+
+
+# ─────────────────────── PRINT / POSTING PLAN ───────────────────────
+
+@app.route('/calendar/print')
+def calendar_print():
+    account_id = request.args.get('account_id', type=int)
+    days = request.args.get('days', 14, type=int)
+    start = datetime.utcnow().replace(hour=0, minute=0, second=0)
+    end = start + timedelta(days=days)
+    query = ScheduledPost.query.filter(
+        ScheduledPost.scheduled_at >= start,
+        ScheduledPost.scheduled_at < end,
+        ScheduledPost.status.in_(['scheduled', 'published'])
+    )
+    if account_id:
+        query = query.filter_by(account_id=account_id)
+    posts = query.order_by(ScheduledPost.scheduled_at).all()
+    accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
+    return render_template('print_plan.html', posts=posts, accounts=accounts,
+                           account_id=account_id, days=days,
+                           start=start, end=end)
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────

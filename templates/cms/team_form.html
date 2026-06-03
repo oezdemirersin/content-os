@@ -1,36 +1,55 @@
 {% extends "base.html" %}
-{% block title %}Teammitglied hinzufügen — Content OS{% endblock %}
-{% block page_title %}NEUES MITGLIED{% endblock %}
+{% block title %}{% if member %}{{ member.name }} bearbeiten{% else %}Neues Mitglied{% endif %} — Content OS{% endblock %}
+{% block page_title %}{% if member %}MITGLIED BEARBEITEN{% else %}NEUES MITGLIED{% endif %}{% endblock %}
 
 {% block content %}
 <div style="margin-bottom:20px">
   <a href="{{ url_for('team') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Team</a>
 </div>
 <div style="max-width:480px">
-  <form method="post" style="display:flex;flex-direction:column;gap:16px">
+  <form method="post" action="{{ url_for('team_edit', member_id=member.id) if member else url_for('team_new') }}"
+        style="display:flex;flex-direction:column;gap:16px">
     <div class="card" style="padding:24px;display:flex;flex-direction:column;gap:16px">
       <div>
         <label class="form-label">Name *</label>
-        <input type="text" name="name" required class="input-field" placeholder="Vollständiger Name">
+        <input type="text" name="name" required class="input-field" placeholder="Vollständiger Name"
+               value="{{ member.name if member else '' }}">
       </div>
       <div>
         <label class="form-label">E-Mail *</label>
-        <input type="email" name="email" required class="input-field" placeholder="name@example.de">
+        <input type="email" name="email" {% if not member %}required{% endif %} class="input-field"
+               placeholder="name@example.de" value="{{ member.email if member else '' }}">
       </div>
       <div>
         <label class="form-label">Rolle</label>
         <select name="role" class="select-field">
-          <option value="editor">Editor — Inhalte bearbeiten</option>
-          <option value="poster">Poster — Veröffentlichen</option>
-          <option value="manager">Manager — Verwaltung</option>
-          <option value="analyst">Analyst — Nur Analytics</option>
-          <option value="owner">Owner — Voller Zugriff</option>
+          {% for val, label in [('editor','Editor — Inhalte bearbeiten'),('poster','Poster — Veröffentlichen'),
+             ('manager','Manager — Verwaltung'),('analyst','Analyst — Nur Analytics'),('owner','Owner — Voller Zugriff')] %}
+          <option value="{{ val }}" {% if member and member.role == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
         </select>
       </div>
+      {% if member %}
+      <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface2);border-radius:8px">
+        <input type="checkbox" name="active" id="activeCheck" {% if member.active %}checked{% endif %}
+               style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
+        <label for="activeCheck" style="font-size:13px;color:var(--text);cursor:pointer">Mitglied aktiv</label>
+      </div>
+      {% endif %}
     </div>
     <div style="display:flex;gap:10px">
-      <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Hinzufügen</button>
+      <button type="submit" class="btn btn-primary">
+        <i class="fa-solid fa-check"></i> {% if member %}Speichern{% else %}Hinzufügen{% endif %}
+      </button>
       <a href="{{ url_for('team') }}" class="btn btn-ghost">Abbrechen</a>
+      {% if member %}
+      <form method="post" action="{{ url_for('team_delete', member_id=member.id) }}" style="margin-left:auto"
+            data-confirm="{{ member.name }} wirklich entfernen?">
+        <button type="submit" class="btn btn-danger">
+          <i class="fa-solid fa-trash"></i> Entfernen
+        </button>
+      </form>
+      {% endif %}
     </div>
   </form>
 </div>

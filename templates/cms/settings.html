@@ -104,9 +104,41 @@
     </div>
   </div>
 
+  <!-- Import / Export -->
+  <div class="card" style="overflow:hidden">
+    <div class="card-header"><span class="card-title">BACKUP & IMPORT</span></div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <a href="{{ url_for('settings_export') }}" class="btn btn-ghost">
+          <i class="fa-solid fa-download"></i> Config exportieren (JSON)
+        </a>
+        <a href="{{ url_for('accounts_export_csv') }}" class="btn btn-ghost">
+          <i class="fa-solid fa-file-csv"></i> Accounts exportieren (CSV)
+        </a>
+        <a href="{{ url_for('analytics_export') }}" class="btn btn-ghost">
+          <i class="fa-solid fa-chart-bar"></i> Analytics exportieren (CSV)
+        </a>
+      </div>
+      <form method="post" action="{{ url_for('settings_import') }}" enctype="multipart/form-data"
+            style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <label class="form-label" style="margin:0;white-space:nowrap">Config importieren:</label>
+        <input type="file" name="config_file" accept=".json" required
+               class="input-field" style="flex:1;min-width:200px;cursor:pointer">
+        <button type="submit" class="btn btn-primary">
+          <i class="fa-solid fa-upload"></i> Importieren
+        </button>
+      </form>
+    </div>
+  </div>
+
   <!-- System -->
   <div class="card" style="padding:0;overflow:hidden">
-    <div class="card-header"><span class="card-title">SYSTEM</span></div>
+    <div class="card-header">
+      <span class="card-title">SYSTEM</span>
+      <button onclick="autoArchive()" class="btn btn-ghost" style="font-size:12px">
+        <i class="fa-solid fa-box-archive"></i> Alte Drafts archivieren
+      </button>
+    </div>
     {% for label,value in [('Version','1.0.0'),('Datenbank','SQLite / PostgreSQL'),
        ('Kategorien',categories|length),('Labels',labels|length),('Plattformen',platforms|length)] %}
     <div style="display:flex;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border)">
@@ -121,4 +153,17 @@
 
 {% block scripts %}
 <style>.cat-row:hover .cat-actions { opacity:1 !important; }</style>
+<script>
+async function autoArchive() {
+  const ok = await customConfirm('Alte Drafts archivieren',
+    'Alle Entwürfe und "In Bearbeitung"-Inhalte älter als 90 Tage werden archiviert.');
+  if (!ok) return;
+  const res = await fetch('/api/content/auto-archive', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({days:90})
+  });
+  const d = await res.json();
+  showToast(`${d.archived} Inhalte archiviert.`, 'success');
+}
+</script>
 {% endblock %}

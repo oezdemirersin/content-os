@@ -105,8 +105,16 @@
       <button onclick="document.getElementById('logModal').style.display='none'"
               style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">&times;</button>
     </div>
-    <div id="logContent" style="padding:16px;max-height:360px;overflow-y:auto">
+    <div id="logContent" style="padding:16px;max-height:400px;overflow-y:auto">
       <div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Lädt…</div>
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px">
+      <button id="logRetryBtn" onclick="retryRule()" class="btn btn-ghost" style="font-size:12px;display:none">
+        <i class="fa-solid fa-rotate-right"></i> Erneut ausführen
+      </button>
+      <button onclick="document.getElementById('logModal').style.display='none'" class="btn btn-ghost" style="font-size:12px">
+        Schließen
+      </button>
     </div>
   </div>
 </div>
@@ -132,11 +140,28 @@ async function runNow(id, btn) {
   setTimeout(() => { btn.innerHTML='<i class="fa-solid fa-play"></i>'; btn.style.color=''; btn.disabled=false; btn.title='Jetzt ausführen'; }, 3000);
 }
 
+let _currentLogRuleId = null;
+async function retryRule() {
+  if (!_currentLogRuleId) return;
+  const btn = document.getElementById('logRetryBtn');
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Läuft…';
+  btn.disabled = true;
+  await fetch(`/automation/${_currentLogRuleId}/run`, {method:'POST'});
+  setTimeout(() => {
+    showLogs(_currentLogRuleId, '');
+    btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Erneut ausführen';
+    btn.disabled = false;
+  }, 1500);
+}
+
 async function showLogs(id, name) {
-  document.getElementById('logTitle').textContent = name.toUpperCase() + ' — LOG';
+  _currentLogRuleId = id;
+  if (name) document.getElementById('logTitle').textContent = name.toUpperCase() + ' — LOG';
   document.getElementById('logModal').style.display = 'flex';
-  document.getElementById('logContent').innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Lädt…</div>';
+  document.getElementById('logContent').innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px"><i class="fa-solid fa-spinner fa-spin"></i> Lädt…</div>';
+  document.getElementById('logRetryBtn').style.display = 'none';
   const logs = await (await fetch(`/api/automation/${id}/logs`)).json();
+  document.getElementById('logRetryBtn').style.display = 'flex';
   if (!logs.length) {
     document.getElementById('logContent').innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Noch keine Ausführungen.</div>';
     return;

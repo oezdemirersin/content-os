@@ -33,6 +33,7 @@
         <th style="text-align:center">Accounts</th>
         <th style="text-align:center">Status</th>
         <th style="text-align:center">Erstellt am</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
@@ -68,6 +69,11 @@
         </td>
         <td style="text-align:center;font-size:12px;color:var(--muted)">
           {{ m.created_at.strftime('%d.%m.%Y') }}
+        </td>
+        <td style="text-align:center">
+          <a href="{{ url_for('team_edit', member_id=m.id) }}" class="icon-btn" style="font-size:13px" title="Bearbeiten">
+            <i class="fa-solid fa-pen"></i>
+          </a>
         </td>
       </tr>
       {% endfor %}

@@ -507,6 +507,12 @@
 </div>
 
 <script>
+// ── Offline Banner ──
+const offlineBanner = document.getElementById('offlineBanner');
+offlineBanner.style.display = 'none';
+window.addEventListener('offline', () => { offlineBanner.style.display = 'flex'; });
+window.addEventListener('online',  () => { offlineBanner.style.display = 'none'; showToast('Verbindung wiederhergestellt.', 'success'); });
+
 // ── NProgress ──
 if (typeof NProgress !== 'undefined') {
   NProgress.configure({ showSpinner: false, speed: 300, minimum: 0.1 });
@@ -582,6 +588,14 @@ document.addEventListener('keydown', e => {
 });
 </script>
 {% block scripts %}{% endblock %}
+
+<!-- ── Offline Banner ── -->
+<div id="offlineBanner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:800;
+     padding:12px 24px;background:rgba(239,68,68,.95);color:white;
+     display:flex;align-items:center;justify-content:center;gap:10px;font-size:13px;font-weight:600">
+  <i class="fa-solid fa-wifi-slash"></i>
+  Keine Internetverbindung — einige Funktionen sind möglicherweise eingeschränkt.
+</div>
 
 <!-- ── Keyboard Shortcuts Panel ── -->
 <div id="shortcutsPanel"
