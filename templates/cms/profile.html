@@ -41,11 +41,28 @@
           <div style="display:flex;flex-direction:column;gap:10px">
             <div>
               <label class="form-label">Aktuelles Passwort</label>
-              <input type="password" name="current_password" class="input-field" placeholder="••••••••">
+              <div style="position:relative">
+                <input type="password" name="current_password" id="curPw" class="input-field" placeholder="••••••••" style="padding-right:44px">
+                <button type="button" onclick="togglePw('curPw','curEye')"
+                        style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px">
+                  <i id="curEye" class="fa-regular fa-eye"></i>
+                </button>
+              </div>
             </div>
             <div>
               <label class="form-label">Neues Passwort</label>
-              <input type="password" name="new_password" class="input-field" placeholder="••••••••">
+              <div style="position:relative">
+                <input type="password" name="new_password" id="newPw" class="input-field" placeholder="Min. 8 Zeichen" style="padding-right:44px"
+                       oninput="checkStrength(this.value)">
+                <button type="button" onclick="togglePw('newPw','newEye')"
+                        style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px">
+                  <i id="newEye" class="fa-regular fa-eye"></i>
+                </button>
+              </div>
+              <div style="height:3px;background:var(--surface2);border-radius:3px;margin-top:6px">
+                <div id="pwStrengthBar" style="height:100%;border-radius:3px;width:0;transition:width .3s,background .3s;background:var(--danger)"></div>
+              </div>
+              <div id="pwStrengthLabel" style="font-size:10px;color:var(--muted);margin-top:3px"></div>
             </div>
           </div>
         </div>
@@ -72,4 +89,38 @@
     {% endif %}
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function togglePw(fieldId, eyeId) {
+  const f = document.getElementById(fieldId);
+  const e = document.getElementById(eyeId);
+  f.type = f.type === 'password' ? 'text' : 'password';
+  e.className = f.type === 'password' ? 'fa-regular fa-eye' : 'fa-regular fa-eye-slash';
+}
+function checkStrength(pw) {
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  const bar = document.getElementById('pwStrengthBar');
+  const lbl = document.getElementById('pwStrengthLabel');
+  const levels = [
+    {pct:0, color:'', label:''},
+    {pct:20, color:'var(--danger)', label:'Sehr schwach'},
+    {pct:40, color:'#f97316', label:'Schwach'},
+    {pct:60, color:'var(--warning)', label:'Mittel'},
+    {pct:80, color:'var(--accent)', label:'Stark'},
+    {pct:100, color:'var(--success)', label:'Sehr stark'},
+  ];
+  const l = levels[score] || levels[0];
+  bar.style.width = l.pct + '%';
+  bar.style.background = l.color;
+  lbl.textContent = l.label;
+  lbl.style.color = l.color;
+}
+</script>
 {% endblock %}

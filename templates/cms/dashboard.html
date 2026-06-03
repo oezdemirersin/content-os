@@ -130,6 +130,17 @@
   </button>
 </div>
 
+<!-- ── Streak ── -->
+<div id="streakBanner" style="display:none;margin-bottom:16px;padding:12px 20px;
+     border-radius:10px;background:linear-gradient(90deg,rgba(245,158,11,.1),rgba(249,115,22,.06));
+     border:1px solid rgba(245,158,11,.25);display:flex;align-items:center;gap:12px">
+  <span style="font-size:24px">🔥</span>
+  <div>
+    <span id="streakCount" style="font-family:var(--font-display);font-size:22px;color:var(--warning)"></span>
+    <span style="font-size:13px;color:var(--muted);margin-left:6px">Tage in Folge gepostet</span>
+  </div>
+</div>
+
 <!-- ── KPI Stats ── -->
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
   <div class="stat-card">
@@ -522,6 +533,14 @@ async function loadChart(days, btn) {
 
 function reloadChart() { loadChart(currentDays); }
 loadChart(30, document.querySelectorAll('#periodBtns button')[1]);
+
+// ── Streak ──
+fetch('/api/stats/streak').then(r=>r.json()).then(d=>{
+  if (d.streak >= 2) {
+    document.getElementById('streakCount').textContent = d.streak;
+    document.getElementById('streakBanner').style.display = 'flex';
+  }
+});
 
 // ── Greeting ──
 (function() {

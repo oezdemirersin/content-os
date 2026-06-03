@@ -83,6 +83,14 @@
         <i class="fa-brands fa-{{ p.icon }}" style="font-size:16px;color:{{ p.color }};width:20px;text-align:center"></i>
         <span style="font-size:13px;color:var(--text);flex:1">{{ p.name }}</span>
         <span style="font-size:12px;color:var(--muted)">{{ p.accounts|length }} Accounts</span>
+        {% if p.accounts|length == 0 %}
+        <form method="post" action="{{ url_for('platform_delete', platform_id=p.id) }}"
+              data-confirm="Plattform '{{ p.name }}' löschen?">
+          <button type="submit" class="icon-btn" style="font-size:12px;color:var(--danger)">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </form>
+        {% endif %}
       </div>
       {% endfor %}
     </div>

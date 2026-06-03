@@ -4,7 +4,12 @@
 
 {% block content %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-  <div style="font-size:13px;color:var(--muted)">Alle geplanten Posts · Klick auf freien Tag = neuer Post</div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="font-size:13px;color:var(--muted)">Alle geplanten Posts · Klick auf freien Tag = neuer Post</div>
+    <a href="{{ url_for('calendar_ical') }}" class="btn btn-ghost" style="font-size:11px;padding:5px 12px" title="Als .ics exportieren">
+      <i class="fa-solid fa-calendar-arrow-down"></i> iCal
+    </a>
+  </div>
   <select id="calAccountFilter" onchange="calendar.refetchEvents()"
           style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
                  padding:8px 14px;font-size:13px;color:var(--text);font-family:var(--font-body)">

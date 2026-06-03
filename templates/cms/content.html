@@ -221,7 +221,7 @@
       <span style="font-size:11px;font-weight:700;letter-spacing:1px;color:{{ col_color }};text-transform:uppercase">{{ col_label }}</span>
       <span style="font-size:11px;color:var(--muted)">{{ items|selectattr('status','equalto',col_status)|list|length }}</span>
     </div>
-    {% for item in items if item.status == col_status %}
+    {% for item in kanban_items if item.status == col_status %}
     <div draggable="true" ondragstart="dragStart(event, {{ item.id }})"
          style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
                 padding:12px;cursor:grab;transition:border-color .15s,transform .1s;user-select:none"

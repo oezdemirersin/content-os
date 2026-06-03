@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Beichten-Dashboard — Content OS{% endblock %}
+{% block page_title %}BEICHTEN-DASHBOARD{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <div>
+    <div style="font-size:13px;color:var(--muted)">{{ items|length }} Einreichungen</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="{{ url_for('submit_form') }}" target="_blank" class="btn btn-ghost">
+      <i class="fa-solid fa-arrow-up-right-from-square"></i> Formular öffnen
+    </a>
+    <a href="{{ url_for('content_new') }}" class="btn btn-primary">
+      <i class="fa-solid fa-plus"></i> Manuell erstellen
+    </a>
+  </div>
+</div>
+
+<!-- Stats -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
+  {% for status, label, color in [('draft','Neu / Ungeprüft','var(--muted)'),('in_progress','In Bearbeitung','var(--warning)'),('ready','Bereit','var(--success)'),('published','Veröffentlicht','var(--accent2)')] %}
+  <div class="stat-card" style="border-top:2px solid {{ color }}">
+    <div class="stat-label">{{ label }}</div>
+    <div style="font-family:var(--font-display);font-size:32px;line-height:1;margin-top:6px;color:{{ color }}">
+      {{ items|selectattr('status','equalto',status)|list|length }}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Liste -->
+{% if items %}
+<div style="display:flex;flex-direction:column;gap:10px">
+  {% for item in items %}
+  <div class="card" style="padding:18px 20px;transition:border-color .15s"
+       onmouseover="this.style.borderColor='rgba(255,255,255,.12)'" onmouseout="this.style.borderColor='var(--border)'">
+    <div style="display:flex;align-items:start;gap:16px">
+      <!-- Status dot -->
+      <div style="width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0;
+        background:{% if item.status=='ready' %}var(--success){% elif item.status=='draft' %}var(--muted)
+        {% elif item.status=='in_progress' %}var(--warning){% elif item.status=='published' %}var(--accent2)
+        {% else %}var(--muted){% endif %}"></div>
+
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;color:var(--text);line-height:1.6;margin-bottom:8px">
+          {{ item.raw_text or item.caption or item.title }}
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted)">
+            <i class="fa-solid fa-clock" style="margin-right:3px"></i>{{ item.created_at.strftime('%d.%m.%Y %H:%M') }}
+          </span>
+          {% if item.source_name %}
+          <span style="font-size:11px;color:var(--muted)">
+            <i class="fa-solid fa-user" style="margin-right:3px"></i>{{ item.source_name }}
+          </span>
+          {% endif %}
+          {% if item.accounts %}
+          <span style="font-size:11px;color:var(--accent2)">
+            <i class="fa-solid fa-layer-group" style="margin-right:3px"></i>{{ item.accounts[0].name }}
+          </span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Aktionen -->
+      <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
+        <!-- Quick-Status -->
+        <select onchange="quickStatus({{ item.id }},this)" onclick="event.stopPropagation()"
+                style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;
+                       padding:5px 10px;font-size:12px;font-weight:700;font-family:var(--font-body);
+                       color:{% if item.status=='ready' %}var(--success){% elif item.status=='draft' %}var(--muted)
+                       {% elif item.status=='in_progress' %}var(--warning){% elif item.status=='published' %}var(--accent2)
+                       {% else %}var(--muted){% endif %}">
+          {% for s,l in [('draft','Entwurf'),('in_progress','In Bearbeitung'),('ready','Bereit'),('published','Veröffentlicht'),('archived','Archiviert')] %}
+          <option value="{{ s }}" {% if item.status==s %}selected{% endif %} style="background:var(--surface2);color:var(--text)">{{ l }}</option>
+          {% endfor %}
+        </select>
+        <a href="{{ url_for('content_edit', item_id=item.id) }}" class="icon-btn" style="font-size:13px" title="Bearbeiten">
+          <i class="fa-solid fa-pen"></i>
+        </a>
+        <a href="{{ url_for('distribute', content_id=item.id) }}" class="icon-btn" style="font-size:13px" title="Verteilen">
+          <i class="fa-solid fa-arrows-split-up-and-left"></i>
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center;padding:80px 20px">
+  <i class="fa-solid fa-heart" style="font-size:40px;color:var(--border);display:block;margin-bottom:16px"></i>
+  <div style="font-size:14px;color:var(--muted);margin-bottom:8px">Noch keine Beichten eingegangen</div>
+  <div style="font-size:12px;color:var(--muted);margin-bottom:16px">
+    Teile den Link zu deinem Beichten-Formular mit deiner Community.
+  </div>
+  <a href="{{ url_for('submit_form') }}" target="_blank" class="btn btn-primary">
+    <i class="fa-solid fa-arrow-up-right-from-square"></i> Formular öffnen
+  </a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function quickStatus(id, sel) {
+  await fetch(`/content/${id}/status`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({status:sel.value})
+  });
+  const colors = {draft:'var(--muted)',in_progress:'var(--warning)',ready:'var(--success)',
+                  published:'var(--accent2)',archived:'var(--muted)'};
+  sel.style.color = colors[sel.value] || 'var(--muted)';
+  showToast('Status aktualisiert.', 'success', 1500);
+}
+</script>
+{% endblock %}

@@ -825,7 +825,12 @@ def content_hub():
 
     page = request.args.get('page', 1, type=int)
     per_page = 40
-    pagination = query.order_by(ContentItem.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    ordered = query.order_by(ContentItem.created_at.desc())
+    pagination = ordered.paginate(page=page, per_page=per_page, error_out=False)
+
+    # Für Kanban alle Items (max 200) ohne Pagination
+    kanban_items = ordered.limit(200).all()
+
     categories = Category.query.order_by(Category.name).all()
     labels = Label.query.order_by(Label.name).all()
 
@@ -836,6 +841,7 @@ def content_hub():
     _f = {'q': q, 'status': status, 'category': category_id, 'type': content_type}
     return render_template('content.html',
         items=pagination.items, pagination=pagination,
+        kanban_items=kanban_items,
         categories=categories, labels=labels, status_counts=status_counts,
         active_page='content',
         filters={k: v for k, v in _f.items() if v})
@@ -1575,6 +1581,18 @@ def label_delete(label_id):
     return redirect(url_for('settings'))
 
 
+@app.route('/settings/platform/<int:platform_id>/delete', methods=['POST'])
+def platform_delete(platform_id):
+    p = Platform.query.get_or_404(platform_id)
+    if p.accounts:
+        flash(f'Plattform "{p.name}" hat noch {len(p.accounts)} Accounts — zuerst umziehen.', 'error')
+        return redirect(url_for('settings'))
+    db.session.delete(p)
+    db.session.commit()
+    flash(f'Plattform "{p.name}" gelöscht.', 'success')
+    return redirect(url_for('settings'))
+
+
 @app.route('/settings/platform/new', methods=['POST'])
 def platform_new():
     d = request.form
@@ -1925,6 +1943,105 @@ def content_duplicate(item_id):
     return redirect(url_for('content_edit', item_id=copy.id))
 
 
+# ─────────────────────── ACCOUNT CSV EXPORT ───────────────────────
+
+@app.route('/accounts/export-csv')
+def accounts_export_csv():
+    from io import StringIO
+    import csv as _csv
+    from flask import Response
+    output = StringIO()
+    w = _csv.writer(output)
+    w.writerow(['name','handle','platform','category','follower_count','status','automation_level','priority','notes'])
+    for acc in Account.query.order_by(Account.follower_count.desc()).all():
+        w.writerow([acc.name, acc.handle or '', acc.platform.name if acc.platform else '',
+                    acc.category.name if acc.category else '', acc.follower_count,
+                    acc.status, acc.automation_level, acc.priority, acc.notes or ''])
+    return Response(output.getvalue(), mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename=accounts-{datetime.now().strftime("%Y%m%d")}.csv'})
+
+
+# ─────────────────────── POSTING STREAK ───────────────────────
+
+@app.route('/api/stats/streak')
+def posting_streak():
+    today = datetime.utcnow().date()
+    streak = 0
+    for i in range(365):
+        day = today - timedelta(days=i)
+        count = ScheduledPost.query.filter(
+            func.date(ScheduledPost.scheduled_at) == day,
+            ScheduledPost.status.in_(['scheduled', 'published'])
+        ).count()
+        if count > 0:
+            streak += 1
+        elif i > 0:
+            break
+    return jsonify({'streak': streak, 'date': today.isoformat()})
+
+
+# ─────────────────────── ICAL EXPORT ───────────────────────
+
+@app.route('/calendar/export.ics')
+def calendar_ical():
+    from flask import Response
+    account_id = request.args.get('account_id', type=int)
+    query = ScheduledPost.query.filter(
+        ScheduledPost.status.in_(['scheduled', 'published']),
+        ScheduledPost.scheduled_at >= datetime.utcnow() - timedelta(days=30)
+    )
+    if account_id:
+        query = query.filter_by(account_id=account_id)
+    posts = query.order_by(ScheduledPost.scheduled_at).all()
+
+    lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Content OS//DE',
+             'CALSCALE:GREGORIAN', 'METHOD:PUBLISH']
+    for p in posts:
+        dt = p.scheduled_at.strftime('%Y%m%dT%H%M%SZ')
+        summary = f"{p.account.name} — {p.post_type.capitalize()}" if p.account else p.post_type
+        desc = (p.caption or '')[:200].replace('\n', '\\n').replace(',', '\\,')
+        uid = f"post-{p.id}@content-os"
+        lines += ['BEGIN:VEVENT', f'UID:{uid}', f'DTSTART:{dt}', f'DTEND:{dt}',
+                  f'SUMMARY:{summary}', f'DESCRIPTION:{desc}', 'END:VEVENT']
+    lines.append('END:VCALENDAR')
+    return Response('\r\n'.join(lines), mimetype='text/calendar',
+        headers={'Content-Disposition': 'attachment; filename=posting-plan.ics'})
+
+
+# ─────────────────────── BULK FOLLOWER UPDATE ───────────────────────
+
+@app.route('/api/accounts/bulk-followers', methods=['POST'])
+def bulk_followers_update():
+    updates = request.get_json().get('updates', [])  # [{id, followers}]
+    count = 0
+    for u in updates:
+        acc = Account.query.get(u.get('id'))
+        if acc and u.get('followers') is not None:
+            old = acc.follower_count
+            acc.follower_count = int(u['followers'])
+            snap = AnalyticsSnapshot(account_id=acc.id, followers=acc.follower_count,
+                                     recorded_at=datetime.utcnow())
+            db.session.add(snap)
+            count += 1
+    db.session.commit()
+    log_activity('bulk_followers_updated', f'{count} Accounts Follower aktualisiert')
+    return jsonify({'ok': True, 'updated': count})
+
+
+# ─────────────────────── BEICHTEN DASHBOARD ───────────────────────
+
+@app.route('/beichten')
+def beichten_dashboard():
+    cat = Category.query.filter(Category.name.ilike('%beicht%')).first()
+    items = ContentItem.query
+    if cat:
+        items = items.filter_by(category_id=cat.id)
+    else:
+        items = items.filter(ContentItem.source_name.ilike('%beicht%'))
+    items = items.order_by(ContentItem.created_at.desc()).all()
+    return render_template('beichten.html', items=items, active_page='content')
+
+
 # ─────────────────────── ACCOUNT GROUPS ───────────────────────
 
 @app.route('/groups')
@@ -1946,6 +2063,19 @@ def group_new():
     db.session.commit()
     flash(f'Gruppe "{g.name}" erstellt.', 'success')
     return redirect(url_for('account_groups'))
+
+@app.route('/groups/<int:group_id>/edit', methods=['POST'])
+def group_edit(group_id):
+    g = AccountGroup.query.get_or_404(group_id)
+    g.name = request.form.get('name', g.name)
+    g.color = request.form.get('color', g.color)
+    g.description = request.form.get('description', g.description)
+    account_ids = request.form.getlist('account_ids')
+    g.accounts = Account.query.filter(Account.id.in_([int(i) for i in account_ids])).all()
+    db.session.commit()
+    flash(f'Gruppe "{g.name}" aktualisiert.', 'success')
+    return redirect(url_for('account_groups'))
+
 
 @app.route('/groups/<int:group_id>/delete', methods=['POST'])
 def group_delete(group_id):

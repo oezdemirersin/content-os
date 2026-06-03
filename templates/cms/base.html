@@ -298,6 +298,12 @@
       .sidebar-overlay.open { display:block; }
       .main { margin-left:0; }
     }
+    @media(max-width:600px) {
+      #liveClock { display:none; }
+      .topbar { padding:0 14px; gap:6px; }
+      .search-wrap { max-width:none; flex:1; margin:0 4px; }
+      .topbar-title { font-size:16px; }
+    }
   </style>
   {% block head %}{% endblock %}
 </head>
@@ -340,6 +346,9 @@
     </a>
     <a href="{{ url_for('content_templates') }}" class="nav-item {% if active_page == 'templates' %}active{% endif %}">
       <i class="fa-solid fa-rectangle-list"></i> Templates
+    </a>
+    <a href="{{ url_for('beichten_dashboard') }}" class="nav-item {% if active_page == 'beichten' %}active{% endif %}">
+      <i class="fa-solid fa-heart"></i> Beichten
     </a>
 
     <div class="nav-section">Verwaltung</div>
@@ -533,7 +542,8 @@ function fmtNum(n) {
 
 // Keyboard shortcuts
 const shortcuts = {
-  'g a':'{{ url_for("accounts") }}','g c':'{{ url_for("content_hub") }}',
+  'g a':'{{ url_for("accounts") }}','g g':'{{ url_for("account_groups") }}',
+  'g c':'{{ url_for("content_hub") }}','g r':'{{ url_for("content_templates") }}',
   'g k':'{{ url_for("calendar_view") }}','g m':'{{ url_for("media_library") }}',
   'g d':'{{ url_for("dashboard") }}','g n':'{{ url_for("analytics") }}',
   'g t':'{{ url_for("automation") }}','g i':'{{ url_for("ai_config_list") }}',
@@ -590,7 +600,7 @@ document.addEventListener('keydown', e => {
     </div>
     <div style="padding:20px 24px;display:grid;grid-template-columns:1fr 1fr;gap:0">
       {% for section, items in [
-        ('Navigation', [('g d','Dashboard'),('g a','Accounts'),('g c','Content Hub'),('g k','Kalender'),('g m','Medienbibliothek'),('g n','Analytics'),('g t','Automatisierung'),('g i','KI-Zentrale'),('g e','Team'),('g s','Einstellungen')]),
+        ('Navigation', [('g d','Dashboard'),('g a','Accounts'),('g g','Gruppen'),('g c','Content Hub'),('g r','Templates'),('g k','Kalender'),('g m','Medienbibliothek'),('g n','Analytics'),('g t','Automatisierung'),('g i','KI-Zentrale'),('g e','Team'),('g s','Einstellungen')]),
         ('Aktionen', [('/','Suche öffnen'),('p','Schnell-Post öffnen'),('n','Neuer Eintrag'),('Esc','Modal schließen / Blur'),('?','Shortcuts anzeigen')]),
       ] %}
       <div style="padding:8px 0 16px">

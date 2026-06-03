@@ -27,18 +27,20 @@
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px">
           <div>
             <label class="form-label">Kategorie</label>
+            {% set tmpl_cat = request.args.get('tmpl_cat','')|int %}
             <select name="category_id" class="select-field">
               <option value="">Keine</option>
               {% for cat in categories %}
-              <option value="{{ cat.id }}" {% if item and item.category_id==cat.id %}selected{% endif %}>{{ cat.name }}</option>
+              <option value="{{ cat.id }}" {% if (item and item.category_id==cat.id) or (not item and tmpl_cat==cat.id) %}selected{% endif %}>{{ cat.name }}</option>
               {% endfor %}
             </select>
           </div>
           <div>
             <label class="form-label">Typ</label>
             <select name="content_type" class="select-field">
+              {% set tmpl_type = request.args.get('tmpl_type','') %}
               {% for t in ['feed','reel','story','carousel'] %}
-              <option value="{{ t }}" {% if item and item.content_type==t %}selected{% endif %}>{{ t.capitalize() }}</option>
+              <option value="{{ t }}" {% if (item and item.content_type==t) or (not item and tmpl_type==t) %}selected{% endif %}>{{ t.capitalize() }}</option>
               {% endfor %}
             </select>
           </div>
@@ -79,9 +81,11 @@
             <span>Caption (Instagram)</span>
             <span id="captionCount" style="font-weight:400;color:var(--muted)">{{ (item.caption or '')|length }} / 2.200</span>
           </label>
+          {% set tmpl_caption = request.args.get('tmpl_caption','') %}
+          {% set tmpl_hashtags = request.args.get('tmpl_hashtags','') %}
           <textarea name="caption" id="captionField" rows="6" class="input-field" style="resize:vertical"
                     oninput="updateCapCounter()"
-                    placeholder="Finaler Instagram Caption mit Hashtags…">{{ item.caption if item else '' }}</textarea>
+                    placeholder="Finaler Instagram Caption mit Hashtags…">{{ item.caption if item else (tmpl_caption + ('\n\n' + tmpl_hashtags if tmpl_hashtags else '')) }}</textarea>
           <div id="captionBar" style="height:3px;background:var(--surface2);border-radius:3px;margin-top:6px;overflow:hidden">
             <div id="captionBarFill" style="height:100%;border-radius:3px;background:var(--accent);transition:width .2s;width:{{ [(item.caption or '')|length / 2200 * 100, 100]|min }}%"></div>
           </div>

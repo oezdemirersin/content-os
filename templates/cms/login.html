@@ -76,7 +76,15 @@
         </div>
         <div class="field">
           <label>Passwort</label>
-          <input type="password" name="password" placeholder="••••••••" required>
+          <div style="position:relative">
+            <input type="password" name="password" id="pwField" placeholder="••••••••" required
+                   style="padding-right:44px">
+            <button type="button" onclick="togglePw('pwField','pwEye')"
+                    style="position:absolute;right:12px;top:50%;transform:translateY(-50%);
+                           background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px">
+              <i id="pwEye" class="fa-regular fa-eye"></i>
+            </button>
+          </div>
         </div>
         <button type="submit" class="submit-btn">ANMELDEN</button>
       </form>
@@ -84,5 +92,14 @@
 
     <div class="hint">Standard: <code>admin</code> / <code>admin123</code></div>
   </div>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <script>
+  function togglePw(fieldId, eyeId) {
+    const f = document.getElementById(fieldId);
+    const e = document.getElementById(eyeId);
+    f.type = f.type === 'password' ? 'text' : 'password';
+    e.className = f.type === 'password' ? 'fa-regular fa-eye' : 'fa-regular fa-eye-slash';
+  }
+  </script>
 </body>
 </html>

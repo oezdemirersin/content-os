@@ -43,6 +43,18 @@
       <span class="badge badge-red">{{ account.status }}</span>
       {% endif %}
     </div>
+    {% if account.groups %}
+    <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+      {% for g in account.groups %}
+      <a href="{{ url_for('account_groups') }}"
+         style="display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:20px;
+                background:{{ g.color }}18;border:1px solid {{ g.color }}30;text-decoration:none">
+        <i class="fa-solid fa-object-group" style="font-size:9px;color:{{ g.color }}"></i>
+        <span style="font-size:11px;font-weight:600;color:{{ g.color }}">{{ g.name }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
     <div style="font-size:13px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:8px">
       {% if account.handle %}
       <button onclick="copyHandle('{{ account.handle }}')" title="Handle kopieren"
