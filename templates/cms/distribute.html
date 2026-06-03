@@ -3,7 +3,10 @@
 {% block page_title %}VERTEILUNGSSYSTEM{% endblock %}
 
 {% block content %}
-<div style="font-size:13px;color:var(--muted);margin-bottom:24px">Content → mehrere Accounts in einem Schritt</div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <div style="font-size:13px;color:var(--muted)">Content → mehrere Accounts in einem Schritt</div>
+  <span style="font-size:11px;color:var(--muted)"><span class="kbd" style="display:inline-flex;align-items:center;justify-content:center;background:var(--surface2);border:1px solid var(--border);border-bottom:2px solid var(--border);border-radius:5px;font-size:10px;font-weight:700;color:var(--muted);padding:2px 7px;font-family:monospace">Ctrl</span> + <span class="kbd" style="display:inline-flex;align-items:center;justify-content:center;background:var(--surface2);border:1px solid var(--border);border-bottom:2px solid var(--border);border-radius:5px;font-size:10px;font-weight:700;color:var(--muted);padding:2px 7px;font-family:monospace">↵</span> zum Absenden</span>
+</div>
 
 <div style="display:grid;grid-template-columns:300px 1fr;gap:20px">
 
@@ -78,18 +81,29 @@
     <form method="post" action="{{ url_for('distribute_manual') }}" x-data="{selected:[]}">
       <input type="hidden" name="content_id" value="{{ item.id }}">
 
-      <div class="card" style="overflow:hidden;margin-bottom:12px">
-        <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-          <span style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--muted);text-transform:uppercase">ACCOUNTS AUSWÄHLEN</span>
-          <div style="display:flex;align-items:center;gap:12px">
+      <div class="card" style="overflow:hidden;margin-bottom:12px" x-data="{search:''}">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <!-- Suchfeld -->
+          <div style="flex:1;min-width:160px;display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:6px 10px">
+            <i class="fa-solid fa-magnifying-glass" style="color:var(--muted);font-size:11px;flex-shrink:0"></i>
+            <input type="text" x-model="search" placeholder="Account suchen…"
+                   style="background:none;border:none;outline:none;font-size:12px;color:var(--text);font-family:var(--font-body);width:100%"
+                   autocomplete="off">
+            <button type="button" x-show="search" @click="search=''"
+                    style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0;line-height:1">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
             <span style="font-size:12px;color:var(--accent2)" x-text="selected.length + ' ausgewählt'"></span>
             <button type="button" @click="selected={{ all_accounts|map(attribute='id')|list|tojson }}" style="background:none;border:none;font-size:12px;color:var(--accent2);cursor:pointer;font-family:var(--font-body)">Alle</button>
             <button type="button" @click="selected=[]" style="background:none;border:none;font-size:12px;color:var(--muted);cursor:pointer;font-family:var(--font-body)">Keine</button>
           </div>
         </div>
-        <div style="max-height:300px;overflow-y:auto">
+        <div style="max-height:320px;overflow-y:auto">
           {% for acc in all_accounts %}
-          <label style="display:flex;align-items:center;gap:12px;padding:11px 20px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s"
+          <label x-show="!search || '{{ acc.name }}'.toLowerCase().includes(search.toLowerCase()) || '{{ acc.category.name if acc.category else '' }}'.toLowerCase().includes(search.toLowerCase())"
+                 style="display:flex;align-items:center;gap:12px;padding:11px 20px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s"
                  onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
             <input type="checkbox" name="account_ids" :value="{{ acc.id }}" x-model="selected" value="{{ acc.id }}"
                    style="width:14px;height:14px;accent-color:var(--accent);flex-shrink:0">
@@ -155,4 +169,14 @@
     {% endif %}
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey||e.metaKey) && e.key==='Enter') {
+    document.querySelector('button[type="submit"]')?.click();
+  }
+});
+</script>
 {% endblock %}

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if account %}{{ account.name }} — {% endif %}Beichten & Geschichten</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#080b12; --surface:#0f1420; --border:rgba(255,255,255,0.08); --accent:#3b82f6; --text:#e2e8f0; --muted:#64748b; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:var(--bg); color:var(--text); font-family:'DM Sans',sans-serif; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:16px; width:100%; max-width:520px; overflow:hidden; box-shadow:0 24px 80px rgba(0,0,0,.5); }
+    .header { padding:32px; text-align:center; background:linear-gradient(135deg,rgba(59,130,246,.12),rgba(168,85,247,.08)); border-bottom:1px solid var(--border); }
+    h1 { font-family:'Bebas Neue',sans-serif; font-size:32px; letter-spacing:2px; margin-bottom:6px; }
+    .sub { font-size:13px; color:var(--muted); line-height:1.5; }
+    .form { padding:28px; display:flex; flex-direction:column; gap:16px; }
+    label { display:block; font-size:11px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; }
+    textarea, select, input { width:100%; background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:10px; padding:12px 14px; font-family:'DM Sans',sans-serif; font-size:14px; color:var(--text); outline:none; transition:border-color .2s; resize:vertical; }
+    textarea:focus, select:focus, input:focus { border-color:var(--accent); }
+    textarea::placeholder, input::placeholder { color:var(--muted); }
+    .btn { display:flex; align-items:center; justify-content:center; gap:8px; padding:14px; border-radius:10px; font-family:'DM Sans',sans-serif; font-size:14px; font-weight:700; cursor:pointer; border:none; transition:all .15s; width:100%; }
+    .btn-primary { background:var(--accent); color:white; }
+    .btn-primary:hover { background:#2563eb; }
+    .btn-primary:disabled { opacity:.5; cursor:not-allowed; }
+    .counter { text-align:right; font-size:11px; color:var(--muted); margin-top:4px; }
+    .success { text-align:center; padding:40px 28px; }
+    .success-icon { font-size:48px; margin-bottom:16px; }
+    .success h2 { font-family:'Bebas Neue',sans-serif; font-size:28px; letter-spacing:1px; margin-bottom:8px; color:#22c55e; }
+    .success p { font-size:13px; color:var(--muted); }
+    .anon { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); }
+    .anon i { color:#22c55e; }
+    select option { background:var(--surface); }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <h1>
+      {% if account %}{{ account.name }}{% else %}BEICHTEN &amp; GESCHICHTEN{% endif %}
+    </h1>
+    <div class="sub">
+      Teile deine Geschichte, Beichte oder deinen Gedanken — anonym, wenn du möchtest.
+    </div>
+  </div>
+
+  <div id="formWrap">
+    <form class="form" onsubmit="submitBeichte(event)">
+      {% if not account %}
+      <div>
+        <label>Für welche Seite?</label>
+        <select id="accountSelect">
+          <option value="">Seite wählen…</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      <div>
+        <label>Deine Geschichte *</label>
+        <textarea id="textField" rows="6" minlength="20" maxlength="2200"
+                  oninput="document.getElementById('charCount').textContent=this.value.length"
+                  placeholder="Was ist dir passiert? Was möchtest du loswerden?&#10;Alle Einreichungen werden geprüft bevor sie veröffentlicht werden."></textarea>
+        <div class="counter"><span id="charCount">0</span> / 2200 Zeichen</div>
+      </div>
+
+      <div>
+        <label>Kontakt (optional, nur für Rückfragen)</label>
+        <input type="text" id="contactField" placeholder="Instagram: @deinhandle oder E-Mail — bleibt privat">
+      </div>
+
+      <div class="anon">
+        <i class="fa-solid fa-shield-halved">&#128737;</i>
+        Deine Einreichung wird anonym behandelt. Kontaktdaten sind nur für das Team sichtbar.
+      </div>
+
+      <button type="submit" class="btn btn-primary" id="submitBtn">
+        <span>&#128394;</span> Einreichen
+      </button>
+    </form>
+  </div>
+
+  <div id="successWrap" class="success" style="display:none">
+    <div class="success-icon">&#10003;&#65039;</div>
+    <h2>DANKE!</h2>
+    <p>Deine Geschichte wurde eingereicht und wird von unserem Team geprüft.<br>Bei Veröffentlichung erscheint sie auf unserer Seite.</p>
+    <button onclick="location.reload()" class="btn btn-primary" style="margin-top:20px;width:auto;padding:10px 28px">Weitere einreichen</button>
+  </div>
+</div>
+
+<script>
+async function submitBeichte(e) {
+  e.preventDefault();
+  const text = document.getElementById('textField').value.trim();
+  if (text.length < 20) { alert('Bitte mindestens 20 Zeichen schreiben.'); return; }
+
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span>⏳</span> Wird eingereicht…';
+
+  const account_id = {% if account %}{{ account.id }}{% else %}
+    parseInt(document.getElementById('accountSelect').value) || null{% endif %};
+
+  const res = await fetch('/api/submit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text,
+      account_id,
+      contact: document.getElementById('contactField')?.value || ''
+    })
+  });
+  const d = await res.json();
+  if (d.ok) {
+    document.getElementById('formWrap').style.display = 'none';
+    document.getElementById('successWrap').style.display = 'block';
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = '<span>📝</span> Einreichen';
+    alert(d.error || 'Fehler beim Einreichen');
+  }
+}
+</script>
+</body>
+</html>

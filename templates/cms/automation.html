@@ -116,8 +116,20 @@
 <script>
 async function runNow(id, btn) {
   btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
-  await fetch(`/automation/${id}/run`, {method:'POST'});
-  setTimeout(()=>btn.innerHTML='<i class="fa-solid fa-play"></i>', 3000);
+  btn.disabled = true;
+  btn.title = 'Läuft…';
+  try {
+    const res = await fetch(`/automation/${id}/run`, {method:'POST'});
+    const d = await res.json();
+    btn.innerHTML='<i class="fa-solid fa-check"></i>';
+    btn.style.color='var(--success)';
+    showToast(`Ausgeführt: ${d.created||0} neue Items erstellt.`, 'success');
+  } catch(e) {
+    btn.innerHTML='<i class="fa-solid fa-exclamation"></i>';
+    btn.style.color='var(--danger)';
+    showToast('Fehler beim Ausführen.', 'error');
+  }
+  setTimeout(() => { btn.innerHTML='<i class="fa-solid fa-play"></i>'; btn.style.color=''; btn.disabled=false; btn.title='Jetzt ausführen'; }, 3000);
 }
 
 async function showLogs(id, name) {

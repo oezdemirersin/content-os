@@ -7,11 +7,18 @@
   <div style="font-size:13px;color:var(--muted)">
     {{ alerts|selectattr('resolved','equalto',false)|list|length }} aktive Alerts
   </div>
-  <form method="post" action="{{ url_for('alerts_refresh') }}">
-    <button type="submit" class="btn btn-ghost">
-      <i class="fa-solid fa-rotate"></i> Neu generieren
+  <div style="display:flex;gap:8px">
+    {% if alerts|selectattr('resolved','equalto',false)|list|length > 0 %}
+    <button onclick="resolveAll()" class="btn btn-ghost" style="color:var(--success);border-color:rgba(34,197,94,.3)">
+      <i class="fa-solid fa-check-double"></i> Alle lösen
     </button>
-  </form>
+    {% endif %}
+    <form method="post" action="{{ url_for('alerts_refresh') }}">
+      <button type="submit" class="btn btn-ghost">
+        <i class="fa-solid fa-rotate"></i> Neu generieren
+      </button>
+    </form>
+  </div>
 </div>
 
 <!-- Summary -->
@@ -90,13 +97,31 @@
 
 {% block scripts %}
 <script>
-async function resolveAlert(id) {
+async function resolveAlert(id, silent=false) {
   const res = await fetch(`/api/alerts/resolve/${id}`, {method:'POST'});
   if ((await res.json()).ok) {
     const el = document.getElementById(`alert-${id}`);
+    el.style.transition='opacity .4s';
     el.style.opacity='.35';
-    el.querySelector('button')?.remove();
+    el.querySelector('button.btn')?.remove();
+    if (!silent) showToast('Alert als erledigt markiert.', 'success');
+    // update counter
+    const counter = document.querySelector('[style*="aktive Alerts"]') || document.querySelector('.stat-value.red')?.parentElement;
+    const badge = document.querySelectorAll('[id^="alert-"]');
+    const active = Array.from(badge).filter(el=>parseFloat(el.style.opacity||1)>0.5 && el.querySelector('button.btn')).length;
   }
+}
+async function resolveAll() {
+  const btns = document.querySelectorAll('[id^="alert-"] button.btn');
+  if (!btns.length) return;
+  const ok = await customConfirm('Alle Alerts lösen', `${btns.length} aktive Alert(s) als erledigt markieren?`, 'Alle lösen', 'btn-primary');
+  if (!ok) return;
+  const ids = Array.from(document.querySelectorAll('[id^="alert-"]'))
+    .filter(el => el.querySelector('button.btn'))
+    .map(el => parseInt(el.id.replace('alert-','')));
+  await Promise.all(ids.map(id => resolveAlert(id, true)));
+  showToast(`${ids.length} Alerts gelöst.`, 'success');
+  setTimeout(() => location.reload(), 1000);
 }
 </script>
 {% endblock %}

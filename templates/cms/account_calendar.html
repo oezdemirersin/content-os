@@ -135,16 +135,18 @@ function openNewPost(){document.getElementById('newPostModal').style.display='fl
 
 async function createPost(){
   const d=document.getElementById('newDate').value;
-  if(!d){alert('Datum wählen');return;}
+  if(!d){showToast('Datum wählen','warning');return;}
   const res=await fetch(`/api/accounts/${ACCOUNT_ID}/posts/new`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scheduled_at:d,post_type:document.getElementById('newType').value,caption:document.getElementById('newCaption').value})});
   if((await res.json()).ok){document.getElementById('newPostModal').style.display='none';cal.refetchEvents();}
 }
 
 async function delPost(id){
-  if(!confirm('Post löschen?'))return;
+  const ok=await customConfirm('Post löschen','Diesen Post wirklich löschen?');
+  if(!ok)return;
   await fetch(`/api/posts/${id}/delete`,{method:'POST'});
   document.getElementById('evPopup').style.display='none';
   cal.refetchEvents();
+  showToast('Post gelöscht.','info');
 }
 </script>
 {% endblock %}

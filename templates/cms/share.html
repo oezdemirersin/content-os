@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ account.name }} — Report</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    :root { --bg:#080b12; --surface:#0f1420; --surface2:#161c2d; --border:rgba(255,255,255,0.07); --accent:#3b82f6; --accent2:#60a5fa; --success:#22c55e; --warning:#f59e0b; --text:#e2e8f0; --muted:#64748b; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:var(--bg); color:var(--text); font-family:'DM Sans',sans-serif; min-height:100vh; }
+    .topbar { background:var(--surface); border-bottom:1px solid var(--border); padding:0 32px; height:60px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:50; }
+    .logo { font-family:'Bebas Neue',sans-serif; font-size:20px; letter-spacing:2px; }
+    .logo span { color:var(--accent); }
+    .badge-ro { background:rgba(34,197,94,.12); color:#22c55e; border:1px solid rgba(34,197,94,.2); padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+    .page { max-width:960px; margin:0 auto; padding:32px 20px; }
+    .hero { background:linear-gradient(135deg,rgba(59,130,246,.1),rgba(168,85,247,.06)); border:1px solid rgba(59,130,246,.2); border-radius:16px; padding:32px; margin-bottom:28px; display:flex; align-items:center; gap:20px; }
+    .avatar { width:64px; height:64px; border-radius:16px; background:rgba(59,130,246,.15); display:flex; align-items:center; justify-content:center; font-family:'Bebas Neue',sans-serif; font-size:32px; color:var(--accent2); flex-shrink:0; }
+    .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+    .stat { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; }
+    .stat-label { font-size:11px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
+    .stat-value { font-family:'Bebas Neue',sans-serif; font-size:36px; line-height:1; margin-top:6px; color:var(--accent2); }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; margin-bottom:20px; overflow:hidden; }
+    .card-header { padding:16px 20px; border-bottom:1px solid var(--border); font-family:'Bebas Neue',sans-serif; font-size:15px; letter-spacing:.5px; }
+    table { width:100%; border-collapse:collapse; }
+    th { text-align:left; font-size:10px; font-weight:700; letter-spacing:1px; color:var(--muted); text-transform:uppercase; padding:10px 16px; border-bottom:1px solid var(--border); }
+    td { padding:12px 16px; border-bottom:1px solid var(--border); font-size:13px; }
+    tr:last-child td { border-bottom:none; }
+    .badge { display:inline-flex; align-items:center; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700; }
+    .badge-blue { background:rgba(59,130,246,.15); color:#60a5fa; }
+    .badge-green { background:rgba(34,197,94,.15); color:#22c55e; }
+    .footer { text-align:center; padding:32px; font-size:12px; color:var(--muted); }
+    @media(max-width:600px) { .grid4 { grid-template-columns:repeat(2,1fr); } .hero { flex-direction:column; text-align:center; } }
+  </style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">CONTENT <span>OS</span></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span style="font-size:13px;color:var(--muted)">{{ account.name }}</span>
+    <span class="badge-ro"><i class="fa-solid fa-eye" style="margin-right:4px"></i>Read-Only</span>
+  </div>
+</div>
+
+<div class="page">
+  <!-- Hero -->
+  <div class="hero">
+    <div class="avatar">{{ account.name[0] }}</div>
+    <div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1px;margin-bottom:4px">{{ account.name }}</div>
+      <div style="font-size:13px;color:var(--muted)">
+        {{ account.handle or '' }}
+        {% if account.platform %} · {{ account.platform.name }}{% endif %}
+        {% if account.category %} · {{ account.category.name }}{% endif %}
+      </div>
+      {% if account.notes %}
+      <div style="font-size:12px;color:var(--muted);margin-top:8px;max-width:480px">{{ account.notes }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid4">
+    <div class="stat">
+      <div class="stat-label">Follower</div>
+      <div class="stat-value">
+        {% set f = account.follower_count %}
+        {% if f >= 1000000 %}{{ "%.1f"|format(f/1000000) }}M{% elif f >= 1000 %}{{ "%.0f"|format(f/1000) }}K{% else %}{{ f }}{% endif %}
+      </div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Status</div>
+      <div class="stat-value" style="font-size:20px;margin-top:10px">
+        <span class="badge {% if account.status=='active' %}badge-green{% else %}badge-blue{% endif %}">
+          {{ {'active':'Aktiv','paused':'Pausiert'}.get(account.status, account.status) }}
+        </span>
+      </div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Content-Vorrat</div>
+      <div class="stat-value" style="color:{% if account.stock_status()=='green' %}var(--success){% elif account.stock_status()=='yellow' %}var(--warning){% else %}var(--danger){% endif %}">
+        {{ account.stock_days_display() }}T
+      </div>
+    </div>
+    {% if account.growth_goal %}
+    <div class="stat">
+      <div class="stat-label">Ziel-Fortschritt</div>
+      <div class="stat-value">{{ [account.follower_count / account.growth_goal * 100, 100]|min|int }}%</div>
+      <div style="height:3px;background:var(--surface2);border-radius:3px;margin-top:6px">
+        <div style="height:100%;border-radius:3px;background:var(--accent);width:{{ [account.follower_count / account.growth_goal * 100, 100]|min|int }}%"></div>
+      </div>
+    </div>
+    {% else %}
+    <div class="stat">
+      <div class="stat-label">Automation</div>
+      <div class="stat-value">{{ account.automation_level }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Stufe</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Follower-Verlauf -->
+  {% if snapshots %}
+  <div class="card">
+    <div class="card-header">FOLLOWER-VERLAUF (LETZTE 30 TAGE)</div>
+    <div style="padding:20px;height:200px;position:relative">
+      <canvas id="shareChart"></canvas>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Geplante Posts -->
+  {% if posts %}
+  <div class="card">
+    <div class="card-header">LETZTE GEPLANTE POSTS</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Typ</th>
+          <th>Caption</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in posts %}
+        <tr>
+          <td style="color:var(--muted);white-space:nowrap">{{ p.scheduled_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td><span class="badge badge-blue">{{ p.post_type }}</span></td>
+          <td style="max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)">{{ p.caption or '—' }}</td>
+          <td>
+            <span class="badge {% if p.status=='published' %}badge-green{% else %}badge-blue{% endif %}">
+              {{ {'scheduled':'Geplant','published':'Live','failed':'Fehler'}.get(p.status, p.status) }}
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<div class="footer">
+  Erstellt mit Content OS · Nur für {{ account.name }} · Alle Angaben ohne Gewähr
+</div>
+
+{% if snapshots %}
+<script>
+Chart.defaults.color = '#64748b';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
+const labels = {{ snapshots|map(attribute='recorded_at')|map('strftime','%d.%m')|list|tojson }};
+const data = {{ snapshots|map(attribute='followers')|list|tojson }};
+const ctx = document.getElementById('shareChart').getContext('2d');
+const grad = ctx.createLinearGradient(0,0,0,200);
+grad.addColorStop(0,'rgba(59,130,246,0.25)');
+grad.addColorStop(1,'rgba(59,130,246,0)');
+new Chart(ctx, {
+  type:'line',
+  data:{labels:labels.reverse(),datasets:[{data:data.reverse(),borderColor:'#3b82f6',backgroundColor:grad,borderWidth:2,tension:.4,fill:true,pointRadius:0}]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v}}}}
+});
+</script>
+{% endif %}
+</body>
+</html>

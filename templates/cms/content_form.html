@@ -67,13 +67,24 @@
       <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
         <div>
           <label class="form-label">Rohtext / Artikel</label>
-          <textarea name="raw_text" rows="5" class="input-field" style="resize:vertical"
+          <textarea name="raw_text" id="rawText" rows="5" class="input-field" style="resize:vertical"
+                    oninput="updateCounter('rawText','rawCount')"
                     placeholder="Originaler Text, Artikel oder Zusammenfassung…">{{ item.raw_text if item else '' }}</textarea>
+          <div style="text-align:right;font-size:11px;color:var(--muted);margin-top:4px">
+            <span id="rawCount">{{ (item.raw_text or '')|length }}</span> Zeichen
+          </div>
         </div>
         <div>
-          <label class="form-label">Caption (Instagram)</label>
-          <textarea name="caption" rows="6" class="input-field" style="resize:vertical"
+          <label class="form-label" style="display:flex;justify-content:space-between">
+            <span>Caption (Instagram)</span>
+            <span id="captionCount" style="font-weight:400;color:var(--muted)">{{ (item.caption or '')|length }} / 2.200</span>
+          </label>
+          <textarea name="caption" id="captionField" rows="6" class="input-field" style="resize:vertical"
+                    oninput="updateCapCounter()"
                     placeholder="Finaler Instagram Caption mit Hashtags…">{{ item.caption if item else '' }}</textarea>
+          <div id="captionBar" style="height:3px;background:var(--surface2);border-radius:3px;margin-top:6px;overflow:hidden">
+            <div id="captionBarFill" style="height:100%;border-radius:3px;background:var(--accent);transition:width .2s;width:{{ [(item.caption or '')|length / 2200 * 100, 100]|min }}%"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -105,6 +116,24 @@
 
 {% block scripts %}
 <script>
+function updateCounter(fieldId, countId) {
+  const len = document.getElementById(fieldId)?.value.length || 0;
+  const el = document.getElementById(countId);
+  if (el) el.textContent = len;
+}
+function updateCapCounter() {
+  const len = document.getElementById('captionField')?.value.length || 0;
+  const cnt = document.getElementById('captionCount');
+  const fill = document.getElementById('captionBarFill');
+  if (cnt) { cnt.textContent = len + ' / 2.200'; cnt.style.color = len > 2200 ? 'var(--danger)' : len > 1800 ? 'var(--warning)' : 'var(--muted)'; }
+  if (fill) { fill.style.width = Math.min(len/2200*100, 100) + '%'; fill.style.background = len > 2200 ? 'var(--danger)' : len > 1800 ? 'var(--warning)' : 'var(--accent)'; }
+}
+// Ctrl+Enter = submit
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey||e.metaKey) && e.key==='Enter') {
+    document.querySelector('button[type="submit"]')?.click();
+  }
+});
 let dupTimer;
 const input = document.getElementById('titleInput');
 const warning = document.getElementById('dupWarning');

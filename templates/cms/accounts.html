@@ -6,11 +6,54 @@
 <!-- Header -->
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
   <div>
-    <div style="font-size:13px;color:var(--muted)">{{ accounts|length }} Accounts gefunden</div>
+    <div style="font-size:13px;color:var(--muted)">{{ pagination.total }} Accounts gefunden</div>
   </div>
-  <a href="{{ url_for('account_new') }}" class="btn btn-primary">
-    <i class="fa-solid fa-plus"></i> Neuer Account
-  </a>
+  <div style="display:flex;gap:8px">
+    <button onclick="document.getElementById('csvImportModal').style.display='flex'" class="btn btn-ghost">
+      <i class="fa-solid fa-file-csv"></i> CSV Import
+    </button>
+    <a href="{{ url_for('account_new') }}" class="btn btn-primary">
+      <i class="fa-solid fa-plus"></i> Neuer Account
+    </a>
+  </div>
+</div>
+
+<!-- CSV Import Modal -->
+<div id="csvImportModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:520px;margin:16px;box-shadow:0 24px 80px rgba(0,0,0,.6)">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">CSV IMPORT</div>
+      <button onclick="document.getElementById('csvImportModal').style.display='none'"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <form method="post" action="{{ url_for('accounts_import_csv') }}" enctype="multipart/form-data">
+      <div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;font-size:12px;color:var(--muted);line-height:1.8">
+          <strong style="color:var(--text);display:block;margin-bottom:6px">CSV-Format (erste Zeile = Kopfzeile):</strong>
+          <code style="font-size:11px;color:var(--accent2)">name, handle, platform, category, follower_count, status</code>
+          <br>Beispiel: <code style="font-size:11px">Darmstadtschau, @darmstadtschau, Instagram, Stadt-News, 45000, active</code>
+          <br><span style="margin-top:6px;display:block">Plattformen: Instagram · TikTok · YouTube · Facebook<br>Status: active · paused · inactive (Standard: active)</span>
+        </div>
+        <div>
+          <label class="form-label">CSV-Datei</label>
+          <input type="file" name="csv_file" accept=".csv,.txt" required
+                 class="input-field" style="cursor:pointer;padding:7px 12px">
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button type="button" onclick="document.getElementById('csvImportModal').style.display='none'" class="btn btn-ghost">Abbrechen</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="fa-solid fa-upload"></i> Importieren
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
 </div>
 
 <!-- Bulk bar -->
@@ -108,10 +151,10 @@
           <input type="checkbox" id="selectAllAccs" onchange="toggleAllAccs(this)"
                  style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer">
         </th>
-        <th>Account</th>
-        <th>Kategorie</th>
-        <th style="text-align:right">Follower</th>
-        <th style="text-align:center">Vorrat</th>
+        <th class="sortable" data-col="0" onclick="sortTable(0)" style="cursor:pointer;user-select:none">Account <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
+        <th class="sortable" data-col="1" onclick="sortTable(1)" style="cursor:pointer;user-select:none">Kategorie <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
+        <th class="sortable" data-col="2" onclick="sortTable(2)" style="text-align:right;cursor:pointer;user-select:none">Follower <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
+        <th class="sortable" data-col="3" onclick="sortTable(3)" style="text-align:center;cursor:pointer;user-select:none">Vorrat <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th style="text-align:center">Automation</th>
         <th style="text-align:center">Status</th>
         <th style="text-align:center">Priorität</th>
@@ -204,7 +247,7 @@
             <a href="{{ url_for('account_edit', account_id=acc.id) }}" class="icon-btn" style="font-size:13px;padding:6px" title="Bearbeiten">
               <i class="fa-solid fa-pen"></i>
             </a>
-            <form method="post" action="{{ url_for('account_delete', account_id=acc.id) }}" onsubmit="return confirm('Account löschen?')">
+            <form method="post" action="{{ url_for('account_delete', account_id=acc.id) }}" data-confirm="{{ acc.name }} wirklich löschen? Alle zugehörigen Posts und Daten werden entfernt.">
               <button type="submit" class="icon-btn" style="font-size:13px;padding:6px;color:var(--danger)" title="Löschen">
                 <i class="fa-solid fa-trash"></i>
               </button>
@@ -226,13 +269,79 @@
     </tbody>
   </table>
 </div>
+
+<!-- Pagination -->
+{% if pagination.pages > 1 %}
+<div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:20px">
+  {% if pagination.has_prev %}
+  <a href="{{ url_for('accounts', page=pagination.prev_num, **filters) }}" class="btn btn-ghost" style="padding:7px 14px;font-size:12px">
+    <i class="fa-solid fa-chevron-left"></i>
+  </a>
+  {% endif %}
+  {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+    {% if p %}
+    <a href="{{ url_for('accounts', page=p, **filters) }}"
+       style="padding:6px 13px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;
+              {% if p == pagination.page %}background:var(--accent);color:white;{% else %}background:var(--surface);border:1px solid var(--border);color:var(--muted);{% endif %}">
+      {{ p }}
+    </a>
+    {% else %}
+    <span style="color:var(--muted);padding:0 4px">…</span>
+    {% endif %}
+  {% endfor %}
+  {% if pagination.has_next %}
+  <a href="{{ url_for('accounts', page=pagination.next_num, **filters) }}" class="btn btn-ghost" style="padding:7px 14px;font-size:12px">
+    <i class="fa-solid fa-chevron-right"></i>
+  </a>
+  {% endif %}
+  <span style="font-size:12px;color:var(--muted);margin-left:8px">{{ pagination.total }} gesamt</span>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <style>
 .table tbody tr:hover .row-actions { opacity:1; }
+.sortable:hover { color:var(--text) !important; }
 </style>
 <script>
+// ── Sortable table ──
+let sortDir = {};
+function sortTable(colIndex) {
+  const tbody = document.querySelector('.table tbody');
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  if (rows.length <= 1 && rows[0]?.cells.length === 1) return; // empty state
+
+  const dir = (sortDir[colIndex] === 'asc') ? 'desc' : 'asc';
+  sortDir = {};
+  sortDir[colIndex] = dir;
+
+  // Update icons
+  document.querySelectorAll('.sortable i').forEach(i => {
+    i.className = 'fa-solid fa-sort';
+    i.style.color = 'var(--muted)';
+  });
+  const th = document.querySelectorAll('.sortable')[colIndex];
+  if (th) {
+    th.querySelector('i').className = 'fa-solid fa-sort-' + (dir === 'asc' ? 'up' : 'down');
+    th.querySelector('i').style.color = 'var(--accent2)';
+  }
+
+  rows.sort((a, b) => {
+    // +1 because first cell is checkbox
+    const cellA = a.cells[colIndex + 1]?.textContent.trim() || '';
+    const cellB = b.cells[colIndex + 1]?.textContent.trim() || '';
+    // numeric for follower/vorrat columns
+    if (colIndex === 2 || colIndex === 3) {
+      const numA = parseFloat(cellA.replace(/[^\d.,]/g,'').replace(',','.')) || 0;
+      const numB = parseFloat(cellB.replace(/[^\d.,]/g,'').replace(',','.')) || 0;
+      return dir === 'asc' ? numA - numB : numB - numA;
+    }
+    return dir === 'asc' ? cellA.localeCompare(cellB, 'de') : cellB.localeCompare(cellA, 'de');
+  });
+  rows.forEach(r => tbody.appendChild(r));
+}
+
 function getAccIds() {
   return Array.from(document.querySelectorAll('.acc-checkbox:checked')).map(c=>parseInt(c.dataset.id));
 }
@@ -253,12 +362,13 @@ function toggleAllAccs(m) {
 }
 async function accBulk(action, value) {
   const ids = getAccIds();
-  if (!ids.length || !value) { alert('Bitte Accounts und Wert wählen.'); return; }
+  if (!ids.length || !value) { showToast('Bitte Accounts und Wert wählen.', 'warning'); return; }
   const res = await fetch('/api/accounts/bulk', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({ids, action, value})
   });
-  if ((await res.json()).ok) location.reload();
+  const d = await res.json();
+  if (d.ok) { showToast(`${d.affected} Account(s) aktualisiert.`); setTimeout(()=>location.reload(), 800); }
 }
 </script>
 {% endblock %}

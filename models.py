@@ -127,6 +127,13 @@ class Account(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.Text)
 
+    # Wachstumsziel
+    growth_goal      = db.Column(db.Integer)
+    growth_goal_date = db.Column(db.DateTime)
+
+    # Kunden-Share-Link
+    share_token = db.Column(db.String(64), unique=True)
+
     # Relationships
     scheduled_posts = db.relationship('ScheduledPost', backref='account', lazy=True, cascade='all,delete')
     analytics = db.relationship('AnalyticsSnapshot', backref='account', lazy=True, cascade='all,delete')
@@ -346,10 +353,50 @@ class AutomationRunLog(db.Model):
 class SystemAlert(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     account_id = db.Column(db.Integer, db.ForeignKey('account.id'))
-    alert_type = db.Column(db.String(50))  # low_stock, no_posts, bot_error, unusual_growth
-    severity = db.Column(db.String(20), default='warning')  # info, warning, critical
+    alert_type = db.Column(db.String(50))
+    severity = db.Column(db.String(20), default='warning')
     message = db.Column(db.Text)
     resolved = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     resolved_at = db.Column(db.DateTime)
     account = db.relationship('Account', backref='alerts')
+
+
+# ── Account Groups ──────────────────────────────────────────────
+account_group_members = db.Table('account_group_members',
+    db.Column('group_id',   db.Integer, db.ForeignKey('account_group.id')),
+    db.Column('account_id', db.Integer, db.ForeignKey('account.id'))
+)
+
+class AccountGroup(db.Model):
+    id          = db.Column(db.Integer, primary_key=True)
+    name        = db.Column(db.String(200), nullable=False)
+    color       = db.Column(db.String(20), default='#3b82f6')
+    description = db.Column(db.Text)
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    accounts    = db.relationship('Account', secondary=account_group_members, backref='groups')
+
+
+# ── Content Templates ───────────────────────────────────────────
+class ContentTemplate(db.Model):
+    id               = db.Column(db.Integer, primary_key=True)
+    name             = db.Column(db.String(200), nullable=False)
+    category_id      = db.Column(db.Integer, db.ForeignKey('category.id'))
+    content_type     = db.Column(db.String(30), default='feed')
+    caption_template = db.Column(db.Text)   # {{TITEL}}, {{DATUM}} als Platzhalter
+    hashtags         = db.Column(db.Text)
+    notes            = db.Column(db.Text)
+    use_count        = db.Column(db.Integer, default=0)
+    created_at       = db.Column(db.DateTime, default=datetime.utcnow)
+    category         = db.relationship('Category', backref='templates')
+
+
+# ── Content Comments ────────────────────────────────────────────
+class ContentComment(db.Model):
+    id              = db.Column(db.Integer, primary_key=True)
+    content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=False)
+    user_id         = db.Column(db.Integer, db.ForeignKey('user.id'))
+    text            = db.Column(db.Text, nullable=False)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    user            = db.relationship('User', backref='comments')
+    content_item    = db.relationship('ContentItem', backref='comments')

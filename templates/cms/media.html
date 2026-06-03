@@ -66,11 +66,18 @@
       <!-- Hover overlay -->
       <div style="position:absolute;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;gap:8px;
                   opacity:0;transition:opacity .2s" class="media-overlay">
+        {% if item.file_type == 'image' %}
+        <button onclick="openLightbox('{{ item.url }}','{{ item.original_filename }}',{{ item.file_size or 0 }})"
+                style="width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.15);border:none;cursor:pointer;color:white;font-size:13px" title="Vorschau">
+          <i class="fa-solid fa-magnifying-glass-plus"></i>
+        </button>
+        {% endif %}
         <button onclick="openPostModal({{ item.id }},'{{ item.original_filename }}')"
                 style="width:32px;height:32px;border-radius:8px;background:var(--accent);border:none;cursor:pointer;color:white;font-size:13px" title="Post erstellen">
           <i class="fa-solid fa-calendar-plus"></i>
         </button>
-        <form method="post" action="{{ url_for('media_delete', media_id=item.id) }}" onsubmit="return confirm('Datei löschen?')" style="margin:0">
+        <form method="post" action="{{ url_for('media_delete', media_id=item.id) }}"
+              data-confirm="{{ item.original_filename }} wirklich löschen?" style="margin:0">
           <button type="submit" style="width:32px;height:32px;border-radius:8px;background:rgba(239,68,68,.8);border:none;cursor:pointer;color:white;font-size:13px">
             <i class="fa-solid fa-trash"></i>
           </button>
@@ -95,6 +102,59 @@
   <button onclick="document.getElementById('uploadModal').style.display='flex'" class="btn btn-primary">
     <i class="fa-solid fa-upload"></i> Hochladen
   </button>
+</div>
+{% endif %}
+
+<!-- Lightbox -->
+<div id="lightboxModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.92);backdrop-filter:blur(8px)"
+     onclick="if(event.target===this||event.target.id==='lightboxModal')closeLightbox()">
+  <button onclick="closeLightbox()" title="Schließen (Esc)"
+          style="position:absolute;top:20px;right:20px;background:rgba(255,255,255,.1);border:none;
+                 color:white;font-size:20px;width:40px;height:40px;border-radius:50%;cursor:pointer;
+                 display:flex;align-items:center;justify-content:center;transition:background .15s"
+          onmouseover="this.style.background='rgba(255,255,255,.2)'"
+          onmouseout="this.style.background='rgba(255,255,255,.1)'">
+    <i class="fa-solid fa-xmark"></i>
+  </button>
+  <div style="max-width:90vw;max-height:90vh;display:flex;flex-direction:column;align-items:center;gap:12px">
+    <img id="lightboxImg" src="" alt=""
+         style="max-width:90vw;max-height:80vh;object-fit:contain;border-radius:8px;box-shadow:0 24px 80px rgba(0,0,0,.8)">
+    <div style="display:flex;align-items:center;gap:16px">
+      <div style="text-align:center">
+        <div id="lightboxName" style="font-size:13px;color:rgba(255,255,255,.8);font-weight:600"></div>
+        <div id="lightboxMeta" style="font-size:11px;color:rgba(255,255,255,.4);margin-top:2px"></div>
+      </div>
+      <a id="lightboxDownload" href="" download
+         style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;
+                background:rgba(255,255,255,.1);color:white;text-decoration:none;font-size:12px;
+                border:1px solid rgba(255,255,255,.15);transition:background .15s"
+         onmouseover="this.style.background='rgba(255,255,255,.2)'"
+         onmouseout="this.style.background='rgba(255,255,255,.1)'">
+        <i class="fa-solid fa-download"></i> Download
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- Media Pagination -->
+{% if pagination.pages > 1 %}
+<div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:24px">
+  {% if pagination.has_prev %}
+  <a href="{{ url_for('media_library', page=pagination.prev_num, **filters) }}" class="btn btn-ghost" style="padding:7px 14px;font-size:12px"><i class="fa-solid fa-chevron-left"></i></a>
+  {% endif %}
+  {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+    {% if p %}
+    <a href="{{ url_for('media_library', page=p, **filters) }}"
+       style="padding:6px 13px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;
+              {% if p == pagination.page %}background:var(--accent);color:white{% else %}background:var(--surface);border:1px solid var(--border);color:var(--muted){% endif %}">{{ p }}</a>
+    {% else %}<span style="color:var(--muted)">…</span>{% endif %}
+  {% endfor %}
+  {% if pagination.has_next %}
+  <a href="{{ url_for('media_library', page=pagination.next_num, **filters) }}" class="btn btn-ghost" style="padding:7px 14px;font-size:12px"><i class="fa-solid fa-chevron-right"></i></a>
+  {% endif %}
+  <span style="font-size:12px;color:var(--muted);margin-left:8px">{{ pagination.total }} gesamt</span>
 </div>
 {% endif %}
 
@@ -190,6 +250,25 @@
 .media-card:hover .media-img { transform:scale(1.05); }
 </style>
 <script>
+// ── Lightbox ──
+function openLightbox(url, name, size) {
+  document.getElementById('lightboxImg').src = url;
+  document.getElementById('lightboxName').textContent = name;
+  document.getElementById('lightboxMeta').textContent = size ? (size/1024).toFixed(0) + ' KB' : '';
+  document.getElementById('lightboxDownload').href = url;
+  document.getElementById('lightboxDownload').download = name;
+  document.getElementById('lightboxModal').style.display = 'flex';
+}
+function closeLightbox() {
+  document.getElementById('lightboxModal').style.display = 'none';
+  document.getElementById('lightboxImg').src = '';
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('lightboxModal').style.display === 'flex') {
+    closeLightbox();
+  }
+});
+
 let currentMediaId = null;
 function openPostModal(id, name) {
   currentMediaId = id;
@@ -201,18 +280,14 @@ function openPostModal(id, name) {
 }
 async function createPostFromMedia() {
   const accId = document.getElementById('postAccount').value;
-  if (!accId) { alert('Bitte Account wählen.'); return; }
+  if (!accId) { showToast('Bitte Account wählen.', 'warning'); return; }
   const res = await fetch(`/api/media/${currentMediaId}/create-post`, {
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({account_id:parseInt(accId),post_type:document.getElementById('postType').value,caption:document.getElementById('postCaption').value,scheduled_at:document.getElementById('postDate').value})
   });
   if ((await res.json()).ok) {
     document.getElementById('postModal').style.display='none';
-    const f=document.createElement('div');
-    f.style.cssText='position:fixed;top:80px;right:24px;z-index:300;display:flex;align-items:center;gap:8px;padding:12px 20px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.2);border-radius:10px;font-size:13px;color:#22c55e;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.4)';
-    f.innerHTML='<i class="fa-solid fa-check-circle"></i> Post wurde geplant.';
-    document.body.appendChild(f);
-    setTimeout(()=>f.remove(),3000);
+    showToast('Post wurde geplant.');
   }
 }
 function updateFileList() {

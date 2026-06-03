@@ -4,10 +4,24 @@
 
 {% block content %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
-  <div style="font-size:13px;color:var(--muted)">{{ items|length }} Inhalte</div>
-  <a href="{{ url_for('content_new') }}" class="btn btn-primary">
-    <i class="fa-solid fa-plus"></i> Neuer Content
-  </a>
+  <div style="font-size:13px;color:var(--muted)">{{ pagination.total }} Inhalte</div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <!-- View Toggle -->
+    <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+      <button id="viewGrid" onclick="setView('grid')"
+              style="padding:7px 12px;border:none;background:var(--accent);color:white;cursor:pointer;font-size:12px;transition:all .15s"
+              title="Karten-Ansicht"><i class="fa-solid fa-grip"></i></button>
+      <button id="viewKanban" onclick="setView('kanban')"
+              style="padding:7px 12px;border:none;background:var(--surface2);color:var(--muted);cursor:pointer;font-size:12px;transition:all .15s"
+              title="Kanban-Ansicht"><i class="fa-solid fa-table-columns"></i></button>
+    </div>
+    <a href="{{ url_for('content_templates') }}" class="btn btn-ghost" style="font-size:12px" title="Templates">
+      <i class="fa-solid fa-rectangle-list"></i>
+    </a>
+    <a href="{{ url_for('content_new') }}" class="btn btn-primary">
+      <i class="fa-solid fa-plus"></i> Neuer Content
+    </a>
+  </div>
 </div>
 
 <!-- Status tabs -->
@@ -79,7 +93,7 @@
 </div>
 
 <!-- Grid -->
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+<div id="contentGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
   {% for item in items %}
   <div class="card" style="position:relative;transition:border-color .15s"
        onmouseover="this.style.borderColor='rgba(255,255,255,0.12)'" onmouseout="this.style.borderColor='var(--border)'">
@@ -129,6 +143,24 @@
       {% endif %}
     </div>
 
+    <!-- Caption Score -->
+    {% set score = item.caption and item.caption|length %}
+    {% if item.caption %}
+    {% set cap = item.caption %}
+    {% set sc = namespace(v=0) %}
+    {% if cap|length >= 150 %}{% set sc.v = sc.v + 2.5 %}{% elif cap|length >= 80 %}{% set sc.v = sc.v + 1.5 %}{% elif cap|length >= 50 %}{% set sc.v = sc.v + 0.5 %}{% endif %}
+    {% if cap|length > 0 %}
+    <div style="padding:0 16px 10px;display:flex;align-items:center;gap:6px">
+      <span style="font-size:10px;color:var(--muted)">Score</span>
+      <div class="caption-score-bar" data-id="{{ item.id }}"
+           style="flex:1;height:4px;background:var(--surface2);border-radius:4px;position:relative">
+        <div class="score-fill" style="height:100%;border-radius:4px;width:0;transition:width .5s;background:var(--accent)"></div>
+      </div>
+      <span class="score-num" style="font-size:11px;font-weight:700;color:var(--muted);min-width:28px;text-align:right">—</span>
+    </div>
+    {% endif %}
+    {% endif %}
+
     <!-- Footer -->
     <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
       <!-- Quick status -->
@@ -147,12 +179,17 @@
         <a href="{{ url_for('distribute', content_id=item.id) }}" class="icon-btn" style="font-size:12px;padding:5px" title="Verteilen">
           <i class="fa-solid fa-arrows-split-up-and-left"></i>
         </a>
-        <a href="{{ url_for('content_detail', item_id=item.id) }}" class="icon-btn" style="font-size:12px;padding:5px">
+        <a href="{{ url_for('content_detail', item_id=item.id) }}" class="icon-btn" style="font-size:12px;padding:5px" title="Vorschau">
           <i class="fa-solid fa-eye"></i>
         </a>
-        <a href="{{ url_for('content_edit', item_id=item.id) }}" class="icon-btn" style="font-size:12px;padding:5px">
+        <a href="{{ url_for('content_edit', item_id=item.id) }}" class="icon-btn" style="font-size:12px;padding:5px" title="Bearbeiten">
           <i class="fa-solid fa-pen"></i>
         </a>
+        <form method="post" action="{{ url_for('content_duplicate', item_id=item.id) }}" style="display:inline">
+          <button type="submit" class="icon-btn" style="font-size:12px;padding:5px" title="Duplizieren">
+            <i class="fa-solid fa-copy"></i>
+          </button>
+        </form>
       </div>
     </div>
   </div>
@@ -166,6 +203,77 @@
   </div>
   {% endfor %}
 </div>
+
+<!-- Kanban View -->
+<div id="contentKanban" style="display:none;gap:12px;overflow-x:auto;padding-bottom:8px">
+  {% for col_status, col_label, col_color in [
+    ('draft','Entwurf','var(--muted)'),
+    ('in_progress','In Bearbeitung','var(--warning)'),
+    ('ready','Bereit','var(--success)'),
+    ('scheduled','Geplant','var(--accent2)'),
+    ('published','Veröffentlicht','var(--accent)'),
+    ('archived','Archiv','#64748b'),
+  ] %}
+  <div style="min-width:230px;flex-shrink:0;display:flex;flex-direction:column;gap:8px"
+       ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropOn(event,'{{ col_status }}')">
+    <div style="padding:8px 12px;border-radius:8px;background:var(--surface);border:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between;border-top:2px solid {{ col_color }}">
+      <span style="font-size:11px;font-weight:700;letter-spacing:1px;color:{{ col_color }};text-transform:uppercase">{{ col_label }}</span>
+      <span style="font-size:11px;color:var(--muted)">{{ items|selectattr('status','equalto',col_status)|list|length }}</span>
+    </div>
+    {% for item in items if item.status == col_status %}
+    <div draggable="true" ondragstart="dragStart(event, {{ item.id }})"
+         style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
+                padding:12px;cursor:grab;transition:border-color .15s,transform .1s;user-select:none"
+         onmouseover="this.style.borderColor='rgba(255,255,255,.12)';this.style.transform='translateY(-1px)'"
+         onmouseout="this.style.borderColor='var(--border)';this.style.transform=''">
+      <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px;line-height:1.4;
+                  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{ item.title }}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        {% if item.category %}
+        <span style="font-size:10px;font-weight:700;color:{{ item.category.color }}">{{ item.category.name }}</span>
+        {% else %}<span></span>{% endif %}
+        <a href="{{ url_for('content_detail', item_id=item.id) }}" style="color:var(--muted);font-size:11px;text-decoration:none" onclick="event.stopPropagation()">
+          <i class="fa-solid fa-arrow-up-right-from-square"></i>
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+    <!-- Drop zone hint -->
+    <div style="border:2px dashed var(--border);border-radius:10px;padding:16px;text-align:center;font-size:11px;color:var(--muted);opacity:.4">
+      hier ablegen
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Pagination -->
+{% if pagination.pages > 1 %}
+<div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:24px">
+  {% if pagination.has_prev %}
+  <a href="{{ url_for('content_hub', page=pagination.prev_num, **filters) }}" class="btn btn-ghost" style="padding:7px 14px;font-size:12px">
+    <i class="fa-solid fa-chevron-left"></i>
+  </a>
+  {% endif %}
+  {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+    {% if p %}
+    <a href="{{ url_for('content_hub', page=p, **filters) }}"
+       style="padding:6px 13px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;
+              {% if p == pagination.page %}background:var(--accent);color:white;{% else %}background:var(--surface);border:1px solid var(--border);color:var(--muted);{% endif %}">
+      {{ p }}
+    </a>
+    {% else %}
+    <span style="color:var(--muted);padding:0 4px">…</span>
+    {% endif %}
+  {% endfor %}
+  {% if pagination.has_next %}
+  <a href="{{ url_for('content_hub', page=pagination.next_num, **filters) }}" class="btn btn-ghost" style="padding:7px 14px;font-size:12px">
+    <i class="fa-solid fa-chevron-right"></i>
+  </a>
+  {% endif %}
+  <span style="font-size:12px;color:var(--muted);margin-left:8px">{{ pagination.total }} gesamt</span>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -189,13 +297,17 @@ function deselectAll() {
 async function bulkAction(action, value) {
   const ids = getSelectedIds();
   if (!ids.length) return;
-  if (!value && action!=='delete') { alert('Bitte einen Wert wählen.'); return; }
-  if (action==='delete' && !confirm(`${ids.length} Inhalte löschen?`)) return;
+  if (!value && action!=='delete') { showToast('Bitte einen Wert wählen.', 'warning'); return; }
+  if (action==='delete') {
+    const ok = await customConfirm('Inhalte löschen', `${ids.length} Inhalt(e) wirklich löschen?`);
+    if (!ok) return;
+  }
   const res = await fetch('/api/content/bulk', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({ids, action, value})
   });
-  if ((await res.json()).ok) location.reload();
+  const d = await res.json();
+  if (d.ok) { showToast(action==='delete' ? `${ids.length} Inhalt(e) gelöscht.` : 'Aktualisiert.'); setTimeout(()=>location.reload(), 800); }
 }
 async function quickStatus(id, sel) {
   await fetch(`/content/${id}/status`, {
@@ -206,6 +318,55 @@ async function quickStatus(id, sel) {
                   scheduled:'var(--accent2)',published:'var(--accent)',error:'var(--danger)',archived:'var(--muted)'};
   sel.style.color = colors[sel.value] || 'var(--muted)';
 }
+// ── View toggle ──
+function setView(v) {
+  localStorage.setItem('contentView', v);
+  const grid = document.getElementById('contentGrid');
+  const kanban = document.getElementById('contentKanban');
+  const btnG = document.getElementById('viewGrid');
+  const btnK = document.getElementById('viewKanban');
+  if (v === 'kanban') {
+    grid.style.display = 'none'; kanban.style.display = 'flex';
+    btnG.style.background='var(--surface2)'; btnG.style.color='var(--muted)';
+    btnK.style.background='var(--accent)'; btnK.style.color='white';
+  } else {
+    grid.style.display = 'grid'; kanban.style.display = 'none';
+    btnG.style.background='var(--accent)'; btnG.style.color='white';
+    btnK.style.background='var(--surface2)'; btnK.style.color='var(--muted)';
+  }
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('contentView') || 'grid';
+  setView(saved);
+  // Scores lazy-load
+  document.querySelectorAll('.caption-score-bar').forEach(async bar => {
+    const id = bar.dataset.id;
+    const d = await (await fetch(`/api/content/${id}/score`)).json();
+    const s = d.score || 0;
+    const colors = s >= 8 ? 'var(--success)' : s >= 5 ? 'var(--warning)' : 'var(--danger)';
+    bar.querySelector('.score-fill').style.width = (s/10*100)+'%';
+    bar.querySelector('.score-fill').style.background = colors;
+    bar.nextElementSibling.textContent = s.toFixed(1);
+    bar.nextElementSibling.style.color = colors;
+  });
+});
+
+// Kanban drag & drop
+let dragId = null;
+function dragStart(e, id) { dragId = id; e.dataTransfer.effectAllowed='move'; }
+function dragOver(e) { e.preventDefault(); e.currentTarget.style.background='rgba(59,130,246,.06)'; }
+function dragLeave(e) { e.currentTarget.style.background=''; }
+async function dropOn(e, newStatus) {
+  e.preventDefault(); e.currentTarget.style.background='';
+  if (!dragId) return;
+  await fetch(`/content/${dragId}/status`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({status: newStatus})
+  });
+  showToast('Status aktualisiert.', 'success', 1500);
+  setTimeout(() => location.reload(), 400);
+}
+
 // Ctrl+A select all
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey||e.metaKey) && e.key==='a' && !['INPUT','TEXTAREA'].includes(e.target.tagName)) {

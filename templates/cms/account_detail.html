@@ -16,6 +16,9 @@
     <button onclick="document.getElementById('followerModal').classList.remove('hidden')" class="btn btn-ghost">
       <i class="fa-solid fa-arrow-up-right-dots"></i> Follower
     </button>
+    <button onclick="getShareLink({{ account.id }})" class="btn btn-ghost" title="Kunden-Link">
+      <i class="fa-solid fa-share-nodes"></i>
+    </button>
     <a href="{{ url_for('account_edit', account_id=account.id) }}" class="btn btn-primary">
       <i class="fa-solid fa-pen"></i> Bearbeiten
     </a>
@@ -40,9 +43,16 @@
       <span class="badge badge-red">{{ account.status }}</span>
       {% endif %}
     </div>
-    <div style="font-size:13px;color:var(--muted);margin-top:3px">
-      {{ account.handle or '' }}{% if account.handle and account.category %} · {% endif %}
-      {{ account.category.name if account.category else '' }}{% if account.platform %} · {{ account.platform.name }}{% endif %}
+    <div style="font-size:13px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:8px">
+      {% if account.handle %}
+      <button onclick="copyHandle('{{ account.handle }}')" title="Handle kopieren"
+              style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:13px;padding:0;font-family:var(--font-body);display:flex;align-items:center;gap:5px;transition:color .15s"
+              onmouseover="this.style.color='var(--accent2)'" onmouseout="this.style.color='var(--muted)'">
+        {{ account.handle }} <i class="fa-regular fa-copy" style="font-size:11px"></i>
+      </button>
+      {% endif %}
+      {% if account.handle and account.category %}<span>·</span>{% endif %}
+      {{ account.category.name if account.category else '' }}{% if account.platform %}<span>·</span>{{ account.platform.name }}{% endif %}
     </div>
   </div>
 </div>
@@ -88,6 +98,83 @@
     <div class="stat-label">Posting-Ziel</div>
     <div class="stat-value blue">{{ account.target_feed_per_day }}×</div>
     <div class="stat-sub">pro Tag</div>
+  </div>
+</div>
+
+<!-- Wachstumsziel -->
+<div class="card" style="padding:20px;margin-bottom:20px" x-data="{editing:false}">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px;display:flex;align-items:center;gap:8px">
+      <i class="fa-solid fa-bullseye" style="color:var(--accent2)"></i> WACHSTUMSZIEL
+    </div>
+    <button @click="editing=!editing"
+            style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;font-weight:600;
+                   padding:4px 8px;border-radius:6px;font-family:var(--font-body);transition:all .15s"
+            onmouseover="this.style.background='var(--surface2)';this.style.color='var(--text)'"
+            onmouseout="this.style.background='none';this.style.color='var(--muted)'"
+            x-text="editing?'Abbrechen':'Bearbeiten'"></button>
+  </div>
+
+  {% if account.growth_goal %}
+  {% set current = account.follower_count %}
+  {% set goal = account.growth_goal %}
+  {% set pct = [current / goal * 100, 100]|min|int %}
+  {% set remaining = goal - current %}
+  <div x-show="!editing">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+      <div>
+        <span style="font-family:var(--font-display);font-size:32px;color:var(--accent2)">
+          {% if goal >= 1000000 %}{{ "%.1f"|format(goal/1000000) }}M{% elif goal >= 1000 %}{{ "%.0f"|format(goal/1000) }}K{% else %}{{ goal }}{% endif %}
+        </span>
+        <span style="font-size:12px;color:var(--muted);margin-left:8px">Ziel</span>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:13px;font-weight:700;color:{% if pct >= 100 %}var(--success){% elif pct >= 70 %}var(--warning){% else %}var(--accent2){% endif %}">{{ pct }}%</div>
+        {% if account.growth_goal_date %}
+        <div style="font-size:11px;color:var(--muted)">bis {{ account.growth_goal_date.strftime('%d.%m.%Y') }}</div>
+        {% endif %}
+      </div>
+    </div>
+    <div style="height:8px;background:var(--surface2);border-radius:8px;overflow:hidden;margin-bottom:10px">
+      <div style="height:100%;border-radius:8px;transition:width .8s ease;
+                  background:{% if pct >= 100 %}var(--success){% elif pct >= 70 %}var(--warning){% else %}var(--accent){% endif %};
+                  width:{{ pct }}%"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)">
+      <span>{{ "%.0f"|format(current/1000) if current >= 1000 else current }}{% if current >= 1000 %}K{% endif %} aktuell</span>
+      {% if remaining > 0 %}
+      <span style="color:var(--text)">noch <strong>{% if remaining >= 1000 %}{{ "%.0f"|format(remaining/1000) }}K{% else %}{{ remaining }}{% endif %}</strong> fehlen</span>
+      {% else %}
+      <span style="color:var(--success);font-weight:700"><i class="fa-solid fa-check"></i> Ziel erreicht!</span>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div x-show="!editing" style="text-align:center;padding:16px;color:var(--muted);font-size:13px">
+    <i class="fa-solid fa-bullseye" style="font-size:24px;display:block;margin-bottom:8px;opacity:.3"></i>
+    Noch kein Wachstumsziel gesetzt.
+  </div>
+  {% endif %}
+
+  <div x-show="editing" style="display:flex;flex-direction:column;gap:12px;margin-top:4px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <label class="form-label">Ziel-Follower</label>
+        <input type="number" id="goalFollowers" min="0" placeholder="z.B. 100000" class="input-field"
+               value="{{ account.growth_goal or '' }}">
+      </div>
+      <div>
+        <label class="form-label">Bis wann</label>
+        <input type="date" id="goalDate" class="input-field"
+               value="{{ account.growth_goal_date.strftime('%Y-%m-%d') if account.growth_goal_date else '' }}">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button onclick="saveGoal({{ account.id }})" class="btn btn-primary" style="font-size:12px">
+        <i class="fa-solid fa-check"></i> Speichern
+      </button>
+      <button @click="editing=false" class="btn btn-ghost" style="font-size:12px">Abbrechen</button>
+    </div>
   </div>
 </div>
 
@@ -190,6 +277,50 @@
   {% endif %}
 </div>
 
+<!-- Notizen Panel -->
+<div class="card" style="margin-top:20px" x-data="{editing:false,saved:false}">
+  <div class="card-header">
+    <span class="card-title">NOTIZEN</span>
+    <button @click="editing=!editing"
+            style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;font-weight:600;
+                   display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;transition:all .15s"
+            onmouseover="this.style.background='var(--surface2)';this.style.color='var(--text)'"
+            onmouseout="this.style.background='none';this.style.color='var(--muted)'"
+            x-text="editing ? 'Abbrechen' : 'Bearbeiten'">
+    </button>
+  </div>
+  <div style="padding:20px">
+    <div x-show="!editing" style="font-size:13px;color:var(--text);line-height:1.7;white-space:pre-wrap;min-height:48px">
+      {% if account.notes %}{{ account.notes }}{% else %}<span style="color:var(--muted)">Noch keine Notizen. Klicke auf Bearbeiten, um etwas hinzuzufügen.</span>{% endif %}
+    </div>
+    <div x-show="editing" style="display:flex;flex-direction:column;gap:12px">
+      <textarea id="notesField" class="input-field" rows="5"
+                style="resize:vertical;min-height:100px;line-height:1.6"
+                placeholder="Notizen zu diesem Account…">{{ account.notes or '' }}</textarea>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button onclick="saveNotes({{ account.id }})"
+                class="btn btn-primary" style="font-size:12px">
+          <i class="fa-solid fa-check"></i> Speichern
+        </button>
+        <span x-show="saved" x-transition style="font-size:12px;color:var(--success)">
+          <i class="fa-solid fa-check-circle"></i> Gespeichert
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Beste Posting-Zeit -->
+<div class="card" style="margin-top:20px">
+  <div class="card-header">
+    <span class="card-title"><i class="fa-solid fa-clock" style="color:var(--accent2);margin-right:6px"></i>BESTE POSTING-ZEITEN</span>
+    <span style="font-size:11px;color:var(--muted)">aus geplanten Posts analysiert</span>
+  </div>
+  <div style="padding:20px" id="bestTimesWrap">
+    <div style="font-size:12px;color:var(--muted);text-align:center">Lade Analyse…</div>
+  </div>
+</div>
+
 <!-- Follower Modal -->
 <div id="followerModal" class="hidden" style="position:fixed;inset:0;z-index:200;
      display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)">
@@ -218,6 +349,90 @@
 
 {% block scripts %}
 <script>
+async function getShareLink(accountId) {
+  const res = await fetch(`/api/accounts/${accountId}/share-token`, {method:'POST'});
+  const d = await res.json();
+  if (d.ok) {
+    const url = location.origin + d.url;
+    await navigator.clipboard.writeText(url);
+    showToast('Kunden-Link kopiert: ' + url, 'success', 5000);
+  }
+}
+
+async function loadBestTimes(accountId) {
+  const res = await fetch(`/api/accounts/${accountId}/best-times`);
+  const d = await res.json();
+  const wrap = document.getElementById('bestTimesWrap');
+  if (!d.hours || !d.total_posts) {
+    wrap.innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:8px">Noch keine Daten — plane erste Posts für diesen Account.</div>';
+    return;
+  }
+  const max = Math.max(...d.hours.map(h=>h.count));
+  const topSet = new Set(d.top_hours);
+  wrap.innerHTML = `
+    <div style="margin-bottom:12px;font-size:13px;color:var(--text)">
+      <i class="fa-solid fa-lightbulb" style="color:var(--warning);margin-right:6px"></i>
+      Empfehlung: <strong>${d.recommendation}</strong>
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:2px;height:60px">
+      ${d.hours.map(h=>`
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px" title="${h.hour}:00 — ${h.count} Posts">
+          <div style="width:100%;border-radius:2px 2px 0 0;background:${topSet.has(h.hour)?'var(--accent)':'var(--surface2)'};
+               height:${max>0?Math.max(h.count/max*52,h.count>0?4:0):0}px;transition:height .5s;min-height:${h.count>0?2:0}px"></div>
+        </div>`).join('')}
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:9px;color:var(--muted)">
+      <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--muted)">Basis: ${d.total_posts} Posts analysiert</div>`;
+}
+
+document.addEventListener('DOMContentLoaded', () => loadBestTimes({{ account.id }}));
+
+async function saveGoal(accountId) {
+  const growth_goal = document.getElementById('goalFollowers').value;
+  const growth_goal_date = document.getElementById('goalDate').value;
+  const res = await fetch(`/api/accounts/${accountId}/growth-goal`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ growth_goal, growth_goal_date })
+  });
+  if ((await res.json()).ok) {
+    showToast('Wachstumsziel gespeichert.');
+    setTimeout(() => location.reload(), 800);
+  }
+}
+
+function copyHandle(handle) {
+  navigator.clipboard.writeText(handle).then(() => {
+    showToast(`${handle} kopiert!`, 'info', 2000);
+  });
+}
+
+async function saveNotes(accountId) {
+  const notes = document.getElementById('notesField').value;
+  const res = await fetch(`/api/accounts/${accountId}/notes`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({notes})
+  });
+  if ((await res.json()).ok) {
+    // Alpine 3 API
+    const panel = document.querySelector('[x-data*="editing"]');
+    if (panel) {
+      const data = Alpine.$data(panel);
+      data.editing = false;
+      data.saved = true;
+      setTimeout(() => { data.saved = false; }, 2500);
+    }
+    // update display text
+    const display = panel?.querySelector('[x-show="!editing"]');
+    if (display) {
+      display.textContent = notes || '';
+      if (!notes) display.innerHTML = '<span style="color:var(--muted)">Noch keine Notizen.</span>';
+    }
+    showToast('Notizen gespeichert.');
+  }
+}
+
 async function updateFollowers(accountId) {
   const count = parseInt(document.getElementById('newFollowerCount').value);
   if (isNaN(count)||count<0) return;
@@ -228,11 +443,8 @@ async function updateFollowers(accountId) {
   const d = await res.json();
   if (d.ok) {
     document.getElementById('followerModal').classList.add('hidden');
-    const f=document.createElement('div');
-    f.style.cssText='position:fixed;top:80px;right:24px;z-index:300;display:flex;align-items:center;gap:8px;padding:12px 20px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.2);border-radius:10px;font-size:13px;color:#22c55e;font-weight:600;box-shadow:0 8px 32px rgba(0,0,0,.4)';
-    f.innerHTML='<i class="fa-solid fa-check-circle"></i> Follower aktualisiert';
-    document.body.appendChild(f);
-    setTimeout(()=>{f.remove();location.reload();},2000);
+    showToast('Follower aktualisiert.');
+    setTimeout(() => location.reload(), 1200);
   }
 }
 </script>

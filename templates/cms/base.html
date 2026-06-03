@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Content OS{% endblock %}</title>
+  <!-- NProgress -->
+  <script src="https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.css">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
@@ -26,6 +29,16 @@
       --font-display: 'Bebas Neue', sans-serif;
       --font-body: 'DM Sans', sans-serif;
     }
+    body.light {
+      --bg: #f1f5f9;
+      --surface: #ffffff;
+      --surface2: #f8fafc;
+      --border: rgba(0,0,0,0.08);
+      --text: #0f172a;
+      --muted: #64748b;
+    }
+    body.light .sidebar { box-shadow: 2px 0 12px rgba(0,0,0,.06); }
+    body.light .topbar  { box-shadow: 0 1px 8px rgba(0,0,0,.06); }
     * { margin:0; padding:0; box-sizing:border-box; }
     body { background:var(--bg); color:var(--text); font-family:var(--font-body); min-height:100vh; }
     ::-webkit-scrollbar { width:4px; height:4px; }
@@ -59,7 +72,7 @@
       transition:all .15s; margin-bottom:1px;
     }
     .nav-item:hover { background:var(--surface2); color:var(--text); }
-    .nav-item.active { background:var(--surface2); color:var(--accent2); }
+    .nav-item.active { background:var(--surface2); color:var(--accent2); border-left: 2px solid var(--accent); padding-left: 8px; }
     .nav-item i { width:16px; text-align:center; font-size:12px; flex-shrink:0; }
 
     .sidebar-user {
@@ -151,6 +164,8 @@
     .flash-success { background:rgba(34,197,94,.1); border:1px solid rgba(34,197,94,.2); color:#22c55e; }
     .flash-error   { background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.2); color:#ef4444; }
     .flash-info    { background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.2); color:#60a5fa; }
+    .flash-msg { transition:opacity .4s,transform .4s; }
+    .flash-msg.hiding { opacity:0; transform:translateY(-6px); }
 
     /* ── Page content ── */
     .page { padding:28px 32px; flex:1; }
@@ -255,6 +270,22 @@
     /* ── Animations ── */
     .fade-in { animation:fadeIn .2s ease; }
     @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+    @keyframes slideInRight { from{opacity:0;transform:translateX(16px)} to{opacity:1;transform:none} }
+
+    /* ── NProgress override ── */
+    #nprogress .bar { background:var(--accent) !important; height:2px !important; }
+    #nprogress .peg { box-shadow:0 0 10px var(--accent), 0 0 5px var(--accent) !important; }
+
+    /* ── Shortcuts panel ── */
+    .kbd {
+      display:inline-flex; align-items:center; justify-content:center;
+      background:var(--surface2); border:1px solid var(--border);
+      border-bottom:2px solid var(--border); border-radius:5px;
+      font-size:11px; font-weight:700; color:var(--muted);
+      padding:2px 7px; font-family:monospace; min-width:22px;
+    }
+    /* ── Clock ── */
+    #liveClock { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; letter-spacing:.5px; }
 
     /* ── Mobile overlay ── */
     .sidebar-overlay {
@@ -307,10 +338,16 @@
     <a href="{{ url_for('calendar_view') }}" class="nav-item {% if active_page == 'calendar' %}active{% endif %}">
       <i class="fa-solid fa-calendar-days"></i> Kalender
     </a>
+    <a href="{{ url_for('content_templates') }}" class="nav-item {% if active_page == 'templates' %}active{% endif %}">
+      <i class="fa-solid fa-rectangle-list"></i> Templates
+    </a>
 
     <div class="nav-section">Verwaltung</div>
     <a href="{{ url_for('accounts') }}" class="nav-item {% if active_page == 'accounts' %}active{% endif %}">
       <i class="fa-solid fa-layer-group"></i> Accounts
+    </a>
+    <a href="{{ url_for('account_groups') }}" class="nav-item {% if active_page == 'groups' %}active{% endif %}">
+      <i class="fa-solid fa-object-group"></i> Gruppen
     </a>
     <a href="{{ url_for('automation') }}" class="nav-item {% if active_page == 'automation' %}active{% endif %}">
       <i class="fa-solid fa-robot"></i> Automatisierung
@@ -345,6 +382,16 @@
       <a href="{{ url_for('logout') }}" class="nav-item" style="color:#ef4444">
         <i class="fa-solid fa-right-from-bracket"></i> Abmelden
       </a>
+      <!-- Theme toggle -->
+      <button id="themeToggle" onclick="toggleTheme()"
+              style="display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border-radius:8px;
+                     background:none;border:none;cursor:pointer;color:var(--muted);font-family:var(--font-body);
+                     font-size:13px;font-weight:500;margin-top:2px;transition:all .15s"
+              onmouseover="this.style.background='var(--surface2)';this.style.color='var(--text)'"
+              onmouseout="this.style.background='none';this.style.color='var(--muted)'">
+        <i class="fa-solid fa-circle-half-stroke" style="width:16px;text-align:center;font-size:12px"></i>
+        <span id="themeLabel">Light Mode</span>
+      </button>
     </div>
   </div>
 </aside>
@@ -412,14 +459,20 @@
     </div>
 
     <div class="topbar-actions">
-      <a href="{{ url_for('content_new') }}" class="btn btn-primary" style="font-size:12px;padding:7px 14px">
-        <i class="fa-solid fa-plus"></i> Neu
+      <span id="liveClock"></span>
+      <button onclick="openQuickPost()"
+              class="btn btn-primary" style="font-size:12px;padding:7px 14px">
+        <i class="fa-solid fa-plus"></i> Schnell-Post
+      </button>
+      <a href="{{ url_for('content_new') }}" class="btn btn-ghost" style="font-size:12px;padding:7px 12px" title="Neuer Content (n)">
+        <i class="fa-solid fa-pen-to-square"></i>
       </a>
-      <button class="icon-btn" onclick="location.href='{{ url_for('alerts_center') }}'">
+      <button class="icon-btn" onclick="location.href='{{ url_for('alerts_center') }}'" title="Alerts">
         <i class="fa-solid fa-bell"></i>
-        {% if active_page %}
         <span class="dot"></span>
-        {% endif %}
+      </button>
+      <button class="icon-btn" onclick="document.getElementById('shortcutsPanel').style.display='flex'" title="Shortcuts (?)">
+        <i class="fa-solid fa-keyboard"></i>
       </button>
     </div>
   </header>
@@ -445,6 +498,28 @@
 </div>
 
 <script>
+// ── NProgress ──
+if (typeof NProgress !== 'undefined') {
+  NProgress.configure({ showSpinner: false, speed: 300, minimum: 0.1 });
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[href]');
+    if (a && !a.href.startsWith('#') && !a.target && !e.ctrlKey && !e.metaKey && a.hostname === location.hostname) {
+      NProgress.start();
+    }
+  });
+  window.addEventListener('pageshow', () => NProgress.done());
+}
+
+// ── Live Clock ──
+function updateClock() {
+  const el = document.getElementById('liveClock');
+  if (!el) return;
+  const now = new Date();
+  el.textContent = now.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+}
+updateClock();
+setInterval(updateClock, 10000);
+
 Chart.defaults.color = '#64748b';
 Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
 Chart.defaults.font.family = 'DM Sans';
@@ -471,7 +546,23 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (e.key=='/') { e.preventDefault(); document.querySelector('.search-input')?.focus(); return; }
-  if (e.key==='Escape') { document.activeElement?.blur(); return; }
+  if (e.key==='Escape') {
+    closeQuickPost && closeQuickPost();
+    document.activeElement?.blur();
+    return;
+  }
+  // "n" = new item (kontextabhängig)
+  if (e.key==='n' && !e.ctrlKey && !e.metaKey) {
+    const newBtn = document.querySelector('a[href*="/new"].btn-primary, a[href*="new"].btn-primary');
+    if (newBtn) { window.location.href = newBtn.href; return; }
+  }
+  // "p" = Schnell-Post öffnen
+  if (e.key==='p' && !e.ctrlKey && !e.metaKey) { openQuickPost && openQuickPost(); return; }
+  // "?" = Shortcuts panel
+  if (e.key==='?' || (e.shiftKey && e.key==='/')) {
+    document.getElementById('shortcutsPanel').style.display='flex'; return;
+  }
+
   clearTimeout(keyTimer);
   keySeq = keySeq ? keySeq+' '+e.key.toLowerCase() : e.key.toLowerCase();
   const url = shortcuts[keySeq];
@@ -481,5 +572,328 @@ document.addEventListener('keydown', e => {
 });
 </script>
 {% block scripts %}{% endblock %}
+
+<!-- ── Keyboard Shortcuts Panel ── -->
+<div id="shortcutsPanel"
+     style="display:none;position:fixed;inset:0;z-index:600;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.7);backdrop-filter:blur(6px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:560px;margin:16px;box-shadow:0 24px 80px rgba(0,0,0,.6);
+              max-height:85vh;overflow-y:auto">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1">
+      <div style="font-family:var(--font-display);font-size:20px;letter-spacing:1px">KEYBOARD SHORTCUTS</div>
+      <button onclick="document.getElementById('shortcutsPanel').style.display='none'"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <div style="padding:20px 24px;display:grid;grid-template-columns:1fr 1fr;gap:0">
+      {% for section, items in [
+        ('Navigation', [('g d','Dashboard'),('g a','Accounts'),('g c','Content Hub'),('g k','Kalender'),('g m','Medienbibliothek'),('g n','Analytics'),('g t','Automatisierung'),('g i','KI-Zentrale'),('g e','Team'),('g s','Einstellungen')]),
+        ('Aktionen', [('/','Suche öffnen'),('p','Schnell-Post öffnen'),('n','Neuer Eintrag'),('Esc','Modal schließen / Blur'),('?','Shortcuts anzeigen')]),
+      ] %}
+      <div style="padding:8px 0 16px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:12px">{{ section }}</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          {% for key, desc in items %}
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <span style="font-size:13px;color:var(--text)">{{ desc }}</span>
+            <div style="display:flex;gap:4px;flex-shrink:0">
+              {% for k in key.split(' ') %}
+              <span class="kbd">{{ k }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div style="padding:14px 24px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);text-align:center">
+      Drücke <span class="kbd">?</span> jederzeit um dieses Panel zu öffnen
+    </div>
+  </div>
+</div>
+
+<!-- ── Custom Confirm Dialog ── -->
+<div id="confirmDialog"
+     style="display:none;position:fixed;inset:0;z-index:600;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.65);backdrop-filter:blur(4px)">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;
+              width:100%;max-width:360px;margin:16px;box-shadow:0 24px 60px rgba(0,0,0,.6);padding:28px">
+    <div id="confirmIcon" style="width:44px;height:44px;border-radius:12px;margin:0 auto 16px;
+         display:flex;align-items:center;justify-content:center;background:rgba(239,68,68,.12)">
+      <i class="fa-solid fa-triangle-exclamation" style="color:var(--danger);font-size:18px"></i>
+    </div>
+    <div id="confirmTitle" style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px;text-align:center;margin-bottom:8px"></div>
+    <div id="confirmMsg" style="font-size:13px;color:var(--muted);text-align:center;line-height:1.6;margin-bottom:24px"></div>
+    <div style="display:flex;gap:10px">
+      <button id="confirmCancel" class="btn btn-ghost" style="flex:1">Abbrechen</button>
+      <button id="confirmOk" class="btn btn-danger" style="flex:1">Löschen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast Container ── -->
+<div id="toastContainer" style="position:fixed;bottom:24px;right:24px;z-index:700;display:flex;flex-direction:column;gap:8px;pointer-events:none"></div>
+
+<!-- ── Quick Post Modal ── -->
+<div id="quickPostModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeQuickPost()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:480px;margin:16px;box-shadow:0 24px 80px rgba(0,0,0,.6)"
+       x-data="{}" @keydown.escape.window="closeQuickPost()">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">SCHNELL-POST</div>
+      <button onclick="closeQuickPost()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+      <div>
+        <label class="form-label">Account *</label>
+        <select id="qpAccount" class="select-field" onchange="onQpAccountChange(this)">
+          <option value="">Account wählen…</option>
+        </select>
+        <div id="qpAccountInfo" style="display:none;margin-top:6px;font-size:11px;color:var(--muted);display:flex;gap:10px;padding:6px 10px;background:var(--surface2);border-radius:6px"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="form-label">Typ</label>
+          <select id="qpType" class="select-field">
+            <option value="feed">Feed</option>
+            <option value="story">Story</option>
+            <option value="reel">Reel</option>
+            <option value="carousel">Carousel</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Datum & Zeit *</label>
+          <input type="datetime-local" id="qpDate" class="input-field">
+        </div>
+      </div>
+      <div>
+        <label class="form-label">Caption *</label>
+        <textarea id="qpCaption" class="input-field" rows="4"
+                  placeholder="Post-Text hier eingeben…"
+                  oninput="updateQpPreview()"
+                  style="resize:vertical;min-height:100px"></textarea>
+      </div>
+      <!-- Vorschau -->
+      <div id="qpPreview" style="display:none;background:var(--surface2);border:1px solid var(--border);
+           border-radius:10px;padding:14px;font-size:12px;color:var(--text);line-height:1.6;
+           white-space:pre-wrap;max-height:120px;overflow-y:auto"></div>
+      <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);cursor:pointer;margin-top:-4px">
+        <input type="checkbox" id="qpPreviewToggle" onchange="toggleQpPreview()" style="accent-color:var(--accent)">
+        Vorschau anzeigen
+      </label>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+        <button onclick="closeQuickPost()" class="btn btn-ghost">Abbrechen</button>
+        <button onclick="submitQuickPost(this)" class="btn btn-primary">
+          <i class="fa-solid fa-calendar-plus"></i> Planen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Quick Post Vorschau ──
+function updateQpPreview() {
+  const box = document.getElementById('qpPreview');
+  if (box.style.display !== 'none') box.textContent = document.getElementById('qpCaption').value;
+}
+function toggleQpPreview() {
+  const show = document.getElementById('qpPreviewToggle').checked;
+  const box = document.getElementById('qpPreview');
+  box.style.display = show ? 'block' : 'none';
+  if (show) box.textContent = document.getElementById('qpCaption').value;
+}
+
+// ── Quick Post ──
+function closeQuickPost() {
+  document.getElementById('quickPostModal').style.display = 'none';
+}
+
+let _qpAccountsCache = [];
+async function loadQpAccounts() {
+  const sel = document.getElementById('qpAccount');
+  if (sel.options.length > 1) return;
+  try {
+    const res = await fetch('/api/accounts');
+    _qpAccountsCache = await res.json();
+    _qpAccountsCache.forEach(a => {
+      const o = document.createElement('option');
+      o.value = a.id;
+      o.textContent = a.name + (a.handle ? ' · ' + a.handle : '');
+      o.dataset.followers = a.followers || 0;
+      o.dataset.category = a.category || '';
+      o.dataset.stock = a.stock_days || 0;
+      sel.appendChild(o);
+    });
+  } catch(e) {}
+}
+function onQpAccountChange(sel) {
+  const info = document.getElementById('qpAccountInfo');
+  const acc = _qpAccountsCache.find(a => a.id == sel.value);
+  if (!acc) { info.style.display='none'; return; }
+  const f = acc.followers >= 1000 ? (acc.followers/1000).toFixed(0)+'K' : (acc.followers||0);
+  info.style.display = 'flex';
+  info.innerHTML = `<span><i class="fa-solid fa-users" style="margin-right:4px"></i>${f} Follower</span>`
+    + (acc.category ? `<span><i class="fa-solid fa-tag" style="margin-right:4px"></i>${acc.category}</span>` : '')
+    + (acc.stock_days != null ? `<span style="color:${acc.stock_days < 3 ? 'var(--danger)' : 'var(--muted)'}"><i class="fa-solid fa-box" style="margin-right:4px"></i>${acc.stock_days}T Vorrat</span>` : '');
+}
+
+document.getElementById('quickPostModal').addEventListener('click', function(e) {
+  if (e.target === this) closeQuickPost();
+});
+
+// Pre-fill datetime to next round hour
+document.addEventListener('DOMContentLoaded', () => {
+  const inp = document.getElementById('qpDate');
+  if (inp) {
+    const now = new Date();
+    now.setMinutes(0, 0, 0);
+    now.setHours(now.getHours() + 1);
+    inp.value = now.toISOString().slice(0, 16);
+  }
+});
+
+// Override the topbar button to also load accounts
+const _origOpen = document.querySelector('[onclick*="quickPostModal"]');
+function openQuickPost() {
+  document.getElementById('quickPostModal').style.display = 'flex';
+  loadQpAccounts();
+}
+
+async function submitQuickPost(btn) {
+  const account_id = parseInt(document.getElementById('qpAccount').value);
+  const caption = document.getElementById('qpCaption').value.trim();
+  const scheduled_at = document.getElementById('qpDate').value;
+  const post_type = document.getElementById('qpType').value;
+
+  if (!account_id) { showToast('Bitte einen Account wählen.', 'warning'); return; }
+  if (!caption)    { showToast('Caption darf nicht leer sein.', 'warning'); return; }
+  if (!scheduled_at) { showToast('Bitte Datum und Uhrzeit wählen.', 'warning'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Speichern…';
+
+  try {
+    const res = await fetch('/api/posts/quick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id, caption, scheduled_at, post_type })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      closeQuickPost();
+      document.getElementById('qpCaption').value = '';
+      document.getElementById('qpAccount').value = '';
+      // Show success flash inline
+      const bar = document.querySelector('.flash-bar') || (() => {
+        const d = document.createElement('div');
+        d.className = 'flash-bar';
+        document.querySelector('.main').insertBefore(d, document.querySelector('.page'));
+        return d;
+      })();
+      bar.innerHTML = '<div class="flash-msg flash-success"><i class="fa-solid fa-check-circle"></i> Post geplant!</div>';
+      setTimeout(() => { bar.innerHTML = ''; }, 3000);
+    } else {
+      showToast('Fehler: ' + (data.error || 'Unbekannt'), 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-calendar-plus"></i> Planen';
+    }
+  } catch(e) {
+    showToast('Netzwerkfehler — bitte erneut versuchen.', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-calendar-plus"></i> Planen';
+  }
+}
+
+// ── Toast System ──
+function showToast(msg, type='success', duration=3500) {
+  const icons = {success:'fa-check-circle', error:'fa-circle-xmark', info:'fa-info-circle', warning:'fa-triangle-exclamation'};
+  const colors = {success:'#22c55e', error:'#ef4444', info:'#60a5fa', warning:'#f59e0b'};
+  const bgs = {success:'rgba(34,197,94,.1)', error:'rgba(239,68,68,.1)', info:'rgba(59,130,246,.1)', warning:'rgba(245,158,11,.1)'};
+  const el = document.createElement('div');
+  el.style.cssText = `display:flex;align-items:center;gap:10px;padding:12px 18px;border-radius:10px;
+    background:var(--surface);border:1px solid ${colors[type]}30;box-shadow:0 8px 32px rgba(0,0,0,.4);
+    font-size:13px;font-weight:600;color:${colors[type]};pointer-events:all;
+    animation:slideInRight .25s ease;max-width:340px;`;
+  el.innerHTML = `<i class="fa-solid ${icons[type]}" style="font-size:14px;flex-shrink:0"></i><span>${msg}</span>`;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'opacity .3s,transform .3s';
+    el.style.opacity = '0'; el.style.transform = 'translateX(12px)';
+    setTimeout(() => el.remove(), 320);
+  }, duration);
+}
+
+// ── Custom Confirm Dialog ──
+let _confirmResolve = null;
+function customConfirm(title, msg, btnLabel='Löschen', btnClass='btn-danger') {
+  return new Promise(resolve => {
+    _confirmResolve = resolve;
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmMsg').textContent = msg;
+    const ok = document.getElementById('confirmOk');
+    ok.textContent = btnLabel;
+    ok.className = 'btn ' + btnClass;
+    document.getElementById('confirmDialog').style.display = 'flex';
+  });
+}
+document.getElementById('confirmOk').onclick = () => {
+  document.getElementById('confirmDialog').style.display = 'none';
+  if (_confirmResolve) { _confirmResolve(true); _confirmResolve = null; }
+};
+document.getElementById('confirmCancel').onclick = () => {
+  document.getElementById('confirmDialog').style.display = 'none';
+  if (_confirmResolve) { _confirmResolve(false); _confirmResolve = null; }
+};
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('confirmDialog').style.display === 'flex') {
+    document.getElementById('confirmCancel').click();
+  }
+});
+
+// Intercept all onsubmit confirm() forms with data-confirm
+document.addEventListener('submit', async function(e) {
+  const form = e.target;
+  const msg = form.dataset.confirm;
+  if (!msg) return;
+  e.preventDefault();
+  const ok = await customConfirm('Bist du sicher?', msg);
+  if (ok) form.submit();
+});
+
+// ── Auto-dismiss Flash Messages ──
+document.querySelectorAll('.flash-msg').forEach(el => {
+  const delay = el.classList.contains('flash-error') ? 6000 : 3500;
+  setTimeout(() => {
+    el.classList.add('hiding');
+    setTimeout(() => el.remove(), 450);
+  }, delay);
+});
+
+// ── Dark / Light Mode ──
+function toggleTheme() {
+  const body = document.body;
+  const isLight = body.classList.toggle('light');
+  localStorage.setItem('cos_theme', isLight ? 'light' : 'dark');
+  document.getElementById('themeLabel').textContent = isLight ? 'Dark Mode' : 'Light Mode';
+}
+(function() {
+  const saved = localStorage.getItem('cos_theme');
+  if (saved === 'light') {
+    document.body.classList.add('light');
+    const lbl = document.getElementById('themeLabel');
+    if (lbl) lbl.textContent = 'Dark Mode';
+  }
+})();
+</script>
 </body>
 </html>

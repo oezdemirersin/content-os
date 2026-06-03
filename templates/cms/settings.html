@@ -38,7 +38,11 @@
     <div style="padding:14px 20px;border-top:1px solid var(--border)">
       <form method="post" action="{{ url_for('category_new') }}" style="display:flex;gap:8px;align-items:center">
         <input type="text" name="name" required placeholder="Neue Kategorie…" class="input-field" style="flex:1;font-size:13px">
-        <input type="text" name="icon" placeholder="icon" class="input-field" style="width:70px;font-size:13px">
+        <div style="position:relative;display:flex;align-items:center">
+          <input type="text" name="icon" id="newCatIcon" placeholder="icon" class="input-field" style="width:90px;font-size:13px;padding-right:28px"
+                 oninput="document.getElementById('newCatIconPrev').className='fa-solid fa-'+this.value">
+          <i id="newCatIconPrev" class="fa-solid fa-folder" style="position:absolute;right:8px;font-size:12px;color:var(--muted);pointer-events:none"></i>
+        </div>
         <input type="color" name="color" value="#3b82f6" style="width:36px;height:36px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px;flex-shrink:0">
         <button type="submit" class="btn btn-primary" style="padding:8px 14px"><i class="fa-solid fa-plus"></i></button>
       </form>

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Account-Gruppen — Content OS{% endblock %}
+{% block page_title %}ACCOUNT-GRUPPEN{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <div style="font-size:13px;color:var(--muted)">{{ groups|length }} Gruppen</div>
+  <button onclick="document.getElementById('newGroupModal').style.display='flex'" class="btn btn-primary">
+    <i class="fa-solid fa-plus"></i> Neue Gruppe
+  </button>
+</div>
+
+{% if groups %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+  {% for g in groups %}
+  <div class="card" style="border-top:3px solid {{ g.color }}">
+    <div class="card-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:10px;height:10px;border-radius:50%;background:{{ g.color }};flex-shrink:0"></div>
+        <span class="card-title" style="font-size:15px">{{ g.name }}</span>
+      </div>
+      <form method="post" action="{{ url_for('group_delete', group_id=g.id) }}"
+            data-confirm="Gruppe '{{ g.name }}' wirklich löschen?">
+        <button type="submit" class="icon-btn" style="font-size:12px;color:var(--danger)">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </form>
+    </div>
+    <div style="padding:14px 20px">
+      {% if g.description %}
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">{{ g.description }}</div>
+      {% endif %}
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+        {% for acc in g.accounts %}
+        <a href="{{ url_for('account_detail', account_id=acc.id) }}"
+           style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;
+                  background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.2);text-decoration:none">
+          <span style="font-size:12px;font-weight:600;color:var(--text)">{{ acc.name }}</span>
+          {% if acc.follower_count >= 1000 %}
+          <span style="font-size:10px;color:var(--muted)">{{ "%.0f"|format(acc.follower_count/1000) }}K</span>
+          {% endif %}
+        </a>
+        {% else %}
+        <span style="font-size:12px;color:var(--muted)">Noch keine Accounts</span>
+        {% endfor %}
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:11px;color:var(--muted)">{{ g.accounts|length }} Accounts</span>
+        <button onclick="openEditGroup({{ g.id }}, '{{ g.name }}', {{ g.accounts|map(attribute='id')|list|tojson }})"
+                class="btn btn-ghost" style="font-size:11px;padding:5px 12px">
+          <i class="fa-solid fa-pen"></i> Bearbeiten
+        </button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center;padding:80px 20px">
+  <i class="fa-solid fa-layer-group" style="font-size:40px;color:var(--border);display:block;margin-bottom:16px"></i>
+  <div style="font-size:14px;color:var(--muted);margin-bottom:14px">Noch keine Gruppen</div>
+  <button onclick="document.getElementById('newGroupModal').style.display='flex'" class="btn btn-primary">
+    <i class="fa-solid fa-plus"></i> Erste Gruppe erstellen
+  </button>
+</div>
+{% endif %}
+
+<!-- New Group Modal -->
+<div id="newGroupModal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:560px;margin:16px;box-shadow:0 24px 80px rgba(0,0,0,.6)">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div id="modalGroupTitle" style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">NEUE GRUPPE</div>
+      <button onclick="document.getElementById('newGroupModal').style.display='none'"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form id="groupForm" method="post" action="{{ url_for('group_new') }}">
+      <input type="hidden" id="groupFormAction" value="{{ url_for('group_new') }}">
+      <div style="padding:24px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end">
+          <div>
+            <label class="form-label">Name *</label>
+            <input type="text" name="name" id="groupName" required class="input-field" placeholder="z.B. Bayern-Seiten">
+          </div>
+          <div>
+            <label class="form-label">Farbe</label>
+            <input type="color" name="color" id="groupColor" value="#3b82f6"
+                   style="width:44px;height:38px;border-radius:8px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px">
+          </div>
+        </div>
+        <div>
+          <label class="form-label">Beschreibung</label>
+          <input type="text" name="description" class="input-field" placeholder="Optional…">
+        </div>
+        <div>
+          <label class="form-label">Accounts auswählen</label>
+          <div style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+            {% for acc in all_accounts %}
+            <label id="acc-label-{{ acc.id }}"
+                   style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s"
+                   onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+              <input type="checkbox" name="account_ids" value="{{ acc.id }}" id="acc-cb-{{ acc.id }}"
+                     style="width:14px;height:14px;accent-color:var(--accent);flex-shrink:0">
+              <div style="width:28px;height:28px;border-radius:6px;background:rgba(59,130,246,.12);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:14px;color:var(--accent2);flex-shrink:0">{{ acc.name[0] }}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ acc.name }}</div>
+                {% if acc.category %}<div style="font-size:10px;color:var(--muted)">{{ acc.category.name }}</div>{% endif %}
+              </div>
+              <span style="font-size:11px;color:var(--muted);flex-shrink:0">
+                {% if acc.follower_count >= 1000 %}{{ "%.0f"|format(acc.follower_count/1000) }}K{% else %}{{ acc.follower_count }}{% endif %}
+              </span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button type="button" onclick="document.getElementById('newGroupModal').style.display='none'" class="btn btn-ghost">Abbrechen</button>
+          <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Erstellen</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openEditGroup(id, name, memberIds) {
+  document.getElementById('modalGroupTitle').textContent = 'GRUPPE BEARBEITEN';
+  document.getElementById('groupName').value = name;
+  document.getElementById('groupForm').action = `/groups/${id}/edit`;
+  // check/uncheck
+  document.querySelectorAll('[id^="acc-cb-"]').forEach(cb => {
+    cb.checked = memberIds.includes(parseInt(cb.value));
+  });
+  document.getElementById('newGroupModal').style.display = 'flex';
+}
+</script>
+{% endblock %}

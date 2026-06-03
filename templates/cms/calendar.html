@@ -148,7 +148,7 @@ function fetchEvents(info, success, failure) {
 async function createPost() {
   const accId = document.getElementById('modalAccount').value;
   const date = document.getElementById('modalDate').value;
-  if (!accId || !date) { alert('Account und Datum sind Pflicht.'); return; }
+  if (!accId || !date) { showToast('Account und Datum sind Pflicht.', 'warning'); return; }
   const res = await fetch(`/api/accounts/${accId}/posts/new`, {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({scheduled_at:date, post_type:document.getElementById('modalType').value, caption:document.getElementById('modalCaption').value})
@@ -160,10 +160,12 @@ async function createPost() {
 }
 
 async function deletePost(id) {
-  if (!confirm('Post löschen?')) return;
+  const ok = await customConfirm('Post löschen', 'Diesen geplanten Post wirklich löschen?');
+  if (!ok) return;
   await fetch(`/api/posts/${id}/delete`, {method:'POST'});
   document.getElementById('eventPopup').style.display = 'none';
   calendar.refetchEvents();
+  showToast('Post gelöscht.', 'info');
 }
 </script>
 {% endblock %}

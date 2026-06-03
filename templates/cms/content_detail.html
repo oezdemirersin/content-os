@@ -6,6 +6,15 @@
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
   <a href="{{ url_for('content_hub') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Content Hub</a>
   <div style="display:flex;gap:8px">
+    <button onclick="saveAsTemplate({{ item.id }}, '{{ item.title|truncate(60,true,'')|e }}')"
+            class="btn btn-ghost" style="font-size:12px" title="Als Template speichern">
+      <i class="fa-solid fa-rectangle-list"></i>
+    </button>
+    <form method="post" action="{{ url_for('content_duplicate', item_id=item.id) }}" style="display:inline">
+      <button type="submit" class="btn btn-ghost" style="font-size:12px" title="Duplizieren">
+        <i class="fa-solid fa-copy"></i>
+      </button>
+    </form>
     <a href="{{ url_for('distribute', content_id=item.id) }}" class="btn btn-ghost">
       <i class="fa-solid fa-arrows-split-up-and-left"></i> Verteilen
     </a>
@@ -130,4 +139,102 @@
 
   </div>
 </div>
+
+<!-- Kommentare -->
+<div class="card" style="margin-top:20px" x-data="{text:''}">
+  <div class="card-header">
+    <span class="card-title">TEAM-KOMMENTARE</span>
+    <span style="font-size:12px;color:var(--muted)" id="commentCount">{{ item.comments|length }}</span>
+  </div>
+  <div id="commentList" style="max-height:320px;overflow-y:auto">
+    {% for c in item.comments|sort(attribute='created_at') %}
+    <div id="comment-{{ c.id }}" style="display:flex;align-items:start;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border)">
+      <div style="width:30px;height:30px;border-radius:50%;background:rgba(59,130,246,.15);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:14px;color:var(--accent2);flex-shrink:0">
+        {{ (c.user.username if c.user else 'S')[0].upper() }}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:12px;font-weight:700;color:var(--text)">{{ c.user.username if c.user else 'System' }}</span>
+          <span style="font-size:10px;color:var(--muted)">{{ c.created_at.strftime('%d.%m %H:%M') }}</span>
+        </div>
+        <div style="font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap">{{ c.text }}</div>
+      </div>
+      <button onclick="deleteComment({{ item.id }}, {{ c.id }})"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;opacity:.5;transition:opacity .15s;flex-shrink:0"
+              onmouseover="this.style.opacity=1;this.style.color='var(--danger)'"
+              onmouseout="this.style.opacity=.5;this.style.color='var(--muted)'">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    {% else %}
+    <div id="noComments" style="padding:24px;text-align:center;font-size:13px;color:var(--muted)">
+      Noch keine Kommentare. Schreibe den ersten!
+    </div>
+    {% endfor %}
+  </div>
+  <div style="padding:16px 20px;border-top:1px solid var(--border);display:flex;gap:10px">
+    <textarea x-model="text" placeholder="Kommentar schreiben…" rows="2"
+              class="input-field" style="flex:1;resize:none"
+              @keydown.ctrl.enter="addComment({{ item.id }}); text=''"></textarea>
+    <button @click="addComment({{ item.id }}); text=''" :disabled="!text.trim()"
+            class="btn btn-primary" style="align-self:flex-end;font-size:12px">
+      <i class="fa-solid fa-paper-plane"></i>
+    </button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function addComment(itemId) {
+  const area = document.querySelector('[x-model="text"]');
+  const text = area?.value.trim() || Alpine.$data(area)?.$data?.text?.trim();
+  const finalText = document.querySelector('textarea[placeholder*="Kommentar"]').value.trim();
+  if (!finalText) return;
+  const res = await fetch(`/content/${itemId}/comments`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({text: finalText})
+  });
+  const d = await res.json();
+  if (d.ok) {
+    document.getElementById('noComments')?.remove();
+    const list = document.getElementById('commentList');
+    const div = document.createElement('div');
+    div.id = `comment-${d.id}`;
+    div.style.cssText = 'display:flex;align-items:start;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border);animation:fadeIn .2s ease';
+    div.innerHTML = `<div style="width:30px;height:30px;border-radius:50%;background:rgba(59,130,246,.15);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:14px;color:var(--accent2);flex-shrink:0">${d.user[0].toUpperCase()}</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:12px;font-weight:700;color:var(--text)">${d.user}</span>
+          <span style="font-size:10px;color:var(--muted)">${d.created_at}</span>
+        </div>
+        <div style="font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap">${d.text}</div>
+      </div>
+      <button onclick="deleteComment(${itemId}, ${d.id})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;opacity:.5"><i class="fa-solid fa-xmark"></i></button>`;
+    list.appendChild(div);
+    document.querySelector('textarea[placeholder*="Kommentar"]').value = '';
+    document.getElementById('commentCount').textContent = parseInt(document.getElementById('commentCount').textContent||0)+1;
+    showToast('Kommentar hinzugefügt.', 'success', 2000);
+  }
+}
+
+async function deleteComment(itemId, commentId) {
+  await fetch(`/content/${itemId}/comments/${commentId}/delete`, {method:'POST'});
+  document.getElementById(`comment-${commentId}`)?.remove();
+  const count = document.getElementById('commentCount');
+  count.textContent = Math.max(0, parseInt(count.textContent||1)-1);
+  showToast('Kommentar gelöscht.', 'info', 1500);
+}
+
+async function saveAsTemplate(itemId, name) {
+  const tmplName = prompt('Template-Name:', name);
+  if (!tmplName) return;
+  const res = await fetch(`/api/content/${itemId}/save-as-template`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name: tmplName})
+  });
+  const d = await res.json();
+  if (d.ok) showToast(`Template "${d.name}" gespeichert!`, 'success');
+}
+</script>
 {% endblock %}

@@ -1,5 +1,7 @@
 import os
 import json
+import csv
+import io
 import threading
 import difflib
 import mimetypes
@@ -12,7 +14,8 @@ from functools import wraps
 from flask import session
 from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig,
                     ContentItem, MediaItem, ScheduledPost, AnalyticsSnapshot,
-                    AutomationRule, AutomationRunLog, SystemAlert, User, ActivityLog)
+                    AutomationRule, AutomationRunLog, SystemAlert, User, ActivityLog,
+                    AccountGroup, ContentTemplate, ContentComment)
 from sqlalchemy import func
 
 app = Flask(__name__, template_folder='templates/cms')
@@ -42,6 +45,16 @@ def login_required(f):
             return redirect(url_for('login', next=request.path))
         return f(*args, **kwargs)
     return decorated
+
+
+# ── Global auth guard — schützt ALLE Routen außer Login/Logout/Static ──
+PUBLIC_ENDPOINTS = {'login', 'logout', 'static'}
+
+@app.before_request
+def global_auth_guard():
+    if request.endpoint and request.endpoint not in PUBLIC_ENDPOINTS:
+        if not session.get('user_id'):
+            return redirect(url_for('login', next=request.path))
 
 
 def current_user():
@@ -203,6 +216,22 @@ def seed_data():
 def init_db():
     with app.app_context():
         db.create_all()
+        # SQLite migrations — neue Spalten hinzufügen falls nicht vorhanden
+        from sqlalchemy import text, inspect
+        inspector = inspect(db.engine)
+        account_cols = [c['name'] for c in inspector.get_columns('account')]
+        with db.engine.connect() as conn:
+            if 'growth_goal' not in account_cols:
+                conn.execute(text('ALTER TABLE account ADD COLUMN growth_goal INTEGER'))
+            if 'growth_goal_date' not in account_cols:
+                conn.execute(text('ALTER TABLE account ADD COLUMN growth_goal_date DATETIME'))
+            if 'share_token' not in account_cols:
+                conn.execute(text('ALTER TABLE account ADD COLUMN share_token VARCHAR(64)'))
+            # ContentItem: caption_score
+            ci_cols = [c['name'] for c in inspector.get_columns('content_item')]
+            if 'caption_score_manual' not in ci_cols:
+                conn.execute(text('ALTER TABLE content_item ADD COLUMN caption_score_manual FLOAT'))
+            conn.commit()
         seed_data()
 
 init_db()
@@ -538,11 +567,22 @@ def dashboard():
 
     recent_activity = ActivityLog.query.order_by(ActivityLog.created_at.desc()).limit(15).all()
 
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    posts_today = ScheduledPost.query.filter(
+        ScheduledPost.scheduled_at >= today_start,
+        ScheduledPost.scheduled_at < today_end,
+        ScheduledPost.status.in_(['scheduled', 'published'])
+    ).order_by(ScheduledPost.scheduled_at).all()
+
+    all_accounts_list = Account.query.order_by(Account.follower_count.desc()).all()
+
     return render_template('dashboard.html',
         stats=stats, accounts=accounts, recent_content=recent_content, alerts=alerts,
         chart_labels=json.dumps(chart_labels), chart_data=json.dumps(chart_data),
         forecast=json.dumps(forecast), stock_summary=stock_summary,
-        recent_activity=recent_activity,
+        recent_activity=recent_activity, posts_today=posts_today,
+        all_accounts=all_accounts_list,
         active_page='dashboard')
 
 
@@ -579,15 +619,19 @@ def accounts():
     else:
         query = query.order_by(Account.follower_count.desc())
 
-    all_accounts = query.all()
+    page = request.args.get('page', 1, type=int)
+    per_page = 50
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     categories = Category.query.order_by(Category.name).all()
     platforms = Platform.query.all()
 
+    _f = {'q': q, 'category': category_id, 'platform': platform_id,
+          'status': status, 'automation': automation, 'priority': priority, 'sort': sort}
     return render_template('accounts.html',
-        accounts=all_accounts, categories=categories, platforms=platforms,
+        accounts=pagination.items, pagination=pagination,
+        categories=categories, platforms=platforms,
         active_page='accounts',
-        filters={'q': q, 'category': category_id, 'platform': platform_id,
-                 'status': status, 'automation': automation, 'priority': priority, 'sort': sort})
+        filters={k: v for k, v in _f.items() if v})
 
 
 @app.route('/accounts/new', methods=['GET', 'POST'])
@@ -779,7 +823,9 @@ def content_hub():
     if content_type:
         query = query.filter_by(content_type=content_type)
 
-    items = query.order_by(ContentItem.created_at.desc()).all()
+    page = request.args.get('page', 1, type=int)
+    per_page = 40
+    pagination = query.order_by(ContentItem.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     categories = Category.query.order_by(Category.name).all()
     labels = Label.query.order_by(Label.name).all()
 
@@ -787,10 +833,12 @@ def content_hub():
     for s in ['draft', 'in_progress', 'ready', 'scheduled', 'published', 'archived', 'error']:
         status_counts[s] = ContentItem.query.filter_by(status=s).count()
 
+    _f = {'q': q, 'status': status, 'category': category_id, 'type': content_type}
     return render_template('content.html',
-        items=items, categories=categories, labels=labels, status_counts=status_counts,
+        items=pagination.items, pagination=pagination,
+        categories=categories, labels=labels, status_counts=status_counts,
         active_page='content',
-        filters={'q': q, 'status': status, 'category': category_id, 'type': content_type})
+        filters={k: v for k, v in _f.items() if v})
 
 
 @app.route('/content/new', methods=['GET', 'POST'])
@@ -973,7 +1021,9 @@ def media_library():
     if category_id:
         query = query.filter_by(category_id=category_id)
 
-    items = query.order_by(MediaItem.created_at.desc()).all()
+    page = request.args.get('page', 1, type=int)
+    per_page = 60
+    pagination = query.order_by(MediaItem.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     categories = Category.query.order_by(Category.name).all()
 
     type_counts = {
@@ -984,7 +1034,8 @@ def media_library():
 
     all_accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
     return render_template('media.html',
-        items=items, categories=categories, type_counts=type_counts,
+        items=pagination.items, pagination=pagination,
+        categories=categories, type_counts=type_counts,
         accounts=all_accounts,
         filters={'q': q, 'type': file_type, 'category': category_id},
         active_page='media')
@@ -1217,8 +1268,12 @@ def automation_toggle(rule_id):
 @app.route('/automation/<int:rule_id>/run', methods=['POST'])
 def automation_run(rule_id):
     """Trigger manual run of an automation rule."""
+    rule = AutomationRule.query.get_or_404(rule_id)
+    log = AutomationRunLog(rule_id=rule_id)
+    db.session.add(log)
+    db.session.commit()
     threading.Thread(target=run_automation_rule, args=(rule_id,), daemon=True).start()
-    return jsonify({'ok': True, 'message': 'Gestartet'})
+    return jsonify({'ok': True, 'message': 'Gestartet', 'created': 0})
 
 
 # ─────────────────────── AI CONFIG ───────────────────────
@@ -1335,10 +1390,12 @@ def label_new():
 
 @app.route('/api/accounts')
 def api_accounts():
-    accounts = Account.query.all()
+    accounts = Account.query.filter_by(status='active').order_by(Account.follower_count.desc()).all()
     return jsonify([{
         'id': a.id, 'name': a.name, 'handle': a.handle,
         'followers': a.follower_count, 'status': a.status,
+        'category': a.category.name if a.category else '',
+        'platform': a.platform.name if a.platform else '',
         'stock_status': a.stock_status(), 'stock_days': a.stock_days_display(),
     } for a in accounts])
 
@@ -1679,6 +1736,514 @@ def global_search():
         'media':    [{'id': m.id, 'name': m.original_filename, 'type': m.file_type,
                       'url': url_for('media_library')} for m in media],
     })
+
+
+# ─────────────────────── GROWTH GOAL ───────────────────────
+
+@app.route('/api/accounts/<int:account_id>/growth-goal', methods=['POST'])
+def account_growth_goal_save(account_id):
+    acc = Account.query.get_or_404(account_id)
+    d = request.get_json()
+    try:
+        acc.growth_goal = int(d.get('growth_goal')) if d.get('growth_goal') else None
+        date_str = d.get('growth_goal_date', '')
+        acc.growth_goal_date = datetime.strptime(date_str, '%Y-%m-%d') if date_str else None
+        db.session.commit()
+        return jsonify({'ok': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+
+# ─────────────────────── ACCOUNT NOTES ───────────────────────
+
+@app.route('/api/accounts/<int:account_id>/notes', methods=['POST'])
+@login_required
+def account_notes_save(account_id):
+    acc = Account.query.get_or_404(account_id)
+    acc.notes = request.get_json().get('notes', '')
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────── CSV IMPORT ───────────────────────
+
+@app.route('/accounts/import-csv', methods=['POST'])
+@login_required
+def accounts_import_csv():
+    f = request.files.get('csv_file')
+    if not f:
+        flash('Keine Datei ausgewählt.', 'error')
+        return redirect(url_for('accounts'))
+
+    content = f.read().decode('utf-8-sig', errors='replace')
+    reader = csv.DictReader(io.StringIO(content))
+
+    platforms_map = {p.name.lower(): p for p in Platform.query.all()}
+    categories_map = {c.name.lower(): c for c in Category.query.all()}
+
+    created = skipped = errors = 0
+    error_rows = []
+
+    for i, row in enumerate(reader, 1):
+        name = (row.get('name') or row.get('Name') or '').strip()
+        if not name:
+            skipped += 1
+            continue
+
+        platform_name = (row.get('platform') or row.get('Plattform') or 'Instagram').strip().lower()
+        platform = platforms_map.get(platform_name)
+        if not platform:
+            # try partial match
+            for k, v in platforms_map.items():
+                if platform_name in k or k in platform_name:
+                    platform = v
+                    break
+        if not platform:
+            error_rows.append(f'Zeile {i}: Plattform "{platform_name}" unbekannt')
+            errors += 1
+            continue
+
+        category_name = (row.get('category') or row.get('Kategorie') or '').strip().lower()
+        category = categories_map.get(category_name) if category_name else None
+
+        try:
+            followers = int((row.get('follower_count') or row.get('Follower') or '0').replace('.', '').replace(',', '').strip())
+        except ValueError:
+            followers = 0
+
+        handle = (row.get('handle') or row.get('Handle') or '').strip()
+        status = (row.get('status') or row.get('Status') or 'active').strip().lower()
+        if status not in ('active', 'paused', 'inactive', 'error'):
+            status = 'active'
+
+        acc = Account(
+            name=name,
+            handle=handle,
+            platform_id=platform.id,
+            category_id=category.id if category else None,
+            follower_count=followers,
+            status=status,
+        )
+        db.session.add(acc)
+        created += 1
+
+    try:
+        db.session.commit()
+        msg = f'{created} Accounts importiert'
+        if skipped:
+            msg += f', {skipped} übersprungen'
+        if errors:
+            msg += f', {errors} Fehler'
+        flash(msg, 'success' if not errors else 'info')
+        if error_rows:
+            flash(' · '.join(error_rows[:5]), 'error')
+        log_activity('accounts_imported', f'{created} Accounts per CSV importiert')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Import-Fehler: {e}', 'error')
+
+    return redirect(url_for('accounts'))
+
+
+# ─────────────────────── QUICK POST ───────────────────────
+
+@app.route('/api/posts/quick', methods=['POST'])
+@login_required
+def quick_post_create():
+    d = request.get_json()
+    account_id = d.get('account_id')
+    caption = (d.get('caption') or '').strip()
+    scheduled_at_str = d.get('scheduled_at')
+    post_type = d.get('post_type', 'feed')
+
+    if not account_id or not caption or not scheduled_at_str:
+        return jsonify({'ok': False, 'error': 'Fehlende Felder'}), 400
+
+    acc = Account.query.get(account_id)
+    if not acc:
+        return jsonify({'ok': False, 'error': 'Account nicht gefunden'}), 404
+
+    try:
+        scheduled_at = datetime.strptime(scheduled_at_str, '%Y-%m-%dT%H:%M')
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'Ungültiges Datum'}), 400
+
+    # Create a minimal ContentItem so the post has a reference
+    content = ContentItem(
+        title=caption[:120] + ('…' if len(caption) > 120 else ''),
+        caption=caption,
+        status='scheduled',
+        content_type=post_type,
+    )
+    db.session.add(content)
+    db.session.flush()
+
+    post = ScheduledPost(
+        account_id=account_id,
+        content_item_id=content.id,
+        caption=caption,
+        post_type=post_type,
+        status='scheduled',
+        scheduled_at=scheduled_at,
+    )
+    db.session.add(post)
+    acc.last_post_at = scheduled_at
+
+    db.session.commit()
+    log_activity('post_scheduled', f'Schnell-Post für {acc.name} am {scheduled_at.strftime("%d.%m %H:%M")} geplant')
+    return jsonify({'ok': True, 'post_id': post.id})
+
+
+# ─────────────────────── CONTENT DUPLICATE ───────────────────────
+
+@app.route('/content/<int:item_id>/duplicate', methods=['POST'])
+@login_required
+def content_duplicate(item_id):
+    orig = ContentItem.query.get_or_404(item_id)
+    copy = ContentItem(
+        title='[Kopie] ' + orig.title,
+        raw_text=orig.raw_text,
+        caption=orig.caption,
+        source_url=orig.source_url,
+        source_name=orig.source_name,
+        category_id=orig.category_id,
+        status='draft',
+        content_type=orig.content_type,
+        ai_headline=orig.ai_headline,
+        ai_caption=orig.ai_caption,
+    )
+    for acc in orig.accounts:
+        copy.accounts.append(acc)
+    for lbl in orig.labels:
+        copy.labels.append(lbl)
+
+    db.session.add(copy)
+    db.session.commit()
+    log_activity('content_created', f'Content "{copy.title}" dupliziert von #{orig.id}')
+    flash(f'"{orig.title}" wurde dupliziert.', 'success')
+    return redirect(url_for('content_edit', item_id=copy.id))
+
+
+# ─────────────────────── ACCOUNT GROUPS ───────────────────────
+
+@app.route('/groups')
+def account_groups():
+    groups = AccountGroup.query.order_by(AccountGroup.name).all()
+    all_accounts = Account.query.order_by(Account.name).all()
+    return render_template('groups.html', groups=groups, all_accounts=all_accounts, active_page='accounts')
+
+@app.route('/groups/new', methods=['POST'])
+def group_new():
+    d = request.form
+    g = AccountGroup(name=d['name'], color=d.get('color','#3b82f6'), description=d.get('description',''))
+    db.session.add(g)
+    db.session.commit()
+    account_ids = request.form.getlist('account_ids')
+    for aid in account_ids:
+        acc = Account.query.get(int(aid))
+        if acc: g.accounts.append(acc)
+    db.session.commit()
+    flash(f'Gruppe "{g.name}" erstellt.', 'success')
+    return redirect(url_for('account_groups'))
+
+@app.route('/groups/<int:group_id>/delete', methods=['POST'])
+def group_delete(group_id):
+    g = AccountGroup.query.get_or_404(group_id)
+    db.session.delete(g)
+    db.session.commit()
+    flash('Gruppe gelöscht.', 'success')
+    return redirect(url_for('account_groups'))
+
+@app.route('/api/groups/<int:group_id>/members', methods=['POST'])
+def group_update_members(group_id):
+    g = AccountGroup.query.get_or_404(group_id)
+    ids = request.get_json().get('account_ids', [])
+    g.accounts = Account.query.filter(Account.id.in_(ids)).all()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────── CONTENT TEMPLATES ───────────────────────
+
+@app.route('/templates')
+def content_templates():
+    templates = ContentTemplate.query.order_by(ContentTemplate.use_count.desc()).all()
+    categories = Category.query.order_by(Category.name).all()
+    return render_template('content_templates.html', templates=templates,
+                           categories=categories, active_page='content')
+
+@app.route('/templates/new', methods=['POST'])
+def template_new():
+    d = request.form
+    t = ContentTemplate(
+        name=d['name'],
+        category_id=int(d['category_id']) if d.get('category_id') else None,
+        content_type=d.get('content_type','feed'),
+        caption_template=d.get('caption_template',''),
+        hashtags=d.get('hashtags',''),
+        notes=d.get('notes',''),
+    )
+    db.session.add(t)
+    db.session.commit()
+    flash(f'Template "{t.name}" gespeichert.', 'success')
+    return redirect(url_for('content_templates'))
+
+@app.route('/templates/<int:tmpl_id>/apply')
+def template_apply(tmpl_id):
+    t = ContentTemplate.query.get_or_404(tmpl_id)
+    t.use_count += 1
+    db.session.commit()
+    # Redirect to new content form with prefilled values
+    return redirect(url_for('content_new',
+        tmpl_caption=t.caption_template, tmpl_hashtags=t.hashtags,
+        tmpl_type=t.content_type, tmpl_cat=t.category_id or ''))
+
+@app.route('/templates/<int:tmpl_id>/delete', methods=['POST'])
+def template_delete(tmpl_id):
+    t = ContentTemplate.query.get_or_404(tmpl_id)
+    db.session.delete(t)
+    db.session.commit()
+    flash('Template gelöscht.', 'success')
+    return redirect(url_for('content_templates'))
+
+@app.route('/api/content/<int:item_id>/save-as-template', methods=['POST'])
+def content_save_as_template(item_id):
+    item = ContentItem.query.get_or_404(item_id)
+    d = request.get_json()
+    name = d.get('name') or item.title[:60]
+    t = ContentTemplate(
+        name=name,
+        category_id=item.category_id,
+        content_type=item.content_type,
+        caption_template=item.caption or '',
+        notes=f'Erstellt aus Content #{item.id}',
+    )
+    db.session.add(t)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': t.id, 'name': t.name})
+
+
+# ─────────────────────── CONTENT COMMENTS ───────────────────────
+
+@app.route('/content/<int:item_id>/comments', methods=['POST'])
+def comment_add(item_id):
+    ContentItem.query.get_or_404(item_id)
+    text = (request.get_json() or {}).get('text', '').strip()
+    if not text:
+        return jsonify({'ok': False, 'error': 'Leer'}), 400
+    c = ContentComment(content_item_id=item_id, user_id=session.get('user_id'), text=text)
+    db.session.add(c)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': c.id,
+                    'text': c.text,
+                    'user': c.user.username if c.user else 'System',
+                    'created_at': c.created_at.strftime('%d.%m %H:%M')})
+
+@app.route('/content/<int:item_id>/comments/<int:comment_id>/delete', methods=['POST'])
+def comment_delete(item_id, comment_id):
+    c = ContentComment.query.get_or_404(comment_id)
+    db.session.delete(c)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────── CAPTION SCORING ───────────────────────
+
+def score_caption(caption: str) -> float:
+    """Heuristischer Caption-Score 0–10."""
+    if not caption:
+        return 0.0
+    score = 0.0
+    length = len(caption)
+
+    # Länge (ideal 150–1500)
+    if 150 <= length <= 1500: score += 2.5
+    elif 80 <= length < 150 or 1500 < length <= 2200: score += 1.5
+    elif length > 50: score += 0.5
+
+    # Hashtags (ideal 8–20)
+    import re
+    tags = len(re.findall(r'#\w+', caption))
+    if 8 <= tags <= 20: score += 2.0
+    elif 3 <= tags < 8 or 20 < tags <= 30: score += 1.0
+    elif tags > 0: score += 0.5
+
+    # Emojis
+    emojis = len([c for c in caption if ord(c) > 0x2600])
+    if emojis >= 3: score += 1.5
+    elif emojis >= 1: score += 0.75
+
+    # Zeilenumbrüche / Struktur
+    lines = caption.count('\n')
+    if lines >= 3: score += 1.0
+    elif lines >= 1: score += 0.5
+
+    # CTA-Wörter
+    cta_words = ['link in bio', 'kommentier', 'folg', 'teile', 'spar', 'schreib',
+                 'klick', 'jetzt', 'sichern', 'meld', 'bewirb']
+    lower = caption.lower()
+    if any(w in lower for w in cta_words): score += 1.5
+    elif any(w in lower for w in ['mehr', 'infos', 'hier', 'heute']): score += 0.75
+
+    # Frage
+    if '?' in caption: score += 0.5
+
+    return min(round(score, 1), 10.0)
+
+@app.route('/api/content/<int:item_id>/score')
+def content_score(item_id):
+    item = ContentItem.query.get_or_404(item_id)
+    s = score_caption(item.caption or '')
+    return jsonify({'score': s})
+
+@app.route('/api/caption-score', methods=['POST'])
+def caption_score_live():
+    caption = (request.get_json() or {}).get('caption', '')
+    return jsonify({'score': score_caption(caption)})
+
+
+# ─────────────────────── BEICHTEN-FORMULAR ───────────────────────
+
+PUBLIC_ENDPOINTS.add('submit_form')
+PUBLIC_ENDPOINTS.add('submit_beichte')
+
+@app.route('/submit')
+@app.route('/submit/<handle>')
+def submit_form(handle=None):
+    account = None
+    if handle:
+        account = Account.query.filter(
+            Account.handle.ilike(f'%{handle}%') | Account.name.ilike(f'%{handle}%')
+        ).first()
+    accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
+    return render_template('submit.html', account=account, accounts=accounts)
+
+@app.route('/api/submit', methods=['POST'])
+def submit_beichte():
+    d = request.get_json() or {}
+    text = d.get('text', '').strip()
+    account_id = d.get('account_id')
+    contact = d.get('contact', '').strip()
+
+    if not text or len(text) < 20:
+        return jsonify({'ok': False, 'error': 'Text zu kurz (min. 20 Zeichen)'}), 400
+
+    # Finde Beichten-Kategorie
+    cat = Category.query.filter(Category.name.ilike('%beicht%')).first()
+    account = Account.query.get(account_id) if account_id else None
+
+    item = ContentItem(
+        title=text[:80] + ('…' if len(text) > 80 else ''),
+        raw_text=text,
+        caption=text,
+        source_name=f'Beichten-Formular{" · " + contact if contact else ""}',
+        category_id=cat.id if cat else None,
+        status='draft',
+        content_type='feed',
+    )
+    if account:
+        item.accounts.append(account)
+    db.session.add(item)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────── KUNDEN-LINK ───────────────────────
+
+PUBLIC_ENDPOINTS.add('share_view')
+
+@app.route('/share/<token>')
+def share_view(token):
+    acc = Account.query.filter_by(share_token=token).first_or_404()
+    snapshots = AnalyticsSnapshot.query.filter_by(account_id=acc.id)\
+        .order_by(AnalyticsSnapshot.recorded_at.desc()).limit(30).all()
+    posts = ScheduledPost.query.filter_by(account_id=acc.id)\
+        .order_by(ScheduledPost.scheduled_at.desc()).limit(10).all()
+    return render_template('share.html', account=acc, snapshots=snapshots, posts=posts)
+
+@app.route('/api/accounts/<int:account_id>/share-token', methods=['POST'])
+def generate_share_token(account_id):
+    acc = Account.query.get_or_404(account_id)
+    if not acc.share_token:
+        acc.share_token = secrets.token_urlsafe(32)
+        db.session.commit()
+    return jsonify({'ok': True, 'token': acc.share_token,
+                    'url': f'/share/{acc.share_token}'})
+
+@app.route('/api/accounts/<int:account_id>/share-token/revoke', methods=['POST'])
+def revoke_share_token(account_id):
+    acc = Account.query.get_or_404(account_id)
+    acc.share_token = None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────── BESTE POSTING-ZEIT ───────────────────────
+
+@app.route('/api/accounts/<int:account_id>/best-times')
+def account_best_times(account_id):
+    Account.query.get_or_404(account_id)
+    posts = ScheduledPost.query.filter_by(account_id=account_id, status='published').all()
+    if not posts:
+        # Fallback: alle geplanten Posts analysieren
+        posts = ScheduledPost.query.filter_by(account_id=account_id).all()
+
+    hour_counts = [0] * 24
+    for p in posts:
+        if p.scheduled_at:
+            hour_counts[p.scheduled_at.hour] += 1
+
+    total = sum(hour_counts)
+    if not total:
+        return jsonify({'hours': [], 'recommendation': 'Noch keine Daten'})
+
+    # Top 3 Stunden
+    top = sorted(range(24), key=lambda h: hour_counts[h], reverse=True)[:3]
+    top.sort()
+    rec = ', '.join(f'{h:02d}:00 Uhr' for h in top if hour_counts[h] > 0)
+
+    return jsonify({
+        'hours': [{'hour': h, 'count': hour_counts[h], 'pct': round(hour_counts[h]/total*100)} for h in range(24)],
+        'top_hours': top,
+        'recommendation': rec or 'Noch keine Daten',
+        'total_posts': total,
+    })
+
+
+# ─────────────────────── VERGLEICHS-ANALYTICS ───────────────────────
+
+@app.route('/api/analytics/compare')
+def analytics_compare():
+    id1 = request.args.get('a', type=int)
+    id2 = request.args.get('b', type=int)
+    days = request.args.get('days', 30, type=int)
+
+    result = {}
+    for label, acc_id in [('a', id1), ('b', id2)]:
+        if not acc_id:
+            result[label] = None
+            continue
+        acc = Account.query.get(acc_id)
+        if not acc:
+            result[label] = None
+            continue
+        data, labels = [], []
+        for i in range(days - 1, -1, -1):
+            day = datetime.utcnow() - timedelta(days=i)
+            snap = AnalyticsSnapshot.query.filter_by(account_id=acc_id)\
+                .filter(func.date(AnalyticsSnapshot.recorded_at) == day.date())\
+                .order_by(AnalyticsSnapshot.recorded_at.desc()).first()
+            labels.append(day.strftime('%d.%m'))
+            data.append(snap.followers if snap else None)
+        result[label] = {
+            'id': acc.id, 'name': acc.name,
+            'followers': acc.follower_count,
+            'labels': labels, 'data': data,
+            'stock': acc.stock_days_display(),
+            'category': acc.category.name if acc.category else '—',
+        }
+    return jsonify(result)
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────

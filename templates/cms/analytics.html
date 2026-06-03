@@ -212,5 +212,74 @@ new Chart(document.getElementById('catChart').getContext('2d'), {
 
 loadGrowth(30, document.querySelectorAll('#periodBtns button')[1]);
 loadDelta();
+
+// ── Vergleichs-Modus ──
+let compareChart;
+async function loadCompare() {
+  const a = document.getElementById('cmpA').value;
+  const b = document.getElementById('cmpB').value;
+  if (!a || !b || a===b) { showToast('Bitte 2 verschiedene Accounts wählen.','warning'); return; }
+  const d = await (await fetch(`/api/analytics/compare?a=${a}&b=${b}&days=30`)).json();
+  const ctx = document.getElementById('compareChart').getContext('2d');
+  if (compareChart) compareChart.destroy();
+  compareChart = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels: d.a?.labels || d.b?.labels || [],
+      datasets:[
+        {label:d.a?.name||'A', data:d.a?.data, borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,.1)', borderWidth:2, tension:.4, fill:true, pointRadius:0, spanGaps:true},
+        {label:d.b?.name||'B', data:d.b?.data, borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,.1)', borderWidth:2, tension:.4, fill:true, pointRadius:0, spanGaps:true},
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'top',labels:{color:'var(--muted)',font:{family:'DM Sans',size:12}}},
+        tooltip:{backgroundColor:'var(--surface)',borderColor:'var(--border)',borderWidth:1,bodyColor:'var(--text)'}},
+      scales:{x:{grid:{display:false},ticks:{maxTicksLimit:8}},y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v}}}}
+  });
+  // Stats
+  const statsDiv = document.getElementById('compareStats');
+  statsDiv.innerHTML = [d.a,d.b].filter(Boolean).map(acc=>`
+    <div style="flex:1;background:var(--surface2);border-radius:10px;padding:14px 16px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">${acc.name}</div>
+      <div style="font-family:var(--font-display);font-size:28px;color:var(--accent2)">${acc.followers>=1000?(acc.followers/1000).toFixed(0)+'K':acc.followers}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">${acc.category} · ${acc.stock}T Vorrat</div>
+    </div>`).join('');
+}
 </script>
+
+<!-- Vergleichs-Panel -->
+<div class="card" style="margin-top:20px">
+  <div class="card-header">
+    <span class="card-title">ACCOUNT-VERGLEICH</span>
+  </div>
+  <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end">
+      <div>
+        <label class="form-label">Account A</label>
+        <select id="cmpA" class="select-field">
+          <option value="">Auswählen…</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Account B</label>
+        <select id="cmpB" class="select-field">
+          <option value="">Auswählen…</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button onclick="loadCompare()" class="btn btn-primary">
+        <i class="fa-solid fa-chart-line"></i> Vergleichen
+      </button>
+    </div>
+    <div id="compareStats" style="display:flex;gap:12px"></div>
+    <div style="height:220px;position:relative">
+      <canvas id="compareChart"></canvas>
+    </div>
+  </div>
+</div>
 {% endblock %}
