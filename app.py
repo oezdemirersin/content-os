@@ -736,35 +736,29 @@ def post_delete(post_id):
 
 @app.route('/api/posts')
 def api_posts():
-      """Return scheduled posts as JSON for queue view."""
-      account_id = request.args.get('account_id', type=int)
-      status = request.args.get('status', '')
-      limit = request.args.get('limit', 50, type=int)
-
+    """Return scheduled posts as JSON for queue view."""
+    account_id = request.args.get('account_id', type=int)
+    status = request.args.get('status', '')
+    limit = request.args.get('limit', 50, type=int)
     query = ScheduledPost.query
     if account_id:
-              query = query.filter_by(account_id=account_id)
-          if status:
-                    query = query.filter_by(status=status)
-
+        query = query.filter_by(account_id=account_id)
+    if status:
+        query = query.filter_by(status=status)
     posts = query.order_by(ScheduledPost.scheduled_at.asc()).limit(limit).all()
-
     result = []
     for p in posts:
-              acc = Account.query.get(p.account_id)
-              result.append({
-                            'id': p.id,
-                            'account_id': p.account_id,
-                            'account_name': acc.name if acc else '',
-                            'caption': (p.caption or '')[:200],
-                            'post_type': p.post_type,
-                            'status': p.status,
-                            'scheduled_at': p.scheduled_at.isoformat() if p.scheduled_at else None,
-                            'created_at': p.created_at.isoformat() if p.created_at else None,
-              })
-          return jsonify(result)
-
-
+        acc = Account.query.get(p.account_id)
+        result.append({
+            'id': p.id,
+            'account_id': p.account_id,
+            'account_name': acc.name if acc else '',
+            'caption': (p.caption or '')[:200],
+            'post_type': p.post_type,
+            'status': p.status,
+            'scheduled_at': p.scheduled_at.isoformat() if p.scheduled_at else None,
+        })
+    return jsonify(result)
 
 # ─────────────────────── CONTENT HUB ───────────────────────
 
