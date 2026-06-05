@@ -395,6 +395,9 @@ function switchTab(tab) {
   }
 }
 
+// Emoji-Map außerhalb der Template-Strings definieren (Jinja2-Konflikt vermeiden)
+const TYPE_EMOJI = {feed:'📸', reel:'🎬', story:'⭕', carousel:'🎠'};
+
 // ── Content-Picker laden ──
 async function loadContentPicker() {
   const q      = document.getElementById('contentPickerSearch').value;
@@ -441,7 +444,7 @@ async function loadContentPicker() {
         <div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap">
           ${c.category ? `<span style="font-size:10px;font-weight:700;color:${c.category_color}">${c.category}</span>` : ''}
           <span style="font-size:10px;color:${statusColors[c.status]||'var(--muted)'}">${statusLabels[c.status]||c.status}</span>
-          <span style="font-size:10px;color:var(--muted)">${{feed:'📸',reel:'🎬',story:'⭕',carousel:'🎠'}[c.content_type]||'📌'} ${c.content_type}</span>
+          <span style="font-size:10px;color:var(--muted)">${TYPE_EMOJI[c.content_type]||'📌'} ${c.content_type}</span>
           ${c.media_count > 1 ? `<span style="font-size:10px;color:var(--muted)">${c.media_count} Bilder</span>` : ''}
         </div>
         ${c.caption ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.caption}</div>` : ''}
