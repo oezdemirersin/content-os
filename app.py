@@ -1594,6 +1594,12 @@ def label_new():
 
 # ─────────────────────── API ───────────────────────
 
+@app.route('/api/categories')
+def api_categories():
+    cats = Category.query.order_by(Category.name).all()
+    return jsonify([{'id': c.id, 'name': c.name, 'color': c.color, 'icon': c.icon} for c in cats])
+
+
 @app.route('/api/accounts')
 def api_accounts():
     accounts = Account.query.filter_by(status='active').order_by(Account.follower_count.desc()).all()

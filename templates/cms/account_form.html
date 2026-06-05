@@ -37,14 +37,43 @@
             {% endfor %}
           </select>
         </div>
-        <div>
-          <label class="form-label">Kategorie</label>
-          <select name="category_id" class="select-field">
+        <div x-data="{newCat:false}">
+          <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+            <span>Kategorie</span>
+            <button type="button" @click="newCat=!newCat"
+                    style="background:none;border:none;cursor:pointer;font-size:11px;font-weight:700;
+                           color:var(--accent2);font-family:var(--font-body);padding:0;display:flex;align-items:center;gap:4px">
+              <i class="fa-solid fa-plus" style="font-size:9px"></i>
+              <span x-text="newCat ? 'Abbrechen' : 'Neue Kategorie'"></span>
+            </button>
+          </label>
+
+          <!-- Bestehende Kategorie wählen -->
+          <select name="category_id" id="catSelect" class="select-field" x-show="!newCat">
             <option value="">Keine</option>
             {% for cat in categories %}
             <option value="{{ cat.id }}" {% if account and account.category_id==cat.id %}selected{% endif %}>{{ cat.name }}</option>
             {% endfor %}
           </select>
+
+          <!-- Neue Kategorie inline erstellen -->
+          <div x-show="newCat" x-transition style="display:flex;flex-direction:column;gap:8px;
+               padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-top:4px">
+            <div style="font-size:11px;color:var(--muted)">Kategorie wird gespeichert und direkt ausgewählt</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="newCatName" placeholder="Name *" class="input-field" style="flex:1;font-size:13px">
+              <input type="text" id="newCatIcon" placeholder="icon" class="input-field" style="width:70px;font-size:13px"
+                     oninput="document.getElementById('newCatIconPrev2').className='fa-solid fa-'+this.value">
+              <i id="newCatIconPrev2" class="fa-solid fa-tag" style="font-size:14px;color:var(--muted);flex-shrink:0"></i>
+              <input type="color" id="newCatColor" value="#3b82f6"
+                     style="width:34px;height:34px;border-radius:6px;border:1px solid var(--border);
+                            background:transparent;cursor:pointer;padding:2px;flex-shrink:0">
+              <button type="button" onclick="createCategoryInline()"
+                      class="btn btn-primary" style="padding:8px 12px;font-size:12px;flex-shrink:0">
+                <i class="fa-solid fa-check"></i>
+              </button>
+            </div>
+          </div>
         </div>
         <div>
           <label class="form-label">Follower</label>
@@ -151,6 +180,33 @@
 
 {% block scripts %}
 <script>
+async function createCategoryInline() {
+  const name  = document.getElementById('newCatName').value.trim();
+  const icon  = document.getElementById('newCatIcon').value.trim() || 'tag';
+  const color = document.getElementById('newCatColor').value;
+  if (!name) { showToast('Bitte einen Namen eingeben.', 'warning'); return; }
+
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('icon', icon);
+  fd.append('color', color);
+  const res = await fetch('/settings/category/new', {method:'POST', body: fd});
+
+  // Neue Kategorie in Select einfügen und auswählen
+  if (res.redirected || res.ok) {
+    // Kategorien neu laden und Select aktualisieren
+    const allRes = await fetch('/api/categories');
+    const cats = await allRes.json();
+    const sel = document.getElementById('catSelect');
+    sel.innerHTML = '<option value="">Keine</option>' +
+      cats.map(c => `<option value="${c.id}" ${c.name===name?'selected':''}>${c.name}</option>`).join('');
+    // Alpine: newCat = false
+    const comp = document.querySelector('[x-data*="newCat"]');
+    if (comp) Alpine.$data(comp).newCat = false;
+    showToast(`Kategorie "${name}" erstellt und ausgewählt! ✓`, 'success');
+  }
+}
+
 function updateFreqPreview(val) {
   const v = parseFloat(val);
   let text = '';
