@@ -83,24 +83,102 @@
      align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)"
      onclick="if(event.target===this)this.style.display='none'">
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
-              width:100%;max-width:480px;margin:16px;box-shadow:0 24px 64px rgba(0,0,0,.6)">
-    <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-      <div style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px" id="slotModalTitle">SLOT HINZUFÜGEN</div>
+              width:100%;max-width:520px;margin:16px;box-shadow:0 24px 64px rgba(0,0,0,.6);
+              max-height:92vh;overflow-y:auto">
+    <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1">
+      <div style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px" id="slotModalTitle">POST PLANEN</div>
       <button onclick="document.getElementById('slotModal').style.display='none'"
               style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">
         <i class="fa-solid fa-xmark"></i>
       </button>
     </div>
-    <div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+    <div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px">
 
-      <!-- Slot-Typ Auswahl -->
-      <div>
+      <!-- ① MEDIA — groß und oben, das ist das Wichtigste -->
+      <div id="mediaPickerWrap">
+        <!-- Auto-erkannter Post-Typ Badge -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <label class="form-label" style="margin:0">Bild / Carousel / Video</label>
+          <div id="autoTypeBadge" style="display:none;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:rgba(59,130,246,.15);color:var(--accent2)"></div>
+        </div>
+
+        <!-- Große Drop-Zone -->
+        <label id="mediaDropZone" for="quickUpload"
+               style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                      min-height:140px;border:2px dashed var(--border);border-radius:12px;
+                      background:var(--surface2);cursor:pointer;transition:all .2s;position:relative;
+                      gap:10px;text-align:center;padding:20px"
+               ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(59,130,246,.06)'"
+               ondragleave="this.style.borderColor='var(--border)';this.style.background='var(--surface2)'"
+               ondrop="handleMediaDrop(event)">
+          <div id="dropZoneEmpty">
+            <i class="fa-solid fa-cloud-arrow-up" style="font-size:36px;color:var(--muted);display:block;margin-bottom:8px"></i>
+            <div style="font-size:14px;font-weight:600;color:var(--text)">Bilder oder Video hierher ziehen</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px">oder klicken zum Auswählen</div>
+            <div style="display:flex;gap:8px;margin-top:12px;justify-content:center">
+              <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">📸 1 Bild = Feed</span>
+              <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">🎠 2+ Bilder = Carousel</span>
+              <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">🎬 Video = Reel</span>
+            </div>
+          </div>
+          <!-- Vorschau der gewählten Medien -->
+          <div id="dropZonePreviews" style="display:none;width:100%;flex-wrap:wrap;gap:8px;justify-content:center"></div>
+          <input type="file" id="quickUpload" accept="image/*,video/*" multiple style="display:none"
+                 onchange="quickUploadMedia(this.files)">
+        </label>
+
+        <!-- Aus Medienbibliothek wählen -->
+        <button type="button" onclick="openMediaPicker()"
+                style="width:100%;margin-top:8px;padding:9px;border-radius:8px;border:1px solid var(--border);
+                       background:transparent;color:var(--muted);cursor:pointer;font-family:var(--font-body);
+                       font-size:12px;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .15s"
+                onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--text)'"
+                onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+          <i class="fa-solid fa-photo-film" style="color:var(--accent2)"></i>
+          Aus Medienbibliothek auswählen
+        </button>
+
+        <!-- Upload-Fortschritt -->
+        <div id="uploadProgress" style="display:none;margin-top:8px">
+          <div style="height:4px;background:var(--surface2);border-radius:4px;overflow:hidden">
+            <div id="uploadBar" style="height:100%;border-radius:4px;background:var(--accent);width:0;transition:width .3s"></div>
+          </div>
+          <div id="uploadStatus" style="font-size:11px;color:var(--muted);margin-top:4px;text-align:center"></div>
+        </div>
+      </div>
+
+      <!-- ② DATUM & UHRZEIT -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="form-label">Datum & Uhrzeit *</label>
+          <input type="datetime-local" id="slotDate" class="input-field">
+        </div>
+        <div id="postTypeWrap">
+          <label class="form-label">Post-Typ</label>
+          <select id="slotPostType" class="select-field" onchange="onPostTypeChange()">
+            <option value="feed">📸 Feed</option>
+            <option value="carousel">🎠 Carousel</option>
+            <option value="reel">🎬 Reel</option>
+            <option value="story">⭕ Story</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- ③ CAPTION -->
+      <div id="captionWrap">
+        <label class="form-label">Caption <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+        <textarea id="slotCaption" rows="3" class="input-field" style="resize:none"
+                  placeholder="Dein Text für diesen Post…"></textarea>
+      </div>
+
+      <!-- ④ SLOT-TYP — kompakt unten -->
+      <div style="border-top:1px solid var(--border);padding-top:14px">
         <label class="form-label">Slot-Typ</label>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
           {% for val,icon,label,color,desc in [
-            ('fixed','fa-thumbtack','Fixiert','#3b82f6','Bestimmter Post'),
+            ('fixed','fa-thumbtack','Fixiert','#3b82f6','Dieser Post'),
             ('flexible','fa-shuffle','Flexibel','#059669','Aus Vorrat'),
-            ('disabled','fa-ban','Deaktiviert','#6b7280','Manuell posten'),
+            ('disabled','fa-ban','Deaktiviert','#6b7280','Manuell'),
           ] %}
           <label style="cursor:pointer">
             <input type="radio" name="slotType" value="{{ val }}"
@@ -108,79 +186,14 @@
                    style="display:none" onchange="onSlotTypeChange('{{ val }}')">
             <div id="slotCard-{{ val }}"
                  style="border:2px solid {% if val == 'fixed' %}{{ color }}{% else %}var(--border){% endif %};
-                        border-radius:10px;padding:12px;text-align:center;transition:all .15s;
+                        border-radius:10px;padding:10px;text-align:center;transition:all .15s;
                         background:{% if val == 'fixed' %}{{ color }}15{% else %}transparent{% endif %}">
-              <i class="fa-solid {{ icon }}" style="font-size:20px;color:{{ color }};margin-bottom:6px;display:block"></i>
+              <i class="fa-solid {{ icon }}" style="font-size:16px;color:{{ color }};margin-bottom:4px;display:block"></i>
               <div style="font-size:12px;font-weight:700;color:var(--text)">{{ label }}</div>
-              <div style="font-size:10px;color:var(--muted);margin-top:2px">{{ desc }}</div>
+              <div style="font-size:10px;color:var(--muted);margin-top:1px">{{ desc }}</div>
             </div>
           </label>
           {% endfor %}
-        </div>
-      </div>
-
-      <!-- Datum & Zeit -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div>
-          <label class="form-label">Datum & Zeit *</label>
-          <input type="datetime-local" id="slotDate" class="input-field">
-        </div>
-        <div id="postTypeWrap">
-          <label class="form-label">Post-Typ</label>
-          <select id="slotPostType" class="select-field">
-            <option value="feed">📸 Feed</option>
-            <option value="reel">🎬 Reel</option>
-            <option value="story">⭕ Story</option>
-            <option value="carousel">🎠 Carousel</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Caption (nur bei fixed) -->
-      <div id="captionWrap">
-        <label class="form-label">Caption <span style="color:var(--muted);font-weight:400">(optional)</span></label>
-        <textarea id="slotCaption" rows="3" class="input-field" style="resize:none"
-                  placeholder="Spezifische Caption für diesen Post…"></textarea>
-      </div>
-
-      <!-- Media-Picker (nur bei fixed) -->
-      <div id="mediaPickerWrap">
-        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
-          <span>Bilder / Video <span style="color:var(--muted);font-weight:400">(optional)</span></span>
-          <button type="button" onclick="openMediaPicker()"
-                  style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-body);padding:0">
-            <i class="fa-solid fa-photo-film"></i> Medienbibliothek öffnen
-          </button>
-        </label>
-
-        <!-- Ausgewählte Medien Vorschau -->
-        <div id="selectedMedia" style="display:flex;flex-wrap:wrap;gap:8px;min-height:60px;
-             border:1px dashed var(--border);border-radius:10px;padding:10px;
-             background:var(--surface2);transition:border-color .2s"
-             ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
-             ondragleave="this.style.borderColor='var(--border)'"
-             ondrop="handleMediaDrop(event)">
-          <div id="mediaEmpty" style="width:100%;text-align:center;color:var(--muted);font-size:12px;padding:8px 0">
-            Noch keine Medien gewählt — klicke auf "Medienbibliothek öffnen"
-          </div>
-        </div>
-
-        <!-- Schnell-Upload -->
-        <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;
-                      background:var(--surface2);border:1px solid var(--border);cursor:pointer;margin-top:6px;
-                      font-size:12px;color:var(--muted);transition:border-color .2s"
-               onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-          <i class="fa-solid fa-upload" style="color:var(--accent2)"></i>
-          Direkt hochladen (Bild, Video, Reel)
-          <input type="file" id="quickUpload" accept="image/*,video/*" multiple style="display:none"
-                 onchange="quickUploadMedia(this.files)">
-        </label>
-
-        <div id="uploadProgress" style="display:none;margin-top:6px">
-          <div style="height:3px;background:var(--surface2);border-radius:3px">
-            <div id="uploadBar" style="height:100%;border-radius:3px;background:var(--accent);width:0;transition:width .3s"></div>
-          </div>
-          <div id="uploadStatus" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
         </div>
       </div>
 
@@ -192,7 +205,7 @@
           Tag wird als "Manuell" markiert
         </div>
         <div style="font-size:12px;color:var(--muted)">
-          An diesem Tag wird kein automatischer Post erstellt. Du postest selbst auf Instagram.
+          An diesem Tag postest du selbst — kein automatischer Post.
         </div>
         <div style="margin-top:10px">
           <label class="form-label">Notiz (optional)</label>
@@ -323,6 +336,7 @@ async function loadPickerMedia(type='', q='') {
   if (type) params.set('type', type);
   if (q) params.set('q', q);
   const items = await (await fetch('/api/media/picker?' + params)).json();
+  window._pickerCache = [...(window._pickerCache||[]), ...items].filter((m,i,a)=>a.findIndex(x=>x.id===m.id)===i);
 
   if (!items.length) {
     grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">
@@ -390,42 +404,54 @@ function confirmPickerSelection() {
 }
 
 function renderSelectedMedia() {
-  const wrap = document.getElementById('selectedMedia');
-  const empty = document.getElementById('mediaEmpty');
+  const zone    = document.getElementById('mediaDropZone');
+  const empty   = document.getElementById('dropZoneEmpty');
+  const preview = document.getElementById('dropZonePreviews');
+
   if (!_selectedMediaIds.length) {
-    wrap.innerHTML = '<div id="mediaEmpty" style="width:100%;text-align:center;color:var(--muted);font-size:12px;padding:8px 0">Noch keine Medien gewählt</div>';
+    empty.style.display   = 'block';
+    preview.style.display = 'none';
+    zone.style.minHeight  = '140px';
     return;
   }
-  // Vorschau-Thumbnails holen
-  Promise.all(_selectedMediaIds.map(id =>
-    fetch(`/api/media/picker?q=`).then(r=>r.json()).then(all => all.find(m=>m.id===id))
-  )).then(items => {
-    wrap.innerHTML = items.filter(Boolean).map((m,i) => `
-      <div style="position:relative;width:70px;height:70px;border-radius:8px;overflow:hidden;
-                  border:1px solid var(--border);flex-shrink:0">
-        ${m.url ? `<img src="${m.url}" style="width:100%;height:100%;object-fit:cover">` :
-          `<div style="width:100%;height:100%;background:var(--surface2);display:flex;align-items:center;justify-content:center">
-            <i class="fa-solid fa-video" style="color:var(--muted)"></i>
-          </div>`}
-        <div style="position:absolute;top:2px;left:2px;background:rgba(0,0,0,.7);border-radius:4px;
-                    padding:1px 5px;font-size:9px;color:white">${i+1}</div>
-        <button onclick="removeMedia(${m.id})"
-                style="position:absolute;top:2px;right:2px;background:rgba(239,68,68,.8);border:none;
-                       color:white;border-radius:50%;width:18px;height:18px;cursor:pointer;font-size:10px;
-                       display:flex;align-items:center;justify-content:center">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>`).join('') +
-      `<button onclick="openMediaPicker()"
-               style="width:70px;height:70px;border-radius:8px;border:1px dashed var(--border);
-                      background:none;cursor:pointer;color:var(--muted);display:flex;flex-direction:column;
-                      align-items:center;justify-content:center;gap:4px;font-size:10px;font-family:var(--font-body);
-                      transition:border-color .15s"
-               onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-        <i class="fa-solid fa-plus" style="font-size:16px"></i>
-        Hinzu
-      </button>`;
-  });
+
+  empty.style.display   = 'none';
+  preview.style.display = 'flex';
+  zone.style.minHeight  = 'auto';
+
+  // Aus Cache bauen
+  const cached = window._pickerCache || [];
+  const items  = _selectedMediaIds.map(id => cached.find(m => m.id === id)).filter(Boolean);
+
+  preview.innerHTML = items.map((m, i) => `
+    <div style="position:relative;width:90px;height:90px;border-radius:10px;overflow:hidden;
+                border:2px solid var(--border);flex-shrink:0;background:var(--surface2)">
+      ${m.url
+        ? `<img src="${m.url}" style="width:100%;height:100%;object-fit:cover">`
+        : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center">
+             <i class="fa-solid fa-video" style="font-size:28px;color:var(--muted)"></i>
+           </div>`}
+      ${items.length > 1
+        ? `<div style="position:absolute;top:4px;left:4px;background:rgba(0,0,0,.75);border-radius:6px;
+                       padding:2px 6px;font-size:10px;color:white;font-weight:700">${i+1}</div>` : ''}
+      <button type="button" onclick="removeMedia(${m.id})"
+              style="position:absolute;top:3px;right:3px;background:rgba(0,0,0,.7);border:none;
+                     color:white;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:11px;
+                     display:flex;align-items:center;justify-content:center">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>`).join('') +
+    `<button type="button" onclick="document.getElementById('quickUpload').click()"
+             style="width:90px;height:90px;border-radius:10px;border:2px dashed var(--border);
+                    background:none;cursor:pointer;color:var(--muted);display:flex;flex-direction:column;
+                    align-items:center;justify-content:center;gap:4px;transition:all .15s"
+             onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--text)'"
+             onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+       <i class="fa-solid fa-plus" style="font-size:20px"></i>
+       <span style="font-size:10px;font-family:var(--font-body)">Mehr</span>
+     </button>`;
+
+  autoDetectPostType();
 }
 
 function removeMedia(id) {
@@ -451,7 +477,13 @@ async function quickUploadMedia(files) {
     const res = await fetch('/media/upload', {method:'POST', body:fd});
     const d = await res.json();
     if (d.uploaded && d.uploaded[0]) {
-      _selectedMediaIds.push(d.uploaded[0].id);
+      const m = d.uploaded[0];
+      _selectedMediaIds.push(m.id);
+      // Cache befüllen für Auto-Detect
+      if (!window._pickerCache) window._pickerCache = [];
+      if (!window._pickerCache.find(x=>x.id===m.id)) {
+        window._pickerCache.push({id:m.id, url:m.url, file_type:m.file_type, name:m.filename});
+      }
     }
   }
   bar.style.width = '100%';
@@ -483,10 +515,36 @@ function onSlotTypeChange(val) {
   });
   const isFixed    = val === 'fixed';
   const isDisabled = val === 'disabled';
-  document.getElementById('captionWrap').style.display    = isFixed    ? 'block' : 'none';
+  document.getElementById('captionWrap').style.display     = isFixed    ? 'block' : 'none';
   document.getElementById('mediaPickerWrap').style.display = isFixed    ? 'block' : 'none';
-  document.getElementById('disabledNote').style.display   = isDisabled ? 'block' : 'none';
-  document.getElementById('postTypeWrap').style.display   = isDisabled ? 'none'  : 'block';
+  document.getElementById('disabledNote').style.display    = isDisabled ? 'block' : 'none';
+  document.getElementById('postTypeWrap').style.display    = isDisabled ? 'none'  : 'block';
+}
+
+function onPostTypeChange() {
+  // Wenn Nutzer Typ manuell ändert, Badge ausblenden
+  document.getElementById('autoTypeBadge').style.display = 'none';
+}
+
+// Auto-Erkennung: 1 Bild → feed, 2+ Bilder → carousel, Video → reel
+function autoDetectPostType() {
+  if (!_selectedMediaIds.length) return;
+  // Wir brauchen den file_type der gewählten Medien
+  // Nutze den Cache aus dem letzten Picker-Load
+  const cachedItems = window._pickerCache || [];
+  const selected = _selectedMediaIds.map(id => cachedItems.find(m=>m.id===id)).filter(Boolean);
+  if (!selected.length) return;
+
+  const hasVideo = selected.some(m => m.file_type === 'video');
+  let newType = 'feed';
+  if (hasVideo) newType = 'reel';
+  else if (selected.length > 1) newType = 'carousel';
+
+  document.getElementById('slotPostType').value = newType;
+  const icons = {feed:'📸 Feed erkannt',carousel:'🎠 Carousel erkannt',reel:'🎬 Reel erkannt'};
+  const badge = document.getElementById('autoTypeBadge');
+  badge.textContent = icons[newType];
+  badge.style.display = 'inline-flex';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -739,10 +797,11 @@ async function saveSlot() {
 function openSlotModal(date) {
   _editPostId = null;
   _selectedMediaIds = [];
-  document.getElementById('slotModalTitle').textContent = 'SLOT HINZUFÜGEN';
+  document.getElementById('slotModalTitle').textContent = 'POST PLANEN';
   if (date) document.getElementById('slotDate').value = date + 'T09:00';
   document.getElementById('slotCaption').value = '';
   document.getElementById('slotNote').value = '';
+  document.getElementById('autoTypeBadge').style.display = 'none';
   document.querySelector('input[name="slotType"][value="fixed"]').checked = true;
   onSlotTypeChange('fixed');
   renderSelectedMedia();
