@@ -13,7 +13,7 @@
     <a href="{{ url_for('ai_config_detail', account_id=account.id) }}" class="btn btn-ghost">
       <i class="fa-solid fa-microchip"></i> KI-Config
     </a>
-    <button onclick="document.getElementById('followerModal').classList.remove('hidden')" class="btn btn-ghost">
+    <button onclick="document.getElementById('followerModal').style.display='flex'" class="btn btn-ghost">
       <i class="fa-solid fa-arrow-up-right-dots"></i> Follower
     </button>
     <button onclick="getShareLink({{ account.id }})" class="btn btn-ghost" title="Kunden-Link">
@@ -343,13 +343,14 @@
 </div>
 
 <!-- Follower Modal -->
-<div id="followerModal" class="hidden" style="position:fixed;inset:0;z-index:200;
-     display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)">
+<div id="followerModal" style="display:none;position:fixed;inset:0;z-index:200;
+     align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeFollowerModal()">
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
               width:100%;max-width:380px;margin:20px;padding:28px;box-shadow:0 24px 64px rgba(0,0,0,.5)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <span style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">FOLLOWER AKTUALISIEREN</span>
-      <button onclick="document.getElementById('followerModal').classList.add('hidden')"
+      <button onclick="closeFollowerModal()"
               style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">&times;</button>
     </div>
     <label class="form-label">Neue Followerzahl</label>
@@ -362,7 +363,7 @@
       <button onclick="updateFollowers({{ account.id }})" class="btn btn-primary" style="flex:1">
         <i class="fa-solid fa-check"></i> Speichern & Snapshot
       </button>
-      <button onclick="document.getElementById('followerModal').classList.add('hidden')" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="closeFollowerModal()" class="btn btn-ghost">Abbrechen</button>
     </div>
   </div>
 </div>
@@ -409,6 +410,10 @@ async function loadBestTimes(accountId) {
 }
 
 document.addEventListener('DOMContentLoaded', () => loadBestTimes({{ account.id }}));
+
+function closeFollowerModal() {
+  document.getElementById('followerModal').style.display = 'none';
+}
 
 async function saveGoal(accountId) {
   const growth_goal = document.getElementById('goalFollowers').value;
@@ -464,6 +469,7 @@ async function updateFollowers(accountId) {
   const d = await res.json();
   if (d.ok) {
     document.getElementById('followerModal').classList.add('hidden');
+    closeFollowerModal();
     showToast('Follower aktualisiert.');
     setTimeout(() => location.reload(), 1200);
   }
