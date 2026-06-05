@@ -249,8 +249,15 @@ def init_db():
                 sp_cols = [c['name'] for c in inspector.get_columns('scheduled_post')]
                 if 'slot_type'  not in sp_cols: safe_alter("ALTER TABLE scheduled_post ADD COLUMN slot_type VARCHAR(20) DEFAULT 'fixed'")
                 if 'media_ids'  not in sp_cols: safe_alter("ALTER TABLE scheduled_post ADD COLUMN media_ids TEXT DEFAULT '[]'")
+                if 'profile_url'           not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN profile_url VARCHAR(500)')
+                if 'posting_interval_days' not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN posting_interval_days FLOAT DEFAULT 1.0')
             conn.commit()
         seed_data()
+
+        # Memes-Kategorie anlegen falls nicht vorhanden
+        if not Category.query.filter_by(name='Memes').first():
+            db.session.add(Category(name='Memes', color='#f59e0b', icon='face-laugh'))
+            db.session.commit()
 
 init_db()
 
@@ -595,12 +602,13 @@ def dashboard():
 
     all_accounts_list = Account.query.order_by(Account.follower_count.desc()).all()
 
+    categories = Category.query.order_by(Category.name).all()
     return render_template('dashboard.html',
         stats=stats, accounts=accounts, recent_content=recent_content, alerts=alerts,
         chart_labels=json.dumps(chart_labels), chart_data=json.dumps(chart_data),
         forecast=json.dumps(forecast), stock_summary=stock_summary,
         recent_activity=recent_activity, posts_today=posts_today,
-        all_accounts=all_accounts_list,
+        all_accounts=all_accounts_list, categories=categories,
         active_page='dashboard')
 
 
@@ -656,8 +664,10 @@ def accounts():
 def account_new():
     if request.method == 'POST':
         d = request.form
+        interval = float(d.get('posting_interval_days') or 1.0)
         acc = Account(
             name=d['name'], handle=d.get('handle', ''),
+            profile_url=d.get('profile_url', ''),
             platform_id=int(d['platform_id']),
             category_id=int(d['category_id']) if d.get('category_id') else None,
             follower_count=int(d.get('follower_count') or 0),
@@ -665,6 +675,10 @@ def account_new():
             priority=d.get('priority', 'medium'),
             status=d.get('status', 'active'),
             notes=d.get('notes', ''),
+            posting_interval_days=interval,
+            target_feed_per_day=round(1.0 / interval, 3) if interval > 0 else 1.0,
+            min_stock_days=int(d.get('min_stock_days') or 3),
+            optimal_stock_days=int(d.get('optimal_stock_days') or 14),
         )
         db.session.add(acc)
         db.session.flush()
@@ -720,8 +734,10 @@ def account_edit(account_id):
     account = Account.query.get_or_404(account_id)
     if request.method == 'POST':
         d = request.form
+        interval = float(d.get('posting_interval_days') or 1.0)
         account.name = d['name']
         account.handle = d.get('handle', '')
+        account.profile_url = d.get('profile_url', '')
         account.platform_id = int(d['platform_id'])
         account.category_id = int(d['category_id']) if d.get('category_id') else None
         account.follower_count = int(d.get('follower_count') or 0)
@@ -729,8 +745,8 @@ def account_edit(account_id):
         account.priority = d.get('priority', 'medium')
         account.status = d.get('status', 'active')
         account.notes = d.get('notes', '')
-        account.target_feed_per_day = float(d.get('target_feed_per_day') or 1)
-        account.target_story_per_day = float(d.get('target_story_per_day') or 2)
+        account.posting_interval_days = interval
+        account.target_feed_per_day = round(1.0 / interval, 3) if interval > 0 else 1.0
         account.min_stock_days = int(d.get('min_stock_days') or 3)
         account.optimal_stock_days = int(d.get('optimal_stock_days') or 14)
         db.session.commit()

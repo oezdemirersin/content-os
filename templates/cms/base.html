@@ -320,6 +320,17 @@
   </div>
 
   <nav class="nav">
+    <div class="nav-section">Accounts</div>
+    <a href="{{ url_for('accounts') }}" class="nav-item {% if active_page == 'accounts' %}active{% endif %}">
+      <i class="fa-solid fa-layer-group"></i> Alle Accounts
+    </a>
+    <a href="{{ url_for('account_groups') }}" class="nav-item {% if active_page == 'groups' %}active{% endif %}">
+      <i class="fa-solid fa-object-group"></i> Gruppen
+    </a>
+    <a href="{{ url_for('calendar_view') }}" class="nav-item {% if active_page == 'calendar' %}active{% endif %}">
+      <i class="fa-solid fa-calendar-days"></i> Kalender
+    </a>
+
     <div class="nav-section">Übersicht</div>
     <a href="{{ url_for('dashboard') }}" class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
       <i class="fa-solid fa-chart-line"></i> Dashboard
@@ -341,9 +352,6 @@
     <a href="{{ url_for('media_library') }}" class="nav-item {% if active_page == 'media' %}active{% endif %}">
       <i class="fa-solid fa-photo-film"></i> Medienbibliothek
     </a>
-    <a href="{{ url_for('calendar_view') }}" class="nav-item {% if active_page == 'calendar' %}active{% endif %}">
-      <i class="fa-solid fa-calendar-days"></i> Kalender
-    </a>
     <a href="{{ url_for('content_templates') }}" class="nav-item {% if active_page == 'templates' %}active{% endif %}">
       <i class="fa-solid fa-rectangle-list"></i> Templates
     </a>
@@ -352,20 +360,12 @@
     </a>
 
     <div class="nav-section">Verwaltung</div>
-    <a href="{{ url_for('accounts') }}" class="nav-item {% if active_page == 'accounts' %}active{% endif %}">
-      <i class="fa-solid fa-layer-group"></i> Accounts
-    </a>
-    <a href="{{ url_for('account_groups') }}" class="nav-item {% if active_page == 'groups' %}active{% endif %}">
-      <i class="fa-solid fa-object-group"></i> Gruppen
-    </a>
     <a href="{{ url_for('automation') }}" class="nav-item {% if active_page == 'automation' %}active{% endif %}">
       <i class="fa-solid fa-robot"></i> Automatisierung
     </a>
     <a href="{{ url_for('ai_config_list') }}" class="nav-item {% if active_page == 'ai' %}active{% endif %}">
       <i class="fa-solid fa-microchip"></i> KI-Zentrale
     </a>
-
-    <div class="nav-section">System</div>
     <a href="{{ url_for('team') }}" class="nav-item {% if active_page == 'team' %}active{% endif %}">
       <i class="fa-solid fa-users"></i> Team
     </a>

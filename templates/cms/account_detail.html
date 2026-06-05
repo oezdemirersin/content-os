@@ -43,6 +43,15 @@
       <span class="badge badge-red">{{ account.status }}</span>
       {% endif %}
     </div>
+    {% if account.profile_url %}
+    <a href="{{ account.profile_url }}" target="_blank" rel="noopener"
+       style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--accent2);
+              text-decoration:none;margin-top:5px;transition:opacity .15s"
+       onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'">
+      <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px"></i>
+      Profil öffnen
+    </a>
+    {% endif %}
     {% if account.groups %}
     <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
       {% for g in account.groups %}

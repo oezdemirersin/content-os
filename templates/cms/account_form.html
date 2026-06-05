@@ -4,14 +4,13 @@
 
 {% block content %}
 <div style="margin-bottom:20px">
-  <a href="{{ url_for('accounts') }}" style="font-size:12px;color:var(--muted);text-decoration:none">
-    ← Accounts
-  </a>
+  <a href="{{ url_for('accounts') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Accounts</a>
 </div>
 
 <div style="max-width:680px">
   <form method="post" style="display:flex;flex-direction:column;gap:16px">
 
+    <!-- GRUNDDATEN -->
     <div class="card">
       <div class="card-header"><span class="card-title">GRUNDDATEN</span></div>
       <div style="padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -26,9 +25,9 @@
                  class="input-field" placeholder="@username">
         </div>
         <div>
-          <label class="form-label">Follower</label>
-          <input type="number" name="follower_count" value="{{ account.follower_count if account else 0 }}"
-                 class="input-field" min="0">
+          <label class="form-label">Profil-Link</label>
+          <input type="url" name="profile_url" value="{{ account.profile_url if account else '' }}"
+                 class="input-field" placeholder="https://instagram.com/username">
         </div>
         <div>
           <label class="form-label">Plattform *</label>
@@ -47,9 +46,15 @@
             {% endfor %}
           </select>
         </div>
+        <div>
+          <label class="form-label">Follower</label>
+          <input type="number" name="follower_count" value="{{ account.follower_count if account else 0 }}"
+                 class="input-field" min="0">
+        </div>
       </div>
     </div>
 
+    <!-- BETRIEB -->
     <div class="card">
       <div class="card-header"><span class="card-title">BETRIEB</span></div>
       <div style="padding:20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
@@ -72,7 +77,7 @@
         <div>
           <label class="form-label">Automatisierungsstufe</label>
           <select name="automation_level" class="select-field">
-            {% for i,l in [(0,'0 — Manuell'),(1,'1 — Auto-Entwürfe'),(2,'2 — Entwürfe + Freigabe'),(3,'3 — Vollautomatisch'),(4,'4 — Erweitert')] %}
+            {% for i,l in [(0,'0 — Manuell'),(1,'1 — Auto-Entwürfe'),(2,'2 — Freigabe'),(3,'3 — Vollautomatisch'),(4,'4 — Erweitert')] %}
             <option value="{{ i }}" {% if account and account.automation_level==i %}selected{% endif %}>{{ l }}</option>
             {% endfor %}
           </select>
@@ -80,28 +85,54 @@
       </div>
     </div>
 
+    <!-- CONTENT-ZIELE -->
     <div class="card">
       <div class="card-header"><span class="card-title">CONTENT-ZIELE</span></div>
-      <div style="padding:20px;display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
+      <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
+
+        <!-- Posting-Frequenz -->
         <div>
-          <label class="form-label">Feed / Tag</label>
-          <input type="number" name="target_feed_per_day" value="{{ account.target_feed_per_day if account else 1 }}" step="0.5" min="0" class="input-field">
+          <label class="form-label">Wie oft posten?</label>
+          {% set interval = account.posting_interval_days if account and account.posting_interval_days else 1.0 %}
+          <select name="posting_interval_days" class="select-field" onchange="updateFreqPreview(this.value)">
+            {% for val, label in [
+              ('1.0',   '📅 Täglich (1× pro Tag)'),
+              ('0.5',   '📅📅 2× täglich'),
+              ('2.0',   '📅 Alle 2 Tage'),
+              ('3.0',   '📅 Alle 3 Tage'),
+              ('3.5',   '📅 2× pro Woche'),
+              ('2.33',  '📅 3× pro Woche'),
+              ('1.75',  '📅 4× pro Woche'),
+              ('1.4',   '📅 5× pro Woche'),
+              ('7.0',   '📅 1× pro Woche'),
+              ('14.0',  '📅 Alle 2 Wochen'),
+            ] %}
+            <option value="{{ val }}" {% if "%.2f"|format(interval|float) == "%.2f"|format(val|float) %}selected{% endif %}>
+              {{ label }}
+            </option>
+            {% endfor %}
+          </select>
+          <div id="freqPreview" style="margin-top:8px;font-size:12px;color:var(--muted);padding:8px 12px;
+               background:var(--surface2);border-radius:8px;display:flex;align-items:center;gap:6px">
+            <i class="fa-solid fa-circle-info" style="color:var(--accent2)"></i>
+            <span id="freqPreviewText"></span>
+          </div>
         </div>
-        <div>
-          <label class="form-label">Story / Tag</label>
-          <input type="number" name="target_story_per_day" value="{{ account.target_story_per_day if account else 2 }}" step="0.5" min="0" class="input-field">
-        </div>
-        <div>
-          <label class="form-label">Mindestvorrat (T)</label>
-          <input type="number" name="min_stock_days" value="{{ account.min_stock_days if account else 3 }}" min="1" class="input-field">
-        </div>
-        <div>
-          <label class="form-label">Optimalvorrat (T)</label>
-          <input type="number" name="optimal_stock_days" value="{{ account.optimal_stock_days if account else 14 }}" min="1" class="input-field">
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div>
+            <label class="form-label">Mindestvorrat (Tage)</label>
+            <input type="number" name="min_stock_days" value="{{ account.min_stock_days if account else 3 }}" min="1" class="input-field">
+          </div>
+          <div>
+            <label class="form-label">Optimalvorrat (Tage)</label>
+            <input type="number" name="optimal_stock_days" value="{{ account.optimal_stock_days if account else 14 }}" min="1" class="input-field">
+          </div>
         </div>
       </div>
     </div>
 
+    <!-- NOTIZEN -->
     <div class="card" style="padding:20px">
       <label class="form-label">Notizen</label>
       <textarea name="notes" rows="3" class="input-field" style="resize:vertical"
@@ -116,4 +147,20 @@
     </div>
   </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateFreqPreview(val) {
+  const v = parseFloat(val);
+  let text = '';
+  if (v <= 0.5)       text = `Ca. ${Math.round(1/v)} Posts pro Tag — sehr aktiv`;
+  else if (v === 1)   text = 'Jeden Tag 1 Post';
+  else if (v < 7)     text = `Alle ${v % 1 === 0 ? v : v.toFixed(1)} Tage ein Post — pro Monat ca. ${Math.round(30/v)} Posts`;
+  else                text = `Alle ${Math.round(v/7)} Woche(n) ein Post — pro Monat ca. ${Math.round(30/v)} Posts`;
+  document.getElementById('freqPreviewText').textContent = text;
+}
+// Beim Laden einmalig aufrufen
+updateFreqPreview(document.querySelector('[name="posting_interval_days"]').value);
+</script>
 {% endblock %}

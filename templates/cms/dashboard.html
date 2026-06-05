@@ -257,6 +257,54 @@
   </div>
 </div>
 
+<!-- ── Schnell-Kategorie ── -->
+<div x-data="{open:false}" style="margin-bottom:20px">
+  <div class="card" style="padding:16px 20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.5px">KATEGORIEN:</span>
+        {% for cat in categories[:8] %}
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;
+                     font-size:11px;font-weight:700;background:{{ cat.color }}18;color:{{ cat.color }};
+                     border:1px solid {{ cat.color }}30">
+          <i class="fa-solid fa-{{ cat.icon }}" style="font-size:9px"></i> {{ cat.name }}
+        </span>
+        {% endfor %}
+        {% if categories|length > 8 %}
+        <span style="font-size:11px;color:var(--muted)">+{{ categories|length - 8 }} weitere</span>
+        {% endif %}
+      </div>
+      <button @click="open=!open" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">
+        <i class="fa-solid fa-plus"></i> Neue Kategorie
+      </button>
+    </div>
+    <!-- Inline-Form -->
+    <div x-show="open" x-transition style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+      <form method="post" action="{{ url_for('category_new') }}"
+            style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px">
+          <label class="form-label">Name</label>
+          <input type="text" name="name" required class="input-field" placeholder="z.B. Sport">
+        </div>
+        <div style="min-width:80px">
+          <label class="form-label">Icon</label>
+          <input type="text" name="icon" placeholder="futbol" class="input-field" style="font-size:13px">
+        </div>
+        <div>
+          <label class="form-label">Farbe</label>
+          <input type="color" name="color" value="#3b82f6"
+                 style="width:42px;height:38px;border-radius:8px;border:1px solid var(--border);
+                        background:transparent;cursor:pointer;padding:2px">
+        </div>
+        <button type="submit" class="btn btn-primary" style="font-size:12px">
+          <i class="fa-solid fa-check"></i> Erstellen
+        </button>
+        <button type="button" @click="open=false" class="btn btn-ghost" style="font-size:12px">Abbrechen</button>
+      </form>
+    </div>
+  </div>
+</div>
+
 <!-- ── Heute geplante Posts ── -->
 <div class="card" style="margin-bottom:20px">
   <div class="card-header">

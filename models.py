@@ -105,6 +105,8 @@ class Account(db.Model):
     team_member = db.relationship('TeamMember', backref='accounts')
     labels = db.relationship('Label', secondary=account_labels, backref='accounts')
 
+    profile_url = db.Column(db.String(500))  # z.B. https://instagram.com/darmstadtschau
+
     follower_count = db.Column(db.Integer, default=0)
     following_count = db.Column(db.Integer, default=0)
     post_count = db.Column(db.Integer, default=0)
@@ -113,7 +115,10 @@ class Account(db.Model):
     automation_level = db.Column(db.Integer, default=0)  # 0-4
     priority = db.Column(db.String(20), default='medium')  # low, medium, high, critical
 
-    # Posting targets per type
+    # Posting-Frequenz: Intervall in Tagen (1 = täglich, 3.5 = 2x/Woche, 7 = 1x/Woche)
+    posting_interval_days = db.Column(db.Float, default=1.0)
+
+    # Legacy-Felder (bleiben für Kompatibilität)
     target_feed_per_day = db.Column(db.Float, default=1.0)
     target_story_per_day = db.Column(db.Float, default=2.0)
     target_reel_per_week = db.Column(db.Float, default=3.0)
