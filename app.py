@@ -19,6 +19,18 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
 from sqlalchemy import func
 
 app = Flask(__name__, template_folder='templates/cms')
+
+@app.template_filter('fmt_followers')
+def fmt_followers(n):
+    """Zeigt Follower-Zahlen exakt mit Punkt-Trennung, ab 1M abgekürzt."""
+    try:
+        n = int(n or 0)
+    except (ValueError, TypeError):
+        return '0'
+    if n >= 1_000_000:
+        return f'{n/1_000_000:.1f}M'.replace('.', ',')
+    # Exakte Zahl mit Tausender-Punkt: 1600 → 1.600
+    return f'{n:,}'.replace(',', '.')
 _secret = os.environ.get('SECRET_KEY') or 'content-os-secret-2024-v2'
 app.config['SECRET_KEY'] = _secret
 app.secret_key = _secret
@@ -789,6 +801,171 @@ def account_calendar(account_id):
     all_accounts = Account.query.order_by(Account.name).all()
     return render_template('account_calendar.html',
         account=account, all_accounts=all_accounts, active_page='accounts')
+
+
+# ─────────────────────── BATCH-PLANER ───────────────────────
+
+@app.route('/accounts/<int:account_id>/planer')
+def account_planer(account_id):
+    account = Account.query.get_or_404(account_id)
+    all_accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
+    labels = Label.query.order_by(Label.name).all()
+    return render_template('cms/planer.html',
+        account=account, all_accounts=all_accounts, labels=labels, active_page='accounts')
+
+
+@app.route('/api/accounts/<int:account_id>/stack')
+def account_stack(account_id):
+    """Unverplante ContentItems für den Batch-Planer."""
+    label_id = request.args.get('label_id', type=int)
+    q = request.args.get('q', '')
+
+    # IDs die bereits für diesen Account eingeplant sind
+    already = [r[0] for r in
+        db.session.query(ScheduledPost.content_item_id)
+        .filter(ScheduledPost.account_id == account_id,
+                ScheduledPost.status.in_(['scheduled', 'draft']),
+                ScheduledPost.content_item_id.isnot(None))
+        .all()]
+
+    query = ContentItem.query.filter(ContentItem.status.in_(['ready', 'draft', 'in_progress']))
+    if already:
+        query = query.filter(~ContentItem.id.in_(already))
+    if label_id:
+        query = query.filter(ContentItem.labels.any(Label.id == label_id))
+    if q:
+        query = query.filter(
+            ContentItem.title.ilike(f'%{q}%') | ContentItem.caption.ilike(f'%{q}%'))
+
+    items = query.order_by(ContentItem.created_at.desc()).limit(300).all()
+    return jsonify([{
+        'id': c.id,
+        'title': c.title,
+        'caption': (c.caption or '')[:120],
+        'status': c.status,
+        'content_type': c.content_type,
+        'category': c.category.name if c.category else '',
+        'category_color': c.category.color if c.category else '#6366f1',
+        'labels': [{'id': l.id, 'name': l.name, 'color': l.color} for l in c.labels],
+        'thumb': c.media_items[0].url if c.media_items else None,
+        'media_ids': [m.id for m in c.media_items],
+        'media_count': len(c.media_items),
+    } for c in items])
+
+
+@app.route('/api/accounts/<int:account_id>/planer/events')
+def planer_events(account_id):
+    """Geplante Posts für einen Monat (YYYY-MM)."""
+    month = request.args.get('month', '')  # z.B. 2025-06
+    try:
+        y, m = int(month[:4]), int(month[5:7])
+    except Exception:
+        from datetime import date
+        today = date.today()
+        y, m = today.year, today.month
+
+    start = datetime(y, m, 1)
+    import calendar as cal_mod
+    last_day = cal_mod.monthrange(y, m)[1]
+    end = datetime(y, m, last_day, 23, 59, 59)
+
+    posts = ScheduledPost.query.filter(
+        ScheduledPost.account_id == account_id,
+        ScheduledPost.scheduled_at >= start,
+        ScheduledPost.scheduled_at <= end,
+    ).order_by(ScheduledPost.scheduled_at).all()
+
+    result = []
+    for p in posts:
+        ci = p.content_item
+        result.append({
+            'id': p.id,
+            'date': p.scheduled_at.strftime('%Y-%m-%d'),
+            'time': p.scheduled_at.strftime('%H:%M'),
+            'slot_type': p.slot_type,
+            'status': p.status,
+            'post_type': p.post_type,
+            'caption': (p.caption or (ci.title if ci else '') or '')[:80],
+            'thumb': (ci.media_items[0].url if ci and ci.media_items else None),
+            'content_item_id': p.content_item_id,
+        })
+    return jsonify(result)
+
+
+@app.route('/api/accounts/<int:account_id>/planer/schedule', methods=['POST'])
+def planer_schedule(account_id):
+    """Einen ContentItem auf ein Datum legen (Planer-Drag&Drop)."""
+    account = Account.query.get_or_404(account_id)
+    d = request.get_json()
+    content_item_id = d.get('content_item_id')
+    date_str = d.get('date')       # YYYY-MM-DD
+    time_str = d.get('time', '18:00')
+    slot_type = d.get('slot_type', 'fixed')
+
+    if not date_str:
+        return jsonify({'ok': False, 'error': 'Datum fehlt'}), 400
+
+    ci = ContentItem.query.get(content_item_id) if content_item_id else None
+    scheduled_at = datetime.strptime(f'{date_str} {time_str}', '%Y-%m-%d %H:%M')
+
+    post = ScheduledPost(
+        account_id=account_id,
+        content_item_id=content_item_id,
+        caption=ci.caption or ci.title if ci else '',
+        post_type=ci.content_type if ci else 'feed',
+        slot_type=slot_type,
+        status='scheduled' if slot_type != 'disabled' else 'disabled',
+        scheduled_at=scheduled_at,
+        media_item_id=ci.media_items[0].id if ci and ci.media_items else None,
+        media_ids=json.dumps([m.id for m in ci.media_items]) if ci else '[]',
+    )
+    db.session.add(post)
+    if ci:
+        ci.status = 'scheduled'
+    db.session.commit()
+    log_activity('post_scheduled',
+        f'Planer: {ci.title if ci else "Slot"} → {account.name} am {scheduled_at.strftime("%d.%m.%Y")}')
+    return jsonify({'ok': True, 'post_id': post.id})
+
+
+@app.route('/api/accounts/<int:account_id>/planer/auto-fill', methods=['POST'])
+def planer_auto_fill(account_id):
+    """Verteilt N ContentItems gleichmäßig ab einem Startdatum."""
+    account = Account.query.get_or_404(account_id)
+    d = request.get_json()
+    content_ids = d.get('content_ids', [])   # geordnete Liste
+    start_date = d.get('start_date')          # YYYY-MM-DD
+    time_str = d.get('time', '18:00')
+    interval = d.get('interval_days', account.posting_interval_days or 1)
+
+    if not content_ids or not start_date:
+        return jsonify({'ok': False, 'error': 'content_ids und start_date erforderlich'}), 400
+
+    base = datetime.strptime(f'{start_date} {time_str}', '%Y-%m-%d %H:%M')
+    created = []
+    for i, cid in enumerate(content_ids):
+        ci = ContentItem.query.get(cid)
+        if not ci:
+            continue
+        scheduled_at = base + timedelta(days=i * interval)
+        post = ScheduledPost(
+            account_id=account_id,
+            content_item_id=cid,
+            caption=ci.caption or ci.title or '',
+            post_type=ci.content_type or 'feed',
+            slot_type='fixed',
+            status='scheduled',
+            scheduled_at=scheduled_at,
+            media_item_id=ci.media_items[0].id if ci.media_items else None,
+            media_ids=json.dumps([m.id for m in ci.media_items]),
+        )
+        db.session.add(post)
+        ci.status = 'scheduled'
+        created.append({'content_id': cid, 'date': scheduled_at.strftime('%Y-%m-%d')})
+    db.session.commit()
+    log_activity('batch_scheduled',
+        f'Auto-Fill: {len(created)} Posts für {account.name} eingeplant')
+    return jsonify({'ok': True, 'scheduled': created})
 
 
 @app.route('/api/accounts/<int:account_id>/posts/new', methods=['POST'])
