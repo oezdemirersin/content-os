@@ -272,9 +272,15 @@ class ScheduledPost(db.Model):
 
     caption = db.Column(db.Text)
     hashtags = db.Column(db.Text)
-    post_type = db.Column(db.String(30), default='feed')  # feed, reel, story, carousel
-    status = db.Column(db.String(30), default='scheduled')
-    # scheduled, published, failed, draft, cancelled
+    post_type = db.Column(db.String(30), default='feed')   # feed, reel, story, carousel
+    status    = db.Column(db.String(30), default='scheduled')
+    # scheduled, published, failed, draft, cancelled, disabled
+
+    # Slot-Typ: wie dieser Tag behandelt wird
+    slot_type = db.Column(db.String(20), default='fixed')
+    # fixed    → bestimmter Post muss an dem Tag live
+    # flexible → irgendein freier Post aus dem Vorrat wird genommen
+    # disabled → kein Post, User postet selbst
 
     scheduled_at = db.Column(db.DateTime, nullable=False)
     published_at = db.Column(db.DateTime)

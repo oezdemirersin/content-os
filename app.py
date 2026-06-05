@@ -19,7 +19,9 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
 from sqlalchemy import func
 
 app = Flask(__name__, template_folder='templates/cms')
-app.secret_key = os.environ.get('SECRET_KEY', 'content-os-secret-2024')
+_secret = os.environ.get('SECRET_KEY') or 'content-os-secret-2024-v2'
+app.config['SECRET_KEY'] = _secret
+app.secret_key = _secret
 # Render gibt postgres:// zurück, SQLAlchemy braucht postgresql://
 _db_url = os.environ.get('DATABASE_URL', 'sqlite:///content_os.db')
 if _db_url.startswith('postgres://'):
@@ -231,6 +233,10 @@ def init_db():
             ci_cols = [c['name'] for c in inspector.get_columns('content_item')]
             if 'caption_score_manual' not in ci_cols:
                 conn.execute(text('ALTER TABLE content_item ADD COLUMN caption_score_manual FLOAT'))
+            # ScheduledPost: slot_type
+            sp_cols = [c['name'] for c in inspector.get_columns('scheduled_post')]
+            if 'slot_type' not in sp_cols:
+                conn.execute(text("ALTER TABLE scheduled_post ADD COLUMN slot_type VARCHAR(20) DEFAULT 'fixed'"))
             conn.commit()
         seed_data()
 
@@ -749,16 +755,36 @@ def account_calendar(account_id):
 def account_post_new(account_id):
     """Create a new scheduled post via calendar drag or form."""
     d = request.get_json()
+    slot_type = d.get('slot_type', 'fixed')
+    # disabled-Slot: kein echtes Post, nur Platzhalter
+    status = 'disabled' if slot_type == 'disabled' else 'scheduled'
+
     post = ScheduledPost(
         account_id=account_id,
         caption=d.get('caption', ''),
         post_type=d.get('post_type', 'feed'),
-        status='scheduled',
+        slot_type=slot_type,
+        status=status,
         scheduled_at=datetime.fromisoformat(d['scheduled_at']),
     )
     db.session.add(post)
     db.session.commit()
+    log_activity('post_scheduled', f'{slot_type.capitalize()}-Slot für {acc.name} am {post.scheduled_at.strftime("%d.%m")} gesetzt')
     return jsonify({'id': post.id, 'ok': True})
+
+
+@app.route('/api/posts/<int:post_id>/slot-type', methods=['POST'])
+def post_update_slot_type(post_id):
+    """Slot-Typ eines Posts ändern."""
+    post = ScheduledPost.query.get_or_404(post_id)
+    d = request.get_json()
+    new_type = d.get('slot_type')
+    if new_type not in ('fixed', 'flexible', 'disabled'):
+        return jsonify({'ok': False, 'error': 'Ungültiger Slot-Typ'}), 400
+    post.slot_type = new_type
+    post.status = 'disabled' if new_type == 'disabled' else ('scheduled' if post.status == 'disabled' else post.status)
+    db.session.commit()
+    return jsonify({'ok': True, 'slot_type': post.slot_type})
 
 
 @app.route('/api/posts/<int:post_id>/reschedule', methods=['POST'])
@@ -1132,24 +1158,43 @@ def calendar_events():
         query = query.filter(ScheduledPost.scheduled_at <= end)
 
     posts = query.all()
-    color_map = {'scheduled': '#3b82f6', 'published': '#10b981', 'failed': '#ef4444', 'draft': '#6b7280', 'cancelled': '#6b7280'}
     type_icons = {'feed': '📸', 'reel': '🎬', 'story': '⭕', 'carousel': '🎠'}
+
+    # Farben: primär nach slot_type, sekundär nach Status
+    def get_color(p):
+        slot = getattr(p, 'slot_type', 'fixed') or 'fixed'
+        if slot == 'disabled':  return '#374151'   # dunkelgrau — kein Post
+        if slot == 'flexible':  return '#059669'   # grün — flexibel aus Vorrat
+        # fixed: Farbe nach Status
+        return {'scheduled': '#3b82f6', 'published': '#10b981',
+                'failed': '#ef4444', 'draft': '#6b7280'}.get(p.status, '#3b82f6')
+
+    def get_title(p, acc):
+        slot = getattr(p, 'slot_type', 'fixed') or 'fixed'
+        name = acc.name if acc else '?'
+        if slot == 'disabled':  return f'🚫 {name} — Manuell'
+        if slot == 'flexible':  return f'🔀 {name} — Flexibel'
+        return f"{type_icons.get(p.post_type,'📌')} {name}"
 
     events = []
     for p in posts:
         acc = Account.query.get(p.account_id)
+        slot = getattr(p, 'slot_type', 'fixed') or 'fixed'
         events.append({
             'id': p.id,
-            'title': f"{type_icons.get(p.post_type,'📌')} {acc.name if acc else '?'}",
+            'title': get_title(p, acc),
             'start': p.scheduled_at.isoformat(),
-            'color': color_map.get(p.status, '#6366f1'),
-            'editable': p.status == 'scheduled',
+            'color': get_color(p),
+            'textColor': 'white',
+            'borderColor': 'transparent',
+            'editable': p.status in ('scheduled', 'disabled'),
             'extendedProps': {
                 'account': acc.name if acc else '',
                 'account_id': p.account_id,
                 'type': p.post_type,
                 'status': p.status,
-                'caption': (p.caption or '')[:120],
+                'slot_type': slot,
+                'caption': (p.caption or '')[:150],
                 'post_id': p.id,
             }
         })

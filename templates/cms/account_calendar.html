@@ -4,71 +4,130 @@
 
 {% block content %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-  <a href="{{ url_for('account_detail', account_id=account.id) }}" style="font-size:12px;color:var(--muted);text-decoration:none">← {{ account.name }}</a>
+  <a href="{{ url_for('account_detail', account_id=account.id) }}"
+     style="font-size:12px;color:var(--muted);text-decoration:none">← {{ account.name }}</a>
   <div style="display:flex;align-items:center;gap:10px">
     <select onchange="location.href='/accounts/'+this.value+'/calendar'"
-            style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:13px;color:var(--text);font-family:var(--font-body)">
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                   padding:7px 12px;font-size:13px;color:var(--text);font-family:var(--font-body)">
       {% for acc in all_accounts %}
       <option value="{{ acc.id }}" {% if acc.id==account.id %}selected{% endif %}>{{ acc.name }}</option>
       {% endfor %}
     </select>
-    <button onclick="openNewPost()" class="btn btn-primary">
-      <i class="fa-solid fa-plus"></i> Post planen
+    <a href="{{ url_for('calendar_print', account_id=account.id) }}" target="_blank"
+       class="btn btn-ghost" style="font-size:12px">
+      <i class="fa-solid fa-print"></i>
+    </a>
+    <button onclick="openSlotModal(null)" class="btn btn-primary">
+      <i class="fa-solid fa-plus"></i> Slot hinzufügen
     </button>
   </div>
 </div>
 
-<!-- Stock badges -->
-<div style="display:flex;gap:12px;margin-bottom:20px">
-  <div class="stat-card" style="display:flex;align-items:center;gap:12px;padding:14px 18px">
-    <i class="fa-solid fa-image" style="color:var(--accent2);font-size:18px"></i>
-    <div>
-      <div class="stat-label">Feed-Vorrat</div>
-      <div style="font-family:var(--font-display);font-size:22px" class="stock-{{ account.stock_status() }}">{{ account.stock_days_display() }} Tage</div>
+<!-- Stats Row -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+  <div class="stat-card" style="padding:14px 18px">
+    <div class="stat-label">Feed-Vorrat</div>
+    <div style="font-family:var(--font-display);font-size:24px" class="stock-{{ account.stock_status() }}">
+      {{ account.stock_days_display() }} Tage
     </div>
   </div>
-  <div class="stat-card" style="display:flex;align-items:center;gap:12px;padding:14px 18px">
-    <i class="fa-solid fa-clock" style="color:var(--muted);font-size:18px"></i>
-    <div>
-      <div class="stat-label">Posting-Ziel</div>
-      <div style="font-family:var(--font-display);font-size:22px;color:var(--text)">{{ account.target_feed_per_day }}×/Tag</div>
-    </div>
+  <div class="stat-card" style="padding:14px 18px">
+    <div class="stat-label">Posting-Ziel</div>
+    <div style="font-family:var(--font-display);font-size:24px;color:var(--text)">{{ account.target_feed_per_day }}×/Tag</div>
   </div>
-  <div class="stat-card" style="display:flex;align-items:center;gap:12px;padding:14px 18px">
-    <i class="fa-solid fa-robot" style="color:var(--muted);font-size:18px"></i>
-    <div>
-      <div class="stat-label">Automation</div>
-      <div style="font-family:var(--font-display);font-size:22px;color:var(--text)">Stufe {{ account.automation_level }}</div>
-    </div>
+  <div id="statFixed"  class="stat-card" style="padding:14px 18px;border-top:2px solid #3b82f6">
+    <div class="stat-label">🔵 Fixiert</div>
+    <div style="font-family:var(--font-display);font-size:24px;color:#3b82f6" id="cntFixed">—</div>
+  </div>
+  <div id="statFlex"   class="stat-card" style="padding:14px 18px;border-top:2px solid #059669">
+    <div class="stat-label">🟢 Flexibel</div>
+    <div style="font-family:var(--font-display);font-size:24px;color:#059669" id="cntFlex">—</div>
+  </div>
+  <div id="statDis"    class="stat-card" style="padding:14px 18px;border-top:2px solid #374151">
+    <div class="stat-label">⚫ Deaktiviert</div>
+    <div style="font-family:var(--font-display);font-size:24px;color:var(--muted)" id="cntDis">—</div>
   </div>
 </div>
 
+<!-- Legende -->
+<div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+  {% for color,icon,label,desc in [
+    ('#3b82f6','fa-thumbtack','Fixierter Post','Muss exakt an diesem Tag live gehen'),
+    ('#059669','fa-shuffle','Flexibler Slot','Irgendein Post aus dem Vorrat wird eingesetzt'),
+    ('#374151','fa-ban','Deaktiviert','Kein automatischer Post — du postest selbst'),
+  ] %}
+  <div style="display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:20px;
+              background:{{ color }}18;border:1px solid {{ color }}30">
+    <i class="fa-solid {{ icon }}" style="color:{{ color }};font-size:11px"></i>
+    <div>
+      <span style="font-size:12px;font-weight:700;color:var(--text)">{{ label }}</span>
+      <span style="font-size:11px;color:var(--muted);margin-left:6px">{{ desc }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Kalender -->
 <div class="card" style="padding:20px">
   <div id="accCalendar"></div>
 </div>
 
 <!-- Event Popup -->
-<div id="evPopup" style="display:none;position:fixed;z-index:200;width:300px;
+<div id="evPopup" style="display:none;position:fixed;z-index:300;width:320px;
      background:var(--surface);border:1px solid var(--border);border-radius:14px;
-     box-shadow:0 16px 48px rgba(0,0,0,.5);padding:16px"></div>
+     box-shadow:0 16px 48px rgba(0,0,0,.6);overflow:hidden"></div>
 
-<!-- New Post Modal -->
-<div id="newPostModal" style="display:none;position:fixed;inset:0;z-index:200;
-     align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:420px;margin:20px;box-shadow:0 24px 64px rgba(0,0,0,.5)">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:1px solid var(--border)">
-      <span style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">NEUEN POST PLANEN</span>
-      <button onclick="document.getElementById('newPostModal').style.display='none'" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">&times;</button>
+<!-- Slot Modal -->
+<div id="slotModal" style="display:none;position:fixed;inset:0;z-index:400;
+     align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:480px;margin:16px;box-shadow:0 24px 64px rgba(0,0,0,.6)">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px" id="slotModalTitle">SLOT HINZUFÜGEN</div>
+      <button onclick="document.getElementById('slotModal').style.display='none'"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
     </div>
-    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+    <div style="padding:24px;display:flex;flex-direction:column;gap:16px">
+
+      <!-- Slot-Typ Auswahl -->
+      <div>
+        <label class="form-label">Slot-Typ</label>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          {% for val,icon,label,color,desc in [
+            ('fixed','fa-thumbtack','Fixiert','#3b82f6','Bestimmter Post'),
+            ('flexible','fa-shuffle','Flexibel','#059669','Aus Vorrat'),
+            ('disabled','fa-ban','Deaktiviert','#6b7280','Manuell posten'),
+          ] %}
+          <label style="cursor:pointer">
+            <input type="radio" name="slotType" value="{{ val }}"
+                   {% if val == 'fixed' %}checked{% endif %}
+                   style="display:none" onchange="onSlotTypeChange('{{ val }}')">
+            <div id="slotCard-{{ val }}"
+                 style="border:2px solid {% if val == 'fixed' %}{{ color }}{% else %}var(--border){% endif %};
+                        border-radius:10px;padding:12px;text-align:center;transition:all .15s;
+                        background:{% if val == 'fixed' %}{{ color }}15{% else %}transparent{% endif %}">
+              <i class="fa-solid {{ icon }}" style="font-size:20px;color:{{ color }};margin-bottom:6px;display:block"></i>
+              <div style="font-size:12px;font-weight:700;color:var(--text)">{{ label }}</div>
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">{{ desc }}</div>
+            </div>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Datum & Zeit -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div>
           <label class="form-label">Datum & Zeit *</label>
-          <input type="datetime-local" id="newDate" class="input-field">
+          <input type="datetime-local" id="slotDate" class="input-field">
         </div>
-        <div>
-          <label class="form-label">Typ</label>
-          <select id="newType" class="select-field">
+        <div id="postTypeWrap">
+          <label class="form-label">Post-Typ</label>
+          <select id="slotPostType" class="select-field">
             <option value="feed">📸 Feed</option>
             <option value="reel">🎬 Reel</option>
             <option value="story">⭕ Story</option>
@@ -76,15 +135,35 @@
           </select>
         </div>
       </div>
-      <div>
-        <label class="form-label">Caption</label>
-        <textarea id="newCaption" rows="3" class="input-field" style="resize:none" placeholder="Caption…"></textarea>
+
+      <!-- Caption (nur bei fixed) -->
+      <div id="captionWrap">
+        <label class="form-label">Caption <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+        <textarea id="slotCaption" rows="3" class="input-field" style="resize:none"
+                  placeholder="Spezifische Caption für diesen Post…"></textarea>
       </div>
-      <div style="display:flex;gap:10px">
-        <button onclick="createPost()" class="btn btn-primary" style="flex:1">
-          <i class="fa-solid fa-calendar-plus"></i> Planen
+
+      <!-- Notiz für disabled -->
+      <div id="disabledNote" style="display:none;padding:12px 16px;border-radius:10px;
+           background:rgba(107,114,128,.1);border:1px solid rgba(107,114,128,.2)">
+        <div style="font-size:13px;color:var(--text);margin-bottom:4px">
+          <i class="fa-solid fa-circle-info" style="color:var(--muted);margin-right:6px"></i>
+          Tag wird als "Manuell" markiert
+        </div>
+        <div style="font-size:12px;color:var(--muted)">
+          An diesem Tag wird kein automatischer Post erstellt. Du postest selbst auf Instagram.
+        </div>
+        <div style="margin-top:10px">
+          <label class="form-label">Notiz (optional)</label>
+          <input type="text" id="slotNote" class="input-field" placeholder="z.B. Story-Tag, Kooperation…">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="document.getElementById('slotModal').style.display='none'" class="btn btn-ghost">Abbrechen</button>
+        <button onclick="saveSlot()" class="btn btn-primary" id="slotSaveBtn">
+          <i class="fa-solid fa-check"></i> Speichern
         </button>
-        <button onclick="document.getElementById('newPostModal').style.display='none'" class="btn btn-ghost">Abbrechen</button>
       </div>
     </div>
   </div>
@@ -95,58 +174,271 @@
 <script>
 const ACCOUNT_ID = {{ account.id }};
 let cal;
+let _editPostId = null;
+
+// Slot-Typ-Karten highlighten
+const slotColors = {fixed:'#3b82f6', flexible:'#059669', disabled:'#6b7280'};
+function onSlotTypeChange(val) {
+  ['fixed','flexible','disabled'].forEach(v => {
+    const card = document.getElementById('slotCard-'+v);
+    card.style.border = v === val ? `2px solid ${slotColors[v]}` : '2px solid var(--border)';
+    card.style.background = v === val ? slotColors[v]+'18' : 'transparent';
+  });
+  document.getElementById('captionWrap').style.display  = val === 'fixed'    ? 'block' : 'none';
+  document.getElementById('disabledNote').style.display  = val === 'disabled' ? 'block' : 'none';
+  document.getElementById('postTypeWrap').style.display  = val === 'disabled' ? 'none'  : 'block';
+}
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Startdatum auf nächste volle Stunde
+  const now = new Date();
+  now.setHours(now.getHours()+1, 0, 0, 0);
+  document.getElementById('slotDate').value = now.toISOString().slice(0,16);
+
   cal = new FullCalendar.Calendar(document.getElementById('accCalendar'), {
-    initialView:'dayGridMonth', locale:'de',
-    headerToolbar:{left:'prev,next today',center:'title',right:'dayGridMonth,timeGridWeek,listWeek'},
-    height:680, editable:true,
-    events: (info,succ,fail) => fetch(`/api/calendar/events?account_id=${ACCOUNT_ID}&start=${info.startStr}&end=${info.endStr}`).then(r=>r.json()).then(succ).catch(fail),
-    dateClick: info => { document.getElementById('newDate').value=info.dateStr+'T09:00'; openNewPost(); },
-    eventDrop: info => {
-      const id=info.event.extendedProps.post_id;
-      if(!id){info.revert();return;}
-      fetch(`/api/posts/${id}/reschedule`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scheduled_at:info.event.start.toISOString().slice(0,16)})}).then(r=>r.json()).then(d=>{if(!d.ok)info.revert();});
+    initialView: 'dayGridMonth',
+    locale: 'de',
+    headerToolbar: { left:'prev,next today', center:'title', right:'dayGridMonth,timeGridWeek,listWeek' },
+    height: 700,
+    editable: true,
+    selectable: true,
+
+    // Tag klicken → Modal mit vorausgewähltem Datum
+    dateClick: info => {
+      _editPostId = null;
+      document.getElementById('slotModalTitle').textContent = 'SLOT HINZUFÜGEN';
+      document.getElementById('slotDate').value = info.dateStr + 'T09:00';
+      document.getElementById('slotCaption').value = '';
+      document.getElementById('slotNote').value = '';
+      // Reset auf fixed
+      document.querySelector('input[name="slotType"][value="fixed"]').checked = true;
+      onSlotTypeChange('fixed');
+      document.getElementById('slotModal').style.display = 'flex';
     },
+
+    // Drag & Drop → Datum verschieben
+    eventDrop: info => {
+      const p = info.event.extendedProps;
+      if (!p.post_id) { info.revert(); return; }
+      fetch(`/api/posts/${p.post_id}/reschedule`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({scheduled_at: info.event.start.toISOString().slice(0,16)})
+      }).then(r=>r.json()).then(d=>{
+        if (!d.ok) info.revert();
+        else { showToast('Post verschoben.', 'success', 1500); updateStats(); }
+      });
+    },
+
+    // Post klicken → Popup mit Aktionen
     eventClick: info => {
-      const p=info.event.extendedProps;
-      const pop=document.getElementById('evPopup');
-      pop.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <span class="badge badge-blue" style="text-transform:uppercase">${p.type}</span>
-        <button onclick="document.getElementById('evPopup').style.display='none'" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">&times;</button>
-      </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">${info.event.start.toLocaleString('de-DE')}</div>
-      ${p.caption?`<div style="font-size:12px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px">${p.caption}…</div>`:''}
-      <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center">
-        <span class="badge ${p.status==='published'?'badge-green':'badge-blue'}">${p.status}</span>
-        ${p.status==='scheduled'?`<button onclick="delPost(${p.post_id})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px"><i class="fa-solid fa-trash" style="margin-right:4px"></i>Löschen</button>`:''}
-      </div>`;
-      const rect=info.el.getBoundingClientRect();
-      pop.style.top=Math.min(rect.bottom+window.scrollY+8,window.innerHeight+window.scrollY-220)+'px';
-      pop.style.left=Math.min(rect.left,window.innerWidth-320)+'px';
-      pop.style.display='block';
+      const p = info.event.extendedProps;
+      showPostPopup(info.el, p, info.event.start);
+    },
+
+    // Events laden
+    events: (info, success, fail) => {
+      fetch(`/api/calendar/events?account_id=${ACCOUNT_ID}&start=${info.startStr}&end=${info.endStr}`)
+        .then(r=>r.json()).then(events => { success(events); updateStats(events); }).catch(fail);
+    },
+
+    // Custom Render: Slot-Typ-Indikator
+    eventDidMount: info => {
+      const slot = info.event.extendedProps.slot_type || 'fixed';
+      if (slot === 'flexible') {
+        info.el.style.backgroundImage = 'repeating-linear-gradient(45deg,transparent,transparent 4px,rgba(255,255,255,.08) 4px,rgba(255,255,255,.08) 8px)';
+      }
+      if (slot === 'disabled') {
+        info.el.style.opacity = '0.7';
+        info.el.style.textDecoration = 'line-through';
+      }
     }
   });
   cal.render();
-  document.addEventListener('click',e=>{if(!e.target.closest('#evPopup')&&!e.target.closest('.fc-event')&&!e.target.closest('#newPostModal'))document.getElementById('evPopup').style.display='none';});
+
+  // Popup schließen bei Klick außen
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#evPopup') && !e.target.closest('.fc-event') && !e.target.closest('#slotModal')) {
+      document.getElementById('evPopup').style.display = 'none';
+    }
+  });
 });
 
-function openNewPost(){document.getElementById('newPostModal').style.display='flex';}
-
-async function createPost(){
-  const d=document.getElementById('newDate').value;
-  if(!d){showToast('Datum wählen','warning');return;}
-  const res=await fetch(`/api/accounts/${ACCOUNT_ID}/posts/new`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scheduled_at:d,post_type:document.getElementById('newType').value,caption:document.getElementById('newCaption').value})});
-  if((await res.json()).ok){document.getElementById('newPostModal').style.display='none';cal.refetchEvents();}
+// Stats-Zähler aktualisieren
+function updateStats(events) {
+  if (!events) {
+    fetch(`/api/calendar/events?account_id=${ACCOUNT_ID}&start=${new Date().toISOString()}&end=${new Date(Date.now()+90*86400000).toISOString()}`)
+      .then(r=>r.json()).then(updateStats);
+    return;
+  }
+  const now = new Date();
+  const upcoming = events.filter(e => new Date(e.start) >= now);
+  document.getElementById('cntFixed').textContent   = upcoming.filter(e=>e.extendedProps.slot_type==='fixed').length;
+  document.getElementById('cntFlex').textContent    = upcoming.filter(e=>e.extendedProps.slot_type==='flexible').length;
+  document.getElementById('cntDis').textContent     = upcoming.filter(e=>e.extendedProps.slot_type==='disabled').length;
 }
 
-async function delPost(id){
-  const ok=await customConfirm('Post löschen','Diesen Post wirklich löschen?');
-  if(!ok)return;
+// Post-Popup anzeigen
+function showPostPopup(el, p, start) {
+  const pop = document.getElementById('evPopup');
+  const slotLabels = { fixed:'🔵 Fixierter Post', flexible:'🟢 Flexibler Slot', disabled:'⚫ Deaktiviert' };
+  const slotColors = { fixed:'var(--accent2)', flexible:'#34d399', disabled:'var(--muted)' };
+  const col = slotColors[p.slot_type] || 'var(--accent2)';
+
+  pop.innerHTML = `
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;font-weight:700;color:${col}">${slotLabels[p.slot_type] || '—'}</span>
+        <span class="badge badge-gray" style="font-size:10px">${p.type}</span>
+      </div>
+      <button onclick="document.getElementById('evPopup').style.display='none'"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <div style="padding:14px 16px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">${p.account}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:${p.caption?'10px':'0'}">
+        ${start?.toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) || ''}
+      </div>
+      ${p.caption ? `<div style="font-size:12px;color:var(--muted);line-height:1.5;padding:10px;background:var(--surface2);border-radius:8px;margin-bottom:10px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${p.caption}</div>` : ''}
+
+      <!-- Slot-Typ wechseln -->
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px">Slot-Typ ändern</div>
+        <div style="display:flex;gap:6px">
+          ${['fixed','flexible','disabled'].map(st => {
+            const icons = {fixed:'fa-thumbtack',flexible:'fa-shuffle',disabled:'fa-ban'};
+            const cols  = {fixed:'#3b82f6',flexible:'#059669',disabled:'#6b7280'};
+            const lbls  = {fixed:'Fixiert',flexible:'Flexibel',disabled:'Deaktiviert'};
+            const active = st === p.slot_type;
+            return `<button onclick="changeSlotType(${p.post_id},'${st}')"
+              style="flex:1;padding:7px 4px;border-radius:8px;border:1px solid ${active?cols[st]:' var(--border)'};
+                     background:${active?cols[st]+'20':'transparent'};cursor:pointer;
+                     color:${active?cols[st]:'var(--muted)'};font-size:11px;font-family:var(--font-body);
+                     display:flex;flex-direction:column;align-items:center;gap:3px;transition:all .15s"
+              onmouseover="this.style.borderColor='${cols[st]}';this.style.color='${cols[st]}'"
+              onmouseout="this.style.borderColor='${active?cols[st]:'var(--border)'}';this.style.color='${active?cols[st]:'var(--muted)'}'">
+              <i class="fa-solid ${icons[st]}" style="font-size:13px"></i>
+              <span>${lbls[st]}</span>
+            </button>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- Aktionen -->
+      <div style="display:flex;gap:6px;border-top:1px solid var(--border);padding-top:10px">
+        <button onclick="editSlot(${p.post_id},'${p.slot_type}','${p.type}',\`${p.caption?.replace(/`/g,"'") || ''}\`)"
+                class="btn btn-ghost" style="flex:1;font-size:11px;padding:7px">
+          <i class="fa-solid fa-pen"></i> Bearbeiten
+        </button>
+        <button onclick="deleteSlot(${p.post_id})"
+                class="btn btn-danger" style="flex:1;font-size:11px;padding:7px">
+          <i class="fa-solid fa-trash"></i> Löschen
+        </button>
+      </div>
+    </div>`;
+
+  // Position berechnen
+  const rect = el.getBoundingClientRect();
+  const top = Math.min(rect.bottom + window.scrollY + 8, window.innerHeight + window.scrollY - 350);
+  const left = Math.min(Math.max(rect.left, 10), window.innerWidth - 340);
+  pop.style.top  = top  + 'px';
+  pop.style.left = left + 'px';
+  pop.style.display = 'block';
+}
+
+// Slot-Typ direkt aus dem Popup ändern
+async function changeSlotType(postId, newType) {
+  const res = await fetch(`/api/posts/${postId}/slot-type`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({slot_type: newType})
+  });
+  if ((await res.json()).ok) {
+    document.getElementById('evPopup').style.display = 'none';
+    cal.refetchEvents();
+    const labels = {fixed:'Fixiert 🔵', flexible:'Flexibel 🟢', disabled:'Deaktiviert ⚫'};
+    showToast(`Geändert zu: ${labels[newType]}`, 'success');
+  }
+}
+
+// Slot bearbeiten
+function editSlot(postId, slotType, postType, caption) {
+  _editPostId = postId;
+  document.getElementById('slotModalTitle').textContent = 'SLOT BEARBEITEN';
+  document.querySelector(`input[name="slotType"][value="${slotType}"]`).checked = true;
+  onSlotTypeChange(slotType);
+  document.getElementById('slotPostType').value = postType;
+  document.getElementById('slotCaption').value  = caption;
+  document.getElementById('evPopup').style.display = 'none';
+  document.getElementById('slotModal').style.display = 'flex';
+}
+
+// Slot speichern (neu oder bearbeiten)
+async function saveSlot() {
+  const date  = document.getElementById('slotDate').value;
+  const stype = document.querySelector('input[name="slotType"]:checked')?.value || 'fixed';
+  if (!date) { showToast('Bitte Datum wählen.','warning'); return; }
+
+  const btn = document.getElementById('slotSaveBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+  try {
+    let res;
+    if (_editPostId) {
+      // Slot-Typ + Caption updaten
+      await fetch(`/api/posts/${_editPostId}/slot-type`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({slot_type: stype})
+      });
+      res = {ok: true};
+    } else {
+      // Neuen Slot anlegen
+      const body = {
+        scheduled_at: date,
+        post_type: document.getElementById('slotPostType').value,
+        caption: document.getElementById('slotCaption').value,
+        slot_type: stype,
+      };
+      if (stype === 'disabled') body.caption = document.getElementById('slotNote').value || '';
+      const r = await fetch(`/api/accounts/${ACCOUNT_ID}/posts/new`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+      });
+      res = await r.json();
+    }
+
+    if (res.ok !== false) {
+      document.getElementById('slotModal').style.display = 'none';
+      cal.refetchEvents();
+      const labels = {fixed:'Fixierter Post 🔵', flexible:'Flexibler Slot 🟢', disabled:'Tag deaktiviert ⚫'};
+      showToast(labels[stype] + ' gespeichert.', 'success');
+    }
+  } catch(e) {
+    showToast('Fehler beim Speichern.', 'error');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-check"></i> Speichern';
+}
+
+function openSlotModal(date) {
+  _editPostId = null;
+  document.getElementById('slotModalTitle').textContent = 'SLOT HINZUFÜGEN';
+  if (date) document.getElementById('slotDate').value = date + 'T09:00';
+  document.getElementById('slotCaption').value = '';
+  document.getElementById('slotNote').value = '';
+  document.querySelector('input[name="slotType"][value="fixed"]').checked = true;
+  onSlotTypeChange('fixed');
+  document.getElementById('slotModal').style.display = 'flex';
+}
+
+async function deleteSlot(id) {
+  const ok = await customConfirm('Slot löschen','Diesen Eintrag wirklich löschen?');
+  if (!ok) return;
   await fetch(`/api/posts/${id}/delete`,{method:'POST'});
   document.getElementById('evPopup').style.display='none';
   cal.refetchEvents();
-  showToast('Post gelöscht.','info');
+  showToast('Slot gelöscht.','info');
 }
 </script>
 {% endblock %}
