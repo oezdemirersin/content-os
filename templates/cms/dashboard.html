@@ -146,15 +146,11 @@
   <div class="stat-card">
     <div class="stat-label">Gesamt-Follower</div>
     <div class="stat-value blue" id="kpi-followers">
-      {% set f = stats.total_followers %}
-      {% if f >= 1000000 %}{{ "%.1f"|format(f/1000000) }}M
-      {% elif f >= 1000 %}{{ "%.0f"|format(f/1000) }}K
-      {% else %}{{ f }}{% endif %}
+      {{ stats.total_followers | fmt_followers }}
     </div>
     <div class="stat-sub {% if stats.growth_7d >= 0 %}stock-green{% else %}stock-red{% endif %}">
       <i class="fa-solid fa-arrow-{% if stats.growth_7d >= 0 %}up{% else %}down{% endif %}"></i>
-      {% if stats.growth_7d >= 1000 %}{{ "%.1f"|format(stats.growth_7d/1000) }}K
-      {% else %}{{ stats.growth_7d }}{% endif %} diese Woche
+      {{ stats.growth_7d | fmt_followers }} diese Woche
     </div>
   </div>
   <div class="stat-card">
@@ -390,10 +386,7 @@
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-family:var(--font-display);font-size:15px;color:var(--text)">
-            {% set f = acc.follower_count %}
-            {% if f >= 1000000 %}{{ "%.1f"|format(f/1000000) }}M
-            {% elif f >= 1000 %}{{ "%.0f"|format(f/1000) }}K
-            {% else %}{{ f }}{% endif %}
+            {{ acc.follower_count | fmt_followers }}
           </div>
           <div style="font-size:10px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
         </div>
@@ -594,7 +587,7 @@ async function loadChart(days, btn) {
       scales:{
         x:{grid:{display:false}, ticks:{maxTicksLimit:10}},
         y:{grid:{color:'rgba(255,255,255,0.04)'},
-           ticks:{callback:v=>v>=1000000?(v/1000000).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'K':v}}
+           ticks:{callback:v=>v.toLocaleString('de-DE')}}
       }
     }
   });

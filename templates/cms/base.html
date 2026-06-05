@@ -764,7 +764,7 @@ function onQpAccountChange(sel) {
   const info = document.getElementById('qpAccountInfo');
   const acc = _qpAccountsCache.find(a => a.id == sel.value);
   if (!acc) { info.style.display='none'; return; }
-  const f = acc.followers >= 1000 ? (acc.followers/1000).toFixed(0)+'K' : (acc.followers||0);
+  const f = (acc.followers||0).toLocaleString('de-DE');
   info.style.display = 'flex';
   info.innerHTML = `<span><i class="fa-solid fa-users" style="margin-right:4px"></i>${f} Follower</span>`
     + (acc.category ? `<span><i class="fa-solid fa-tag" style="margin-right:4px"></i>${acc.category}</span>` : '')

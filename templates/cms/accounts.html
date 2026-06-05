@@ -201,10 +201,7 @@
         </td>
         <td style="text-align:right">
           <span style="font-family:var(--font-display);font-size:16px;color:var(--text)">
-            {% set f = acc.follower_count %}
-            {% if f >= 1000000 %}{{ "%.1f"|format(f/1000000) }}M
-            {% elif f >= 1000 %}{{ "%.0f"|format(f/1000) }}K
-            {% else %}{{ f }}{% endif %}
+            {{ acc.follower_count | fmt_followers }}
           </span>
         </td>
         <td style="text-align:center">
@@ -420,7 +417,7 @@ async function submitBulkFollowers() {
            style="display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border)">
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:600;color:var(--text)">{{ acc.name }}</div>
-          <div style="font-size:11px;color:var(--muted)">Aktuell: {{ acc.follower_count | int }}</div>
+          <div style="font-size:11px;color:var(--muted)">Aktuell: {{ acc.follower_count | fmt_followers }}</div>
         </div>
         <input type="number" min="0" placeholder="Neue Zahl…"
                class="input-field" style="width:130px;font-size:13px;padding:7px 10px">

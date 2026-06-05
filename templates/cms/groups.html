@@ -36,8 +36,8 @@
            style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;
                   background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.2);text-decoration:none">
           <span style="font-size:12px;font-weight:600;color:var(--text)">{{ acc.name }}</span>
-          {% if acc.follower_count >= 1000 %}
-          <span style="font-size:10px;color:var(--muted)">{{ "%.0f"|format(acc.follower_count/1000) }}K</span>
+          {% if acc.follower_count > 0 %}
+          <span style="font-size:10px;color:var(--muted)">{{ acc.follower_count | fmt_followers }}</span>
           {% endif %}
         </a>
         {% else %}
@@ -107,7 +107,7 @@
                 {% if acc.category %}<div style="font-size:10px;color:var(--muted)">{{ acc.category.name }}</div>{% endif %}
               </div>
               <span style="font-size:11px;color:var(--muted);flex-shrink:0">
-                {% if acc.follower_count >= 1000 %}{{ "%.0f"|format(acc.follower_count/1000) }}K{% else %}{{ acc.follower_count }}{% endif %}
+                {{ acc.follower_count | fmt_followers }}
               </span>
             </label>
             {% endfor %}

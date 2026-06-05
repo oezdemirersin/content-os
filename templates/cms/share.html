@@ -66,8 +66,7 @@
     <div class="stat">
       <div class="stat-label">Follower</div>
       <div class="stat-value">
-        {% set f = account.follower_count %}
-        {% if f >= 1000000 %}{{ "%.1f"|format(f/1000000) }}M{% elif f >= 1000 %}{{ "%.0f"|format(f/1000) }}K{% else %}{{ f }}{% endif %}
+        {{ account.follower_count | fmt_followers }}
       </div>
     </div>
     <div class="stat">

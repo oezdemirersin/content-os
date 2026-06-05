@@ -117,7 +117,7 @@
             </div>
             <div style="text-align:right;flex-shrink:0">
               <div style="font-family:var(--font-display);font-size:14px;color:var(--text)">
-                {% if acc.follower_count>=1000 %}{{ "%.0f"|format(acc.follower_count/1000) }}K{% else %}{{ acc.follower_count }}{% endif %}
+                {{ acc.follower_count | fmt_followers }}
               </div>
               <div style="font-size:10px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
             </div>

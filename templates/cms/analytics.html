@@ -8,9 +8,7 @@
   <div class="stat-card">
     <div class="stat-label">Gesamt-Follower</div>
     <div class="stat-value blue">
-      {% if total_followers>=1000000 %}{{ "%.1f"|format(total_followers/1000000) }}M
-      {% elif total_followers>=1000 %}{{ "%.0f"|format(total_followers/1000) }}K
-      {% else %}{{ total_followers }}{% endif %}
+      {{ total_followers | fmt_followers }}
     </div>
   </div>
   <div class="stat-card">
@@ -21,7 +19,7 @@
     <div class="stat-label">Größter Account</div>
     {% if accounts %}
     <div class="stat-value blue" style="font-size:24px;line-height:1.1">{{ accounts[0].name }}</div>
-    <div class="stat-sub">{{ "%.0f"|format(accounts[0].follower_count/1000) }}K Follower</div>
+    <div class="stat-sub">{{ accounts[0].follower_count | fmt_followers }} Follower</div>
     {% endif %}
   </div>
   <div class="stat-card">
@@ -108,9 +106,7 @@
           <div style="height:100%;border-radius:4px;background:{{ cat.color }};width:{{ cat.pct }}%;transition:width .5s"></div>
         </div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px">
-          {% if cat.followers>=1000000 %}{{ "%.1f"|format(cat.followers/1000000) }}M
-          {% elif cat.followers>=1000 %}{{ "%.0f"|format(cat.followers/1000) }}K
-          {% else %}{{ cat.followers }}{% endif %} Follower
+          {{ cat.followers | fmt_followers }} Follower
         </div>
       </div>
       {% endfor %}
@@ -133,9 +129,7 @@
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-family:var(--font-display);font-size:16px;color:var(--text)">
-            {% if acc.follower_count>=1000000 %}{{ "%.1f"|format(acc.follower_count/1000000) }}M
-            {% elif acc.follower_count>=1000 %}{{ "%.0f"|format(acc.follower_count/1000) }}K
-            {% else %}{{ acc.follower_count }}{% endif %}
+            {{ acc.follower_count | fmt_followers }}
           </div>
           <div style="font-size:10px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
         </div>
@@ -177,7 +171,7 @@ async function loadGrowth(days, btn) {
     type:'line', data:{labels:allLabels,datasets},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false},tooltip:{backgroundColor:'var(--surface)',borderColor:'var(--border)',borderWidth:1,titleColor:'var(--muted)',bodyColor:'var(--text)',callbacks:{label:c=>(c.dataset.label==='Prognose'?'~ ':' ')+c.raw?.toLocaleString('de-DE')+' Follower'}}},
-      scales:{x:{grid:{display:false},ticks:{maxTicksLimit:10}},y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{callback:v=>v>=1000000?(v/1000000).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'K':v}}}}
+      scales:{x:{grid:{display:false},ticks:{maxTicksLimit:10}},y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{callback:v=>v.toLocaleString('de-DE')}}}}
   });
 }
 
@@ -207,7 +201,7 @@ new Chart(document.getElementById('catChart').getContext('2d'), {
   type:'bar', data:{labels:catData.map(c=>c.name),datasets:[{data:catData.map(c=>c.followers),
     backgroundColor:catData.map(c=>c.color+'50'),borderColor:catData.map(c=>c.color),borderWidth:1,borderRadius:6}]},
   options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false},tooltip:{backgroundColor:'var(--surface)',borderColor:'var(--border)',borderWidth:1,bodyColor:'var(--text)',callbacks:{label:c=>' '+c.raw.toLocaleString('de-DE')+' Follower'}}},
-    scales:{x:{grid:{color:'rgba(255,255,255,.04)'},ticks:{callback:v=>v>=1000000?(v/1000000).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'K':v}},y:{grid:{display:false},ticks:{font:{size:11}}}}}
+    scales:{x:{grid:{color:'rgba(255,255,255,.04)'},ticks:{callback:v=>v.toLocaleString('de-DE')}},y:{grid:{display:false},ticks:{font:{size:11}}}}}
 });
 
 loadGrowth(30, document.querySelectorAll('#periodBtns button')[1]);
@@ -234,14 +228,14 @@ async function loadCompare() {
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:true,position:'top',labels:{color:'var(--muted)',font:{family:'DM Sans',size:12}}},
         tooltip:{backgroundColor:'var(--surface)',borderColor:'var(--border)',borderWidth:1,bodyColor:'var(--text)'}},
-      scales:{x:{grid:{display:false},ticks:{maxTicksLimit:8}},y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v}}}}
+      scales:{x:{grid:{display:false},ticks:{maxTicksLimit:8}},y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{callback:v=>v.toLocaleString('de-DE')}}}}
   });
   // Stats
   const statsDiv = document.getElementById('compareStats');
   statsDiv.innerHTML = [d.a,d.b].filter(Boolean).map(acc=>`
     <div style="flex:1;background:var(--surface2);border-radius:10px;padding:14px 16px">
       <div style="font-size:11px;color:var(--muted);margin-bottom:4px">${acc.name}</div>
-      <div style="font-family:var(--font-display);font-size:28px;color:var(--accent2)">${acc.followers>=1000?(acc.followers/1000).toFixed(0)+'K':acc.followers}</div>
+      <div style="font-family:var(--font-display);font-size:28px;color:var(--accent2)">${(acc.followers||0).toLocaleString('de-DE')}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px">${acc.category} · ${acc.stock}T Vorrat</div>
     </div>`).join('');
 }

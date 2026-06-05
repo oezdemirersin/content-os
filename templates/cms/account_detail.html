@@ -99,10 +99,7 @@
   <div class="stat-card">
     <div class="stat-label">Follower</div>
     <div class="stat-value blue">
-      {% set f = account.follower_count %}
-      {% if f >= 1000000 %}{{ "%.1f"|format(f/1000000) }}M
-      {% elif f >= 1000 %}{{ "%.0f"|format(f/1000) }}K
-      {% else %}{{ f }}{% endif %}
+      {{ account.follower_count | fmt_followers }}
     </div>
   </div>
   <div class="stat-card">
@@ -145,7 +142,7 @@
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
       <div>
         <span style="font-family:var(--font-display);font-size:32px;color:var(--accent2)">
-          {% if goal >= 1000000 %}{{ "%.1f"|format(goal/1000000) }}M{% elif goal >= 1000 %}{{ "%.0f"|format(goal/1000) }}K{% else %}{{ goal }}{% endif %}
+          {{ goal | fmt_followers }}
         </span>
         <span style="font-size:12px;color:var(--muted);margin-left:8px">Ziel</span>
       </div>
@@ -672,7 +669,7 @@ new Chart(ctx, {
     plugins:{legend:{display:false}},
     scales:{
       x:{grid:{display:false},ticks:{maxTicksLimit:6}},
-      y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'K':v}}
+      y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{callback:v=>v.toLocaleString('de-DE')}}
     }
   }
 });
