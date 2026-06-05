@@ -252,7 +252,7 @@
           {% endif %}
         </td>
         <td>
-          <div style="display:flex;gap:2px;opacity:0;transition:opacity .15s" class="row-actions">
+          <div style="display:flex;gap:2px" class="row-actions">
             <a href="{{ url_for('account_detail', account_id=acc.id) }}" class="icon-btn" style="font-size:13px;padding:6px" title="Details">
               <i class="fa-solid fa-eye"></i>
             </a>
@@ -313,7 +313,7 @@
 
 {% block scripts %}
 <style>
-.table tbody tr:hover .row-actions { opacity:1; }
+/* row-actions immer sichtbar */
 .sortable:hover { color:var(--text) !important; }
 </style>
 <script>
