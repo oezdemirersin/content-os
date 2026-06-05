@@ -777,8 +777,10 @@ def account_post_new(account_id):
     if media_item_id and not media_ids_list:
         media_ids_list = [media_item_id]
 
+    content_item_id = d.get('content_item_id')
     post = ScheduledPost(
         account_id=account_id,
+        content_item_id=content_item_id,
         caption=d.get('caption', ''),
         post_type=d.get('post_type', 'feed'),
         slot_type=slot_type,
@@ -797,6 +799,34 @@ def account_post_new(account_id):
     db.session.commit()
     log_activity('post_scheduled', f'{slot_type.capitalize()}-Slot für {acc.name} am {post.scheduled_at.strftime("%d.%m")} gesetzt')
     return jsonify({'id': post.id, 'ok': True})
+
+
+@app.route('/api/content/picker')
+def content_picker_list():
+    """Gibt Content-Items für den Kalender-Picker zurück."""
+    q = request.args.get('q', '')
+    status = request.args.get('status', '')
+    category_id = request.args.get('category', type=int)
+    query = ContentItem.query.filter(ContentItem.status.in_(['draft','in_progress','ready']))
+    if q:
+        query = query.filter(ContentItem.title.ilike(f'%{q}%') | ContentItem.caption.ilike(f'%{q}%'))
+    if status:
+        query = query.filter_by(status=status)
+    if category_id:
+        query = query.filter_by(category_id=category_id)
+    items = query.order_by(ContentItem.created_at.desc()).limit(100).all()
+    return jsonify([{
+        'id': c.id,
+        'title': c.title,
+        'caption': (c.caption or '')[:200],
+        'status': c.status,
+        'content_type': c.content_type,
+        'category': c.category.name if c.category else '',
+        'category_color': c.category.color if c.category else '#6366f1',
+        'media_url': c.media_items[0].url if c.media_items else None,
+        'media_count': len(c.media_items),
+        'media_ids': [m.id for m in c.media_items],
+    } for c in items])
 
 
 @app.route('/api/media/picker')
@@ -1258,6 +1288,9 @@ def calendar_events():
                 'media_count': len(p.get_media_ids()),
                 'media_url': (MediaItem.query.get(p.media_item_id).url
                               if p.media_item_id and MediaItem.query.get(p.media_item_id) else None),
+                'content_item_id': p.content_item_id,
+                'content_title': (ContentItem.query.get(p.content_item_id).title[:60]
+                                  if p.content_item_id and ContentItem.query.get(p.content_item_id) else None),
             }
         })
     return jsonify(events)

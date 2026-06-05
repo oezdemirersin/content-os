@@ -92,7 +92,24 @@
         <i class="fa-solid fa-xmark"></i>
       </button>
     </div>
-    <div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px">
+    <!-- Tab-Leiste -->
+    <div style="display:flex;border-bottom:1px solid var(--border)">
+      <button id="tabNew" onclick="switchTab('new')"
+              style="flex:1;padding:12px;background:none;border:none;cursor:pointer;font-family:var(--font-body);
+                     font-size:13px;font-weight:700;color:var(--accent2);border-bottom:2px solid var(--accent);
+                     transition:all .15s">
+        <i class="fa-solid fa-plus" style="margin-right:6px"></i>Neu erstellen
+      </button>
+      <button id="tabExisting" onclick="switchTab('existing')"
+              style="flex:1;padding:12px;background:none;border:none;cursor:pointer;font-family:var(--font-body);
+                     font-size:13px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;
+                     transition:all .15s">
+        <i class="fa-solid fa-inbox" style="margin-right:6px"></i>Aus Content Hub
+      </button>
+    </div>
+
+    <!-- TAB: NEU ERSTELLEN -->
+    <div id="panelNew" style="padding:20px 24px;display:flex;flex-direction:column;gap:16px">
 
       <!-- ① MEDIA — groß und oben, das ist das Wichtigste -->
       <div id="mediaPickerWrap">
@@ -216,10 +233,65 @@
       <div style="display:flex;gap:10px;justify-content:flex-end">
         <button onclick="document.getElementById('slotModal').style.display='none'" class="btn btn-ghost">Abbrechen</button>
         <button onclick="saveSlot()" class="btn btn-primary" id="slotSaveBtn">
-          <i class="fa-solid fa-check"></i> Speichern
+          <i class="fa-solid fa-check"></i> Planen
         </button>
       </div>
     </div>
+
+    <!-- TAB: AUS CONTENT HUB -->
+    <div id="panelExisting" style="display:none;padding:20px 24px;display:none;flex-direction:column;gap:14px">
+
+      <!-- Datum auswählen (bleibt immer sichtbar) -->
+      <div>
+        <label class="form-label">Datum & Uhrzeit *</label>
+        <input type="datetime-local" id="slotDateExisting" class="input-field">
+      </div>
+
+      <!-- Suche + Filter -->
+      <div style="display:flex;gap:8px">
+        <div style="flex:1;display:flex;align-items:center;gap:8px;background:var(--surface2);
+                    border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+          <i class="fa-solid fa-magnifying-glass" style="color:var(--muted);font-size:11px;flex-shrink:0"></i>
+          <input type="text" id="contentPickerSearch" placeholder="Beitrag suchen…"
+                 oninput="loadContentPicker()"
+                 style="background:none;border:none;outline:none;font-size:13px;color:var(--text);width:100%;font-family:var(--font-body)">
+        </div>
+        <select id="contentPickerStatus" onchange="loadContentPicker()" class="select-field" style="width:auto;font-size:12px">
+          <option value="">Alle Status</option>
+          <option value="draft">Entwurf</option>
+          <option value="in_progress">In Bearbeitung</option>
+          <option value="ready">Bereit</option>
+        </select>
+      </div>
+
+      <!-- Content-Liste -->
+      <div id="contentPickerList"
+           style="display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto;
+                  border:1px solid var(--border);border-radius:10px;background:var(--surface2)">
+        <div style="padding:32px;text-align:center;color:var(--muted);font-size:13px">
+          <i class="fa-solid fa-spinner fa-spin"></i>
+        </div>
+      </div>
+
+      <!-- Ausgewählter Beitrag Preview -->
+      <div id="selectedContentPreview" style="display:none;padding:14px;border-radius:10px;
+           background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.2)">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--accent2);text-transform:uppercase;margin-bottom:8px">
+          <i class="fa-solid fa-check-circle" style="margin-right:4px"></i>Ausgewählt
+        </div>
+        <div id="selectedContentTitle" style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px"></div>
+        <div id="selectedContentMeta"  style="font-size:11px;color:var(--muted)"></div>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="document.getElementById('slotModal').style.display='none'" class="btn btn-ghost">Abbrechen</button>
+        <button onclick="saveSlotExisting()" class="btn btn-primary" id="slotExistingSaveBtn" disabled
+                style="opacity:.5">
+          <i class="fa-solid fa-calendar-plus"></i> Einplanen
+        </button>
+      </div>
+    </div>
+
   </div>
 </div>
 <!-- Media-Picker Modal -->
@@ -297,9 +369,146 @@
 const ACCOUNT_ID = {{ account.id }};
 let cal;
 let _editPostId = null;
-let _selectedMediaIds = [];      // aktuell im Modal gewählte Media-IDs
-let _pickerSelected = new Set(); // im Picker angeklickte IDs
+let _selectedMediaIds = [];
+let _pickerSelected = new Set();
 let currentPickerType = '';
+let _selectedContentId = null;
+
+// ── Tab-Wechsel ──
+function switchTab(tab) {
+  const isNew = tab === 'new';
+  document.getElementById('panelNew').style.display      = isNew ? 'flex' : 'none';
+  document.getElementById('panelExisting').style.display = isNew ? 'none' : 'flex';
+
+  const btnNew      = document.getElementById('tabNew');
+  const btnExisting = document.getElementById('tabExisting');
+  btnNew.style.color        = isNew ? 'var(--accent2)' : 'var(--muted)';
+  btnNew.style.borderBottom = isNew ? '2px solid var(--accent)' : '2px solid transparent';
+  btnExisting.style.color        = isNew ? 'var(--muted)' : 'var(--accent2)';
+  btnExisting.style.borderBottom = isNew ? '2px solid transparent' : '2px solid var(--accent)';
+
+  if (!isNew) {
+    // Datum synchronisieren
+    const d = document.getElementById('slotDate').value;
+    if (d) document.getElementById('slotDateExisting').value = d;
+    loadContentPicker();
+  }
+}
+
+// ── Content-Picker laden ──
+async function loadContentPicker() {
+  const q      = document.getElementById('contentPickerSearch').value;
+  const status = document.getElementById('contentPickerStatus').value;
+  const list   = document.getElementById('contentPickerList');
+  list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (status) params.set('status', status);
+  const items = await (await fetch('/api/content/picker?' + params)).json();
+
+  if (!items.length) {
+    list.innerHTML = '<div style="padding:32px;text-align:center;color:var(--muted);font-size:13px">Keine Beiträge gefunden</div>';
+    return;
+  }
+
+  const statusLabels = {draft:'Entwurf', in_progress:'In Bearbeitung', ready:'✓ Bereit'};
+  const statusColors = {draft:'var(--muted)', in_progress:'var(--warning)', ready:'var(--success)'};
+
+  list.innerHTML = items.map(c => `
+    <div onclick="selectContent(${c.id}, '${c.title.replace(/'/g,"\\'")}', '${c.content_type}', '${c.category}')"
+         id="cpItem-${c.id}"
+         style="display:flex;align-items:center;gap:12px;padding:12px 16px;
+                border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s;
+                ${_selectedContentId === c.id ? 'background:rgba(59,130,246,.08);' : ''}"
+         onmouseover="if(${c.id}!==_selectedContentId)this.style.background='rgba(255,255,255,.03)'"
+         onmouseout="if(${c.id}!==_selectedContentId)this.style.background=''">
+
+      <!-- Thumbnail oder Typ-Icon -->
+      <div style="width:52px;height:52px;border-radius:8px;overflow:hidden;flex-shrink:0;
+                  background:var(--surface);border:1px solid var(--border);
+                  display:flex;align-items:center;justify-content:center">
+        ${c.media_url
+          ? `<img src="${c.media_url}" style="width:100%;height:100%;object-fit:cover">`
+          : `<i class="fa-solid ${c.content_type==='reel'?'fa-video':c.content_type==='carousel'?'fa-images':'fa-image'}"
+                style="font-size:20px;color:var(--muted)"></i>`}
+      </div>
+
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${c.title}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap">
+          ${c.category ? `<span style="font-size:10px;font-weight:700;color:${c.category_color}">${c.category}</span>` : ''}
+          <span style="font-size:10px;color:${statusColors[c.status]||'var(--muted)'}">${statusLabels[c.status]||c.status}</span>
+          <span style="font-size:10px;color:var(--muted)">${{feed:'📸',reel:'🎬',story:'⭕',carousel:'🎠'}[c.content_type]||'📌'} ${c.content_type}</span>
+          ${c.media_count > 1 ? `<span style="font-size:10px;color:var(--muted)">${c.media_count} Bilder</span>` : ''}
+        </div>
+        ${c.caption ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.caption}</div>` : ''}
+      </div>
+
+      ${_selectedContentId === c.id
+        ? `<i class="fa-solid fa-circle-check" style="color:var(--accent);font-size:18px;flex-shrink:0"></i>`
+        : `<i class="fa-regular fa-circle" style="color:var(--border);font-size:18px;flex-shrink:0"></i>`}
+    </div>`).join('');
+}
+
+// ── Beitrag auswählen ──
+function selectContent(id, title, type, category) {
+  _selectedContentId = id;
+
+  // Alle Items deselektieren
+  document.querySelectorAll('[id^="cpItem-"]').forEach(el => {
+    el.style.background = '';
+    el.querySelector('.fa-circle-check')?.classList.replace('fa-circle-check','fa-circle');
+    el.querySelector('i.fa-circle')?.classList.replace('fa-solid','fa-regular');
+  });
+
+  // Dieses Item aktivieren
+  const el = document.getElementById(`cpItem-${id}`);
+  if (el) el.style.background = 'rgba(59,130,246,.08)';
+
+  // Preview anzeigen
+  document.getElementById('selectedContentPreview').style.display = 'block';
+  document.getElementById('selectedContentTitle').textContent = title;
+  document.getElementById('selectedContentMeta').textContent =
+    `${category ? category + ' · ' : ''}${type}`;
+
+  // Save-Button aktivieren
+  const btn = document.getElementById('slotExistingSaveBtn');
+  btn.disabled = false;
+  btn.style.opacity = '1';
+}
+
+// ── Bestehenden Beitrag einplanen ──
+async function saveSlotExisting() {
+  if (!_selectedContentId) return;
+  const date = document.getElementById('slotDateExisting').value;
+  if (!date) { showToast('Bitte Datum wählen.', 'warning'); return; }
+
+  const btn = document.getElementById('slotExistingSaveBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+  const res = await fetch(`/api/accounts/${ACCOUNT_ID}/posts/new`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      scheduled_at: date,
+      content_item_id: _selectedContentId,
+      slot_type: 'fixed',
+      post_type: 'feed', // wird vom Content-Item überschrieben
+    })
+  });
+  const d = await res.json();
+  if (d.ok) {
+    document.getElementById('slotModal').style.display = 'none';
+    cal.refetchEvents();
+    showToast('Beitrag eingeplant! 🗓️', 'success');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-calendar-plus"></i> Einplanen';
+}
 
 // ── Media-Picker öffnen ──
 async function openMediaPicker() {
@@ -665,6 +874,15 @@ function showPostPopup(el, p, start) {
             <i class="fa-solid fa-images" style="margin-right:3px"></i>${p.media_count} Bilder
           </div>` : ''}
         </div>` : ''}
+      ${p.content_title ? `
+        <a href="/content/${p.content_item_id}" target="_blank"
+           style="display:flex;align-items:center;gap:6px;padding:8px 10px;border-radius:8px;
+                  background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);
+                  text-decoration:none;margin-bottom:10px">
+          <i class="fa-solid fa-file-lines" style="color:var(--accent2);font-size:11px;flex-shrink:0"></i>
+          <span style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.content_title}</span>
+          <i class="fa-solid fa-arrow-up-right-from-square" style="color:var(--muted);font-size:10px;flex-shrink:0;margin-left:auto"></i>
+        </a>` : ''}
       ${p.caption ? `<div style="font-size:12px;color:var(--muted);line-height:1.5;padding:10px;background:var(--surface2);border-radius:8px;margin-bottom:10px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${p.caption}</div>` : ''}
 
       <!-- Slot-Typ wechseln -->
@@ -797,14 +1015,20 @@ async function saveSlot() {
 function openSlotModal(date) {
   _editPostId = null;
   _selectedMediaIds = [];
+  _selectedContentId = null;
   document.getElementById('slotModalTitle').textContent = 'POST PLANEN';
-  if (date) document.getElementById('slotDate').value = date + 'T09:00';
+  if (date) {
+    document.getElementById('slotDate').value = date + 'T09:00';
+    document.getElementById('slotDateExisting').value = date + 'T09:00';
+  }
   document.getElementById('slotCaption').value = '';
   document.getElementById('slotNote').value = '';
   document.getElementById('autoTypeBadge').style.display = 'none';
+  document.getElementById('selectedContentPreview').style.display = 'none';
   document.querySelector('input[name="slotType"][value="fixed"]').checked = true;
   onSlotTypeChange('fixed');
   renderSelectedMedia();
+  switchTab('new'); // immer auf "Neu erstellen" starten
   document.getElementById('slotModal').style.display = 'flex';
 }
 
