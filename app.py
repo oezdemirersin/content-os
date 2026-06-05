@@ -237,6 +237,8 @@ def init_db():
             sp_cols = [c['name'] for c in inspector.get_columns('scheduled_post')]
             if 'slot_type' not in sp_cols:
                 conn.execute(text("ALTER TABLE scheduled_post ADD COLUMN slot_type VARCHAR(20) DEFAULT 'fixed'"))
+            if 'media_ids' not in sp_cols:
+                conn.execute(text("ALTER TABLE scheduled_post ADD COLUMN media_ids TEXT DEFAULT '[]'"))
             conn.commit()
         seed_data()
 
@@ -759,6 +761,12 @@ def account_post_new(account_id):
     # disabled-Slot: kein echtes Post, nur Platzhalter
     status = 'disabled' if slot_type == 'disabled' else 'scheduled'
 
+    # Media verarbeiten
+    media_item_id = d.get('media_item_id')  # Einzelbild / Reel
+    media_ids_list = d.get('media_ids', []) # Carousel
+    if media_item_id and not media_ids_list:
+        media_ids_list = [media_item_id]
+
     post = ScheduledPost(
         account_id=account_id,
         caption=d.get('caption', ''),
@@ -766,11 +774,51 @@ def account_post_new(account_id):
         slot_type=slot_type,
         status=status,
         scheduled_at=datetime.fromisoformat(d['scheduled_at']),
+        media_item_id=media_ids_list[0] if media_ids_list else None,
+        media_ids=json.dumps(media_ids_list),
     )
     db.session.add(post)
+
+    # Media usage_count erhöhen
+    for mid in media_ids_list:
+        m = MediaItem.query.get(mid)
+        if m: m.usage_count += 1
+
     db.session.commit()
     log_activity('post_scheduled', f'{slot_type.capitalize()}-Slot für {acc.name} am {post.scheduled_at.strftime("%d.%m")} gesetzt')
     return jsonify({'id': post.id, 'ok': True})
+
+
+@app.route('/api/media/picker')
+def media_picker_list():
+    """Gibt alle Medien für den Picker zurück."""
+    file_type = request.args.get('type', '')
+    q = request.args.get('q', '')
+    query = MediaItem.query
+    if file_type:
+        query = query.filter_by(file_type=file_type)
+    if q:
+        query = query.filter(MediaItem.original_filename.ilike(f'%{q}%'))
+    items = query.order_by(MediaItem.created_at.desc()).limit(200).all()
+    return jsonify([{
+        'id': m.id,
+        'name': m.original_filename,
+        'url': m.url,
+        'file_type': m.file_type,
+        'size_kb': round(m.file_size / 1024) if m.file_size else 0,
+    } for m in items])
+
+
+@app.route('/api/posts/<int:post_id>/media', methods=['POST'])
+def post_update_media(post_id):
+    """Media eines Posts aktualisieren."""
+    post = ScheduledPost.query.get_or_404(post_id)
+    d = request.get_json()
+    media_ids = d.get('media_ids', [])
+    post.media_ids = json.dumps(media_ids)
+    post.media_item_id = media_ids[0] if media_ids else None
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/posts/<int:post_id>/slot-type', methods=['POST'])
@@ -1196,6 +1244,10 @@ def calendar_events():
                 'slot_type': slot,
                 'caption': (p.caption or '')[:150],
                 'post_id': p.id,
+                'media_ids': p.get_media_ids(),
+                'media_count': len(p.get_media_ids()),
+                'media_url': (MediaItem.query.get(p.media_item_id).url
+                              if p.media_item_id and MediaItem.query.get(p.media_item_id) else None),
             }
         })
     return jsonify(events)

@@ -269,6 +269,12 @@ class ScheduledPost(db.Model):
     account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
     content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'))
     media_item_id = db.Column(db.Integer, db.ForeignKey('media_item.id'))
+    media_ids     = db.Column(db.Text, default='[]')  # JSON-Liste für Carousel: [id, id, ...]
+
+    def get_media_ids(self):
+        import json
+        try: return json.loads(self.media_ids or '[]')
+        except: return []
 
     caption = db.Column(db.Text)
     hashtags = db.Column(db.Text)
