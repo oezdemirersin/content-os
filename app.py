@@ -221,24 +221,34 @@ def init_db():
         # SQLite migrations — neue Spalten hinzufügen falls nicht vorhanden
         from sqlalchemy import text, inspect
         inspector = inspect(db.engine)
-        account_cols = [c['name'] for c in inspector.get_columns('account')]
+        # PostgreSQL-kompatible Migrations (IF NOT EXISTS + TIMESTAMP statt DATETIME)
+        is_postgres = 'postgresql' in str(db.engine.url)
         with db.engine.connect() as conn:
-            if 'growth_goal' not in account_cols:
-                conn.execute(text('ALTER TABLE account ADD COLUMN growth_goal INTEGER'))
-            if 'growth_goal_date' not in account_cols:
-                conn.execute(text('ALTER TABLE account ADD COLUMN growth_goal_date DATETIME'))
-            if 'share_token' not in account_cols:
-                conn.execute(text('ALTER TABLE account ADD COLUMN share_token VARCHAR(64)'))
-            # ContentItem: caption_score
-            ci_cols = [c['name'] for c in inspector.get_columns('content_item')]
-            if 'caption_score_manual' not in ci_cols:
-                conn.execute(text('ALTER TABLE content_item ADD COLUMN caption_score_manual FLOAT'))
-            # ScheduledPost: slot_type
-            sp_cols = [c['name'] for c in inspector.get_columns('scheduled_post')]
-            if 'slot_type' not in sp_cols:
-                conn.execute(text("ALTER TABLE scheduled_post ADD COLUMN slot_type VARCHAR(20) DEFAULT 'fixed'"))
-            if 'media_ids' not in sp_cols:
-                conn.execute(text("ALTER TABLE scheduled_post ADD COLUMN media_ids TEXT DEFAULT '[]'"))
+            def safe_alter(sql):
+                try:
+                    conn.execute(text(sql))
+                except Exception:
+                    pass  # Spalte existiert bereits
+
+            if is_postgres:
+                # PostgreSQL: ADD COLUMN IF NOT EXISTS direkt unterstützt
+                safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS growth_goal INTEGER')
+                safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS growth_goal_date TIMESTAMP')
+                safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS share_token VARCHAR(64)')
+                safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS caption_score_manual FLOAT')
+                safe_alter("ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS slot_type VARCHAR(20) DEFAULT 'fixed'")
+                safe_alter("ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS media_ids TEXT DEFAULT '[]'")
+            else:
+                # SQLite: kein IF NOT EXISTS → mit Python-Check
+                account_cols = [c['name'] for c in inspector.get_columns('account')]
+                if 'growth_goal'      not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN growth_goal INTEGER')
+                if 'growth_goal_date' not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN growth_goal_date DATETIME')
+                if 'share_token'      not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN share_token VARCHAR(64)')
+                ci_cols = [c['name'] for c in inspector.get_columns('content_item')]
+                if 'caption_score_manual' not in ci_cols: safe_alter('ALTER TABLE content_item ADD COLUMN caption_score_manual FLOAT')
+                sp_cols = [c['name'] for c in inspector.get_columns('scheduled_post')]
+                if 'slot_type'  not in sp_cols: safe_alter("ALTER TABLE scheduled_post ADD COLUMN slot_type VARCHAR(20) DEFAULT 'fixed'")
+                if 'media_ids'  not in sp_cols: safe_alter("ALTER TABLE scheduled_post ADD COLUMN media_ids TEXT DEFAULT '[]'")
             conn.commit()
         seed_data()
 
