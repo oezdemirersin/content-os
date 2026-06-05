@@ -219,6 +219,169 @@
   {% endfor %}
 </div>
 
+<!-- ── VORRATS-GALERIE ── -->
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header">
+    <span class="card-title">📦 VORRAT</span>
+    <div style="display:flex;align-items:center;gap:12px">
+      <!-- Tab-Switcher -->
+      <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <button id="vorratTabPlan" onclick="switchVorratTab('plan')"
+                style="padding:5px 12px;background:var(--accent);color:white;border:none;cursor:pointer;
+                       font-family:var(--font-body);font-size:11px;font-weight:700;transition:all .15s">
+          📅 Geplant ({{ stock_posts|length }})
+        </button>
+        <button id="vorratTabReady" onclick="switchVorratTab('ready')"
+                style="padding:5px 12px;background:transparent;color:var(--muted);border:none;cursor:pointer;
+                       font-family:var(--font-body);font-size:11px;font-weight:700;transition:all .15s">
+          ✅ Bereit ({{ ready_content|length }})
+        </button>
+      </div>
+      <a href="{{ url_for('account_calendar', account_id=account.id) }}" style="font-size:11px;color:var(--accent2);text-decoration:none">
+        Kalender →
+      </a>
+    </div>
+  </div>
+
+  <!-- Geplante Posts -->
+  <div id="vorratPlanPanel">
+    {% if stock_posts %}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;padding:16px">
+      {% for post in stock_posts %}
+      {% set media = post.media_item_id and post.media_item_id|string %}
+      {% set content_media = post.content_item and post.content_item.media_items %}
+      {% set img_url = none %}
+      {% if post.media_item_id %}
+        {% set mi = post.media_item_id %}
+      {% endif %}
+      <div style="border-radius:10px;overflow:hidden;border:1px solid var(--border);
+                  background:var(--surface2);position:relative;aspect-ratio:1;cursor:pointer;
+                  transition:border-color .15s"
+           onmouseover="this.style.borderColor='rgba(255,255,255,.2)'" onmouseout="this.style.borderColor='var(--border)'"
+           title="{{ post.scheduled_at.strftime('%d.%m.%Y %H:%M') }} · {{ post.post_type }}{% if post.caption %} · {{ post.caption[:60] }}{% endif %}">
+
+        <!-- Bild oder Typ-Icon -->
+        {% set first_media = none %}
+        {% if post.content_item and post.content_item.media_items %}
+          {% set first_media = post.content_item.media_items[0] %}
+        {% endif %}
+
+        {% if first_media and first_media.url %}
+          <img src="{{ first_media.url }}" alt=""
+               style="width:100%;height:100%;object-fit:cover;display:block">
+        {% else %}
+          <div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px">
+            <span style="font-size:28px">
+              {% if post.post_type == 'reel' %}🎬
+              {% elif post.post_type == 'story' %}⭕
+              {% elif post.post_type == 'carousel' %}🎠
+              {% else %}📸{% endif %}
+            </span>
+            <span style="font-size:9px;color:var(--muted);text-align:center;padding:0 4px;line-height:1.3">
+              {% if post.caption %}{{ post.caption[:30] }}{% endif %}
+            </span>
+          </div>
+        {% endif %}
+
+        <!-- Datum-Badge oben links -->
+        <div style="position:absolute;top:4px;left:4px;background:rgba(0,0,0,.75);border-radius:5px;
+                    padding:2px 6px;font-size:9px;font-weight:700;color:white">
+          {{ post.scheduled_at.strftime('%d.%m') }}
+        </div>
+
+        <!-- Slot-Typ Badge oben rechts -->
+        {% if post.slot_type == 'flexible' %}
+        <div style="position:absolute;top:4px;right:4px;background:rgba(5,150,105,.8);border-radius:5px;
+                    padding:2px 5px;font-size:9px;color:white">🔀</div>
+        {% elif post.slot_type == 'disabled' %}
+        <div style="position:absolute;top:4px;right:4px;background:rgba(55,65,81,.8);border-radius:5px;
+                    padding:2px 5px;font-size:9px;color:white">🚫</div>
+        {% endif %}
+
+        <!-- Hover-Overlay -->
+        <div class="vorrat-hover" style="position:absolute;inset:0;background:rgba(0,0,0,.6);
+             opacity:0;transition:opacity .2s;display:flex;align-items:center;justify-content:center;gap:6px">
+          <a href="{{ url_for('account_calendar', account_id=account.id) }}"
+             style="color:white;font-size:11px;text-decoration:none;background:var(--accent);
+                    padding:5px 8px;border-radius:6px">Kalender</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div style="padding:40px;text-align:center">
+      <span style="font-size:36px;display:block;margin-bottom:10px">📭</span>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Noch keine Posts geplant</div>
+      <a href="{{ url_for('account_calendar', account_id=account.id) }}" class="btn btn-primary" style="font-size:12px">
+        <i class="fa-solid fa-calendar-plus"></i> Posts einplanen
+      </a>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Bereit / Entwürfe -->
+  <div id="vorratReadyPanel" style="display:none">
+    {% if ready_content %}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;padding:16px">
+      {% for item in ready_content %}
+      <a href="{{ url_for('content_detail', item_id=item.id) }}"
+         style="border-radius:10px;overflow:hidden;border:1px solid var(--border);
+                background:var(--surface2);position:relative;aspect-ratio:1;display:block;
+                transition:border-color .15s;text-decoration:none"
+         onmouseover="this.style.borderColor='rgba(255,255,255,.2)'" onmouseout="this.style.borderColor='var(--border)'"
+         title="{{ item.title }}">
+
+        {% if item.media_items %}
+          {% set m = item.media_items[0] %}
+          {% if m.file_type == 'video' %}
+          <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:var(--surface)">
+            <span style="font-size:32px">🎬</span>
+          </div>
+          {% elif m.url %}
+          <img src="{{ m.url }}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">
+          {% endif %}
+        {% else %}
+          <div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;
+                      justify-content:center;gap:5px;padding:8px">
+            <span style="font-size:24px">
+              {% if item.content_type=='reel' %}🎬{% elif item.content_type=='carousel' %}🎠{% else %}📝{% endif %}
+            </span>
+            <span style="font-size:9px;color:var(--muted);text-align:center;line-height:1.3">
+              {{ item.title[:35] }}
+            </span>
+          </div>
+        {% endif %}
+
+        <!-- Status Badge -->
+        <div style="position:absolute;top:4px;left:4px;border-radius:5px;padding:2px 6px;font-size:9px;font-weight:700;
+          {% if item.status=='ready' %}background:rgba(34,197,94,.85);color:white
+          {% elif item.status=='in_progress' %}background:rgba(245,158,11,.85);color:white
+          {% else %}background:rgba(100,116,139,.8);color:white{% endif %}">
+          {{ {'ready':'Bereit','in_progress':'In Arb.','draft':'Entwurf'}.get(item.status, item.status) }}
+        </div>
+
+        <!-- Carousel-Zähler -->
+        {% if item.media_items|length > 1 %}
+        <div style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,.7);border-radius:5px;
+                    padding:2px 5px;font-size:9px;color:white">
+          🎠 {{ item.media_items|length }}
+        </div>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div style="padding:40px;text-align:center">
+      <span style="font-size:36px;display:block;margin-bottom:10px">📂</span>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Kein Content diesem Account zugewiesen</div>
+      <a href="{{ url_for('content_new') }}" class="btn btn-primary" style="font-size:12px">
+        <i class="fa-solid fa-plus"></i> Content erstellen
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
 <!-- Chart + Details -->
 <div style="display:grid;grid-template-columns:1fr 320px;gap:20px;margin-bottom:20px">
   <div class="card">
@@ -410,6 +573,25 @@ async function loadBestTimes(accountId) {
 }
 
 document.addEventListener('DOMContentLoaded', () => loadBestTimes({{ account.id }}));
+
+function switchVorratTab(tab) {
+  const isPlan = tab === 'plan';
+  document.getElementById('vorratPlanPanel').style.display  = isPlan ? 'block' : 'none';
+  document.getElementById('vorratReadyPanel').style.display = isPlan ? 'none'  : 'block';
+  const btnPlan  = document.getElementById('vorratTabPlan');
+  const btnReady = document.getElementById('vorratTabReady');
+  btnPlan.style.background  = isPlan ? 'var(--accent)' : 'transparent';
+  btnPlan.style.color       = isPlan ? 'white' : 'var(--muted)';
+  btnReady.style.background = isPlan ? 'transparent' : 'var(--accent)';
+  btnReady.style.color      = isPlan ? 'var(--muted)' : 'white';
+}
+
+// Hover-Overlay für Vorrats-Karten
+document.querySelectorAll('.vorrat-hover').forEach(el => {
+  const card = el.parentElement;
+  card.addEventListener('mouseenter', () => el.style.opacity = '1');
+  card.addEventListener('mouseleave', () => el.style.opacity = '0');
+});
 
 function closeFollowerModal() {
   document.getElementById('followerModal').style.display = 'none';

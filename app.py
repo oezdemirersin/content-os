@@ -721,11 +721,23 @@ def account_detail(account_id):
 
     account_alerts = SystemAlert.query.filter_by(account_id=account_id, resolved=False).all()
 
+    # Vorrats-Posts mit Media für visuelle Galerie
+    stock_posts = ScheduledPost.query.filter_by(account_id=account_id, status='scheduled')\
+        .filter(ScheduledPost.scheduled_at >= now)\
+        .order_by(ScheduledPost.scheduled_at).limit(24).all()
+
+    # Content-Items die bereit oder in_progress sind (noch nicht geplant)
+    ready_content = ContentItem.query\
+        .filter(ContentItem.accounts.any(id=account_id))\
+        .filter(ContentItem.status.in_(['ready', 'in_progress', 'draft']))\
+        .order_by(ContentItem.updated_at.desc()).limit(20).all()
+
     return render_template('account_detail.html',
         account=account, upcoming=upcoming,
         chart_labels=json.dumps(chart_labels), chart_data=json.dumps(chart_data),
         feed_days=round(feed_days, 1), story_days=round(story_days, 1), reel_count=reel_count,
         account_alerts=account_alerts,
+        stock_posts=stock_posts, ready_content=ready_content,
         active_page='accounts')
 
 

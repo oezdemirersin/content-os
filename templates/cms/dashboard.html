@@ -397,6 +397,27 @@
           </div>
           <div style="font-size:10px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
         </div>
+
+        <!-- Nächste Post-Thumbnails -->
+        {% set next_posts = acc.scheduled_posts | selectattr('status', 'equalto', 'scheduled') | list | sort(attribute='scheduled_at') %}
+        {% if next_posts %}
+        <div style="display:flex;gap:3px;flex-shrink:0;margin-left:6px">
+          {% for p in next_posts[:3] %}
+          {% set has_img = p.content_item and p.content_item.media_items %}
+          <div style="width:26px;height:26px;border-radius:4px;overflow:hidden;border:1px solid var(--border);
+                      background:var(--surface2);flex-shrink:0;display:flex;align-items:center;justify-content:center"
+               title="{{ p.scheduled_at.strftime('%d.%m %H:%M') }}">
+            {% if has_img and p.content_item.media_items[0].url %}
+            <img src="{{ p.content_item.media_items[0].url }}" style="width:100%;height:100%;object-fit:cover">
+            {% else %}
+            <span style="font-size:11px">
+              {% if p.post_type=='reel' %}🎬{% elif p.post_type=='carousel' %}🎠{% else %}📸{% endif %}
+            </span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
       </a>
       {% endfor %}
     </div>
