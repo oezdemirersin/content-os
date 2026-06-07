@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Hashtag-Sets — Content OS{% endblock %}
+{% block page_title %}HASHTAG-SETS{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+  <div style="font-size:13px;color:var(--muted)">Gespeicherte Hashtag-Gruppen — per Klick in jeden Post einfügbar</div>
+  <button onclick="openModal()" class="btn btn-primary">
+    <i class="fa-solid fa-plus"></i> Neues Set
+  </button>
+</div>
+
+<!-- Sets Grid -->
+<div id="setsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
+  {% for s in sets %}
+  <div class="card" style="padding:16px" id="set-{{ s.id }}">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
+      <div>
+        <div style="font-family:var(--font-display);font-size:14px;letter-spacing:.3px;color:var(--text)">{{ s.name }}</div>
+        {% if s.account %}
+        <div style="font-size:11px;color:var(--muted);margin-top:2px"><i class="fa-solid fa-at" style="margin-right:4px"></i>{{ s.account.name }}</div>
+        {% else %}
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Global</div>
+        {% endif %}
+      </div>
+      <div style="display:flex;gap:6px">
+        <button onclick="copySet({{ s.id }}, '{{ s.hashtags | replace("'", "\\'") }}')" class="btn btn-ghost" style="font-size:11px;padding:5px 10px" title="Kopieren">
+          <i class="fa-solid fa-copy"></i>
+        </button>
+        <button onclick="editSet({{ s.id }}, '{{ s.name | replace("'", "\\'") }}', '{{ s.hashtags | replace("'", "\\'") }}', {{ s.account_id or 'null' }})" class="btn btn-ghost" style="font-size:11px;padding:5px 10px">
+          <i class="fa-solid fa-pen"></i>
+        </button>
+        <button onclick="deleteSet({{ s.id }})" class="btn btn-ghost" style="font-size:11px;padding:5px 10px;color:var(--danger)">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </div>
+    </div>
+    <div style="background:var(--surface2);border-radius:8px;padding:10px;font-size:12px;color:var(--accent2);font-family:monospace;line-height:1.6;word-break:break-all">{{ s.hashtags }}</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px">
+      <span style="font-size:11px;color:var(--muted)">{{ s.hashtags.split()|length }} Tags</span>
+      <span style="font-size:11px;color:var(--muted)">{{ s.use_count }}× verwendet</span>
+    </div>
+  </div>
+  {% else %}
+  <div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--muted)">
+    <i class="fa-solid fa-hashtag" style="font-size:36px;display:block;margin-bottom:12px;color:var(--border)"></i>
+    Noch keine Hashtag-Sets. Erstelle dein erstes Set!
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Modal -->
+<div id="setModal" style="display:none;position:fixed;inset:0;z-index:400;align-items:center;justify-content:center;
+     background:rgba(0,0,0,.7);backdrop-filter:blur(4px)" onclick="if(event.target===this)closeModal()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:500px;margin:16px;box-shadow:0 24px 64px rgba(0,0,0,.6)">
+    <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface)">
+      <div id="modalTitle" style="font-family:var(--font-display);font-size:17px;letter-spacing:.5px">NEUES SET</div>
+      <button onclick="closeModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div style="padding:24px;display:flex;flex-direction:column;gap:14px">
+      <input type="hidden" id="editId">
+      <div>
+        <label class="form-label">Name *</label>
+        <input id="setName" type="text" class="input-field" placeholder="z.B. Darmstadt Basis">
+      </div>
+      <div>
+        <label class="form-label">Account (optional — leer = global)</label>
+        <select id="setAccount" class="select-field">
+          <option value="">Global (für alle Accounts)</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Hashtags *</label>
+        <textarea id="setHashtags" class="input-field" rows="5"
+                  placeholder="#darmstadt #darmstadtschau #hessen #stadtleben"
+                  style="resize:vertical;font-family:monospace;font-size:13px"></textarea>
+        <div style="display:flex;justify-content:space-between;margin-top:4px">
+          <span id="tagCount" style="font-size:11px;color:var(--muted)">0 Tags</span>
+          <span style="font-size:11px;color:var(--muted)">Empfehlung: 20–30 für Feed</span>
+        </div>
+      </div>
+      <button onclick="saveSet()" class="btn btn-primary" style="width:100%">
+        <i class="fa-solid fa-floppy-disk"></i> Speichern
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+.card { animation: fadeIn .2s ease; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let editingId = null;
+
+document.getElementById('setHashtags').addEventListener('input', updateTagCount);
+
+function updateTagCount() {
+  const v = document.getElementById('setHashtags').value;
+  const tags = v.trim().split(/\s+/).filter(t => t.startsWith('#'));
+  document.getElementById('tagCount').textContent = tags.length + ' Tags';
+}
+
+function openModal(id=null, name='', hashtags='', accountId=null) {
+  editingId = id;
+  document.getElementById('editId').value = id || '';
+  document.getElementById('setName').value = name;
+  document.getElementById('setHashtags').value = hashtags;
+  document.getElementById('setAccount').value = accountId || '';
+  document.getElementById('modalTitle').textContent = id ? 'SET BEARBEITEN' : 'NEUES SET';
+  document.getElementById('setModal').style.display = 'flex';
+  updateTagCount();
+  setTimeout(() => document.getElementById('setName').focus(), 100);
+}
+
+function editSet(id, name, hashtags, accountId) {
+  openModal(id, name, hashtags, accountId);
+}
+
+function closeModal() {
+  document.getElementById('setModal').style.display = 'none';
+  editingId = null;
+}
+
+async function saveSet() {
+  const name = document.getElementById('setName').value.trim();
+  const hashtags = document.getElementById('setHashtags').value.trim();
+  const account_id = document.getElementById('setAccount').value || null;
+  if (!name || !hashtags) { alert('Name und Hashtags sind Pflichtfelder'); return; }
+
+  if (editingId) {
+    await fetch(`/api/hashtag-sets/${editingId}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name, hashtags, account_id})
+    });
+  } else {
+    await fetch('/api/hashtag-sets', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name, hashtags, account_id})
+    });
+  }
+  closeModal();
+  location.reload();
+}
+
+async function deleteSet(id) {
+  if (!confirm('Set löschen?')) return;
+  await fetch(`/api/hashtag-sets/${id}`, {method:'DELETE'});
+  document.getElementById('set-'+id)?.remove();
+  showToast('Set gelöscht');
+}
+
+async function copySet(id, hashtags) {
+  await fetch(`/api/hashtag-sets/${id}/use`, {method:'POST'});
+  await navigator.clipboard.writeText(hashtags);
+  showToast('In Zwischenablage kopiert ✓');
+}
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText='position:fixed;bottom:24px;right:24px;z-index:9999;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;background:var(--success);color:white;box-shadow:0 8px 24px rgba(0,0,0,.4)';
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(),2500);
+}
+</script>
+{% endblock %}

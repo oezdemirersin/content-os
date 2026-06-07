@@ -149,11 +149,72 @@
   </div>
 
 </div>
+
+<!-- ── BENACHRICHTIGUNGEN ── -->
+<div style="margin-top:20px">
+  <div class="card" style="max-width:540px">
+    <div class="card-header">
+      <span class="card-title">BENACHRICHTIGUNGEN</span>
+      <span style="font-size:11px;color:var(--muted)">Low-Stock E-Mail Alert</span>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end">
+        <div>
+          <label class="form-label">E-Mail-Adresse</label>
+          <input id="notifEmail" type="email" class="input-field" placeholder="deine@email.de">
+        </div>
+        <div>
+          <label class="form-label">Alert ab (Tage)</label>
+          <input id="notifDays" type="number" min="1" max="14" class="input-field" style="width:80px">
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <input type="checkbox" id="notifEnabled" style="width:16px;height:16px;accent-color:var(--accent)">
+        <span style="font-size:13px;color:var(--text)">E-Mail-Alerts aktivieren</span>
+      </label>
+      <div style="display:flex;gap:10px">
+        <button onclick="saveNotifSettings()" class="btn btn-primary" style="flex:1">
+          <i class="fa-solid fa-floppy-disk"></i> Speichern
+        </button>
+        <button onclick="testEmail()" class="btn btn-ghost">
+          <i class="fa-solid fa-paper-plane"></i> Test-Mail
+        </button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.5">
+        SMTP über Umgebungsvariablen konfigurieren: <code style="color:var(--accent2)">SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM</code>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <style>.cat-row:hover .cat-actions { opacity:1 !important; }</style>
 <script>
+// Notif Settings laden
+(async function() {
+  const d = await fetch('/api/notifications/settings').then(r=>r.json());
+  document.getElementById('notifEmail').value = d.email || '';
+  document.getElementById('notifDays').value  = d.low_stock_days || 3;
+  document.getElementById('notifEnabled').checked = d.email_enabled;
+})();
+
+async function saveNotifSettings() {
+  const email       = document.getElementById('notifEmail').value;
+  const days        = parseInt(document.getElementById('notifDays').value)||3;
+  const enabled     = document.getElementById('notifEnabled').checked;
+  const res = await fetch('/api/notifications/settings', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email, low_stock_days:days, email_enabled:enabled})
+  }).then(r=>r.json());
+  if (res.ok) showToast('Gespeichert ✓');
+}
+
+async function testEmail() {
+  const res = await fetch('/api/notifications/test-email',{method:'POST'}).then(r=>r.json());
+  showToast(res.ok ? 'Test-Mail gesendet ✓' : 'Fehler: '+res.error, res.ok?'success':'error');
+}
+
 async function autoArchive() {
   const ok = await customConfirm('Alte Drafts archivieren',
     'Alle Entwürfe und "In Bearbeitung"-Inhalte älter als 90 Tage werden archiviert.');

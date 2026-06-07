@@ -417,3 +417,25 @@ class ContentComment(db.Model):
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
     user            = db.relationship('User', backref='comments')
     content_item    = db.relationship('ContentItem', backref='comments')
+
+
+# ── Hashtag Sets ────────────────────────────────────────────
+class HashtagSet(db.Model):
+    id          = db.Column(db.Integer, primary_key=True)
+    name        = db.Column(db.String(200), nullable=False)
+    hashtags    = db.Column(db.Text, nullable=False)  # roh, z.B. "#darmstadt #darmstadtschau"
+    account_id  = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)  # NULL = global
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=True)
+    use_count   = db.Column(db.Integer, default=0)
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    account     = db.relationship('Account', backref='hashtag_sets')
+    category    = db.relationship('Category', backref='hashtag_sets')
+
+
+# ── NotificationSettings ─────────────────────────────────────
+class NotificationSettings(db.Model):
+    id              = db.Column(db.Integer, primary_key=True)
+    email           = db.Column(db.String(300))
+    low_stock_days  = db.Column(db.Integer, default=3)   # Alert wenn Vorrat < X Tage
+    email_enabled   = db.Column(db.Boolean, default=False)
+    updated_at      = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

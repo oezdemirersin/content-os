@@ -17,6 +17,9 @@
     <a href="{{ url_for('account_calendar', account_id=account.id) }}" class="btn btn-ghost" style="font-size:12px">
       <i class="fa-solid fa-calendar-days"></i> Kalender
     </a>
+    <a href="{{ url_for('calendar_print', account_id=account.id) }}" target="_blank" class="btn btn-ghost" style="font-size:12px">
+      <i class="fa-solid fa-file-pdf"></i> PDF
+    </a>
     <button onclick="openAutoFill()" class="btn btn-primary">
       <i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Verteilen
     </button>
@@ -61,27 +64,37 @@
   <div class="card" style="min-height:600px">
     <!-- Kalender-Navigation -->
     <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-      <button onclick="changeMonth(-1)" class="btn btn-ghost" style="font-size:14px;padding:6px 12px">
+      <button onclick="changeNav(-1)" class="btn btn-ghost" style="font-size:14px;padding:6px 12px">
         <i class="fa-solid fa-chevron-left"></i>
       </button>
       <div style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px" id="calTitle"></div>
       <div style="display:flex;gap:8px;align-items:center">
+        <!-- Ansicht Toggle -->
+        <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <button id="viewMonthBtn" onclick="setView('month')"
+                  style="padding:5px 12px;background:var(--accent);border:none;color:white;cursor:pointer;font-family:var(--font-body);font-size:11px;font-weight:700">Monat</button>
+          <button id="viewWeekBtn" onclick="setView('week')"
+                  style="padding:5px 12px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-family:var(--font-body);font-size:11px;font-weight:700">Woche</button>
+        </div>
         <button onclick="goToday()" class="btn btn-ghost" style="font-size:11px;padding:5px 12px">Heute</button>
-        <button onclick="changeMonth(1)" class="btn btn-ghost" style="font-size:14px;padding:6px 12px">
+        <button onclick="changeNav(1)" class="btn btn-ghost" style="font-size:14px;padding:6px 12px">
           <i class="fa-solid fa-chevron-right"></i>
         </button>
       </div>
     </div>
 
-    <!-- Wochentag-Header -->
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);padding:8px 16px 0">
+    <!-- Wochentag-Header (Monat) -->
+    <div id="monthHeader" style="display:grid;grid-template-columns:repeat(7,1fr);padding:8px 16px 0">
       {% for d in ['Mo','Di','Mi','Do','Fr','Sa','So'] %}
       <div style="text-align:center;font-size:11px;font-weight:700;color:var(--muted);padding:4px 0">{{ d }}</div>
       {% endfor %}
     </div>
 
-    <!-- Kalender-Grid -->
+    <!-- Monats-Grid -->
     <div id="calGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;padding:8px 16px 16px"></div>
+
+    <!-- Wochen-Grid -->
+    <div id="weekGrid" style="display:none;padding:8px 16px 16px;overflow-x:auto"></div>
 
     <!-- Legende -->
     <div style="padding:0 16px 14px;display:flex;gap:12px;flex-wrap:wrap">
@@ -90,9 +103,6 @@
         <div style="width:8px;height:8px;border-radius:2px;background:{{ color }}"></div>{{ label }}
       </div>
       {% endfor %}
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)">
-        <div style="width:8px;height:8px;border-radius:2px;border:1px dashed var(--border)"></div>Leer (Klick = sperren)
-      </div>
     </div>
   </div>
 </div>
@@ -136,6 +146,51 @@
       <div id="afPreview" style="background:var(--surface2);border-radius:8px;padding:12px;font-size:12px;color:var(--muted);display:none"></div>
       <button onclick="runAutoFill()" class="btn btn-primary" style="width:100%">
         <i class="fa-solid fa-wand-magic-sparkles"></i> Verteilen
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MULTI-ACCOUNT MODAL ── -->
+<div id="multiModal" style="display:none;position:fixed;inset:0;z-index:400;align-items:center;justify-content:center;
+     background:rgba(0,0,0,.7);backdrop-filter:blur(4px)" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:520px;
+              margin:16px;box-shadow:0 24px 64px rgba(0,0,0,.6);max-height:90vh;overflow-y:auto">
+    <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface)">
+      <div style="font-family:var(--font-display);font-size:17px;letter-spacing:.5px">MULTI-ACCOUNT POST</div>
+      <button onclick="document.getElementById('multiModal').style.display='none'"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div style="padding:24px;display:flex;flex-direction:column;gap:14px">
+      <div id="multiContentPreview" style="display:none;background:var(--surface2);border-radius:8px;padding:12px;display:flex;gap:10px;align-items:center">
+        <div id="multiThumb"></div>
+        <div id="multiTitle" style="font-size:13px;color:var(--text)"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="form-label">Datum</label>
+          <input id="multiDate" type="date" class="input-field">
+        </div>
+        <div>
+          <label class="form-label">Uhrzeit</label>
+          <input id="multiTime" type="time" value="18:00" class="input-field">
+        </div>
+      </div>
+      <div>
+        <label class="form-label">Accounts auswählen</label>
+        <div id="multiAccountList" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+          {% for acc in all_accounts %}
+          <label style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer"
+                 onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+            <input type="checkbox" value="{{ acc.id }}" class="multi-acc-cb" style="accent-color:var(--accent)">
+            <span style="font-size:13px;color:var(--text)">{{ acc.name }}</span>
+            <span style="font-size:11px;color:var(--muted);margin-left:auto">{{ acc.follower_count | fmt_followers }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      <button onclick="runMultiPost()" class="btn btn-primary" style="width:100%">
+        <i class="fa-solid fa-share-nodes"></i> Für alle ausgewählten Accounts einplanen
       </button>
     </div>
   </div>
@@ -199,21 +254,56 @@
 {% block scripts %}
 <script>
 const ACCOUNT_ID = {{ account.id }};
-let currentYear, currentMonth;
+let currentYear, currentMonth, currentWeekStart;
 let activeLabel = '';
 let calEvents = {};  // { 'YYYY-MM-DD': [post, ...] }
 let stackItems = [];
 let dragItem = null;
+let currentView = 'month'; // 'month' | 'week'
+let multiContentId = null;
 
 // ── INIT ──
 (function init() {
   const today = new Date();
   currentYear = today.getFullYear();
   currentMonth = today.getMonth(); // 0-based
+  currentWeekStart = getMonday(today);
   document.getElementById('afStartDate').value = today.toISOString().slice(0,10);
+  document.getElementById('multiDate').value = today.toISOString().slice(0,10);
   loadStack();
   loadCalendar();
 })();
+
+function getMonday(d) {
+  const day = d.getDay();
+  const diff = (day === 0 ? -6 : 1 - day);
+  const m = new Date(d);
+  m.setDate(d.getDate() + diff);
+  m.setHours(0,0,0,0);
+  return m;
+}
+
+function setView(v) {
+  currentView = v;
+  document.getElementById('viewMonthBtn').style.background = v==='month' ? 'var(--accent)' : 'transparent';
+  document.getElementById('viewMonthBtn').style.color = v==='month' ? 'white' : 'var(--muted)';
+  document.getElementById('viewWeekBtn').style.background = v==='week' ? 'var(--accent)' : 'transparent';
+  document.getElementById('viewWeekBtn').style.color = v==='week' ? 'white' : 'var(--muted)';
+  document.getElementById('calGrid').style.display = v==='month' ? 'grid' : 'none';
+  document.getElementById('monthHeader').style.display = v==='month' ? 'grid' : 'none';
+  document.getElementById('weekGrid').style.display = v==='week' ? 'block' : 'none';
+  loadCalendar();
+}
+
+function changeNav(delta) {
+  if (currentView === 'month') changeMonth(delta);
+  else changeWeek(delta);
+}
+
+function changeWeek(delta) {
+  currentWeekStart.setDate(currentWeekStart.getDate() + delta * 7);
+  loadCalendar();
+}
 
 // ── STACK ──
 async function loadStack() {
@@ -247,7 +337,16 @@ function renderStack(items) {
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px">${escHtml(c.title)}</div>
         <div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px">${escHtml(c.caption)}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:3px">${labels}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;flex-wrap:wrap;gap:3px">${labels}</div>
+          <button onclick="event.stopPropagation();openMultiModal(${c.id})"
+                  style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;padding:2px 7px;font-size:10px;flex-shrink:0;transition:all .15s"
+                  onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--accent2)'"
+                  onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'"
+                  title="Für mehrere Accounts einplanen">
+            <i class="fa-solid fa-share-nodes"></i>
+          </button>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -263,17 +362,70 @@ function setLabelFilter(id) {
 
 // ── KALENDER ──
 async function loadCalendar() {
-  const month = `${currentYear}-${String(currentMonth+1).padStart(2,'0')}`;
-  document.getElementById('calTitle').textContent =
-    new Date(currentYear, currentMonth, 1).toLocaleDateString('de-DE', {month:'long', year:'numeric'}).toUpperCase();
+  let month;
+  if (currentView === 'week') {
+    // Lade Events für 2 Monate um die Woche abzudecken
+    const ws = currentWeekStart;
+    const we = new Date(ws); we.setDate(we.getDate() + 6);
+    month = `${ws.getFullYear()}-${String(ws.getMonth()+1).padStart(2,'0')}`;
+    const m2 = `${we.getFullYear()}-${String(we.getMonth()+1).padStart(2,'0')}`;
+    const ms = ws.toLocaleDateString('de-DE', {day:'2-digit',month:'long'});
+    const me = we.toLocaleDateString('de-DE', {day:'2-digit',month:'long',year:'numeric'});
+    document.getElementById('calTitle').textContent = `${ms} – ${me}`.toUpperCase();
 
-  const events = await fetch(`/api/accounts/${ACCOUNT_ID}/planer/events?month=${month}`).then(r=>r.json());
-  calEvents = {};
-  events.forEach(e => {
-    if (!calEvents[e.date]) calEvents[e.date] = [];
-    calEvents[e.date].push(e);
-  });
-  renderCalendar();
+    const [ev1, ev2] = await Promise.all([
+      fetch(`/api/accounts/${ACCOUNT_ID}/planer/events?month=${month}`).then(r=>r.json()),
+      month !== m2 ? fetch(`/api/accounts/${ACCOUNT_ID}/planer/events?month=${m2}`).then(r=>r.json()) : Promise.resolve([])
+    ]);
+    calEvents = {};
+    [...ev1, ...ev2].forEach(e => {
+      if (!calEvents[e.date]) calEvents[e.date] = [];
+      calEvents[e.date].push(e);
+    });
+    renderWeek();
+  } else {
+    month = `${currentYear}-${String(currentMonth+1).padStart(2,'0')}`;
+    document.getElementById('calTitle').textContent =
+      new Date(currentYear, currentMonth, 1).toLocaleDateString('de-DE', {month:'long', year:'numeric'}).toUpperCase();
+    const events = await fetch(`/api/accounts/${ACCOUNT_ID}/planer/events?month=${month}`).then(r=>r.json());
+    calEvents = {};
+    events.forEach(e => {
+      if (!calEvents[e.date]) calEvents[e.date] = [];
+      calEvents[e.date].push(e);
+    });
+    renderCalendar();
+  }
+}
+
+function renderWeek() {
+  const grid = document.getElementById('weekGrid');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const days = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+  let html = `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">`;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(currentWeekStart); d.setDate(d.getDate() + i);
+    const dateStr = d.toISOString().slice(0,10);
+    const isToday = d.getTime() === today.getTime();
+    const posts = calEvents[dateStr] || [];
+    const chips = posts.map(p => {
+      const cls = p.slot_type==='disabled'?'chip-dis':p.slot_type==='flexible'?'chip-flex':'chip-fixed';
+      const icon = {feed:'📸',reel:'🎬',story:'⭕',carousel:'🎠'}[p.post_type]||'📄';
+      return `<div class="day-chip ${cls}" onclick="showPostPopup(event,${p.id},'${dateStr}')" title="${escHtml(p.caption)}">${icon} ${escHtml(p.time)}<br><span style="font-size:9px">${escHtml((p.caption||'').slice(0,25))}</span></div>`;
+    }).join('');
+    html += `<div style="border-radius:10px;border:1px solid ${isToday?'var(--accent)':'var(--border)'};
+              background:${isToday?'rgba(99,102,241,.06)':'var(--surface2)'};min-height:160px;padding:8px"
+              ondragover="event.preventDefault();this.style.borderColor='var(--accent2)'"
+              ondragleave="this.style.borderColor='${isToday?'var(--accent)':'var(--border)'}'"
+              ondrop="onDrop(event,'${dateStr}')">
+      <div style="font-size:12px;font-weight:700;color:${isToday?'var(--accent2)':'var(--muted)'};margin-bottom:6px">
+        ${days[i]} ${d.getDate()}.${String(d.getMonth()+1).padStart(2,'0')}
+      </div>
+      ${chips}
+      <div style="font-size:9px;color:var(--border);margin-top:6px;text-align:center">⬆ hierher ziehen</div>
+    </div>`;
+  }
+  html += '</div>';
+  grid.innerHTML = html;
 }
 
 function renderCalendar() {
@@ -565,6 +717,45 @@ function showToast(msg, isErr=false) {
     box-shadow:0 8px 24px rgba(0,0,0,.4);animation:fadeIn .2s ease`;
   document.body.appendChild(t);
   setTimeout(()=>t.remove(), 2800);
+}
+
+// ── MULTI-ACCOUNT POST ──
+function openMultiModal(contentId) {
+  multiContentId = contentId;
+  const item = stackItems.find(i => i.id === contentId);
+  if (item) {
+    const thumb = item.thumb
+      ? `<img src="${item.thumb}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;flex-shrink:0">`
+      : `<div style="width:44px;height:44px;border-radius:6px;background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📄</div>`;
+    document.getElementById('multiThumb').innerHTML = thumb;
+    document.getElementById('multiTitle').textContent = item.title;
+    document.getElementById('multiContentPreview').style.display = 'flex';
+  }
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate()+1);
+  document.getElementById('multiDate').value = tomorrow.toISOString().slice(0,10);
+  document.getElementById('multiModal').style.display = 'flex';
+}
+
+async function runMultiPost() {
+  const date  = document.getElementById('multiDate').value;
+  const time  = document.getElementById('multiTime').value;
+  const accs  = [...document.querySelectorAll('.multi-acc-cb:checked')].map(c=>parseInt(c.value));
+  if (!accs.length) { alert('Bitte mindestens einen Account auswählen'); return; }
+  if (!date) { alert('Datum fehlen'); return; }
+
+  const res = await fetch('/api/posts/multi-schedule', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ content_item_id:multiContentId, account_ids:accs, date, time })
+  }).then(r=>r.json());
+
+  if (res.ok) {
+    document.getElementById('multiModal').style.display='none';
+    await loadStack();
+    await loadCalendar();
+    showToast(`In ${res.scheduled.length} Accounts eingeplant ✓`);
+  } else {
+    showToast('Fehler: '+res.error, true);
+  }
 }
 </script>
 {% endblock %}

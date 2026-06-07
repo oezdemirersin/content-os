@@ -355,6 +355,12 @@
     <a href="{{ url_for('content_templates') }}" class="nav-item {% if active_page == 'templates' %}active{% endif %}">
       <i class="fa-solid fa-rectangle-list"></i> Templates
     </a>
+    <a href="{{ url_for('bulk_import_page') }}" class="nav-item {% if active_page == 'bulk_import' %}active{% endif %}">
+      <i class="fa-solid fa-cloud-arrow-up"></i> Bulk-Import
+    </a>
+    <a href="{{ url_for('hashtag_sets') }}" class="nav-item {% if active_page == 'hashtag_sets' %}active{% endif %}">
+      <i class="fa-solid fa-hashtag"></i> Hashtag-Sets
+    </a>
     <a href="{{ url_for('beichten_dashboard') }}" class="nav-item {% if active_page == 'beichten' %}active{% endif %}">
       <i class="fa-solid fa-heart"></i> Beichten
     </a>

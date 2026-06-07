@@ -530,6 +530,125 @@
     </div>
   </div>
 </div>
+
+<!-- ══════ PERFORMANCE & RECYCLING ══════ -->
+<div style="margin-top:20px">
+  <!-- Tab-Navigation -->
+  <div style="display:flex;gap:0;margin-bottom:0;border-bottom:1px solid var(--border)">
+    {% for tid,label,icon in [('perf','Performance','fa-chart-bar'),('heat','Timing','fa-clock'),('recycle','Recycling','fa-rotate')] %}
+    <button id="ptab-{{ tid }}" onclick="showPerfTab('{{ tid }}')"
+            style="padding:10px 18px;background:none;border:none;cursor:pointer;font-family:var(--font-body);
+                   font-size:13px;font-weight:700;transition:all .15s;border-bottom:2px solid transparent;
+                   {% if loop.first %}color:var(--accent2);border-bottom-color:var(--accent){% else %}color:var(--muted){% endif %}">
+      <i class="fa-solid {{ icon }}" style="margin-right:6px"></i>{{ label }}
+    </button>
+    {% endfor %}
+  </div>
+
+  <!-- Performance-Tab -->
+  <div id="ppanel-perf" class="card" style="border-radius:0 0 12px 12px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;padding:20px;border-bottom:1px solid var(--border)" id="perfKpis">
+      <div style="text-align:center;padding:10px;background:var(--surface2);border-radius:8px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Veröffentlicht</div>
+        <div id="pk-total" style="font-family:var(--font-display);font-size:24px;color:var(--text)">—</div>
+      </div>
+      {% for key,label,color in [('feed','📸 Feed','#3b82f6'),('reel','🎬 Reel','#a855f7'),('story','⭕ Story','#f59e0b'),('carousel','🎠 Carousel','#10b981')] %}
+      <div style="text-align:center;padding:10px;background:var(--surface2);border-radius:8px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">{{ label }}</div>
+        <div style="font-family:var(--font-display);font-size:16px;color:{{ color }}" id="pk-{{ key }}">—</div>
+        <div style="font-size:10px;color:var(--muted)" id="pk-{{ key }}-reach">— Reach</div>
+      </div>
+      {% endfor %}
+    </div>
+    <div style="padding:20px;height:200px;position:relative"><canvas id="perfChart"></canvas></div>
+
+    <!-- Performance eintragen -->
+    <div style="padding:0 20px 20px">
+      <div style="font-family:var(--font-display);font-size:12px;letter-spacing:.3px;color:var(--muted);margin-bottom:10px">POST-PERFORMANCE EINTRAGEN</div>
+      <div style="display:grid;grid-template-columns:1fr auto auto auto auto;gap:8px;align-items:end">
+        <div>
+          <label class="form-label" style="font-size:11px">Post auswählen</label>
+          <select id="perfPostSelect" class="select-field" style="font-size:12px">
+            <option value="">— Veröffentlichten Post wählen —</option>
+            {% for p in account.scheduled_posts | sort(attribute='scheduled_at', reverse=True) %}
+            {% if p.status in ['published', 'scheduled'] %}
+            <option value="{{ p.id }}">{{ p.scheduled_at.strftime('%d.%m.%y') }} · {{ {'feed':'📸','reel':'🎬','story':'⭕','carousel':'🎠'}.get(p.post_type,'📄') }} {{ (p.caption or 'Post')[:40] }}</option>
+            {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label" style="font-size:11px">❤️ Likes</label>
+          <input id="perfLikes" type="number" min="0" class="input-field" style="width:90px;font-size:12px" placeholder="0">
+        </div>
+        <div>
+          <label class="form-label" style="font-size:11px">💬 Comments</label>
+          <input id="perfComments" type="number" min="0" class="input-field" style="width:90px;font-size:12px" placeholder="0">
+        </div>
+        <div>
+          <label class="form-label" style="font-size:11px">👁️ Reach</label>
+          <input id="perfReach" type="number" min="0" class="input-field" style="width:100px;font-size:12px" placeholder="0">
+        </div>
+        <button onclick="savePerformance()" class="btn btn-primary" style="padding:8px 14px;font-size:12px">
+          <i class="fa-solid fa-floppy-disk"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Timing-Tab -->
+  <div id="ppanel-heat" class="card" style="border-radius:0 0 12px 12px;display:none;padding:20px">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Durchschnittliche Likes nach Wochentag und Uhrzeit (basierend auf veröffentlichten Posts)</div>
+    <div id="heatmapWrap" style="overflow-x:auto">
+      <div id="heatmapGrid" style="display:grid;grid-template-columns:50px repeat(24,1fr);gap:2px;min-width:700px"></div>
+      <div style="display:flex;gap:16px;margin-top:10px;justify-content:center;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+          <div style="width:14px;height:14px;border-radius:3px;background:rgba(99,102,241,.1)"></div>Wenig
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+          <div style="width:14px;height:14px;border-radius:3px;background:rgba(99,102,241,.6)"></div>Mittel
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+          <div style="width:14px;height:14px;border-radius:3px;background:rgba(99,102,241,1)"></div>Viel
+        </div>
+      </div>
+    </div>
+    <div id="noHeatData" style="display:none;text-align:center;padding:40px;color:var(--muted)">
+      <i class="fa-solid fa-chart-simple" style="font-size:24px;display:block;margin-bottom:8px;color:var(--border)"></i>
+      Noch keine Performance-Daten. Trage Likes/Reach für veröffentlichte Posts ein.
+    </div>
+  </div>
+
+  <!-- Recycling-Tab -->
+  <div id="ppanel-recycle" class="card" style="border-radius:0 0 12px 12px;display:none">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:13px;color:var(--muted)">
+      Top-Posts nach Likes — erneut einplanen
+    </div>
+    <div id="recycleList" style="padding:8px"></div>
+  </div>
+</div>
+
+<!-- Recycle-Modal -->
+<div id="recycleModal" style="display:none;position:fixed;inset:0;z-index:400;align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:380px;margin:16px;padding:24px">
+    <div style="font-family:var(--font-display);font-size:16px;margin-bottom:16px">POST RECYCELN</div>
+    <input type="hidden" id="recyclePostId">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div>
+        <label class="form-label">Datum</label>
+        <input id="recycleDateInput" type="date" class="input-field">
+      </div>
+      <div>
+        <label class="form-label">Uhrzeit</label>
+        <input id="recycleTimeInput" type="time" value="18:00" class="input-field">
+      </div>
+    </div>
+    <button onclick="confirmRecycle()" class="btn btn-primary" style="width:100%">
+      <i class="fa-solid fa-rotate"></i> Erneut einplanen
+    </button>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -676,5 +795,154 @@ new Chart(ctx, {
     }
   }
 });
+
+// ── PERFORMANCE TABS ──
+const ACCOUNT_ID_PERF = {{ account.id }};
+let perfData = null;
+let perfChartInst = null;
+
+async function loadPerfData() {
+  perfData = await fetch(`/api/accounts/${ACCOUNT_ID_PERF}/performance-stats`).then(r=>r.json());
+  renderPerfKpis();
+  renderHeatmap();
+  renderRecycleList();
+}
+
+function showPerfTab(tid) {
+  ['perf','heat','recycle'].forEach(t => {
+    document.getElementById('ptab-'+t).style.color = t===tid ? 'var(--accent2)' : 'var(--muted)';
+    document.getElementById('ptab-'+t).style.borderBottomColor = t===tid ? 'var(--accent)' : 'transparent';
+    document.getElementById('ppanel-'+t).style.display = t===tid ? 'block' : 'none';
+  });
+  if (tid==='perf' && !perfData) loadPerfData();
+  if (tid==='heat' && !perfData) loadPerfData();
+  if (tid==='recycle' && !perfData) loadPerfData();
+}
+
+// Auto-load when first tab is visible
+loadPerfData();
+
+function renderPerfKpis() {
+  if (!perfData) return;
+  document.getElementById('pk-total').textContent = perfData.total_published || 0;
+  ['feed','reel','story','carousel'].forEach(t => {
+    const d = perfData.by_type[t];
+    document.getElementById('pk-'+t).textContent = d ? `Ø ${d.avg_likes.toLocaleString('de-DE')} ❤️` : '—';
+    const r = document.getElementById('pk-'+t+'-reach');
+    if (r) r.textContent = d ? `${d.avg_reach.toLocaleString('de-DE')} Reach` : '— Reach';
+  });
+
+  // Chart
+  const typeColors = {feed:'#3b82f6',reel:'#a855f7',story:'#f59e0b',carousel:'#10b981'};
+  const typeLabels = {feed:'📸 Feed',reel:'🎬 Reel',story:'⭕ Story',carousel:'🎠 Carousel'};
+  const entries = Object.entries(perfData.by_type).filter(([,v])=>v.count>0);
+  if (!entries.length) return;
+
+  const ctx = document.getElementById('perfChart')?.getContext('2d');
+  if (!ctx) return;
+  if (perfChartInst) perfChartInst.destroy();
+  perfChartInst = new Chart(ctx, {
+    type:'bar',
+    data:{
+      labels: entries.map(([t])=>typeLabels[t]||t),
+      datasets:[
+        {label:'Ø Likes',   data:entries.map(([,v])=>v.avg_likes),   backgroundColor:'rgba(59,130,246,.5)',borderColor:'#3b82f6',borderWidth:1,borderRadius:4},
+        {label:'Ø Reach',   data:entries.map(([,v])=>v.avg_reach/10),backgroundColor:'rgba(99,102,241,.3)',borderColor:'#6366f1',borderWidth:1,borderRadius:4},
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'var(--muted)',font:{size:11}}},
+               tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${(c.dataset.label.includes('Reach')?c.raw*10:c.raw).toLocaleString('de-DE')}`}}},
+      scales:{x:{grid:{display:false},ticks:{color:'var(--muted)'}},
+              y:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'var(--muted)'},display:false}}
+    }
+  });
+}
+
+function renderHeatmap() {
+  const wrap = document.getElementById('heatmapGrid');
+  const noData = document.getElementById('noHeatData');
+  if (!perfData || !wrap) return;
+  const hm = perfData.heatmap;
+  const maxVal = Math.max(...hm.flat());
+
+  if (maxVal === 0) { noData.style.display='block'; wrap.style.display='none'; return; }
+  noData.style.display='none'; wrap.style.display='grid';
+
+  const days = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+  let html = '<div></div>'; // corner
+  for (let h=0; h<24; h++) html += `<div style="text-align:center;font-size:9px;color:var(--muted);padding:2px 0">${h}</div>`;
+  for (let d=0; d<7; d++) {
+    html += `<div style="font-size:10px;color:var(--muted);display:flex;align-items:center;justify-content:flex-end;padding-right:6px">${days[d]}</div>`;
+    for (let h=0; h<24; h++) {
+      const v = hm[d][h];
+      const intensity = maxVal > 0 ? v / maxVal : 0;
+      const bg = `rgba(99,102,241,${(intensity * 0.9 + 0.05).toFixed(2)})`;
+      const title = v > 0 ? `${days[d]} ${h}:00 — Ø ${v} Likes` : '';
+      html += `<div style="height:20px;border-radius:3px;background:${v>0?bg:'var(--surface2)'};cursor:${v>0?'help':'default'}"${title?` title="${title}"`:''} ></div>`;
+    }
+  }
+  wrap.innerHTML = html;
+}
+
+async function renderRecycleList() {
+  const list = document.getElementById('recycleList');
+  if (!list) return;
+  const posts = await fetch(`/api/accounts/${ACCOUNT_ID_PERF}/top-performers?limit=10`).then(r=>r.json());
+  if (!posts.length) {
+    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px"><i class="fa-solid fa-trophy" style="font-size:24px;display:block;margin-bottom:8px;color:var(--border)"></i>Noch keine veröffentlichten Posts mit Performance-Daten</div>';
+    return;
+  }
+  list.innerHTML = posts.map(p => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border)">
+      ${p.thumb ? `<img src="${p.thumb}" style="width:48px;height:48px;border-radius:6px;object-fit:cover;flex-shrink:0">` : '<div style="width:48px;height:48px;border-radius:6px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📄</div>'}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.caption||'Post'}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${p.published_at} · ❤️ ${p.likes.toLocaleString('de-DE')} · 👁️ ${p.reach.toLocaleString('de-DE')}</div>
+      </div>
+      <button onclick="openRecycleModal(${p.id})" class="btn btn-ghost" style="font-size:11px;padding:6px 12px;flex-shrink:0">
+        <i class="fa-solid fa-rotate"></i> Recyceln
+      </button>
+    </div>`).join('');
+}
+
+function openRecycleModal(postId) {
+  document.getElementById('recyclePostId').value = postId;
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate()+1);
+  document.getElementById('recycleDateInput').value = tomorrow.toISOString().slice(0,10);
+  document.getElementById('recycleModal').style.display = 'flex';
+}
+
+async function confirmRecycle() {
+  const postId = document.getElementById('recyclePostId').value;
+  const date   = document.getElementById('recycleDateInput').value;
+  const time   = document.getElementById('recycleTimeInput').value;
+  const res = await fetch(`/api/posts/${postId}/recycle`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({date, time})
+  }).then(r=>r.json());
+  document.getElementById('recycleModal').style.display='none';
+  if (res.ok) showToast('Post erneut eingeplant ✓');
+}
+
+async function savePerformance() {
+  const postId   = document.getElementById('perfPostSelect').value;
+  const likes    = parseInt(document.getElementById('perfLikes').value)||null;
+  const comments = parseInt(document.getElementById('perfComments').value)||null;
+  const reach    = parseInt(document.getElementById('perfReach').value)||null;
+  if (!postId) { alert('Bitte Post auswählen'); return; }
+  const res = await fetch(`/api/posts/${postId}/performance`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({likes, comments, reach, mark_published:true})
+  }).then(r=>r.json());
+  if (res.ok) {
+    showToast('Performance gespeichert ✓');
+    perfData = null;
+    loadPerfData();
+    document.getElementById('perfLikes').value='';
+    document.getElementById('perfComments').value='';
+    document.getElementById('perfReach').value='';
+  }
+}
 </script>
 {% endblock %}

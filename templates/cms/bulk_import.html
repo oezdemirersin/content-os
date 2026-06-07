@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}Bulk-Import — Content OS{% endblock %}
+{% block page_title %}BULK-IMPORT{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+  <div style="font-size:13px;color:var(--muted)">Mehrere Bilder/Videos auf einmal hochladen — je Datei wird ein fertiger Beitrag erstellt</div>
+  <a href="{{ url_for('content_list') }}" class="btn btn-ghost" style="font-size:12px">← Content Hub</a>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start">
+
+  <!-- Upload Zone -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div id="dropZone"
+         style="min-height:300px;border:2px dashed var(--border);border-radius:12px;margin:16px;
+                display:flex;flex-direction:column;align-items:center;justify-content:center;
+                cursor:pointer;transition:all .2s;padding:30px;text-align:center"
+         ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(99,102,241,.06)'"
+         ondragleave="this.style.borderColor='var(--border)';this.style.background=''"
+         ondrop="handleDrop(event)"
+         onclick="document.getElementById('fileInput').click()">
+      <i class="fa-solid fa-cloud-arrow-up" style="font-size:48px;color:var(--muted);margin-bottom:16px"></i>
+      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px">Dateien hierher ziehen</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px">oder klicken zum Auswählen</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+        <span style="font-size:12px;padding:4px 12px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">JPG / PNG</span>
+        <span style="font-size:12px;padding:4px 12px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">MP4 / MOV</span>
+        <span style="font-size:12px;padding:4px 12px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">Beliebig viele</span>
+      </div>
+      <input type="file" id="fileInput" multiple accept="image/*,video/*" style="display:none" onchange="handleFiles(this.files)">
+    </div>
+
+    <!-- Vorschau-Grid -->
+    <div id="previewGrid" style="display:none;padding:0 16px 16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-family:var(--font-display);font-size:13px" id="previewCount"></div>
+        <button onclick="clearFiles()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px">
+          <i class="fa-solid fa-xmark"></i> Alle entfernen
+        </button>
+      </div>
+      <div id="thumbGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px"></div>
+    </div>
+
+    <!-- Progress -->
+    <div id="progressWrap" style="display:none;padding:16px">
+      <div style="height:6px;background:var(--surface2);border-radius:6px;overflow:hidden;margin-bottom:8px">
+        <div id="progressBar" style="height:100%;background:var(--accent);border-radius:6px;width:0;transition:width .3s"></div>
+      </div>
+      <div id="progressText" style="font-size:12px;color:var(--muted);text-align:center"></div>
+    </div>
+  </div>
+
+  <!-- Einstellungen -->
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div class="card" style="padding:18px">
+      <div style="font-family:var(--font-display);font-size:13px;margin-bottom:14px;letter-spacing:.3px">EINSTELLUNGEN</div>
+
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <label class="form-label">Kategorie</label>
+          <select id="catSelect" class="select-field">
+            <option value="">Keine Kategorie</option>
+            {% for c in categories %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Post-Typ</label>
+          <select id="typeSelect" class="select-field">
+            <option value="feed">📸 Feed</option>
+            <option value="reel">🎬 Reel</option>
+            <option value="carousel">🎠 Carousel</option>
+            <option value="story">⭕ Story</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Accounts verknüpfen</label>
+          <div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+            {% for acc in accounts %}
+            <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer"
+                   onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+              <input type="checkbox" name="accounts" value="{{ acc.id }}" style="accent-color:var(--accent)">
+              <span style="font-size:13px;color:var(--text)">{{ acc.name }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div>
+          <label class="form-label">Labels</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px" id="labelPicker">
+            {% for lbl in labels %}
+            <label style="display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;
+                          border:1px solid {{ lbl.color }}40;background:{{ lbl.color }}15;cursor:pointer;
+                          font-size:12px;color:{{ lbl.color }}">
+              <input type="checkbox" name="labels" value="{{ lbl.id }}" style="display:none">
+              {{ lbl.name }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Start-Button -->
+    <button id="uploadBtn" onclick="startUpload()" class="btn btn-primary" style="width:100%;padding:14px;font-size:15px" disabled>
+      <i class="fa-solid fa-upload"></i> <span id="uploadBtnText">Hochladen</span>
+    </button>
+
+    <!-- Ergebnis -->
+    <div id="resultBox" style="display:none" class="card" style="padding:16px"></div>
+  </div>
+</div>
+
+<style>
+.thumb-item { position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;background:var(--surface2) }
+.thumb-item img, .thumb-item video { width:100%;height:100%;object-fit:cover }
+.thumb-item .remove-btn { position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);border:none;color:white;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:10px;display:flex;align-items:center;justify-content:center }
+.thumb-item .fname { position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.6);font-size:9px;color:white;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+
+input[type=checkbox]:checked + span, label:has(input:checked) {
+  background: rgba(99,102,241,.2) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent2) !important;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedFiles = [];
+
+function handleDrop(e) {
+  e.preventDefault();
+  e.currentTarget.style.borderColor = 'var(--border)';
+  e.currentTarget.style.background = '';
+  handleFiles(e.dataTransfer.files);
+}
+
+function handleFiles(fileList) {
+  const allowed = ['image/jpeg','image/png','image/gif','image/webp','video/mp4','video/quicktime','video/mov'];
+  for (const f of fileList) {
+    if (!allowed.includes(f.type) && !f.name.match(/\.(jpg|jpeg|png|gif|webp|mp4|mov|avi)$/i)) continue;
+    if (!selectedFiles.find(x => x.name === f.name && x.size === f.size)) {
+      selectedFiles.push(f);
+    }
+  }
+  renderPreviews();
+}
+
+function renderPreviews() {
+  const grid = document.getElementById('thumbGrid');
+  const wrap = document.getElementById('previewGrid');
+  const btn  = document.getElementById('uploadBtn');
+  document.getElementById('previewCount').textContent = `${selectedFiles.length} Datei${selectedFiles.length!==1?'en':''}`;
+
+  if (!selectedFiles.length) { wrap.style.display='none'; btn.disabled=true; return; }
+  wrap.style.display='block'; btn.disabled=false;
+  document.getElementById('uploadBtnText').textContent = `${selectedFiles.length} Datei${selectedFiles.length!==1?'en':''} hochladen`;
+
+  grid.innerHTML = selectedFiles.map((f, i) => {
+    const isVideo = f.type.startsWith('video/');
+    const src = URL.createObjectURL(f);
+    const media = isVideo
+      ? `<video src="${src}" style="width:100%;height:100%;object-fit:cover"></video>`
+      : `<img src="${src}">`;
+    return `<div class="thumb-item">
+      ${media}
+      <button class="remove-btn" onclick="removeFile(${i})"><i class="fa-solid fa-xmark"></i></button>
+      <div class="fname">${f.name}</div>
+    </div>`;
+  }).join('');
+}
+
+function removeFile(i) {
+  selectedFiles.splice(i, 1);
+  renderPreviews();
+}
+
+function clearFiles() {
+  selectedFiles = [];
+  renderPreviews();
+}
+
+async function startUpload() {
+  if (!selectedFiles.length) return;
+  const btn = document.getElementById('uploadBtn');
+  btn.disabled = true;
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('previewGrid').style.display = 'none';
+
+  // Einstellungen lesen
+  const category_id = document.getElementById('catSelect').value;
+  const content_type = document.getElementById('typeSelect').value;
+  const account_ids = [...document.querySelectorAll('input[name=accounts]:checked')].map(i=>i.value);
+  const label_ids   = [...document.querySelectorAll('input[name=labels]:checked')].map(i=>i.value);
+
+  // Chunk-weise hochladen (max 10 auf einmal)
+  const chunkSize = 10;
+  let totalCreated = [];
+
+  for (let i = 0; i < selectedFiles.length; i += chunkSize) {
+    const chunk = selectedFiles.slice(i, i + chunkSize);
+    const fd = new FormData();
+    chunk.forEach(f => fd.append('files', f));
+    if (category_id) fd.append('category_id', category_id);
+    fd.append('content_type', content_type);
+    account_ids.forEach(a => fd.append('account_ids', a));
+    label_ids.forEach(l => fd.append('label_ids', l));
+
+    const pct = Math.round((i / selectedFiles.length) * 100);
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progressText').textContent = `${i + chunk.length} / ${selectedFiles.length} hochgeladen…`;
+
+    const res = await fetch('/api/media/bulk-import', {method:'POST', body:fd}).then(r=>r.json());
+    if (res.ok) totalCreated = totalCreated.concat(res.created);
+  }
+
+  document.getElementById('progressBar').style.width = '100%';
+  document.getElementById('progressText').textContent = 'Fertig!';
+
+  // Ergebnis
+  const box = document.getElementById('resultBox');
+  box.style.display = 'block';
+  box.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <i class="fa-solid fa-circle-check" style="font-size:24px;color:var(--success)"></i>
+      <div>
+        <div style="font-weight:700;color:var(--text)">${totalCreated.length} Beiträge erstellt</div>
+        <div style="font-size:12px;color:var(--muted)">Alle im Content Hub verfügbar</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:6px;max-height:200px;overflow-y:auto">
+      ${totalCreated.map(c => c.thumb
+        ? `<img src="${c.thumb}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px" title="${c.title}">`
+        : `<div style="aspect-ratio:1;border-radius:6px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px">📄</div>`
+      ).join('')}
+    </div>
+    <a href="/content" class="btn btn-primary" style="width:100%;margin-top:12px;display:block;text-align:center">
+      → Im Content Hub ansehen
+    </a>`;
+
+  selectedFiles = [];
+  btn.disabled = false;
+}
+</script>
+{% endblock %}

@@ -15,7 +15,11 @@ from flask import session
 from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig,
                     ContentItem, MediaItem, ScheduledPost, AnalyticsSnapshot,
                     AutomationRule, AutomationRunLog, SystemAlert, User, ActivityLog,
-                    AccountGroup, ContentTemplate, ContentComment)
+                    AccountGroup, ContentTemplate, ContentComment,
+                    HashtagSet, NotificationSettings)
+import smtplib
+from email.mime.text import MIMEText
+import calendar as cal_mod_global
 from sqlalchemy import func
 
 app = Flask(__name__, template_folder='templates/cms')
@@ -2856,6 +2860,392 @@ def calendar_print():
     return render_template('print_plan.html', posts=posts, accounts=accounts,
                            account_id=account_id, days=days,
                            start=start, end=end)
+
+
+# ═══════════════════════════════════════════════════════════════
+# ─────────────────── HASHTAG SETS ──────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/hashtag-sets')
+def hashtag_sets():
+    sets = HashtagSet.query.order_by(HashtagSet.use_count.desc()).all()
+    accounts  = Account.query.filter_by(status='active').order_by(Account.name).all()
+    categories = Category.query.order_by(Category.name).all()
+    return render_template('hashtag_sets.html', sets=sets,
+                           accounts=accounts, categories=categories, active_page='content')
+
+@app.route('/api/hashtag-sets', methods=['GET'])
+def api_hashtag_sets_list():
+    account_id = request.args.get('account_id', type=int)
+    q = HashtagSet.query
+    if account_id:
+        q = q.filter(db.or_(HashtagSet.account_id == account_id,
+                             HashtagSet.account_id.is_(None)))
+    sets = q.order_by(HashtagSet.use_count.desc()).all()
+    return jsonify([{
+        'id': s.id, 'name': s.name, 'hashtags': s.hashtags,
+        'account_id': s.account_id, 'use_count': s.use_count,
+    } for s in sets])
+
+@app.route('/api/hashtag-sets', methods=['POST'])
+def api_hashtag_set_create():
+    d = request.get_json()
+    s = HashtagSet(
+        name=d['name'],
+        hashtags=d['hashtags'],
+        account_id=d.get('account_id') or None,
+        category_id=d.get('category_id') or None,
+    )
+    db.session.add(s)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': s.id})
+
+@app.route('/api/hashtag-sets/<int:sid>', methods=['PUT'])
+def api_hashtag_set_update(sid):
+    s = HashtagSet.query.get_or_404(sid)
+    d = request.get_json()
+    s.name = d.get('name', s.name)
+    s.hashtags = d.get('hashtags', s.hashtags)
+    s.account_id = d.get('account_id') or None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+@app.route('/api/hashtag-sets/<int:sid>', methods=['DELETE'])
+def api_hashtag_set_delete(sid):
+    s = HashtagSet.query.get_or_404(sid)
+    db.session.delete(s)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+@app.route('/api/hashtag-sets/<int:sid>/use', methods=['POST'])
+def api_hashtag_set_use(sid):
+    s = HashtagSet.query.get_or_404(sid)
+    s.use_count += 1
+    db.session.commit()
+    return jsonify({'ok': True, 'hashtags': s.hashtags})
+
+
+# ═══════════════════════════════════════════════════════════════
+# ─────────────────── BULK-IMPORT ───────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/media/bulk-import', methods=['GET'])
+def bulk_import_page():
+    categories = Category.query.order_by(Category.name).all()
+    accounts   = Account.query.filter_by(status='active').order_by(Account.name).all()
+    labels     = Label.query.order_by(Label.name).all()
+    return render_template('bulk_import.html', categories=categories,
+                           accounts=accounts, labels=labels, active_page='content')
+
+@app.route('/api/media/bulk-import', methods=['POST'])
+def api_bulk_import():
+    """Mehrere Dateien hochladen → je MediaItem + ContentItem erstellen."""
+    files = request.files.getlist('files')
+    category_id = request.form.get('category_id', type=int)
+    account_ids = request.form.getlist('account_ids', type=int)
+    label_ids   = request.form.getlist('label_ids', type=int)
+    content_type = request.form.get('content_type', 'feed')
+    created = []
+
+    for file in files:
+        if not file or not file.filename or not allowed_file(file.filename):
+            continue
+        original = secure_filename(file.filename)
+        ext = original.rsplit('.', 1)[1].lower()
+        unique_name = f"{uuid.uuid4().hex}.{ext}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+        file.save(filepath)
+
+        ftype = get_file_type(original)
+        media = MediaItem(
+            filename=unique_name,
+            original_filename=original,
+            file_type=ftype,
+            mime_type=mimetypes.guess_type(original)[0] or 'application/octet-stream',
+            file_size=os.path.getsize(filepath),
+            url=f'/media/file/{unique_name}',
+            storage_source='local',
+            category_id=category_id,
+        )
+        db.session.add(media)
+        db.session.flush()  # media.id verfügbar
+
+        # Titel = Dateiname ohne Extension, bereinigt
+        title = original.rsplit('.', 1)[0].replace('_', ' ').replace('-', ' ').strip()
+
+        ci = ContentItem(
+            title=title,
+            status='ready',
+            content_type=content_type,
+            category_id=category_id,
+        )
+        db.session.add(ci)
+        db.session.flush()
+        media.content_item_id = ci.id
+
+        # Accounts verknüpfen
+        for aid in account_ids:
+            acc = Account.query.get(aid)
+            if acc and acc not in ci.accounts:
+                ci.accounts.append(acc)
+
+        # Labels verknüpfen
+        for lid in label_ids:
+            lbl = Label.query.get(lid)
+            if lbl and lbl not in ci.labels:
+                ci.labels.append(lbl)
+
+        created.append({'id': ci.id, 'title': title, 'thumb': media.url})
+
+    db.session.commit()
+    log_activity('bulk_import', f'{len(created)} Dateien importiert')
+    return jsonify({'ok': True, 'created': created, 'count': len(created)})
+
+
+# ═══════════════════════════════════════════════════════════════
+# ─────────────────── NOTIFICATION SETTINGS & ALERTS ────────────
+# ═══════════════════════════════════════════════════════════════
+
+def get_notification_settings():
+    ns = NotificationSettings.query.first()
+    if not ns:
+        ns = NotificationSettings()
+        db.session.add(ns)
+        db.session.commit()
+    return ns
+
+def send_low_stock_email(account_name, stock_days, email):
+    """Sendet Low-Stock-Alert per E-Mail (Gmail SMTP oder lokaler Server)."""
+    try:
+        smtp_host = os.environ.get('SMTP_HOST', 'localhost')
+        smtp_port = int(os.environ.get('SMTP_PORT', 25))
+        smtp_user = os.environ.get('SMTP_USER', '')
+        smtp_pass = os.environ.get('SMTP_PASS', '')
+        from_addr = os.environ.get('SMTP_FROM', 'noreply@content-os.de')
+
+        body = f"""Content OS — Low-Stock Alert
+
+Account: {account_name}
+Verbleibender Vorrat: {stock_days:.1f} Tage
+
+Bitte plane neue Beiträge für diesen Account ein.
+
+→ https://content-os.de/accounts
+"""
+        msg = MIMEText(body, 'plain', 'utf-8')
+        msg['Subject'] = f'⚠️ Content OS: {account_name} nur noch {stock_days:.0f} Tage Vorrat'
+        msg['From'] = from_addr
+        msg['To'] = email
+
+        if smtp_user:
+            s = smtplib.SMTP_SSL(smtp_host, smtp_port) if smtp_port == 465 else smtplib.SMTP(smtp_host, smtp_port)
+            if smtp_port != 25:
+                s.starttls()
+            s.login(smtp_user, smtp_pass)
+        else:
+            s = smtplib.SMTP(smtp_host, smtp_port)
+        s.sendmail(from_addr, [email], msg.as_string())
+        s.quit()
+        return True
+    except Exception as e:
+        app.logger.error(f'Email-Fehler: {e}')
+        return False
+
+@app.route('/api/notifications/settings', methods=['GET'])
+def api_notif_get():
+    ns = get_notification_settings()
+    return jsonify({'email': ns.email or '', 'low_stock_days': ns.low_stock_days,
+                    'email_enabled': ns.email_enabled})
+
+@app.route('/api/notifications/settings', methods=['POST'])
+def api_notif_save():
+    d = request.get_json()
+    ns = get_notification_settings()
+    ns.email = d.get('email', ns.email)
+    ns.low_stock_days = int(d.get('low_stock_days', ns.low_stock_days))
+    ns.email_enabled = bool(d.get('email_enabled', ns.email_enabled))
+    db.session.commit()
+    return jsonify({'ok': True})
+
+@app.route('/api/notifications/test-email', methods=['POST'])
+def api_notif_test():
+    ns = get_notification_settings()
+    if not ns.email:
+        return jsonify({'ok': False, 'error': 'Keine E-Mail-Adresse hinterlegt'})
+    ok = send_low_stock_email('Test-Account', 2.0, ns.email)
+    return jsonify({'ok': ok})
+
+
+# ═══════════════════════════════════════════════════════════════
+# ─────────────────── PERFORMANCE TRACKING ──────────────────────
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/posts/<int:post_id>/performance', methods=['POST'])
+def post_performance_update(post_id):
+    """Likes, Reach, Comments nach dem Posting eintragen."""
+    post = ScheduledPost.query.get_or_404(post_id)
+    d = request.get_json()
+    post.likes    = d.get('likes',    post.likes)
+    post.comments = d.get('comments', post.comments)
+    post.reach    = d.get('reach',    post.reach)
+    if d.get('mark_published'):
+        post.status = 'published'
+        post.published_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+@app.route('/api/accounts/<int:account_id>/performance-stats')
+def account_performance_stats(account_id):
+    """Aggregierte Performance-Daten pro Content-Typ + Timing-Heatmap."""
+    posts = ScheduledPost.query.filter(
+        ScheduledPost.account_id == account_id,
+        ScheduledPost.status == 'published',
+        ScheduledPost.likes.isnot(None),
+    ).all()
+
+    # Pro Content-Typ
+    by_type = {}
+    for p in posts:
+        t = p.post_type or 'feed'
+        if t not in by_type:
+            by_type[t] = {'count': 0, 'likes': 0, 'reach': 0, 'comments': 0}
+        by_type[t]['count']    += 1
+        by_type[t]['likes']    += p.likes or 0
+        by_type[t]['reach']    += p.reach or 0
+        by_type[t]['comments'] += p.comments or 0
+    for t in by_type:
+        c = by_type[t]['count']
+        by_type[t]['avg_likes']    = round(by_type[t]['likes'] / c, 1)
+        by_type[t]['avg_reach']    = round(by_type[t]['reach'] / c, 1)
+        by_type[t]['avg_comments'] = round(by_type[t]['comments'] / c, 1)
+
+    # Heatmap: Wochentag (0=Mo) × Stunde → avg Likes
+    heatmap = [[0]*24 for _ in range(7)]
+    heatmap_count = [[0]*24 for _ in range(7)]
+    for p in posts:
+        if p.published_at or p.scheduled_at:
+            dt = p.published_at or p.scheduled_at
+            dow = dt.weekday()  # 0=Mo
+            h   = dt.hour
+            heatmap[dow][h]       += p.likes or 0
+            heatmap_count[dow][h] += 1
+    # Durchschnitt
+    for dow in range(7):
+        for h in range(24):
+            cnt = heatmap_count[dow][h]
+            heatmap[dow][h] = round(heatmap[dow][h] / cnt, 1) if cnt else 0
+
+    return jsonify({'by_type': by_type, 'heatmap': heatmap,
+                    'total_published': len(posts)})
+
+
+# ═══════════════════════════════════════════════════════════════
+# ─────────────────── MULTI-ACCOUNT POST ────────────────────────
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/posts/multi-schedule', methods=['POST'])
+def multi_schedule():
+    """Gleichen Content für mehrere Accounts auf einmal einplanen."""
+    d = request.get_json()
+    content_item_id = d.get('content_item_id')
+    account_ids     = d.get('account_ids', [])
+    date_str        = d.get('date')
+    time_str        = d.get('time', '18:00')
+    captions        = d.get('captions', {})  # {account_id: "caption"}
+    post_type       = d.get('post_type', 'feed')
+
+    if not account_ids or not date_str:
+        return jsonify({'ok': False, 'error': 'account_ids + date erforderlich'}), 400
+
+    ci = ContentItem.query.get(content_item_id) if content_item_id else None
+    scheduled_at = datetime.strptime(f'{date_str} {time_str}', '%Y-%m-%d %H:%M')
+    created = []
+
+    for aid in account_ids:
+        acc = Account.query.get(aid)
+        if not acc:
+            continue
+        caption = captions.get(str(aid)) or captions.get(aid) or (ci.caption if ci else '') or ''
+        post = ScheduledPost(
+            account_id=aid,
+            content_item_id=content_item_id,
+            caption=caption,
+            post_type=ci.content_type if ci else post_type,
+            slot_type='fixed',
+            status='scheduled',
+            scheduled_at=scheduled_at,
+            media_item_id=ci.media_items[0].id if ci and ci.media_items else None,
+            media_ids=json.dumps([m.id for m in ci.media_items]) if ci else '[]',
+        )
+        db.session.add(post)
+        created.append({'account_id': aid, 'account_name': acc.name})
+
+    if ci:
+        ci.status = 'scheduled'
+    db.session.commit()
+    log_activity('multi_scheduled',
+        f'Multi-Post: {ci.title if ci else "Post"} → {len(created)} Accounts am {date_str}')
+    return jsonify({'ok': True, 'scheduled': created})
+
+
+# ═══════════════════════════════════════════════════════════════
+# ─────────────────── CONTENT RECYCLING ─────────────────────────
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/accounts/<int:account_id>/top-performers')
+def account_top_performers(account_id):
+    """Top-performing published Posts für Recycling."""
+    limit = request.args.get('limit', 10, type=int)
+    posts = ScheduledPost.query.filter(
+        ScheduledPost.account_id == account_id,
+        ScheduledPost.status == 'published',
+        ScheduledPost.likes.isnot(None),
+    ).order_by(ScheduledPost.likes.desc()).limit(limit).all()
+
+    result = []
+    for p in posts:
+        ci = p.content_item
+        result.append({
+            'id': p.id,
+            'published_at': p.published_at.strftime('%d.%m.%Y') if p.published_at else '',
+            'post_type': p.post_type,
+            'likes': p.likes or 0,
+            'reach': p.reach or 0,
+            'comments': p.comments or 0,
+            'caption': (p.caption or '')[:100],
+            'thumb': (ci.media_items[0].url if ci and ci.media_items else None),
+            'content_item_id': p.content_item_id,
+        })
+    return jsonify(result)
+
+@app.route('/api/posts/<int:post_id>/recycle', methods=['POST'])
+def post_recycle(post_id):
+    """Einen published Post neu einplanen (Recycling)."""
+    original = ScheduledPost.query.get_or_404(post_id)
+    d = request.get_json()
+    date_str = d.get('date')
+    time_str = d.get('time', '18:00')
+
+    if not date_str:
+        return jsonify({'ok': False, 'error': 'Datum fehlt'}), 400
+
+    scheduled_at = datetime.strptime(f'{date_str} {time_str}', '%Y-%m-%d %H:%M')
+    new_post = ScheduledPost(
+        account_id=original.account_id,
+        content_item_id=original.content_item_id,
+        caption=original.caption,
+        hashtags=original.hashtags,
+        post_type=original.post_type,
+        slot_type='fixed',
+        status='scheduled',
+        scheduled_at=scheduled_at,
+        media_item_id=original.media_item_id,
+        media_ids=original.media_ids,
+    )
+    db.session.add(new_post)
+    db.session.commit()
+    log_activity('post_recycled', f'Post {post_id} recycelt auf {date_str}')
+    return jsonify({'ok': True, 'new_post_id': new_post.id})
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────
