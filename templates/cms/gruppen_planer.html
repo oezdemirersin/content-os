@@ -1,0 +1,407 @@
+{% extends "base.html" %}
+{% block title %}Gruppen-Planer: {{ group.name }} — Content OS{% endblock %}
+{% block page_title %}GRUPPEN-PLANER{% endblock %}
+
+{% block content %}
+
+<!-- Header-Leiste -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap">
+  <div style="display:flex;align-items:center;gap:12px">
+    <a href="/groups" class="btn btn-ghost" style="font-size:12px">← Gruppen</a>
+
+    <!-- Gruppen-Wechsler -->
+    <div style="position:relative">
+      <button onclick="toggleGroupPicker()" class="btn" style="gap:8px;min-width:160px;justify-content:space-between">
+        <span style="display:flex;align-items:center;gap:8px">
+          <span style="width:10px;height:10px;border-radius:50%;background:{{ group.color }};display:inline-block"></span>
+          {{ group.name }}
+        </span>
+        <i class="fa-solid fa-chevron-down" style="font-size:10px;color:var(--muted)"></i>
+      </button>
+      <div id="groupPickerDropdown" style="display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:200;
+           background:var(--surface);border:1px solid var(--border);border-radius:10px;
+           box-shadow:0 8px 32px rgba(0,0,0,.25);min-width:200px;overflow:hidden">
+        {% for g in all_groups %}
+        <a href="/groups/{{ g.id }}/planer"
+           style="display:flex;align-items:center;gap:10px;padding:10px 14px;font-size:13px;
+                  text-decoration:none;color:var(--text);border-bottom:1px solid var(--border);
+                  {% if g.id == group.id %}background:var(--surface2){% endif %}"
+           onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='{% if g.id == group.id %}var(--surface2){% else %}{% endif %}'">
+          <span style="width:10px;height:10px;border-radius:50%;background:{{ g.color }};flex-shrink:0"></span>
+          {{ g.name }}
+          <span style="font-size:11px;color:var(--muted);margin-left:auto">{{ g.accounts|length }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Monat-Navigation -->
+    <div style="display:flex;align-items:center;gap:8px">
+      <button onclick="changeMonth(-1)" class="btn btn-ghost" style="padding:7px 12px">
+        <i class="fa-solid fa-chevron-left"></i>
+      </button>
+      <div id="monthLabel" style="font-family:var(--font-display);font-size:14px;font-weight:700;
+           letter-spacing:.5px;min-width:160px;text-align:center"></div>
+      <button onclick="changeMonth(1)" class="btn btn-ghost" style="padding:7px 12px">
+        <i class="fa-solid fa-chevron-right"></i>
+      </button>
+      <button onclick="goToday()" class="btn btn-ghost" style="font-size:12px;padding:7px 12px">Heute</button>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px">
+    <a id="printBtn" href="#" target="_blank" class="btn btn-ghost" style="font-size:12px">
+      <i class="fa-solid fa-print"></i> PDF
+    </a>
+  </div>
+</div>
+
+<!-- Account-Legende -->
+<div id="accountLegend" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px"></div>
+
+<!-- Kalender-Grid -->
+<div class="card" style="padding:0;overflow:hidden">
+  <!-- Wochentage-Header -->
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--surface2)">
+    {% for day in ['Mo','Di','Mi','Do','Fr','Sa','So'] %}
+    <div style="text-align:center;padding:10px 4px;font-size:11px;font-weight:700;
+                letter-spacing:.8px;color:var(--muted);{% if loop.index >= 6 %}color:#f87171{% endif %}">
+      {{ day }}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Kalender-Tage -->
+  <div id="calGrid" style="display:grid;grid-template-columns:repeat(7,1fr)"></div>
+</div>
+
+<!-- Stats-Zeile -->
+<div id="statsRow" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:16px"></div>
+
+<!-- ── Tages-Modal ── -->
+<div id="dayModal" style="display:none;position:fixed;inset:0;z-index:1000;
+     background:rgba(0,0,0,.6);backdrop-filter:blur(4px)" onclick="if(event.target===this)closeDayModal()">
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+       width:520px;max-width:95vw;max-height:88vh;overflow-y:auto;
+       background:var(--surface);border-radius:16px;padding:24px;border:1px solid var(--border)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div id="dayModalTitle" style="font-family:var(--font-display);font-size:16px;font-weight:700"></div>
+      <button onclick="closeDayModal()" style="background:none;border:none;font-size:18px;color:var(--muted);cursor:pointer;line-height:1">×</button>
+    </div>
+    <div id="dayModalContent"></div>
+  </div>
+</div>
+
+<style>
+.cal-day {
+  min-height: 100px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: background .15s;
+  position: relative;
+}
+.cal-day:hover { background: var(--surface2); }
+.cal-day.today { background: rgba(99,102,241,.07); }
+.cal-day.other-month { opacity: .4; }
+.cal-day:nth-child(7n) { border-right: none; }
+.day-num {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.day-num.today-num {
+  width: 22px;
+  height: 22px;
+  background: var(--accent);
+  color: white;
+  border-radius: 50%;
+  justify-content: center;
+  margin-bottom: 5px;
+}
+.acc-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  cursor: pointer;
+}
+.post-card {
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: var(--surface2);
+}
+.post-card:last-child { margin-bottom: 0; }
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const GROUP_ID  = {{ group.id }};
+const ACCOUNTS  = {{ group.accounts | tojson(indent=0) | safe if false else '[]' }};
+// Build accounts array from Jinja
+const GROUP_ACCOUNTS = [
+  {% for a in group.accounts %}
+  { id: {{ a.id }}, name: {{ a.name | tojson }}, handle: {{ (a.handle or '') | tojson }} },
+  {% endfor %}
+];
+
+// Farb-Palette für Accounts
+const PALETTE = [
+  '#6366f1','#f59e0b','#10b981','#f43f5e','#3b82f6',
+  '#a78bfa','#fb923c','#34d399','#60a5fa','#e879f9',
+];
+
+let accountColors = {};
+GROUP_ACCOUNTS.forEach((a, i) => {
+  accountColors[a.id] = PALETTE[i % PALETTE.length];
+});
+
+// Zustand
+const today = new Date();
+let currentYear  = today.getFullYear();
+let currentMonth = today.getMonth(); // 0-indexed
+let allEvents    = [];   // alle geladenen Events dieses Monats
+let accountMap   = {};   // id→account
+
+// Init
+buildAccountMap();
+renderLegend();
+loadMonth();
+
+function buildAccountMap() {
+  GROUP_ACCOUNTS.forEach(a => { accountMap[a.id] = a; });
+}
+
+function toggleGroupPicker() {
+  const d = document.getElementById('groupPickerDropdown');
+  d.style.display = d.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('[onclick="toggleGroupPicker()"]') &&
+      !document.getElementById('groupPickerDropdown').contains(e.target)) {
+    document.getElementById('groupPickerDropdown').style.display = 'none';
+  }
+});
+
+function renderLegend() {
+  const el = document.getElementById('accountLegend');
+  el.innerHTML = GROUP_ACCOUNTS.map(a => `
+    <a href="/accounts/${a.id}/planer" title="Einzelplaner öffnen"
+       style="display:flex;align-items:center;gap:7px;padding:5px 12px;border-radius:20px;
+              background:${accountColors[a.id]}20;border:1px solid ${accountColors[a.id]}50;
+              text-decoration:none;color:var(--text);font-size:12px;font-weight:600;transition:all .15s"
+       onmouseover="this.style.background='${accountColors[a.id]}35'"
+       onmouseout="this.style.background='${accountColors[a.id]}20'">
+      <span style="width:9px;height:9px;border-radius:50%;background:${accountColors[a.id]};flex-shrink:0"></span>
+      ${a.name}
+      <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:9px;color:var(--muted)"></i>
+    </a>
+  `).join('');
+}
+
+function changeMonth(delta) {
+  currentMonth += delta;
+  if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+  if (currentMonth < 0)  { currentMonth = 11; currentYear--; }
+  loadMonth();
+}
+
+function goToday() {
+  currentYear  = today.getFullYear();
+  currentMonth = today.getMonth();
+  loadMonth();
+}
+
+async function loadMonth() {
+  const mm    = String(currentMonth + 1).padStart(2, '0');
+  const key   = `${currentYear}-${mm}`;
+  const names = ['Januar','Februar','März','April','Mai','Juni',
+                 'Juli','August','September','Oktober','November','Dezember'];
+  document.getElementById('monthLabel').textContent = `${names[currentMonth]} ${currentYear}`;
+  document.getElementById('printBtn').href = `/accounts/0/calendar-print?year=${currentYear}&month=${currentMonth+1}&group=${GROUP_ID}`;
+
+  const res = await fetch(`/api/groups/${GROUP_ID}/planer/events?month=${key}`).then(r=>r.json());
+  allEvents = res.events || [];
+  renderCalendar();
+  renderStats();
+}
+
+function renderCalendar() {
+  const grid = document.getElementById('calGrid');
+  const firstDay = new Date(currentYear, currentMonth, 1);
+  let startDow = firstDay.getDay(); // 0=Sun
+  startDow = startDow === 0 ? 6 : startDow - 1; // Mon=0
+
+  const daysInMonth  = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const daysInPrev   = new Date(currentYear, currentMonth, 0).getDate();
+  const totalCells   = Math.ceil((startDow + daysInMonth) / 7) * 7;
+
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+  let html = '';
+  for (let i = 0; i < totalCells; i++) {
+    let dateObj, dateStr, otherMonth = false;
+    if (i < startDow) {
+      const d = daysInPrev - startDow + i + 1;
+      dateObj = new Date(currentYear, currentMonth - 1, d);
+      otherMonth = true;
+    } else if (i >= startDow + daysInMonth) {
+      const d = i - startDow - daysInMonth + 1;
+      dateObj = new Date(currentYear, currentMonth + 1, d);
+      otherMonth = true;
+    } else {
+      const d = i - startDow + 1;
+      dateObj = new Date(currentYear, currentMonth, d);
+    }
+    const Y = dateObj.getFullYear();
+    const M = String(dateObj.getMonth()+1).padStart(2,'0');
+    const D = String(dateObj.getDate()).padStart(2,'0');
+    dateStr = `${Y}-${M}-${D}`;
+    const isToday = dateStr === todayStr;
+    const dayEvents = allEvents.filter(e => e.date === dateStr);
+
+    // Gruppiere nach Account
+    const byAccount = {};
+    dayEvents.forEach(e => {
+      if (!byAccount[e.account_id]) byAccount[e.account_id] = [];
+      byAccount[e.account_id].push(e);
+    });
+
+    const pillsHtml = Object.entries(byAccount).map(([accId, evts]) => {
+      const acc   = accountMap[accId] || { name: 'Account' };
+      const color = accountColors[accId] || '#6366f1';
+      const statusDot = evts.some(e => e.status === 'published')
+        ? '✓' : (evts.some(e => e.status === 'failed') ? '✗' : '');
+      return `<div class="acc-pill" style="background:${color}22;color:${color};border:1px solid ${color}44"
+                   onclick="event.stopPropagation();openDayModal('${dateStr}')">
+        <span style="width:6px;height:6px;border-radius:50%;background:${color};flex-shrink:0"></span>
+        ${acc.name.length > 10 ? acc.name.slice(0,9)+'…' : acc.name}
+        ${statusDot ? `<span style="margin-left:auto">${statusDot}</span>` : `<span style="margin-left:auto;font-size:9px">${evts.length}</span>`}
+      </div>`;
+    }).join('');
+
+    html += `<div class="cal-day${otherMonth?' other-month':''}${isToday?' today':''}"
+                  onclick="openDayModal('${dateStr}')">
+      <div class="day-num${isToday?' today-num':''}">${dateObj.getDate()}</div>
+      ${pillsHtml}
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+function renderStats() {
+  // Pro Account: Anzahl Posts dieses Monats
+  const counts = {};
+  GROUP_ACCOUNTS.forEach(a => { counts[a.id] = 0; });
+  allEvents.forEach(e => { counts[e.account_id] = (counts[e.account_id] || 0) + 1; });
+
+  const el = document.getElementById('statsRow');
+  el.innerHTML = GROUP_ACCOUNTS.map(a => {
+    const color = accountColors[a.id];
+    const cnt   = counts[a.id] || 0;
+    return `
+      <div class="card" style="padding:14px 16px;display:flex;align-items:center;gap:12px">
+        <div style="width:36px;height:36px;border-radius:50%;background:${color}25;
+             border:2px solid ${color}55;display:flex;align-items:center;justify-content:center">
+          <span style="font-size:14px;font-weight:800;color:${color}">${cnt}</span>
+        </div>
+        <div style="min-width:0;flex:1">
+          <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.name}</div>
+          <div style="font-size:11px;color:var(--muted)">Posts diesen Monat</div>
+        </div>
+        <a href="/accounts/${a.id}/planer" title="Einzelplaner"
+           style="color:var(--muted);font-size:12px;text-decoration:none;flex-shrink:0"
+           onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">
+          <i class="fa-solid fa-calendar-pen"></i>
+        </a>
+      </div>`;
+  }).join('');
+}
+
+// ── Tages-Modal ──
+function openDayModal(dateStr) {
+  const dayEvents = allEvents.filter(e => e.date === dateStr);
+  const [Y, M, D] = dateStr.split('-');
+  const names = ['Januar','Februar','März','April','Mai','Juni',
+                 'Juli','August','September','Oktober','November','Dezember'];
+  document.getElementById('dayModalTitle').textContent =
+    `${parseInt(D)}. ${names[parseInt(M)-1]} ${Y}`;
+
+  if (!dayEvents.length) {
+    document.getElementById('dayModalContent').innerHTML =
+      `<div style="text-align:center;padding:30px 0;color:var(--muted)">
+        <i class="fa-regular fa-calendar-xmark" style="font-size:32px;margin-bottom:10px;display:block"></i>
+        Keine Posts geplant
+      </div>`;
+  } else {
+    // Gruppiere nach Account
+    const byAccount = {};
+    dayEvents.forEach(e => {
+      if (!byAccount[e.account_id]) byAccount[e.account_id] = [];
+      byAccount[e.account_id].push(e);
+    });
+
+    let html = '';
+    for (const [accId, evts] of Object.entries(byAccount)) {
+      const acc   = accountMap[accId] || { name: 'Account', id: accId };
+      const color = accountColors[accId] || '#6366f1';
+      html += `<div style="margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="width:10px;height:10px;border-radius:50%;background:${color}"></span>
+            <span style="font-weight:700;font-size:13px">${acc.name}</span>
+          </div>
+          <a href="/accounts/${acc.id}/planer" style="font-size:11px;color:var(--muted);text-decoration:none"
+             onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">
+            Einzelplaner <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:9px"></i>
+          </a>
+        </div>`;
+      evts.forEach(e => {
+        const statusColor = e.status === 'published' ? '#10b981' : e.status === 'failed' ? '#f43f5e' : '#6366f1';
+        const statusLabel = { published:'Veröffentlicht', failed:'Fehlgeschlagen', scheduled:'Geplant',
+                              draft:'Entwurf', cancelled:'Storniert', disabled:'Deaktiviert' }[e.status] || e.status;
+        const typeIcon    = { feed:'📸', reel:'🎬', carousel:'🎠', story:'⭕' }[e.post_type] || '📄';
+        html += `<div class="post-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:14px">${typeIcon}</span>
+              <span style="font-size:12px;font-weight:700;color:var(--text)">${e.time}</span>
+              ${e.thumb ? `<img src="${e.thumb}" style="width:28px;height:28px;border-radius:4px;object-fit:cover">` : ''}
+            </div>
+            <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;
+                         background:${statusColor}20;color:${statusColor}">${statusLabel}</span>
+          </div>
+          ${e.caption ? `<div style="font-size:11px;color:var(--muted);line-height:1.5">${e.caption}</div>` : ''}
+        </div>`;
+      });
+      html += `</div>`;
+    }
+    document.getElementById('dayModalContent').innerHTML = html;
+  }
+
+  document.getElementById('dayModal').style.display = 'block';
+}
+
+function closeDayModal() {
+  document.getElementById('dayModal').style.display = 'none';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDayModal(); });
+</script>
+{% endblock %}

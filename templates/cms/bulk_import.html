@@ -40,6 +40,8 @@
         </button>
       </div>
       <div id="thumbGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px"></div>
+      <!-- Bildgrößen-Warnungen -->
+      <div id="sizeWarnings" style="display:none;margin-top:12px;padding:12px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);border-radius:10px;color:var(--text);font-size:12px;line-height:1.6"></div>
     </div>
 
     <!-- Progress -->
@@ -68,7 +70,7 @@
         </div>
         <div>
           <label class="form-label">Post-Typ</label>
-          <select id="typeSelect" class="select-field">
+          <select id="typeSelect" class="select-field" onchange="renderPreviews()">
             <option value="feed">📸 Feed</option>
             <option value="reel">🎬 Reel</option>
             <option value="carousel">🎠 Carousel</option>
@@ -149,7 +151,7 @@ function handleFiles(fileList) {
   renderPreviews();
 }
 
-function renderPreviews() {
+async function renderPreviews() {
   const grid = document.getElementById('thumbGrid');
   const wrap = document.getElementById('previewGrid');
   const btn  = document.getElementById('uploadBtn');
@@ -159,18 +161,63 @@ function renderPreviews() {
   wrap.style.display='block'; btn.disabled=false;
   document.getElementById('uploadBtnText').textContent = `${selectedFiles.length} Datei${selectedFiles.length!==1?'en':''} hochladen`;
 
+  // Bildgrößen prüfen
+  const checks = await Promise.all(selectedFiles.map((f, i) => checkImageSize(f, i)));
+  const warnings = checks.filter(Boolean);
+  const warnBox = document.getElementById('sizeWarnings');
+  if (warnings.length) {
+    warnBox.style.display = 'block';
+    warnBox.innerHTML = `<div style="font-weight:700;margin-bottom:6px;color:#f59e0b"><i class="fa-solid fa-triangle-exclamation" style="margin-right:6px"></i>${warnings.length} Bild${warnings.length!==1?'er haben':'hat'} mögliche Qualitätsprobleme:</div>`
+      + warnings.map(w => `<div style="font-size:11px;margin-bottom:3px">• <b>${w.name}</b>: ${w.msg}</div>`).join('');
+  } else {
+    warnBox.style.display = 'none';
+  }
+
   grid.innerHTML = selectedFiles.map((f, i) => {
     const isVideo = f.type.startsWith('video/');
     const src = URL.createObjectURL(f);
     const media = isVideo
       ? `<video src="${src}" style="width:100%;height:100%;object-fit:cover"></video>`
       : `<img src="${src}">`;
-    return `<div class="thumb-item">
+    const warn = checks[i];
+    return `<div class="thumb-item" title="${warn ? '⚠️ ' + warn.msg : '✓ OK'}">
       ${media}
+      ${warn ? '<div style="position:absolute;top:4px;left:4px;background:#f59e0b;border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;font-size:9px;color:white">!</div>' : ''}
       <button class="remove-btn" onclick="removeFile(${i})"><i class="fa-solid fa-xmark"></i></button>
       <div class="fname">${f.name}</div>
     </div>`;
   }).join('');
+}
+
+// Bildgrößen-Check (Instagram-Richtwerte)
+const IG_RULES = {
+  feed:     { minW: 1080, minH: 566,  ratioMin: 0.8,  ratioMax: 1.91, label: 'Feed (min. 1080px, Ratio 4:5–1.91:1)' },
+  reel:     { minW: 1080, minH: 1920, ratioMin: 0.5,  ratioMax: 0.57, label: 'Reel (1080×1920, 9:16)' },
+  story:    { minW: 1080, minH: 1920, ratioMin: 0.5,  ratioMax: 0.57, label: 'Story (1080×1920, 9:16)' },
+  carousel: { minW: 1080, minH: 566,  ratioMin: 0.8,  ratioMax: 1.91, label: 'Carousel (min. 1080px)' },
+};
+
+function checkImageSize(file, idx) {
+  if (file.type.startsWith('video/')) return Promise.resolve(null);
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const ratio = w / h;
+      const type = document.getElementById('typeSelect').value || 'feed';
+      const rule = IG_RULES[type] || IG_RULES.feed;
+      const issues = [];
+      if (w < rule.minW) issues.push(`Breite ${w}px < ${rule.minW}px`);
+      if (h < rule.minH) issues.push(`Höhe ${h}px < ${rule.minH}px`);
+      if (ratio < rule.ratioMin || ratio > rule.ratioMax)
+        issues.push(`Seitenverhältnis ${(ratio).toFixed(2)} außerhalb ${rule.label}`);
+      resolve(issues.length ? { name: file.name, msg: issues.join(', ') } : null);
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
 }
 
 function removeFile(i) {

@@ -46,10 +46,17 @@
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:11px;color:var(--muted)">{{ g.accounts|length }} Accounts</span>
-        <button onclick="openEditGroup({{ g.id }}, '{{ g.name }}', {{ g.accounts|map(attribute='id')|list|tojson }})"
-                class="btn btn-ghost" style="font-size:11px;padding:5px 12px">
-          <i class="fa-solid fa-pen"></i> Bearbeiten
-        </button>
+        <div style="display:flex;gap:6px">
+          {% if g.accounts %}
+          <a href="/groups/{{ g.id }}/planer" class="btn btn-ghost" style="font-size:11px;padding:5px 12px">
+            <i class="fa-solid fa-calendar-days"></i> Planer
+          </a>
+          {% endif %}
+          <button onclick="openEditGroup({{ g.id }}, '{{ g.name }}', {{ g.accounts|map(attribute='id')|list|tojson }})"
+                  class="btn btn-ghost" style="font-size:11px;padding:5px 12px">
+            <i class="fa-solid fa-pen"></i> Bearbeiten
+          </button>
+        </div>
       </div>
     </div>
   </div>

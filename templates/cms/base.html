@@ -324,7 +324,7 @@
     <a href="{{ url_for('accounts') }}" class="nav-item {% if active_page == 'accounts' %}active{% endif %}">
       <i class="fa-solid fa-layer-group"></i> Alle Accounts
     </a>
-    <a href="{{ url_for('account_groups') }}" class="nav-item {% if active_page == 'groups' %}active{% endif %}">
+    <a href="{{ url_for('account_groups') }}" class="nav-item {% if active_page == 'groups' or active_page == 'gruppen_planer' %}active{% endif %}">
       <i class="fa-solid fa-object-group"></i> Gruppen
     </a>
     <a href="{{ url_for('calendar_view') }}" class="nav-item {% if active_page == 'calendar' %}active{% endif %}">
@@ -363,6 +363,11 @@
     </a>
     <a href="{{ url_for('beichten_dashboard') }}" class="nav-item {% if active_page == 'beichten' %}active{% endif %}">
       <i class="fa-solid fa-heart"></i> Beichten
+    </a>
+
+    <div class="nav-section">Berichte</div>
+    <a href="{{ url_for('monthly_report') }}" class="nav-item {% if active_page == 'reports' %}active{% endif %}">
+      <i class="fa-solid fa-chart-line"></i> Monatsbericht
     </a>
 
     <div class="nav-section">Verwaltung</div>

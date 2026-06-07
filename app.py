@@ -24,6 +24,10 @@ from sqlalchemy import func
 
 app = Flask(__name__, template_folder='templates/cms')
 
+@app.context_processor
+def inject_globals():
+    return {'now': datetime.utcnow}
+
 @app.template_filter('fmt_followers')
 def fmt_followers(n):
     """Zeigt Follower-Zahlen exakt mit Punkt-Trennung, ab 1M abgekürzt."""
@@ -2861,7 +2865,157 @@ def media_tags_update(media_id):
     return jsonify({'ok': True, 'tags': item.get_tags()})
 
 
-# ─────────────────────── PRINT / POSTING PLAN ───────────────────────
+# ═══════════════════════════════════════════════════════════════
+# ─────────────────── MONATSBERICHT ─────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/reports/monthly')
+@app.route('/reports/monthly/<int:year>/<int:month>')
+def monthly_report(year=None, month=None):
+    today = datetime.utcnow()
+    if not year:  year  = today.year
+    if not month: month = today.month
+
+    start = datetime(year, month, 1)
+    last_day = cal_mod_global.monthrange(year, month)[1]
+    end   = datetime(year, month, last_day, 23, 59, 59)
+
+    # Prev / Next Monat
+    if month == 1:  prev_y, prev_m = year-1, 12
+    else:           prev_y, prev_m = year, month-1
+    if month == 12: next_y, next_m = year+1, 1
+    else:           next_y, next_m = year, month+1
+
+    accounts = Account.query.filter_by(status='active').order_by(Account.follower_count.desc()).all()
+
+    report_data = []
+    total_start_followers = 0
+    total_end_followers   = 0
+    total_posts_month     = 0
+
+    for acc in accounts:
+        # Follower Anfang & Ende des Monats
+        snap_start = AnalyticsSnapshot.query.filter(
+            AnalyticsSnapshot.account_id == acc.id,
+            AnalyticsSnapshot.recorded_at >= start,
+        ).order_by(AnalyticsSnapshot.recorded_at.asc()).first()
+
+        snap_end = AnalyticsSnapshot.query.filter(
+            AnalyticsSnapshot.account_id == acc.id,
+            AnalyticsSnapshot.recorded_at <= end,
+        ).order_by(AnalyticsSnapshot.recorded_at.desc()).first()
+
+        followers_start = snap_start.followers if snap_start else acc.follower_count
+        followers_end   = snap_end.followers   if snap_end   else acc.follower_count
+        growth          = followers_end - followers_start
+        growth_pct      = round(growth / followers_start * 100, 2) if followers_start else 0
+
+        # Posts diesen Monat
+        posts_month = ScheduledPost.query.filter(
+            ScheduledPost.account_id == acc.id,
+            ScheduledPost.scheduled_at >= start,
+            ScheduledPost.scheduled_at <= end,
+            ScheduledPost.status.in_(['published', 'scheduled']),
+            ScheduledPost.slot_type != 'disabled',
+        ).all()
+
+        # Top-Post nach Likes
+        top_post = None
+        for p in sorted(posts_month, key=lambda x: x.likes or 0, reverse=True):
+            if p.likes:
+                top_post = p
+                break
+
+        # Ziel-Erreichung
+        goal_pct = None
+        if acc.growth_goal and acc.growth_goal > 0:
+            goal_pct = min(round(followers_end / acc.growth_goal * 100, 1), 100)
+
+        # Posting-Tage (unique Tage mit Post)
+        post_days = len(set(p.scheduled_at.date() for p in posts_month))
+
+        total_start_followers += followers_start
+        total_end_followers   += followers_end
+        total_posts_month     += len(posts_month)
+
+        report_data.append({
+            'account':          acc,
+            'followers_start':  followers_start,
+            'followers_end':    followers_end,
+            'growth':           growth,
+            'growth_pct':       growth_pct,
+            'posts_count':      len(posts_month),
+            'post_days':        post_days,
+            'top_post':         top_post,
+            'goal_pct':         goal_pct,
+        })
+
+    # Sortiert nach Wachstum
+    report_data.sort(key=lambda x: x['growth'], reverse=True)
+
+    month_name = start.strftime('%B %Y')
+    total_growth = total_end_followers - total_start_followers
+
+    return render_template('monthly_report.html',
+        report_data=report_data,
+        month_name=month_name,
+        year=year, month=month,
+        prev_y=prev_y, prev_m=prev_m,
+        next_y=next_y, next_m=next_m,
+        total_start=total_start_followers,
+        total_end=total_end_followers,
+        total_growth=total_growth,
+        total_posts=total_posts_month,
+        is_future=(start > today),
+        active_page='reports',
+    )
+
+
+# ─────────────────── WACHSTUMSRATE ─────────────────────────────
+
+@app.route('/api/accounts/<int:account_id>/growth-rate')
+def account_growth_rate(account_id):
+    """Automatische Wachstumsrate aus AnalyticsSnapshots."""
+    days = request.args.get('days', 30, type=int)
+    since = datetime.utcnow() - timedelta(days=days)
+
+    snaps = AnalyticsSnapshot.query.filter(
+        AnalyticsSnapshot.account_id == account_id,
+        AnalyticsSnapshot.recorded_at >= since,
+    ).order_by(AnalyticsSnapshot.recorded_at.asc()).all()
+
+    if len(snaps) < 2:
+        # Fallback: aktueller Follower-Count
+        acc = Account.query.get_or_404(account_id)
+        return jsonify({'rate_pct': 0, 'growth_abs': 0, 'data_points': 0,
+                        'current': acc.follower_count})
+
+    first, last = snaps[0].followers, snaps[-1].followers
+    growth_abs = last - first
+    rate_pct   = round(growth_abs / first * 100, 2) if first else 0
+
+    # Tägliche Wachstumspunkte
+    daily = []
+    for i in range(1, len(snaps)):
+        diff = snaps[i].followers - snaps[i-1].followers
+        daily.append({
+            'date': snaps[i].recorded_at.strftime('%Y-%m-%d'),
+            'delta': diff,
+            'followers': snaps[i].followers,
+        })
+
+    return jsonify({
+        'rate_pct':   rate_pct,
+        'growth_abs': growth_abs,
+        'current':    last,
+        'from':       first,
+        'data_points': len(snaps),
+        'daily':      daily,
+        'per_day_avg': round(growth_abs / max(days, 1), 1),
+    })
+
+
+# ─────────────────── PRINT / POSTING PLAN ───────────────────────────────
 
 @app.route('/calendar/print')
 def calendar_print():
@@ -3267,6 +3421,62 @@ def post_recycle(post_id):
     db.session.commit()
     log_activity('post_recycled', f'Post {post_id} recycelt auf {date_str}')
     return jsonify({'ok': True, 'new_post_id': new_post.id})
+
+
+# ─────────────────── ACCOUNT-GRUPPEN-PLANER ────────────────────
+
+@app.route('/groups/<int:group_id>/planer')
+def group_planer(group_id):
+    """Gruppen-Kalender: alle Accounts der Gruppe auf einem Blick."""
+    group = AccountGroup.query.get_or_404(group_id)
+    all_groups = AccountGroup.query.order_by(AccountGroup.name).all()
+    return render_template('cms/gruppen_planer.html',
+        group=group, all_groups=all_groups, active_page='accounts')
+
+
+@app.route('/api/groups/<int:group_id>/planer/events')
+def group_planer_events(group_id):
+    """Events aller Accounts in der Gruppe für einen Monat."""
+    group = AccountGroup.query.get_or_404(group_id)
+    month = request.args.get('month', '')
+    try:
+        y, m = int(month[:4]), int(month[5:7])
+    except Exception:
+        from datetime import date
+        today = date.today()
+        y, m = today.year, today.month
+
+    start = datetime(y, m, 1)
+    import calendar as cal_mod
+    last_day = cal_mod.monthrange(y, m)[1]
+    end = datetime(y, m, last_day, 23, 59, 59)
+
+    account_ids = [a.id for a in group.accounts]
+    posts = ScheduledPost.query.filter(
+        ScheduledPost.account_id.in_(account_ids),
+        ScheduledPost.scheduled_at >= start,
+        ScheduledPost.scheduled_at <= end,
+    ).order_by(ScheduledPost.scheduled_at).all()
+
+    result = []
+    for p in posts:
+        ci = p.content_item
+        result.append({
+            'id': p.id,
+            'account_id': p.account_id,
+            'account_name': p.account.name,
+            'date': p.scheduled_at.strftime('%Y-%m-%d'),
+            'time': p.scheduled_at.strftime('%H:%M'),
+            'slot_type': p.slot_type,
+            'status': p.status,
+            'post_type': p.post_type,
+            'caption': (p.caption or (ci.title if ci else '') or '')[:80],
+            'thumb': (ci.media_items[0].url if ci and ci.media_items else None),
+        })
+    return jsonify({
+        'accounts': [{'id': a.id, 'name': a.name, 'handle': a.handle or ''} for a in group.accounts],
+        'events': result,
+    })
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────

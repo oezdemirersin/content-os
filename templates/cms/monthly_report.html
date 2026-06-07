@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Monatsbericht {{ month_name }} — Content OS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    @page { margin: 15mm 12mm; size: A4; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', -apple-system, Arial, sans-serif;
+      font-size: 12px;
+      color: #1e293b;
+      background: #f8fafc;
+      padding: 24px;
+    }
+
+    /* ── HEADER ── */
+    .report-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      padding: 28px 32px; background: #0f172a; border-radius: 16px;
+      margin-bottom: 20px; color: white;
+    }
+    .logo { font-size: 11px; font-weight: 900; letter-spacing: 3px; color: #6366f1; margin-bottom: 6px; }
+    .report-title { font-size: 28px; font-weight: 800; letter-spacing: 1px; line-height: 1.1; }
+    .report-sub { font-size: 13px; color: #94a3b8; margin-top: 6px; }
+    .header-stats { display: flex; gap: 24px; }
+    .hstat { text-align: right; }
+    .hstat-val { font-size: 24px; font-weight: 800; color: white; }
+    .hstat-val.green { color: #4ade80; }
+    .hstat-val.red   { color: #f87171; }
+    .hstat-lbl { font-size: 10px; color: #94a3b8; margin-top: 2px; letter-spacing: .5px; text-transform: uppercase; }
+
+    /* ── KPI-LEISTE ── */
+    .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+    .kpi-card { background: white; border-radius: 12px; padding: 16px 18px; border: 1px solid #e2e8f0; }
+    .kpi-lbl { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: #94a3b8; margin-bottom: 6px; }
+    .kpi-val { font-size: 22px; font-weight: 800; color: #1e293b; }
+    .kpi-val.accent { color: #6366f1; }
+    .kpi-val.green  { color: #059669; }
+    .kpi-val.red    { color: #dc2626; }
+    .kpi-sub { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+
+    /* ── ACCOUNT-TABELLE ── */
+    .section-title {
+      font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+      color: #94a3b8; margin-bottom: 10px; padding-bottom: 6px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
+    thead tr { background: #f1f5f9; }
+    th { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+         color: #64748b; padding: 10px 14px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+    td { padding: 11px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+
+    .acc-name { font-weight: 700; font-size: 13px; color: #1e293b; }
+    .acc-handle { font-size: 10px; color: #94a3b8; }
+
+    .growth-pos { color: #059669; font-weight: 700; }
+    .growth-neg { color: #dc2626; font-weight: 700; }
+    .growth-zero { color: #94a3b8; }
+
+    .goal-bar-wrap { width: 80px; height: 6px; background: #f1f5f9; border-radius: 6px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 6px; }
+    .goal-bar { height: 100%; border-radius: 6px; background: #6366f1; }
+    .goal-bar.green { background: #059669; }
+    .goal-bar.yellow { background: #f59e0b; }
+
+    .top-caption { font-size: 11px; color: #64748b; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* ── FOOTER ── */
+    .report-footer {
+      margin-top: 20px; padding: 14px 20px; background: white; border-radius: 10px;
+      border: 1px solid #e2e8f0; display: flex; justify-content: space-between;
+      align-items: center; font-size: 11px; color: #94a3b8;
+    }
+
+    /* ── NAVIGATION (kein Druck) ── */
+    .no-print {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 20px; gap: 12px;
+    }
+    .btn {
+      padding: 9px 18px; border-radius: 8px; border: 1px solid #e2e8f0;
+      font-size: 12px; font-weight: 700; cursor: pointer; text-decoration: none;
+      display: inline-flex; align-items: center; gap: 6px; background: white;
+      color: #1e293b; transition: all .15s;
+    }
+    .btn:hover { background: #f1f5f9; }
+    .btn-primary { background: #6366f1; color: white; border-color: #6366f1; }
+    .btn-primary:hover { background: #4f46e5; }
+    .btn-ghost { color: #64748b; }
+
+    @media print {
+      body { background: white; padding: 0; }
+      .no-print { display: none !important; }
+      .report-header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .kpi-card, table { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      thead tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Navigation (kein Druck) -->
+<div class="no-print">
+  <div style="display:flex;align-items:center;gap:12px">
+    <a href="/" class="btn btn-ghost"><i class="fa-solid fa-house"></i> Dashboard</a>
+    <a href="/reports/monthly/{{ prev_y }}/{{ prev_m }}" class="btn">
+      <i class="fa-solid fa-chevron-left"></i> Vormonat
+    </a>
+    {% if not is_future %}
+    <a href="/reports/monthly/{{ next_y }}/{{ next_m }}" class="btn">
+      Nächster <i class="fa-solid fa-chevron-right"></i>
+    </a>
+    {% endif %}
+  </div>
+  <button onclick="window.print()" class="btn btn-primary">
+    <i class="fa-solid fa-file-pdf"></i> Als PDF speichern
+  </button>
+</div>
+
+<!-- Header -->
+<div class="report-header">
+  <div>
+    <div class="logo">CONTENT OS</div>
+    <div class="report-title">{{ month_name | upper }}</div>
+    <div class="report-sub">Monatsbericht · Alle aktiven Accounts · {{ report_data | length }} Seiten</div>
+  </div>
+  <div class="header-stats">
+    <div class="hstat">
+      <div class="hstat-val {% if total_growth > 0 %}green{% elif total_growth < 0 %}red{% endif %}">
+        {% if total_growth > 0 %}+{% endif %}{{ total_growth | fmt_followers }}
+      </div>
+      <div class="hstat-lbl">Netto-Wachstum</div>
+    </div>
+    <div class="hstat">
+      <div class="hstat-val">{{ total_end | fmt_followers }}</div>
+      <div class="hstat-lbl">Gesamt-Follower</div>
+    </div>
+    <div class="hstat">
+      <div class="hstat-val">{{ total_posts }}</div>
+      <div class="hstat-lbl">Posts gesamt</div>
+    </div>
+  </div>
+</div>
+
+<!-- KPI-Leiste -->
+<div class="kpi-row">
+  <div class="kpi-card">
+    <div class="kpi-lbl">Aktive Accounts</div>
+    <div class="kpi-val accent">{{ report_data | length }}</div>
+    <div class="kpi-sub">Seiten live</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-lbl">Beste Wachstum</div>
+    {% if report_data %}
+    <div class="kpi-val green">+{{ report_data[0].growth | fmt_followers }}</div>
+    <div class="kpi-sub">{{ report_data[0].account.name }}</div>
+    {% else %}
+    <div class="kpi-val">—</div>
+    {% endif %}
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-lbl">Posts / Account Ø</div>
+    <div class="kpi-val accent">
+      {% if report_data | length > 0 %}{{ (total_posts / report_data | length) | round(1) }}{% else %}0{% endif %}
+    </div>
+    <div class="kpi-sub">im Monat</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-lbl">Follower Start</div>
+    <div class="kpi-val">{{ total_start | fmt_followers }}</div>
+    <div class="kpi-sub">→ {{ total_end | fmt_followers }}</div>
+  </div>
+</div>
+
+<!-- Account-Tabelle -->
+<div style="margin-bottom:16px">
+  <div class="section-title">ACCOUNT-ÜBERSICHT</div>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Account</th>
+        <th>Follower Start</th>
+        <th>Follower Ende</th>
+        <th>Wachstum</th>
+        <th>Posts</th>
+        <th>Posting-Tage</th>
+        <th>Ziel</th>
+        <th>Top-Post</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in report_data %}
+      <tr>
+        <td style="font-weight:700;color:#94a3b8">{{ loop.index }}</td>
+        <td>
+          <div class="acc-name">{{ r.account.name }}</div>
+          {% if r.account.handle %}
+          <div class="acc-handle">@{{ r.account.handle }}</div>
+          {% endif %}
+        </td>
+        <td>{{ r.followers_start | fmt_followers }}</td>
+        <td style="font-weight:700">{{ r.followers_end | fmt_followers }}</td>
+        <td>
+          <span class="{% if r.growth > 0 %}growth-pos{% elif r.growth < 0 %}growth-neg{% else %}growth-zero{% endif %}">
+            {% if r.growth > 0 %}+{% endif %}{{ r.growth | fmt_followers }}
+          </span>
+          <span style="font-size:10px;color:#94a3b8;margin-left:4px">
+            ({% if r.growth_pct > 0 %}+{% endif %}{{ r.growth_pct }}%)
+          </span>
+        </td>
+        <td style="font-weight:700;color:#6366f1">{{ r.posts_count }}</td>
+        <td>{{ r.post_days }} Tage</td>
+        <td>
+          {% if r.goal_pct is not none %}
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="goal-bar-wrap">
+              <div class="goal-bar {% if r.goal_pct >= 100 %}green{% elif r.goal_pct >= 70 %}yellow{% endif %}"
+                   style="width:{{ r.goal_pct }}%"></div>
+            </div>
+            <span style="font-size:11px;font-weight:700;color:{% if r.goal_pct >= 100 %}#059669{% elif r.goal_pct >= 70 %}#f59e0b{% else %}#6366f1{% endif %}">
+              {{ r.goal_pct }}%
+            </span>
+          </div>
+          {% else %}
+          <span style="color:#94a3b8">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.top_post %}
+          <div class="top-caption">{{ r.top_post.caption or 'Post' }}</div>
+          <div style="font-size:10px;color:#059669;margin-top:2px">
+            ❤️ {{ r.top_post.likes or 0 | int }}
+            {% if r.top_post.reach %} · 👁️ {{ r.top_post.reach | int }}{% endif %}
+          </div>
+          {% else %}
+          <span style="color:#94a3b8">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Account-Detail-Karten (Top-Wachstum) -->
+{% if report_data %}
+<div style="margin-bottom:16px">
+  <div class="section-title">TOP WACHSTUM DETAIL</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+    {% for r in report_data[:6] %}
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-weight:700;font-size:13px">{{ r.account.name }}</div>
+          <div style="font-size:10px;color:#94a3b8">{{ r.account.category.name if r.account.category else 'Keine Kategorie' }}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:18px;font-weight:800;color:{% if r.growth > 0 %}#059669{% elif r.growth < 0 %}#dc2626{% else %}#94a3b8{% endif %}">
+            {% if r.growth > 0 %}+{% endif %}{{ r.growth | fmt_followers }}
+          </div>
+          <div style="font-size:10px;color:#94a3b8">{{ r.growth_pct }}%</div>
+        </div>
+      </div>
+      <!-- Mini-Balken -->
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;margin-bottom:4px">
+        <span>{{ r.followers_start | fmt_followers }}</span>
+        <span>{{ r.followers_end | fmt_followers }}</span>
+      </div>
+      <div style="height:4px;background:#f1f5f9;border-radius:4px;overflow:hidden">
+        {% if r.account.growth_goal and r.account.growth_goal > r.followers_start %}
+        {% set bar_pct = ((r.followers_end - r.followers_start) / (r.account.growth_goal - r.followers_start) * 100) | min(100) | max(0) %}
+        <div style="height:100%;width:{{ bar_pct }}%;background:#6366f1;border-radius:4px"></div>
+        {% else %}
+        <div style="height:100%;width:100%;background:#4ade80;border-radius:4px"></div>
+        {% endif %}
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:11px">
+        <span style="color:#94a3b8">{{ r.posts_count }} Posts</span>
+        <span style="color:#94a3b8">{{ r.post_days }} Tage</span>
+        {% if r.goal_pct is not none %}
+        <span style="color:#6366f1;font-weight:700">{{ r.goal_pct }}% Ziel</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Footer -->
+<div class="report-footer">
+  <span>Content OS · Monatsbericht {{ month_name }}</span>
+  <span>Erstellt am {{ now().strftime('%d.%m.%Y %H:%M') if now else '' }}</span>
+  <span>{{ report_data | length }} Accounts · {{ total_posts }} Posts</span>
+</div>
+
+</body>
+</html>
