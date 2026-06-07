@@ -2956,7 +2956,7 @@ def monthly_report(year=None, month=None):
     month_name = start.strftime('%B %Y')
     total_growth = total_end_followers - total_start_followers
 
-    return render_template('monthly_report.html',
+    return render_template('cms/monthly_report.html',
         report_data=report_data,
         month_name=month_name,
         year=year, month=month,
@@ -3109,7 +3109,7 @@ def bulk_import_page():
     categories = Category.query.order_by(Category.name).all()
     accounts   = Account.query.filter_by(status='active').order_by(Account.name).all()
     labels     = Label.query.order_by(Label.name).all()
-    return render_template('bulk_import.html', categories=categories,
+    return render_template('cms/bulk_import.html', categories=categories,
                            accounts=accounts, labels=labels, active_page='bulk_import')
 
 @app.route('/api/media/bulk-import', methods=['POST'])

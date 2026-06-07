@@ -74,6 +74,17 @@
     .nav-item:hover { background:var(--surface2); color:var(--text); }
     .nav-item.active { background:var(--surface2); color:var(--accent2); border-left: 2px solid var(--accent); padding-left: 8px; }
     .nav-item i { width:16px; text-align:center; font-size:12px; flex-shrink:0; }
+    /* Sub-item: eingerückt, kleinere Schrift */
+    .nav-sub {
+      display:flex; align-items:center; gap:9px;
+      padding:5px 10px 5px 28px;
+      border-radius:8px; color:var(--muted); cursor:pointer;
+      font-size:11.5px; font-weight:500; text-decoration:none;
+      transition:all .15s; margin-bottom:1px;
+    }
+    .nav-sub:hover { background:var(--surface2); color:var(--text); }
+    .nav-sub.active { background:var(--surface2); color:var(--accent2); }
+    .nav-sub i { width:14px; text-align:center; font-size:11px; flex-shrink:0; }
 
     .sidebar-user {
       padding:12px; border-top:1px solid var(--border);
@@ -338,43 +349,41 @@
     <a href="{{ url_for('analytics') }}" class="nav-item {% if active_page == 'analytics' %}active{% endif %}">
       <i class="fa-solid fa-chart-bar"></i> Analytics
     </a>
-    <a href="{{ url_for('alerts_center') }}" class="nav-item {% if active_page == 'alerts' %}active{% endif %}">
-      <i class="fa-solid fa-bell"></i> Alert-Center
+    <a href="{{ url_for('monthly_report') }}" class="nav-item {% if active_page == 'reports' %}active{% endif %}">
+      <i class="fa-solid fa-file-chart-column"></i> Monatsbericht
     </a>
 
     <div class="nav-section">Content</div>
     <a href="{{ url_for('content_hub') }}" class="nav-item {% if active_page == 'content' %}active{% endif %}">
       <i class="fa-solid fa-inbox"></i> Content Hub
     </a>
-    <a href="{{ url_for('distribute') }}" class="nav-item {% if active_page == 'distribute' %}active{% endif %}">
-      <i class="fa-solid fa-arrows-split-up-and-left"></i> Verteilen
+    <a href="{{ url_for('bulk_import_page') }}" class="nav-sub {% if active_page == 'bulk_import' %}active{% endif %}">
+      <i class="fa-solid fa-cloud-arrow-up"></i> Bulk-Import
+    </a>
+    <a href="{{ url_for('hashtag_sets') }}" class="nav-sub {% if active_page == 'hashtag_sets' %}active{% endif %}">
+      <i class="fa-solid fa-hashtag"></i> Hashtag-Sets
     </a>
     <a href="{{ url_for('media_library') }}" class="nav-item {% if active_page == 'media' %}active{% endif %}">
       <i class="fa-solid fa-photo-film"></i> Medienbibliothek
     </a>
+    <a href="{{ url_for('distribute') }}" class="nav-item {% if active_page == 'distribute' %}active{% endif %}">
+      <i class="fa-solid fa-arrows-split-up-and-left"></i> Verteilen
+    </a>
     <a href="{{ url_for('content_templates') }}" class="nav-item {% if active_page == 'templates' %}active{% endif %}">
       <i class="fa-solid fa-rectangle-list"></i> Templates
-    </a>
-    <a href="{{ url_for('bulk_import_page') }}" class="nav-item {% if active_page == 'bulk_import' %}active{% endif %}">
-      <i class="fa-solid fa-cloud-arrow-up"></i> Bulk-Import
-    </a>
-    <a href="{{ url_for('hashtag_sets') }}" class="nav-item {% if active_page == 'hashtag_sets' %}active{% endif %}">
-      <i class="fa-solid fa-hashtag"></i> Hashtag-Sets
     </a>
     <a href="{{ url_for('beichten_dashboard') }}" class="nav-item {% if active_page == 'beichten' %}active{% endif %}">
       <i class="fa-solid fa-heart"></i> Beichten
     </a>
 
-    <div class="nav-section">Berichte</div>
-    <a href="{{ url_for('monthly_report') }}" class="nav-item {% if active_page == 'reports' %}active{% endif %}">
-      <i class="fa-solid fa-chart-line"></i> Monatsbericht
-    </a>
-
     <div class="nav-section">Verwaltung</div>
+    <a href="{{ url_for('alerts_center') }}" class="nav-item {% if active_page == 'alerts' %}active{% endif %}">
+      <i class="fa-solid fa-bell"></i> Alerts
+    </a>
     <a href="{{ url_for('automation') }}" class="nav-item {% if active_page == 'automation' %}active{% endif %}">
       <i class="fa-solid fa-robot"></i> Automatisierung
     </a>
-    <a href="{{ url_for('ai_config_list') }}" class="nav-item {% if active_page == 'ai' %}active{% endif %}">
+    <a href="{{ url_for('ai_config_list') }}" class="nav-sub {% if active_page == 'ai' %}active{% endif %}">
       <i class="fa-solid fa-microchip"></i> KI-Zentrale
     </a>
     <a href="{{ url_for('team') }}" class="nav-item {% if active_page == 'team' %}active{% endif %}">

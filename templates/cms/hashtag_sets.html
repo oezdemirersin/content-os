@@ -4,7 +4,10 @@
 
 {% block content %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-  <div style="font-size:13px;color:var(--muted)">Gespeicherte Hashtag-Gruppen — per Klick in jeden Post einfügbar</div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <a href="{{ url_for('content_hub') }}" class="btn btn-ghost" style="font-size:12px">← Content Hub</a>
+    <span style="font-size:13px;color:var(--muted)">Gespeicherte Hashtag-Gruppen — per Klick in jeden Post einfügbar</span>
+  </div>
   <button onclick="openModal()" class="btn btn-primary">
     <i class="fa-solid fa-plus"></i> Neues Set
   </button>

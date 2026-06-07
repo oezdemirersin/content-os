@@ -276,7 +276,9 @@
       </div>
       <div style="height:4px;background:#f1f5f9;border-radius:4px;overflow:hidden">
         {% if r.account.growth_goal and r.account.growth_goal > r.followers_start %}
-        {% set bar_pct = ((r.followers_end - r.followers_start) / (r.account.growth_goal - r.followers_start) * 100) | min(100) | max(0) %}
+        {% set _raw = ((r.followers_end - r.followers_start) / (r.account.growth_goal - r.followers_start) * 100) %}
+        {% set bar_pct = [_raw, 100] | min %}
+        {% set bar_pct = [bar_pct, 0] | max %}
         <div style="height:100%;width:{{ bar_pct }}%;background:#6366f1;border-radius:4px"></div>
         {% else %}
         <div style="height:100%;width:100%;background:#4ade80;border-radius:4px"></div>
