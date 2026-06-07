@@ -183,7 +183,20 @@
 
       <!-- ③ CAPTION -->
       <div id="captionWrap">
-        <label class="form-label">Caption <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <label class="form-label" style="margin:0">Caption <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+          <button type="button" onclick="toggleCalHashtagPicker()"
+                  style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);
+                         cursor:pointer;padding:3px 10px;font-size:11px;font-family:var(--font-body);transition:all .15s"
+                  onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--accent2)'"
+                  onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+            <i class="fa-solid fa-hashtag" style="margin-right:4px"></i>Hashtag-Sets
+          </button>
+        </div>
+        <div id="calHashtagPanel" style="display:none;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="padding:6px 10px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)">Klick = anhängen</div>
+          <div id="calHashtagList" style="max-height:140px;overflow-y:auto"></div>
+        </div>
         <textarea id="slotCaption" rows="3" class="input-field" style="resize:none"
                   placeholder="Dein Text für diesen Post…"></textarea>
       </div>
@@ -1042,6 +1055,39 @@ async function deleteSlot(id) {
   document.getElementById('evPopup').style.display='none';
   cal.refetchEvents();
   showToast('Slot gelöscht.','info');
+}
+
+// ── HASHTAG-SET PICKER im Kalender-Modal ──
+let _calHashtagCache = null;
+
+async function toggleCalHashtagPicker() {
+  const panel = document.getElementById('calHashtagPanel');
+  if (!panel) return;
+  if (panel.style.display !== 'none') { panel.style.display='none'; return; }
+  panel.style.display = 'block';
+  if (!_calHashtagCache) {
+    _calHashtagCache = await fetch('/api/hashtag-sets?account_id={{ account.id }}').then(r=>r.json());
+  }
+  const list = document.getElementById('calHashtagList');
+  if (!_calHashtagCache.length) {
+    list.innerHTML = '<div style="padding:10px;text-align:center;font-size:12px;color:var(--muted)">Keine Sets. <a href="/hashtag-sets" style="color:var(--accent2)">Erstellen</a></div>';
+    return;
+  }
+  list.innerHTML = _calHashtagCache.map(s => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;
+                border-bottom:1px solid var(--border);cursor:pointer"
+         onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''"
+         onclick="appendCalHashtags(${s.id},'${s.hashtags.replace(/'/g,'\\\'')}')">
+      <div style="font-size:12px;font-weight:600;color:var(--text)">${s.name}</div>
+      <span style="font-size:10px;color:var(--muted)">${s.hashtags.split(' ').filter(t=>t.startsWith('#')).length} Tags</span>
+    </div>`).join('');
+}
+
+function appendCalHashtags(setId, hashtags) {
+  fetch(`/api/hashtag-sets/${setId}/use`, {method:'POST'});
+  const ta = document.getElementById('slotCaption');
+  if (ta) ta.value = (ta.value.trim() ? ta.value.trim() + '\n\n' : '') + hashtags;
+  document.getElementById('calHashtagPanel').style.display = 'none';
 }
 </script>
 {% endblock %}

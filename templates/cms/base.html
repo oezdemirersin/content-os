@@ -706,7 +706,23 @@ document.addEventListener('keydown', e => {
         </div>
       </div>
       <div>
-        <label class="form-label">Caption *</label>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <label class="form-label" style="margin:0">Caption *</label>
+          <button type="button" onclick="toggleHashtagPicker()" id="hashtagPickerBtn"
+                  style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);
+                         cursor:pointer;padding:3px 10px;font-size:11px;font-family:var(--font-body);transition:all .15s"
+                  onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--accent2)'"
+                  onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+            <i class="fa-solid fa-hashtag" style="margin-right:4px"></i>Hashtag-Sets
+          </button>
+        </div>
+        <!-- Hashtag-Set Picker -->
+        <div id="hashtagPickerPanel" style="display:none;margin-bottom:8px;border:1px solid var(--border);
+             border-radius:8px;overflow:hidden">
+          <div style="padding:8px;background:var(--surface2);border-bottom:1px solid var(--border);
+                      font-size:11px;color:var(--muted)">Klick = ans Caption anhängen</div>
+          <div id="hashtagSetList" style="max-height:160px;overflow-y:auto"></div>
+        </div>
         <textarea id="qpCaption" class="input-field" rows="4"
                   placeholder="Post-Text hier eingeben…"
                   oninput="updateQpPreview()"
@@ -924,6 +940,57 @@ function toggleTheme() {
     if (lbl) lbl.textContent = 'Dark Mode';
   }
 })();
+
+// ── HASHTAG-SET PICKER (Quick-Post + überall) ──
+let _hashtagSetsCache = null;
+
+async function toggleHashtagPicker() {
+  const panel = document.getElementById('hashtagPickerPanel');
+  if (!panel) return;
+  if (panel.style.display !== 'none') { panel.style.display='none'; return; }
+  panel.style.display = 'block';
+  if (!_hashtagSetsCache) {
+    const accountId = document.getElementById('qpAccount')?.value || '';
+    const url = '/api/hashtag-sets' + (accountId ? `?account_id=${accountId}` : '');
+    _hashtagSetsCache = await fetch(url).then(r=>r.json());
+  }
+  renderHashtagSetList();
+}
+
+function renderHashtagSetList() {
+  const list = document.getElementById('hashtagSetList');
+  if (!list || !_hashtagSetsCache) return;
+  if (!_hashtagSetsCache.length) {
+    list.innerHTML = '<div style="padding:12px;text-align:center;font-size:12px;color:var(--muted)">Keine Hashtag-Sets — <a href="/hashtag-sets" style="color:var(--accent2)">Erstellen</a></div>';
+    return;
+  }
+  list.innerHTML = _hashtagSetsCache.map(s => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;
+                border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s"
+         onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''"
+         onclick="appendHashtags(${s.id}, '${s.hashtags.replace(/'/g,'\\\'').replace(/\n/g,' ')}')">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text)">${s.name}</div>
+        <div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px">${s.hashtags.slice(0,80)}</div>
+      </div>
+      <span style="font-size:10px;color:var(--muted);flex-shrink:0;margin-left:8px">${s.hashtags.split(' ').filter(t=>t.startsWith('#')).length} Tags</span>
+    </div>`).join('');
+}
+
+async function appendHashtags(setId, hashtags) {
+  // Use-Count erhöhen
+  fetch(`/api/hashtag-sets/${setId}/use`, {method:'POST'});
+  // Ans Caption-Feld anhängen
+  const ta = document.getElementById('qpCaption');
+  if (ta) {
+    const current = ta.value.trim();
+    ta.value = current ? current + '\n\n' + hashtags : hashtags;
+    ta.dispatchEvent(new Event('input'));
+  }
+  // Panel schließen
+  document.getElementById('hashtagPickerPanel').style.display = 'none';
+  _hashtagSetsCache = null; // Cache reset damit beim nächsten Öffnen fresh geladen wird
+}
 </script>
 </body>
 </html>

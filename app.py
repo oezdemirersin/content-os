@@ -280,6 +280,25 @@ init_db()
 
 # ─────────────────────── ALERT ENGINE ───────────────────────
 
+_email_sent_cache = set()  # verhindert doppelte Mails in einer Session
+
+def _maybe_send_alert_email(account_name, stock_days):
+    """Sendet E-Mail-Alert wenn aktiviert und noch nicht in dieser Session gesendet."""
+    key = f'{account_name}:{round(stock_days, 0)}'
+    if key in _email_sent_cache:
+        return
+    try:
+        ns = NotificationSettings.query.first()
+        if ns and ns.email_enabled and ns.email:
+            threshold = ns.low_stock_days or 3
+            if stock_days <= threshold:
+                ok = send_low_stock_email(account_name, stock_days, ns.email)
+                if ok:
+                    _email_sent_cache.add(key)
+    except Exception as e:
+        app.logger.error(f'Alert-Email Fehler: {e}')
+
+
 def generate_alerts():
     """Auto-generate system alerts based on current state."""
     # Clear old unresolved automated alerts
@@ -303,11 +322,13 @@ def generate_alerts():
                 account_id=acc.id, alert_type='low_stock', severity='critical',
                 message=f'"{acc.name}" hat nur {round(days, 1)} Tage Vorrat (Minimum: {acc.min_stock_days}T)'
             ))
+            _maybe_send_alert_email(acc.name, days)
         elif days < 7:
             db.session.add(SystemAlert(
                 account_id=acc.id, alert_type='low_stock', severity='warning',
                 message=f'"{acc.name}" hat nur {round(days, 1)} Tage Vorrat'
             ))
+            _maybe_send_alert_email(acc.name, days)
 
         # No posts scheduled at all
         upcoming = ScheduledPost.query.filter_by(account_id=acc.id, status='scheduled')\
@@ -2872,7 +2893,7 @@ def hashtag_sets():
     accounts  = Account.query.filter_by(status='active').order_by(Account.name).all()
     categories = Category.query.order_by(Category.name).all()
     return render_template('hashtag_sets.html', sets=sets,
-                           accounts=accounts, categories=categories, active_page='content')
+                           accounts=accounts, categories=categories, active_page='hashtag_sets')
 
 @app.route('/api/hashtag-sets', methods=['GET'])
 def api_hashtag_sets_list():
@@ -2935,7 +2956,7 @@ def bulk_import_page():
     accounts   = Account.query.filter_by(status='active').order_by(Account.name).all()
     labels     = Label.query.order_by(Label.name).all()
     return render_template('bulk_import.html', categories=categories,
-                           accounts=accounts, labels=labels, active_page='content')
+                           accounts=accounts, labels=labels, active_page='bulk_import')
 
 @app.route('/api/media/bulk-import', methods=['POST'])
 def api_bulk_import():
