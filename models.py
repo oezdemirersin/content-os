@@ -222,7 +222,7 @@ class ContentItem(db.Model):
     # draft, in_progress, ready, scheduled, published, archived, error
 
     author_id = db.Column(db.Integer, db.ForeignKey('team_member.id'))
-    author = db.relationship('TeamMember', backref='content_items')
+    author = db.relationship('TeamMember', foreign_keys='ContentItem.author_id', backref='content_items')
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -240,6 +240,14 @@ class ContentItem(db.Model):
 
     # Content type
     content_type = db.Column(db.String(30), default='feed')  # feed, reel, story, carousel
+
+    # Freigabe-Workflow
+    # approval_status: none | pending_review | approved | rejected
+    approval_status = db.Column(db.String(20), default='none')
+    reviewed_by_id  = db.Column(db.Integer, db.ForeignKey('team_member.id'), nullable=True)
+    reviewed_by     = db.relationship('TeamMember', foreign_keys='ContentItem.reviewed_by_id')
+    reviewed_at     = db.Column(db.DateTime)
+    review_note     = db.Column(db.Text)
 
 
 class MediaItem(db.Model):
@@ -439,3 +447,16 @@ class NotificationSettings(db.Model):
     low_stock_days  = db.Column(db.Integer, default=3)   # Alert wenn Vorrat < X Tage
     email_enabled   = db.Column(db.Boolean, default=False)
     updated_at      = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ── In-App Notifications ─────────────────────────────────────
+class AppNotification(db.Model):
+    id         = db.Column(db.Integer, primary_key=True)
+    type       = db.Column(db.String(40))   # low_stock | review_request | approved | rejected | info
+    title      = db.Column(db.String(300))
+    message    = db.Column(db.Text)
+    link       = db.Column(db.String(500))  # optional click-through URL
+    is_read    = db.Column(db.Boolean, default=False)
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    account    = db.relationship('Account', backref='notifications')

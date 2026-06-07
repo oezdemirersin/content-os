@@ -16,7 +16,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     ContentItem, MediaItem, ScheduledPost, AnalyticsSnapshot,
                     AutomationRule, AutomationRunLog, SystemAlert, User, ActivityLog,
                     AccountGroup, ContentTemplate, ContentComment,
-                    HashtagSet, NotificationSettings)
+                    HashtagSet, NotificationSettings, AppNotification)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -327,12 +327,20 @@ def generate_alerts():
                 message=f'"{acc.name}" hat nur {round(days, 1)} Tage Vorrat (Minimum: {acc.min_stock_days}T)'
             ))
             _maybe_send_alert_email(acc.name, days)
+            _push_notification('low_stock',
+                f'⚠️ Kritischer Vorrat: {acc.name}',
+                f'Nur noch {round(days,1)} Tage Content-Vorrat!',
+                link=f'/accounts/{acc.id}', account_id=acc.id)
         elif days < 7:
             db.session.add(SystemAlert(
                 account_id=acc.id, alert_type='low_stock', severity='warning',
                 message=f'"{acc.name}" hat nur {round(days, 1)} Tage Vorrat'
             ))
             _maybe_send_alert_email(acc.name, days)
+            _push_notification('low_stock',
+                f'Low Stock: {acc.name}',
+                f'{round(days,1)} Tage Vorrat verbleibend.',
+                link=f'/accounts/{acc.id}', account_id=acc.id)
 
         # No posts scheduled at all
         upcoming = ScheduledPost.query.filter_by(account_id=acc.id, status='scheduled')\
@@ -3477,6 +3485,181 @@ def group_planer_events(group_id):
         'accounts': [{'id': a.id, 'name': a.name, 'handle': a.handle or ''} for a in group.accounts],
         'events': result,
     })
+
+
+# ─────────────────── FREIGABE-WORKFLOW ──────────────────────────
+
+@app.route('/content/review')
+def content_review():
+    """Review-Queue: alle Items die auf Freigabe warten."""
+    pending = ContentItem.query.filter_by(approval_status='pending_review')\
+                               .order_by(ContentItem.created_at.desc()).all()
+    approved = ContentItem.query.filter_by(approval_status='approved')\
+                                .order_by(ContentItem.reviewed_at.desc()).limit(20).all()
+    rejected = ContentItem.query.filter_by(approval_status='rejected')\
+                                .order_by(ContentItem.reviewed_at.desc()).limit(20).all()
+    team = TeamMember.query.filter_by(status='active').all()
+    return render_template('cms/content_review.html',
+        pending=pending, approved=approved, rejected=rejected,
+        team=team, active_page='content')
+
+@app.route('/api/content/<int:item_id>/submit-review', methods=['POST'])
+def submit_review(item_id):
+    """Item zur Review einreichen."""
+    ci = ContentItem.query.get_or_404(item_id)
+    ci.approval_status = 'pending_review'
+    # In-App Notification für alle Team-Leads
+    _push_notification('review_request',
+        f'Review angefragt: {ci.title[:50]}',
+        f'"{ci.title}" wurde zur Freigabe eingereicht.',
+        link=f'/content/review')
+    db.session.commit()
+    log_activity('review_submitted', f'{ci.title} zur Review eingereicht')
+    return jsonify({'ok': True})
+
+@app.route('/api/content/<int:item_id>/approve', methods=['POST'])
+def approve_content(item_id):
+    ci = ContentItem.query.get_or_404(item_id)
+    d  = request.get_json() or {}
+    ci.approval_status = 'approved'
+    ci.reviewed_at     = datetime.utcnow()
+    ci.review_note     = d.get('note', '')
+    if ci.status == 'draft':
+        ci.status = 'ready'
+    _push_notification('approved',
+        f'Freigegeben: {ci.title[:50]}',
+        f'Dein Content wurde freigegeben.',
+        link=f'/content')
+    db.session.commit()
+    log_activity('content_approved', f'{ci.title} freigegeben')
+    return jsonify({'ok': True})
+
+@app.route('/api/content/<int:item_id>/reject', methods=['POST'])
+def reject_content(item_id):
+    ci = ContentItem.query.get_or_404(item_id)
+    d  = request.get_json() or {}
+    ci.approval_status = 'rejected'
+    ci.reviewed_at     = datetime.utcnow()
+    ci.review_note     = d.get('note', '')
+    _push_notification('rejected',
+        f'Abgelehnt: {ci.title[:50]}',
+        d.get('note', 'Kein Kommentar') or 'Abgelehnt',
+        link=f'/content')
+    db.session.commit()
+    log_activity('content_rejected', f'{ci.title} abgelehnt')
+    return jsonify({'ok': True})
+
+
+# ─────────────────── IN-APP NOTIFICATIONS ───────────────────────
+
+def _push_notification(ntype, title, message, link='', account_id=None):
+    """Interne Hilfsfunktion: Notification in DB speichern."""
+    try:
+        n = AppNotification(type=ntype, title=title, message=message,
+                            link=link, account_id=account_id)
+        db.session.add(n)
+        # Maximal 200 behalten
+        old = AppNotification.query.order_by(AppNotification.created_at.asc())\
+                                   .offset(200).all()
+        for o in old:
+            db.session.delete(o)
+    except Exception:
+        pass
+
+@app.route('/api/notifications/inbox')
+def notifications_inbox():
+    """Aktuelle In-App Notifications."""
+    limit = request.args.get('limit', 20, type=int)
+    notifs = AppNotification.query.order_by(AppNotification.created_at.desc()).limit(limit).all()
+    unread = AppNotification.query.filter_by(is_read=False).count()
+    return jsonify({
+        'unread': unread,
+        'notifications': [{
+            'id':         n.id,
+            'type':       n.type,
+            'title':      n.title,
+            'message':    n.message,
+            'link':       n.link,
+            'is_read':    n.is_read,
+            'created_at': n.created_at.strftime('%d.%m. %H:%M'),
+        } for n in notifs]
+    })
+
+@app.route('/api/notifications/mark-read', methods=['POST'])
+def notifications_mark_read():
+    ids = (request.get_json() or {}).get('ids', [])
+    if ids:
+        AppNotification.query.filter(AppNotification.id.in_(ids))\
+                             .update({'is_read': True}, synchronize_session=False)
+    else:
+        AppNotification.query.update({'is_read': True}, synchronize_session=False)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ─────────────────── DOPPELGÄNGER-ERKENNUNG ─────────────────────
+
+@app.route('/api/content/check-duplicate', methods=['POST'])
+def check_duplicate():
+    """Prüft ob Content-Item bereits für Account geplant ist."""
+    d = request.get_json()
+    content_item_id = d.get('content_item_id')
+    account_id      = d.get('account_id')
+    if not content_item_id or not account_id:
+        return jsonify({'duplicate': False})
+
+    existing = ScheduledPost.query.filter(
+        ScheduledPost.content_item_id == content_item_id,
+        ScheduledPost.account_id      == account_id,
+        ScheduledPost.status.in_(['scheduled', 'draft']),
+    ).first()
+
+    if existing:
+        return jsonify({
+            'duplicate': True,
+            'date': existing.scheduled_at.strftime('%d.%m.%Y'),
+            'post_id': existing.id,
+        })
+    return jsonify({'duplicate': False})
+
+
+# ─────────────────── PWA MANIFEST ───────────────────────────────
+
+@app.route('/manifest.json')
+def pwa_manifest():
+    manifest = {
+        "name": "Content OS",
+        "short_name": "Content OS",
+        "description": "Social Media Management für Stadtseiten",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#0f172a",
+        "theme_color": "#6366f1",
+        "icons": [
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+        ]
+    }
+    from flask import Response
+    return Response(json.dumps(manifest), mimetype='application/json')
+
+@app.route('/sw.js')
+def service_worker():
+    sw = """
+const CACHE = 'content-os-v1';
+const OFFLINE = ['/'];
+self.addEventListener('install', e => e.waitUntil(
+  caches.open(CACHE).then(c => c.addAll(OFFLINE))
+));
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET') return;
+  e.respondWith(
+    fetch(e.request).catch(() => caches.match(e.request))
+  );
+});
+"""
+    from flask import Response
+    return Response(sw, mimetype='application/javascript')
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────
