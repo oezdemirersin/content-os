@@ -469,6 +469,7 @@ def generate_alerts():
     SystemAlert.query.filter_by(resolved=False).filter(
         SystemAlert.alert_type.in_(['low_stock', 'no_posts', 'empty_stock'])
     ).delete()
+    db.session.flush()  # sicherstellen dass deletes durch sind bevor neue eingefügt werden
 
     accounts = Account.query.filter_by(status='active').all()
     now = datetime.utcnow()
@@ -535,7 +536,8 @@ def generate_alerts():
 
     try:
         db.session.commit()
-    except Exception:
+    except Exception as e:
+        app.logger.error('generate_alerts: DB-Fehler beim Commit — %s', e)
         db.session.rollback()
 
 
@@ -1147,6 +1149,15 @@ def account_edit(account_id):
 def account_delete(account_id):
     account = Account.query.get_or_404(account_id)
     name = account.name
+    # PostgreSQL FK-Constraints: manuell auflösen bevor Account gelöscht wird.
+    # (nullable FKs → NULL setzen, non-nullable → Zeilen löschen)
+    from models import SystemAlert, AppNotification, HashtagSet, AccountAutomationProfile, RecurringPost
+    SystemAlert.query.filter_by(account_id=account_id).update({'account_id': None})
+    AppNotification.query.filter_by(account_id=account_id).update({'account_id': None})
+    HashtagSet.query.filter_by(account_id=account_id).update({'account_id': None})
+    AccountAutomationProfile.query.filter_by(account_id=account_id).delete()
+    RecurringPost.query.filter_by(account_id=account_id).delete()
+    db.session.flush()
     db.session.delete(account)
     db.session.commit()
     flash(f'Account "{name}" gelöscht.', 'info')
@@ -1341,6 +1352,7 @@ def planer_auto_fill(account_id):
 @app.route('/api/accounts/<int:account_id>/posts/new', methods=['POST'])
 def account_post_new(account_id):
     """Create a new scheduled post via calendar drag or form."""
+    account = Account.query.get_or_404(account_id)
     d = request.get_json()
     slot_type = d.get('slot_type', 'fixed')
     # disabled-Slot: kein echtes Post, nur Platzhalter
@@ -1372,7 +1384,7 @@ def account_post_new(account_id):
         if m: m.usage_count += 1
 
     db.session.commit()
-    log_activity('post_scheduled', f'{slot_type.capitalize()}-Slot für {acc.name} am {post.scheduled_at.strftime("%d.%m")} gesetzt')
+    log_activity('post_scheduled', f'{slot_type.capitalize()}-Slot für {account.name} am {post.scheduled_at.strftime("%d.%m")} gesetzt')
     return jsonify({'id': post.id, 'ok': True})
 
 
@@ -1827,6 +1839,9 @@ def media_delete(media_id):
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], item.filename)
         if os.path.exists(filepath):
             os.remove(filepath)
+    # FK-Constraint: ScheduledPost.media_item_id → NULL setzen vor dem Löschen
+    ScheduledPost.query.filter_by(media_item_id=media_id).update({'media_item_id': None})
+    db.session.flush()
     db.session.delete(item)
     db.session.commit()
     flash('Datei gelöscht.', 'info')
@@ -1857,8 +1872,14 @@ def calendar_events():
     if end:
         query = query.filter(ScheduledPost.scheduled_at <= end)
 
-    posts = query.all()
+    posts = query.options(joinedload(ScheduledPost.account)).all()
     type_icons = {'feed': '📸', 'reel': '🎬', 'story': '⭕', 'carousel': '🎠'}
+
+    # Batch-load aller referenzierten MediaItems und ContentItems in je 1 Query
+    media_ids_needed  = list({p.media_item_id for p in posts if p.media_item_id})
+    content_ids_needed = list({p.content_item_id for p in posts if p.content_item_id})
+    media_map   = {m.id: m for m in MediaItem.query.filter(MediaItem.id.in_(media_ids_needed)).all()} if media_ids_needed else {}
+    content_map = {c.id: c for c in ContentItem.query.filter(ContentItem.id.in_(content_ids_needed)).all()} if content_ids_needed else {}
 
     # Farben: primär nach slot_type, sekundär nach Status
     def get_color(p):
@@ -1878,8 +1899,10 @@ def calendar_events():
 
     events = []
     for p in posts:
-        acc = Account.query.get(p.account_id)
+        acc  = p.account
         slot = getattr(p, 'slot_type', 'fixed') or 'fixed'
+        mi   = media_map.get(p.media_item_id)
+        ci   = content_map.get(p.content_item_id)
         events.append({
             'id': p.id,
             'title': get_title(p, acc),
@@ -1898,11 +1921,9 @@ def calendar_events():
                 'post_id': p.id,
                 'media_ids': p.get_media_ids(),
                 'media_count': len(p.get_media_ids()),
-                'media_url': (MediaItem.query.get(p.media_item_id).url
-                              if p.media_item_id and MediaItem.query.get(p.media_item_id) else None),
+                'media_url': mi.url if mi else None,
                 'content_item_id': p.content_item_id,
-                'content_title': (ContentItem.query.get(p.content_item_id).title[:60]
-                                  if p.content_item_id and ContentItem.query.get(p.content_item_id) else None),
+                'content_title': ci.title[:60] if ci else None,
             }
         })
     return jsonify(events)
@@ -2210,6 +2231,13 @@ def team_edit(member_id):
 def team_delete(member_id):
     member = TeamMember.query.get_or_404(member_id)
     name = member.name
+    # FK-Constraints auf PostgreSQL: alle referenzierenden Spalten nullen
+    Account.query.filter_by(team_member_id=member_id).update({'team_member_id': None})
+    ContentItem.query.filter_by(author_id=member_id).update({'author_id': None})
+    ContentItem.query.filter_by(reviewed_by_id=member_id).update({'reviewed_by_id': None})
+    ScheduledPost.query.filter_by(created_by_id=member_id).update({'created_by_id': None})
+    MediaItem.query.filter_by(uploaded_by_id=member_id).update({'uploaded_by_id': None})
+    db.session.flush()
     db.session.delete(member)
     db.session.commit()
     flash(f'"{name}" entfernt.', 'success')
@@ -2434,8 +2462,13 @@ def analytics_daily_growth():
 @app.route('/settings/category/<int:cat_id>/delete', methods=['POST'])
 def category_delete(cat_id):
     cat = Category.query.get_or_404(cat_id)
-    # unlink accounts first
+    # FK-Constraints: alle referenzierenden Tabellen nullen
     Account.query.filter_by(category_id=cat_id).update({'category_id': None})
+    ContentItem.query.filter_by(category_id=cat_id).update({'category_id': None})
+    ContentTemplate.query.filter_by(category_id=cat_id).update({'category_id': None})
+    MediaItem.query.filter_by(category_id=cat_id).update({'category_id': None})
+    HashtagSet.query.filter_by(category_id=cat_id).update({'category_id': None})
+    db.session.flush()
     db.session.delete(cat)
     db.session.commit()
     flash(f'Kategorie "{cat.name}" gelöscht.', 'info')
@@ -2502,7 +2535,12 @@ def login():
             session['user_name'] = user.username
             user.last_login = datetime.utcnow()
             db.session.commit()
-            return redirect(request.args.get('next') or url_for('dashboard'))
+            # Open-Redirect-Schutz: nur relative URLs erlaubt
+            from urllib.parse import urlparse
+            next_url = request.args.get('next', '')
+            if next_url and urlparse(next_url).netloc:
+                next_url = ''
+            return redirect(next_url or url_for('dashboard'))
         error = 'Ungültige Zugangsdaten.'
     return render_template('login.html', error=error)
 
@@ -3204,7 +3242,7 @@ def submit_beichte():
     d = request.get_json() or {}
     text = d.get('text', '').strip()
     account_id = d.get('account_id')
-    contact = d.get('contact', '').strip()
+    contact = d.get('contact', '').strip()[:100]  # max 100 Zeichen
 
     if not text or len(text) < 20:
         return jsonify({'ok': False, 'error': 'Text zu kurz (min. 20 Zeichen)'}), 400
@@ -3300,6 +3338,9 @@ def analytics_compare():
     days = request.args.get('days', 30, type=int)
 
     result = {}
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=days)
+
     for label, acc_id in [('a', id1), ('b', id2)]:
         if not acc_id:
             result[label] = None
@@ -3308,18 +3349,27 @@ def analytics_compare():
         if not acc:
             result[label] = None
             continue
-        data, labels = [], []
+
+        # 1 Query für alle Snapshots des Zeitraums statt days×1 Queries
+        snaps = AnalyticsSnapshot.query.filter(
+            AnalyticsSnapshot.account_id == acc_id,
+            AnalyticsSnapshot.recorded_at >= cutoff,
+        ).order_by(AnalyticsSnapshot.recorded_at.asc()).all()
+        # Pro Tag: neuesten Wert nehmen
+        snap_by_date = {}
+        for s in snaps:
+            snap_by_date[s.recorded_at.date()] = s.followers
+
+        data, chart_labels = [], []
         for i in range(days - 1, -1, -1):
-            day = datetime.utcnow() - timedelta(days=i)
-            snap = AnalyticsSnapshot.query.filter_by(account_id=acc_id)\
-                .filter(func.date(AnalyticsSnapshot.recorded_at) == day.date())\
-                .order_by(AnalyticsSnapshot.recorded_at.desc()).first()
-            labels.append(day.strftime('%d.%m'))
-            data.append(snap.followers if snap else None)
+            day = now - timedelta(days=i)
+            chart_labels.append(day.strftime('%d.%m'))
+            data.append(snap_by_date.get(day.date()))
+
         result[label] = {
             'id': acc.id, 'name': acc.name,
             'followers': acc.follower_count,
-            'labels': labels, 'data': data,
+            'labels': chart_labels, 'data': data,
             'stock': acc.stock_days_display(),
             'category': acc.category.name if acc.category else '—',
         }
@@ -3379,8 +3429,9 @@ def settings_import():
 # ─────────────────────── AUTO ARCHIV ───────────────────────
 
 @app.route('/api/content/auto-archive', methods=['POST'])
+@login_required
 def content_auto_archive():
-    days = request.get_json().get('days', 90)
+    days = max(7, int(request.get_json().get('days', 90)))  # Minimum 7 Tage, kein Totalarchiv
     cutoff = datetime.utcnow() - timedelta(days=days)
     items = ContentItem.query.filter(
         ContentItem.created_at < cutoff,
@@ -3431,17 +3482,36 @@ def monthly_report(year=None, month=None):
     total_end_followers   = 0
     total_posts_month     = 0
 
-    for acc in accounts:
-        # Follower Anfang & Ende des Monats
-        snap_start = AnalyticsSnapshot.query.filter(
-            AnalyticsSnapshot.account_id == acc.id,
+    # Batch: je 1 Query für Monats-Anfang und -Ende aller Accounts
+    acc_ids = [a.id for a in accounts]
+    if acc_ids:
+        # Früheste Snapshots im Monat pro Account (= Monatsanfang)
+        from sqlalchemy import distinct
+        _start_snaps = db.session.query(
+            AnalyticsSnapshot
+        ).filter(
+            AnalyticsSnapshot.account_id.in_(acc_ids),
             AnalyticsSnapshot.recorded_at >= start,
-        ).order_by(AnalyticsSnapshot.recorded_at.asc()).first()
-
-        snap_end = AnalyticsSnapshot.query.filter(
-            AnalyticsSnapshot.account_id == acc.id,
             AnalyticsSnapshot.recorded_at <= end,
-        ).order_by(AnalyticsSnapshot.recorded_at.desc()).first()
+        ).order_by(AnalyticsSnapshot.account_id, AnalyticsSnapshot.recorded_at.asc()).all()
+        _end_snaps = db.session.query(
+            AnalyticsSnapshot
+        ).filter(
+            AnalyticsSnapshot.account_id.in_(acc_ids),
+            AnalyticsSnapshot.recorded_at <= end,
+        ).order_by(AnalyticsSnapshot.account_id, AnalyticsSnapshot.recorded_at.desc()).all()
+        # Jeweils erste Zeile pro Account behalten (ORDER BY garantiert richtige Reihenfolge)
+        _snap_start_map, _snap_end_map = {}, {}
+        for s in _start_snaps:
+            _snap_start_map.setdefault(s.account_id, s)
+        for s in _end_snaps:
+            _snap_end_map.setdefault(s.account_id, s)
+    else:
+        _snap_start_map = _snap_end_map = {}
+
+    for acc in accounts:
+        snap_start = _snap_start_map.get(acc.id)
+        snap_end   = _snap_end_map.get(acc.id)
 
         followers_start = snap_start.followers if snap_start else acc.follower_count
         followers_end   = snap_end.followers   if snap_end   else acc.follower_count
@@ -3626,6 +3696,9 @@ def api_hashtag_set_update(sid):
 @app.route('/api/hashtag-sets/<int:sid>', methods=['DELETE'])
 def api_hashtag_set_delete(sid):
     s = HashtagSet.query.get_or_404(sid)
+    # FK-Constraint: AccountAutomationProfile.hashtag_set_id → NULL
+    AccountAutomationProfile.query.filter_by(hashtag_set_id=sid).update({'hashtag_set_id': None})
+    db.session.flush()
     db.session.delete(s)
     db.session.commit()
     return jsonify({'ok': True})
