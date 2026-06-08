@@ -4099,10 +4099,15 @@ def _run_ig_follower_sync():
     global _ig_sync_status
     try:
         with app.app_context():
-            # Methode ermitteln
-            apify_token_row = AppSettings.query.filter_by(key='apify_token').first()
-            apify_token = apify_token_row.value if apify_token_row and apify_token_row.value else None
-            method = 'apify' if apify_token else 'direct'
+            # Methode ermitteln (explizit gesetzt oder Fallback auf Token-Vorhanden)
+            method_row  = AppSettings.query.filter_by(key='ig_sync_method').first()
+            token_row   = AppSettings.query.filter_by(key='apify_token').first()
+            apify_token = token_row.value if token_row and token_row.value else None
+            method = (method_row.value if method_row and method_row.value else
+                      ('apify' if apify_token else 'direct'))
+            # Apify gewählt aber kein Token → Fallback auf direkt
+            if method == 'apify' and not apify_token:
+                method = 'direct'
             _ig_sync_status['method'] = method
 
             accounts = Account.query.filter(
@@ -4217,17 +4222,19 @@ def sync_followers_apify_status():
 @app.route('/settings/integrations', methods=['GET'])
 @login_required
 def integrations():
-    apify_token = ''
-    row = AppSettings.query.filter_by(key='apify_token').first()
-    if row and row.value:
-        apify_token = row.value  # voll zeigen damit User prüfen kann
-    auto_sync = (AppSettings.query.filter_by(key='ig_auto_sync').first() or
-                 type('x', (), {'value': '1'})()).value != '0'
+    def gs(key, default=''):
+        r = AppSettings.query.filter_by(key=key).first()
+        return r.value if r and r.value is not None else default
+
+    apify_token     = gs('apify_token')
+    ig_sync_method  = gs('ig_sync_method', 'apify' if gs('apify_token') else 'direct')
+    auto_sync       = gs('ig_auto_sync', '1') != '0'
     ig_accounts_count = Account.query.filter(
         Account.handle != None, Account.handle != '', Account.status == 'active'
     ).count()
     return render_template('integrations.html',
         apify_token=apify_token,
+        ig_sync_method=ig_sync_method,
         auto_sync=auto_sync,
         ig_accounts_count=ig_accounts_count,
         active_page='integrations')
@@ -4243,8 +4250,9 @@ def integrations_save():
             db.session.add(s)
         s.value = val
 
-    upsert('apify_token',  request.form.get('apify_token', '').strip())
-    upsert('ig_auto_sync', '1' if request.form.get('ig_auto_sync') else '0')
+    upsert('apify_token',    request.form.get('apify_token', '').strip())
+    upsert('ig_sync_method', request.form.get('ig_sync_method', 'direct'))
+    upsert('ig_auto_sync',   '1' if request.form.get('ig_auto_sync') else '0')
     db.session.commit()
     flash('Einstellungen gespeichert.', 'success')
     return redirect(url_for('integrations'))

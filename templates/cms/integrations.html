@@ -3,206 +3,241 @@
 {% block page_title %}INTEGRATIONEN{% endblock %}
 
 {% block content %}
-<div style="max-width:720px">
+<div style="max-width:700px">
 
-  <!-- ── INSTAGRAM FOLLOWER-SYNC ──────────────────────────── -->
-  <div class="card" style="padding:28px;margin-bottom:20px">
+  <div class="card" style="padding:28px">
 
     <!-- Header -->
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
-      <div style="width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)">
-        <i class="fa-brands fa-instagram" style="color:#fff;font-size:18px"></i>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <div style="width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);flex-shrink:0">
+        <i class="fa-brands fa-instagram" style="color:#fff;font-size:20px"></i>
       </div>
       <div>
         <div style="font-family:var(--font-display);font-size:17px;letter-spacing:.5px">INSTAGRAM FOLLOWER-SYNC</div>
-        <div style="font-size:12px;color:var(--muted)">Automatischer Abgleich der Follower-Zahlen für alle Accounts</div>
-      </div>
-    </div>
-
-    <!-- Status-Zeile -->
-    <div style="display:flex;align-items:center;gap:10px;margin:16px 0;padding:12px 16px;background:var(--surface2);border-radius:10px;flex-wrap:wrap">
-      {% if apify_token %}
-      <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--success);font-weight:600">
-        <i class="fa-solid fa-circle-check"></i> Apify konfiguriert
-      </span>
-      <span style="color:var(--border)">|</span>
-      <span style="font-size:12px;color:var(--muted)">Methode: <strong style="color:var(--text)">Apify (offiziell)</strong></span>
-      {% else %}
-      <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--warning);font-weight:600">
-        <i class="fa-solid fa-triangle-exclamation"></i> Kein Apify-Token
-      </span>
-      <span style="color:var(--border)">|</span>
-      <span style="font-size:12px;color:var(--muted)">Methode: <strong style="color:var(--text)">Direkt (kostenlos)</strong></span>
-      {% endif %}
-      <span style="color:var(--border)">|</span>
-      <span style="font-size:12px;color:var(--muted)"><strong style="color:var(--text)">{{ ig_accounts_count }}</strong> Accounts mit Handle</span>
-    </div>
-
-    <!-- Methoden-Vergleich -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px">
-      <div style="padding:14px;border-radius:10px;border:1px solid {% if not apify_token %}var(--accent){% else %}var(--border){% endif %};background:{% if not apify_token %}rgba(59,130,246,.06){% else %}var(--surface2){% endif %}">
-        <div style="font-size:12px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-          <i class="fa-solid fa-bolt" style="color:var(--warning)"></i> DIREKT
-          <span style="font-size:10px;background:rgba(16,185,129,.15);color:#10b981;padding:1px 7px;border-radius:20px">KOSTENLOS</span>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">
+          <strong style="color:var(--text)">{{ ig_accounts_count }}</strong> Accounts mit Handle ·
+          Aktuell: <strong style="color:var(--accent)">{{ 'Apify' if ig_sync_method == 'apify' else 'Direkt' }}</strong>
         </div>
-        <ul style="font-size:11px;color:var(--muted);line-height:2;list-style:none;padding:0">
-          <li>✅ Kein API-Key nötig</li>
-          <li>✅ Sofort einsatzbereit</li>
-          <li>⚠️ Bis ca. 50 Accounts stabil</li>
-          <li>⚠️ Instagram kann Rate-Limit setzen</li>
-        </ul>
-      </div>
-      <div style="padding:14px;border-radius:10px;border:1px solid {% if apify_token %}var(--accent){% else %}var(--border){% endif %};background:{% if apify_token %}rgba(59,130,246,.06){% else %}var(--surface2){% endif %}">
-        <div style="font-size:12px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-          <i class="fa-solid fa-shield-halved" style="color:var(--accent)"></i> APIFY
-          <span style="font-size:10px;background:rgba(99,102,241,.15);color:var(--accent);padding:1px 7px;border-radius:20px">EMPFOHLEN</span>
-        </div>
-        <ul style="font-size:11px;color:var(--muted);line-height:2;list-style:none;padding:0">
-          <li>✅ Offizieller Scraper-Service</li>
-          <li>✅ 100+ Accounts problemlos</li>
-          <li>✅ Stabil & zuverlässig</li>
-          <li>💶 ~$5–8/Monat bei 100 Accounts</li>
-        </ul>
       </div>
     </div>
 
-    <!-- Formular -->
-    <form method="POST" action="{{ url_for('integrations_save') }}" id="igForm">
+    <form method="POST" action="{{ url_for('integrations_save') }}">
 
-      <div style="margin-bottom:20px">
-        <label style="display:block;font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:8px">APIFY API-TOKEN</label>
+      <!-- ── METHODE WÄHLEN ─────────────────────────────────── -->
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:10px">METHODE WÄHLEN</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:24px">
+
+        <!-- Direkt -->
+        <label id="card-direct" onclick="selectMethod('direct')" style="
+          cursor:pointer;padding:16px;border-radius:12px;border:2px solid
+          {{ 'var(--accent)' if ig_sync_method == 'direct' else 'var(--border)' }};
+          background:{{ 'rgba(59,130,246,.07)' if ig_sync_method == 'direct' else 'var(--surface2)' }};
+          transition:all .2s;display:block">
+          <input type="radio" name="ig_sync_method" value="direct"
+                 {{ 'checked' if ig_sync_method == 'direct' else '' }}
+                 style="display:none">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <div id="dot-direct" style="
+              width:16px;height:16px;border-radius:50%;border:2px solid
+              {{ 'var(--accent)' if ig_sync_method == 'direct' else 'var(--border)' }};
+              background:{{ 'var(--accent)' if ig_sync_method == 'direct' else 'transparent' }};
+              display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">
+              {% if ig_sync_method == 'direct' %}<div style="width:6px;height:6px;border-radius:50%;background:#fff"></div>{% endif %}
+            </div>
+            <span style="font-size:13px;font-weight:700">Direkt</span>
+            <span style="font-size:10px;background:rgba(16,185,129,.15);color:#10b981;padding:1px 8px;border-radius:20px;font-weight:700">KOSTENLOS</span>
+          </div>
+          <ul style="font-size:11px;color:var(--muted);list-style:none;padding:0;line-height:1.9;margin:0">
+            <li>✅ Kein Account nötig</li>
+            <li>✅ Sofort einsatzbereit</li>
+            <li>⚠️ Bis ~50 Accounts stabil</li>
+            <li>⚠️ Mögliches Rate-Limiting</li>
+          </ul>
+        </label>
+
+        <!-- Apify -->
+        <label id="card-apify" onclick="selectMethod('apify')" style="
+          cursor:pointer;padding:16px;border-radius:12px;border:2px solid
+          {{ 'var(--accent)' if ig_sync_method == 'apify' else 'var(--border)' }};
+          background:{{ 'rgba(59,130,246,.07)' if ig_sync_method == 'apify' else 'var(--surface2)' }};
+          transition:all .2s;display:block">
+          <input type="radio" name="ig_sync_method" value="apify"
+                 {{ 'checked' if ig_sync_method == 'apify' else '' }}
+                 style="display:none">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <div id="dot-apify" style="
+              width:16px;height:16px;border-radius:50%;border:2px solid
+              {{ 'var(--accent)' if ig_sync_method == 'apify' else 'var(--border)' }};
+              background:{{ 'var(--accent)' if ig_sync_method == 'apify' else 'transparent' }};
+              display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">
+              {% if ig_sync_method == 'apify' %}<div style="width:6px;height:6px;border-radius:50%;background:#fff"></div>{% endif %}
+            </div>
+            <span style="font-size:13px;font-weight:700">Apify</span>
+            <span style="font-size:10px;background:rgba(99,102,241,.15);color:var(--accent);padding:1px 8px;border-radius:20px;font-weight:700">EMPFOHLEN</span>
+          </div>
+          <ul style="font-size:11px;color:var(--muted);list-style:none;padding:0;line-height:1.9;margin:0">
+            <li>✅ 100+ Accounts problemlos</li>
+            <li>✅ Offizieller Service</li>
+            <li>✅ Stabil & zuverlässig</li>
+            <li>💶 Free-Plan: bis ~125 Accounts/Tag</li>
+          </ul>
+        </label>
+      </div>
+
+      <!-- ── APIFY TOKEN (nur bei Apify sichtbar) ───────────── -->
+      <div id="apifySection" style="display:{{ 'block' if ig_sync_method == 'apify' else 'none' }};margin-bottom:20px">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:8px">APIFY API-TOKEN</div>
         <div style="display:flex;gap:8px">
           <input type="text" name="apify_token" id="apifyTokenInput"
                  value="{{ apify_token }}"
-                 placeholder="apify_api_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                 placeholder="apify_api_XXXXXXXXXXXXXXXXXXXXXXXX"
                  class="input-field"
-                 style="flex:1;font-family:monospace;font-size:12px;letter-spacing:.3px">
-          <button type="button" onclick="testConnection()"
-                  class="btn btn-ghost" id="testBtn"
-                  style="white-space:nowrap;font-size:12px;flex-shrink:0">
+                 style="flex:1;font-family:monospace;font-size:12px">
+          <button type="button" onclick="testConnection()" id="testBtn"
+                  class="btn btn-ghost" style="white-space:nowrap;font-size:12px;flex-shrink:0">
             <i class="fa-solid fa-plug" id="testIcon"></i> Testen
           </button>
         </div>
         <div id="testResult" style="margin-top:8px;font-size:12px;display:none"></div>
         <div style="margin-top:6px;font-size:11px;color:var(--muted);line-height:1.7">
-          Token findest du unter:
-          <a href="https://console.apify.com/settings/integrations" target="_blank"
-             style="color:var(--accent)">console.apify.com → Settings → API & Integrations</a>
+          Token kopieren unter:
+          <a href="https://console.apify.com/settings/integrations" target="_blank" style="color:var(--accent)">
+            console.apify.com → Settings → API & Integrations
+          </a>
+        </div>
+
+        <!-- Apify Preise -->
+        <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <div style="text-align:center;padding:10px 6px;background:var(--surface2);border-radius:8px;font-size:11px">
+            <div style="font-weight:700;color:var(--success);margin-bottom:3px">Free</div>
+            <div style="color:var(--muted)">$5 Guthaben/Mo</div>
+            <div style="color:var(--muted)">bis ~125 Accounts</div>
+          </div>
+          <div style="text-align:center;padding:10px 6px;background:var(--surface2);border-radius:8px;font-size:11px;border:1px solid var(--accent)">
+            <div style="font-weight:700;color:var(--accent);margin-bottom:3px">Starter $29/Mo</div>
+            <div style="color:var(--muted)">$49 Guthaben/Mo</div>
+            <div style="color:var(--muted)">bis ~300 Accounts</div>
+          </div>
+          <div style="text-align:center;padding:10px 6px;background:var(--surface2);border-radius:8px;font-size:11px">
+            <div style="font-weight:700;margin-bottom:3px">Scale $199/Mo</div>
+            <div style="color:var(--muted)">$399 Guthaben/Mo</div>
+            <div style="color:var(--muted)">unbegrenzt</div>
+          </div>
+        </div>
+
+        <!-- Setup-Schritte -->
+        <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:2px">EINRICHTEN IN 3 SCHRITTEN</div>
+          {% for num, title, desc, link, link_text in [
+            (1, 'Kostenlos registrieren', 'Keine Kreditkarte nötig', 'https://apify.com/sign-up', 'apify.com/sign-up'),
+            (2, 'API-Token kopieren', 'Personal API tokens → kopieren', 'https://console.apify.com/settings/integrations', 'console.apify.com → Settings'),
+            (3, 'Token oben einfügen & testen', '', '', '')
+          ] %}
+          <div style="display:flex;align-items:flex-start;gap:10px">
+            <div style="width:22px;height:22px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;margin-top:1px">{{ num }}</div>
+            <div style="font-size:12px">
+              <span style="font-weight:600">{{ title }}</span>
+              {% if link %} — <a href="{{ link }}" target="_blank" style="color:var(--accent)">{{ link_text }}</a>{% endif %}
+              {% if desc and not link %}<span style="color:var(--muted)"> — {{ desc }}</span>{% endif %}
+            </div>
+          </div>
+          {% endfor %}
         </div>
       </div>
 
-      <!-- Auto-Sync Toggle -->
+      <!-- ── AUTO-SYNC TOGGLE ───────────────────────────────── -->
       <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface2);border-radius:10px;margin-bottom:20px">
         <div>
           <div style="font-size:13px;font-weight:600">Automatischer täglicher Sync</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px">Jeden Tag um Mitternacht werden alle Follower-Zahlen automatisch aktualisiert</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Jeden Tag um Mitternacht automatisch alle Follower-Zahlen holen</div>
         </div>
-        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
-          <input type="checkbox" name="ig_auto_sync" {% if auto_sync %}checked{% endif %}
+        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;cursor:pointer">
+          <input type="checkbox" name="ig_auto_sync" id="autoSyncCb" {{ 'checked' if auto_sync else '' }}
                  style="opacity:0;width:0;height:0">
-          <span onclick="this.previousElementSibling.click()" style="
+          <span id="toggleTrack" style="
             position:absolute;cursor:pointer;inset:0;border-radius:24px;
-            background:{% if auto_sync %}var(--accent){% else %}var(--surface){% endif %};
-            border:1px solid var(--border);transition:.3s;
-          ">
-            <span style="
+            background:{{ 'var(--accent)' if auto_sync else 'var(--surface)' }};
+            border:1px solid var(--border);transition:.3s">
+            <span id="toggleKnob" style="
               position:absolute;width:18px;height:18px;border-radius:50%;
-              background:#fff;top:2px;
-              left:{% if auto_sync %}22px{% else %}2px{% endif %};
-              transition:.3s;box-shadow:0 1px 3px rgba(0,0,0,.3)
-            "></span>
+              background:#fff;top:2px;left:{{ '22px' if auto_sync else '2px' }};
+              transition:.3s;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
           </span>
         </label>
       </div>
 
+      <!-- ── SPEICHERN ──────────────────────────────────────── -->
       <div style="display:flex;gap:10px">
         <button type="submit" class="btn btn-primary" style="flex:1">
           <i class="fa-solid fa-floppy-disk"></i> Einstellungen speichern
         </button>
-        <a href="{{ url_for('bulk_follower_update_page') }}" class="btn btn-ghost" style="font-size:12px">
+        <a href="{{ url_for('bulk_follower_update_page') }}" class="btn btn-ghost" style="font-size:12px;white-space:nowrap">
           Zum Follower-Update →
         </a>
       </div>
+
     </form>
-
-    <!-- Setup-Guide -->
-    <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
-      <div style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:12px">APIFY EINRICHTEN — 3 SCHRITTE</div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div style="display:flex;align-items:flex-start;gap:12px">
-          <div style="width:24px;height:24px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">1</div>
-          <div>
-            <div style="font-size:13px;font-weight:600">Account erstellen (kostenlos)</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:2px">
-              <a href="https://apify.com/sign-up" target="_blank" style="color:var(--accent)">apify.com/sign-up</a>
-              → mit deiner E-Mail registrieren, keine Kreditkarte nötig
-            </div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:flex-start;gap:12px">
-          <div style="width:24px;height:24px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">2</div>
-          <div>
-            <div style="font-size:13px;font-weight:600">API-Token kopieren</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:2px">
-              <a href="https://console.apify.com/settings/integrations" target="_blank" style="color:var(--accent)">console.apify.com → Settings → API & Integrations</a>
-              → "Personal API tokens" → Token kopieren
-            </div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:flex-start;gap:12px">
-          <div style="width:24px;height:24px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">3</div>
-          <div>
-            <div style="font-size:13px;font-weight:600">Token hier einfügen & testen</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:2px">
-              Token oben einfügen → "Testen" klicken → Speichern. Fertig!
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Preistabelle -->
-      <div style="margin-top:16px;padding:14px;background:var(--surface2);border-radius:10px">
-        <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:10px">KOSTEN BEI APIFY</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:11px">
-          <div style="text-align:center;padding:8px;background:var(--surface);border-radius:8px">
-            <div style="font-weight:700;color:var(--success)">Free</div>
-            <div style="color:var(--muted);margin-top:2px">$5 Guthaben/Monat</div>
-            <div style="color:var(--muted)">bis ~30 Accounts täglich</div>
-          </div>
-          <div style="text-align:center;padding:8px;background:var(--surface);border-radius:8px;border:1px solid var(--accent)">
-            <div style="font-weight:700;color:var(--accent)">Starter $29/Mo</div>
-            <div style="color:var(--muted);margin-top:2px">$49 Guthaben/Monat</div>
-            <div style="color:var(--muted)">bis ~300 Accounts täglich</div>
-          </div>
-          <div style="text-align:center;padding:8px;background:var(--surface);border-radius:8px">
-            <div style="font-weight:700">Scale $199/Mo</div>
-            <div style="color:var(--muted);margin-top:2px">$399 Guthaben/Monat</div>
-            <div style="color:var(--muted)">unbegrenzt</div>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
-
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+function selectMethod(method) {
+  // Radio-Inputs setzen
+  document.querySelectorAll('input[name="ig_sync_method"]').forEach(r => {
+    r.checked = r.value === method;
+  });
+
+  // Karten-Styles updaten
+  ['direct','apify'].forEach(m => {
+    const card = document.getElementById('card-' + m);
+    const dot  = document.getElementById('dot-'  + m);
+    const inner = dot.querySelector('div');
+    if (m === method) {
+      card.style.borderColor = 'var(--accent)';
+      card.style.background  = 'rgba(59,130,246,.07)';
+      dot.style.borderColor  = 'var(--accent)';
+      dot.style.background   = 'var(--accent)';
+      if (!inner) {
+        const d = document.createElement('div');
+        d.style.cssText = 'width:6px;height:6px;border-radius:50%;background:#fff';
+        dot.appendChild(d);
+      }
+    } else {
+      card.style.borderColor = 'var(--border)';
+      card.style.background  = 'var(--surface2)';
+      dot.style.borderColor  = 'var(--border)';
+      dot.style.background   = 'transparent';
+      if (inner) inner.remove();
+    }
+  });
+
+  // Token-Sektion ein/ausblenden
+  document.getElementById('apifySection').style.display =
+    method === 'apify' ? 'block' : 'none';
+}
+
+// Toggle-Animation
+document.getElementById('autoSyncCb').addEventListener('change', function() {
+  document.getElementById('toggleTrack').style.background =
+    this.checked ? 'var(--accent)' : 'var(--surface)';
+  document.getElementById('toggleKnob').style.left =
+    this.checked ? '22px' : '2px';
+});
+
+// Apify-Verbindung testen
 async function testConnection() {
   const token = document.getElementById('apifyTokenInput').value.trim();
-  if (!token) { showTestResult(false, 'Bitte zuerst einen Token eingeben'); return; }
-
-  const btn  = document.getElementById('testBtn');
+  if (!token) { showTestResult(false, 'Bitte Token eingeben'); return; }
+  const btn = document.getElementById('testBtn');
   const icon = document.getElementById('testIcon');
   btn.disabled = true;
   icon.className = 'fa-solid fa-spinner fa-spin';
-
   try {
     const res = await fetch('/api/integrations/test-apify', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({token}),
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({token})
     }).then(r => r.json());
     showTestResult(res.ok, res.ok ? res.message : res.error);
   } catch(e) {
@@ -217,22 +252,7 @@ function showTestResult(ok, msg) {
   const el = document.getElementById('testResult');
   el.style.display = 'block';
   el.style.color = ok ? 'var(--success)' : 'var(--danger)';
-  el.innerHTML = `<i class="fa-solid ${ok ? 'fa-circle-check' : 'fa-circle-xmark'}"></i> ${msg}`;
+  el.innerHTML = `<i class="fa-solid fa-${ok ? 'circle-check' : 'circle-xmark'}"></i> ${msg}`;
 }
-
-// Toggle-Animation
-document.querySelectorAll('input[type=checkbox]').forEach(cb => {
-  cb.addEventListener('change', () => {
-    const slider = cb.nextElementSibling;
-    const knob   = slider.querySelector('span');
-    if (cb.checked) {
-      slider.style.background = 'var(--accent)';
-      knob.style.left = '22px';
-    } else {
-      slider.style.background = 'var(--surface)';
-      knob.style.left = '2px';
-    }
-  });
-});
 </script>
 {% endblock %}
