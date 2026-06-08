@@ -861,7 +861,7 @@ def account_planer(account_id):
     account = Account.query.get_or_404(account_id)
     all_accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
     labels = Label.query.order_by(Label.name).all()
-    return render_template('cms/planer.html',
+    return render_template('planer.html',
         account=account, all_accounts=all_accounts, labels=labels, active_page='accounts')
 
 
@@ -2978,7 +2978,7 @@ def monthly_report(year=None, month=None):
     month_name = start.strftime('%B %Y')
     total_growth = total_end_followers - total_start_followers
 
-    return render_template('cms/monthly_report.html',
+    return render_template('monthly_report.html',
         report_data=report_data,
         month_name=month_name,
         year=year, month=month,
@@ -3131,7 +3131,7 @@ def bulk_import_page():
     categories = Category.query.order_by(Category.name).all()
     accounts   = Account.query.filter_by(status='active').order_by(Account.name).all()
     labels     = Label.query.order_by(Label.name).all()
-    return render_template('cms/bulk_import.html', categories=categories,
+    return render_template('bulk_import.html', categories=categories,
                            accounts=accounts, labels=labels, active_page='bulk_import')
 
 @app.route('/api/media/bulk-import', methods=['POST'])
@@ -3452,7 +3452,7 @@ def group_planer(group_id):
     """Gruppen-Kalender: alle Accounts der Gruppe auf einem Blick."""
     group = AccountGroup.query.get_or_404(group_id)
     all_groups = AccountGroup.query.order_by(AccountGroup.name).all()
-    return render_template('cms/gruppen_planer.html',
+    return render_template('gruppen_planer.html',
         group=group, all_groups=all_groups, active_page='accounts')
 
 
@@ -3512,8 +3512,8 @@ def content_review():
                                 .order_by(ContentItem.reviewed_at.desc()).limit(20).all()
     rejected = ContentItem.query.filter_by(approval_status='rejected')\
                                 .order_by(ContentItem.reviewed_at.desc()).limit(20).all()
-    team = TeamMember.query.filter_by(status='active').all()
-    return render_template('cms/content_review.html',
+    team = TeamMember.query.filter_by(active=True).all()
+    return render_template('content_review.html',
         pending=pending, approved=approved, rejected=rejected,
         team=team, active_page='content')
 
@@ -3681,7 +3681,7 @@ self.addEventListener('fetch', e => {
 @app.route('/accounts/bulk-follower-update', methods=['GET'])
 def bulk_follower_update_page():
     accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
-    return render_template('cms/bulk_follower_update.html',
+    return render_template('bulk_follower_update.html',
         accounts=accounts, active_page='accounts')
 
 @app.route('/api/accounts/bulk-follower-update', methods=['POST'])
