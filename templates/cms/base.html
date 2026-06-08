@@ -453,6 +453,19 @@
     </button>
     <span class="topbar-title">{% block page_title %}{% endblock %}</span>
 
+    {# ── Notfall-Pause Indikator ── #}
+    {% if emergency_pause_active %}
+    <a href="{{ url_for('automation') }}" style="
+      display:flex;align-items:center;gap:6px;
+      background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);
+      color:#ef4444;border-radius:8px;padding:5px 12px;
+      font-size:11px;font-weight:700;letter-spacing:.5px;
+      text-decoration:none;animation:pulse 2s infinite;flex-shrink:0"
+      title="Notfall-Pause aktiv — klicken zum Fortsetzen">
+      <i class="fa-solid fa-hand"></i> PAUSE AKTIV
+    </a>
+    {% endif %}
+
     <!-- Global search -->
     <div class="search-wrap" x-data="{q:'',results:{accounts:[],content:[],media:[]},open:false,timer:null}">
       <div class="search-box">

@@ -3,11 +3,52 @@
 {% block page_title %}AUTOMATISIERUNG{% endblock %}
 
 {% block content %}
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+
+{# ─── NOTFALL-PAUSE BANNER ─────────────────────────────── #}
+{% if emergency_pause %}
+<div id="emergencyBanner" style="
+  background:linear-gradient(135deg,#7f1d1d,#991b1b);
+  border:1px solid #ef4444;
+  border-radius:14px;
+  padding:20px 24px;
+  margin-bottom:24px;
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  box-shadow:0 0 30px rgba(239,68,68,.25)">
+  <div style="display:flex;align-items:center;gap:14px">
+    <div style="font-size:28px;animation:pulse 1.5s infinite">🛑</div>
+    <div>
+      <div style="font-family:var(--font-display);font-size:18px;letter-spacing:1px;color:#fca5a5">NOTFALL-PAUSE AKTIV</div>
+      <div style="font-size:12px;color:#fca5a5;opacity:.8;margin-top:2px">Alle Automatisierungen sind gestoppt. Kein Content wird automatisch erstellt oder veröffentlicht.</div>
+    </div>
+  </div>
+  <button onclick="toggleEmergency('resume')" style="
+    background:#16a34a;color:#fff;border:none;border-radius:10px;
+    padding:10px 22px;font-size:13px;font-weight:700;cursor:pointer;
+    display:flex;align-items:center;gap:8px;white-space:nowrap;
+    transition:background .2s">
+    <i class="fa-solid fa-play"></i> Automationen fortsetzen
+  </button>
+</div>
+{% endif %}
+
+{# ─── HEADER ────────────────────────────────────────────── #}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;gap:12px">
   <div style="font-size:13px;color:var(--muted)">{{ rules|length }} Regeln</div>
-  <a href="{{ url_for('automation_new') }}" class="btn btn-primary">
-    <i class="fa-solid fa-plus"></i> Neue Regel
-  </a>
+  <div style="display:flex;gap:10px;align-items:center">
+    {% if not emergency_pause %}
+    <button onclick="toggleEmergency('pause')" id="emergencyBtn" style="
+      background:rgba(239,68,68,.12);color:#ef4444;border:1px solid rgba(239,68,68,.3);
+      border-radius:10px;padding:8px 18px;font-size:12px;font-weight:700;cursor:pointer;
+      display:flex;align-items:center;gap:7px;transition:all .2s"
+      onmouseover="this.style.background='rgba(239,68,68,.22)'"
+      onmouseout="this.style.background='rgba(239,68,68,.12)'">
+      <i class="fa-solid fa-hand" style="font-size:14px"></i> Alle stoppen
+    </button>
+    {% endif %}
+    <a href="{{ url_for('automation_new') }}" class="btn btn-primary">
+      <i class="fa-solid fa-plus"></i> Neue Regel
+    </a>
+  </div>
 </div>
 
 <!-- Automation levels -->
@@ -196,6 +237,35 @@ async function toggleRule(id, btn) {
   dot.style.left = d.active ? 'auto' : '3px';
   const badge = btn.closest('.card').querySelector('.badge');
   if (badge) { badge.textContent = d.active ? 'Aktiv' : 'Pausiert'; badge.className = `badge ${d.active?'badge-green':'badge-gray'}`; }
+}
+
+// ─── NOTFALL-PAUSE ─────────────────────────────────────────
+async function toggleEmergency(action) {
+  const isPause = action === 'pause';
+
+  if (isPause) {
+    const ok = confirm('⚠️ ALLE Automatisierungen sofort stoppen?\n\nKein Content wird automatisch erstellt oder veröffentlicht bis du sie wieder freigibst.');
+    if (!ok) return;
+  }
+
+  const btn = document.getElementById('emergencyBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Wird verarbeitet…'; }
+
+  try {
+    const res = await fetch('/api/automation/emergency-pause', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action})
+    });
+    const d = await res.json();
+    if (d.ok) {
+      // Seite neu laden um aktuellen Status zu zeigen
+      window.location.reload();
+    }
+  } catch(e) {
+    showToast('Fehler beim Umschalten.', 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-hand"></i> Alle stoppen'; }
+  }
 }
 </script>
 {% endblock %}

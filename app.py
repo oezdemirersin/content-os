@@ -27,7 +27,12 @@ app = Flask(__name__, template_folder='templates/cms')
 
 @app.context_processor
 def inject_globals():
-    return {'now': datetime.utcnow}
+    try:
+        ep = AppSettings.query.filter_by(key='emergency_pause').first()
+        emergency_pause_active = ep and ep.value == '1'
+    except Exception:
+        emergency_pause_active = False
+    return {'now': datetime.utcnow, 'emergency_pause_active': emergency_pause_active}
 
 @app.template_filter('fmt_followers')
 def fmt_followers(n):
@@ -661,13 +666,18 @@ def schedule_automations():
                         threading.Thread(target=_run_ig_follower_sync, daemon=True).start()
                     _daily_follower_snapshot()
 
-                due_rules = AutomationRule.query.filter(
-                    AutomationRule.active == True,
-                    (AutomationRule.next_run_at == None) |
-                    (AutomationRule.next_run_at <= now)
-                ).all()
-                for rule in due_rules:
-                    threading.Thread(target=run_automation_rule, args=(rule.id,), daemon=True).start()
+                # ── Notfall-Pause: alle Automationen sofort stoppen ──
+                emergency = AppSettings.query.filter_by(key='emergency_pause').first()
+                if emergency and emergency.value == '1':
+                    pass  # Kein Rule-Run solange Notfall-Pause aktiv
+                else:
+                    due_rules = AutomationRule.query.filter(
+                        AutomationRule.active == True,
+                        (AutomationRule.next_run_at == None) |
+                        (AutomationRule.next_run_at <= now)
+                    ).all()
+                    for rule in due_rules:
+                        threading.Thread(target=run_automation_rule, args=(rule.id,), daemon=True).start()
 
             # Housekeeping every 60 ticks (~1 hour)
             tick += 1
@@ -1902,8 +1912,21 @@ def analytics_export():
 def automation():
     rules = AutomationRule.query.order_by(AutomationRule.active.desc(), AutomationRule.name).all()
     all_accounts = Account.query.order_by(Account.name).all()
+    ep = AppSettings.query.filter_by(key='emergency_pause').first()
+    emergency_pause = ep and ep.value == '1'
     return render_template('automation.html',
-        rules=rules, accounts=all_accounts, active_page='automation')
+        rules=rules, accounts=all_accounts, active_page='automation',
+        emergency_pause=emergency_pause)
+
+
+@app.route('/api/automation/emergency-pause', methods=['POST'])
+@login_required
+def api_emergency_pause():
+    data   = request.get_json(force=True) or {}
+    action = data.get('action')   # 'pause' oder 'resume'
+    val    = '1' if action == 'pause' else '0'
+    _set_setting('emergency_pause', val)
+    return jsonify({'ok': True, 'paused': val == '1'})
 
 
 @app.route('/automation/new', methods=['GET', 'POST'])
