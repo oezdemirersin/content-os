@@ -63,6 +63,43 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 db.init_app(app)
 
+# ─────────────────────── CLOUDINARY ───────────────────────
+import cloudinary
+import cloudinary.uploader
+
+_cloudinary_url = os.environ.get('CLOUDINARY_URL')
+if _cloudinary_url:
+    cloudinary.config(cloudinary_url=_cloudinary_url)
+
+def _cloudinary_upload(file_obj, original_filename):
+    """Upload file to Cloudinary (folder: content-os/).
+    Returns Cloudinary result dict on success, None if Cloudinary not configured."""
+    if not _cloudinary_url:
+        return None
+    ext = original_filename.rsplit('.', 1)[-1].lower() if '.' in original_filename else 'bin'
+    resource_type = 'video' if ext in {'mp4', 'mov', 'avi', 'webm'} else 'image'
+    try:
+        result = cloudinary.uploader.upload(
+            file_obj,
+            folder='content-os',
+            resource_type=resource_type,
+            use_filename=False,
+            unique_filename=True,
+        )
+        return result
+    except Exception as e:
+        app.logger.error(f'Cloudinary upload error: {e}')
+        return None
+
+def _cloudinary_delete(public_id, resource_type='image'):
+    """Delete asset from Cloudinary by public_id."""
+    if not _cloudinary_url or not public_id:
+        return
+    try:
+        cloudinary.uploader.destroy(public_id, resource_type=resource_type)
+    except Exception as e:
+        app.logger.error(f'Cloudinary delete error: {e}')
+
 
 # ─────────────────────── AUTH ───────────────────────
 
@@ -1564,23 +1601,42 @@ def media_upload():
         if file and file.filename and allowed_file(file.filename):
             original = secure_filename(file.filename)
             ext = original.rsplit('.', 1)[1].lower()
-            unique_name = f"{uuid.uuid4().hex}.{ext}"
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-            file.save(filepath)
-
-            size = os.path.getsize(filepath)
             ftype = get_file_type(original)
+            mime = mimetypes.guess_type(original)[0] or 'application/octet-stream'
 
-            media = MediaItem(
-                filename=unique_name,
-                original_filename=original,
-                file_type=ftype,
-                mime_type=mimetypes.guess_type(original)[0] or 'application/octet-stream',
-                file_size=size,
-                url=f'/media/file/{unique_name}',
-                storage_source='local',
-                category_id=category_id,
-            )
+            # Datei in Bytes lesen (für Cloudinary + Fallback)
+            file_bytes = file.read()
+            cl = _cloudinary_upload(io.BytesIO(file_bytes), original)
+
+            if cl:
+                media = MediaItem(
+                    filename=cl['public_id'],
+                    original_filename=original,
+                    file_type=ftype,
+                    mime_type=mime,
+                    file_size=cl.get('bytes', len(file_bytes)),
+                    width=cl.get('width'),
+                    height=cl.get('height'),
+                    url=cl['secure_url'],
+                    storage_source='cloudinary',
+                    category_id=category_id,
+                )
+            else:
+                # Fallback: lokaler Speicher
+                unique_name = f"{uuid.uuid4().hex}.{ext}"
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+                with open(filepath, 'wb') as f:
+                    f.write(file_bytes)
+                media = MediaItem(
+                    filename=unique_name,
+                    original_filename=original,
+                    file_type=ftype,
+                    mime_type=mime,
+                    file_size=os.path.getsize(filepath),
+                    url=f'/media/file/{unique_name}',
+                    storage_source='local',
+                    category_id=category_id,
+                )
             db.session.add(media)
             uploaded += 1
 
@@ -1597,9 +1653,15 @@ def media_file(filename):
 @app.route('/media/<int:media_id>/delete', methods=['POST'])
 def media_delete(media_id):
     item = MediaItem.query.get_or_404(media_id)
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], item.filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
+    if item.storage_source == 'cloudinary':
+        # Cloudinary-Asset löschen (Videos haben resource_type='video')
+        ext = item.filename.rsplit('.', 1)[-1].lower() if '.' in item.filename else ''
+        rtype = 'video' if ext in {'mp4', 'mov', 'avi', 'webm'} else 'image'
+        _cloudinary_delete(item.filename, resource_type=rtype)
+    else:
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], item.filename)
+        if os.path.exists(filepath):
+            os.remove(filepath)
     db.session.delete(item)
     db.session.commit()
     flash('Datei gelöscht.', 'info')
@@ -2763,9 +2825,16 @@ def _save_template_from_form(t):
     if file and file.filename and allowed_file(file.filename):
         original = secure_filename(file.filename)
         ext = original.rsplit('.', 1)[1].lower()
-        unique_name = f"tmpl_{uuid.uuid4().hex}.{ext}"
-        file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_name))
-        t.preview_image = unique_name
+        file_bytes = file.read()
+        cl = _cloudinary_upload(io.BytesIO(file_bytes), original)
+        if cl:
+            # Vollständige Cloudinary-URL speichern
+            t.preview_image = cl['secure_url']
+        else:
+            unique_name = f"tmpl_{uuid.uuid4().hex}.{ext}"
+            with open(os.path.join(app.config['UPLOAD_FOLDER'], unique_name), 'wb') as f:
+                f.write(file_bytes)
+            t.preview_image = unique_name
 
 
 @app.route('/templates/new', methods=['POST'])
@@ -3414,21 +3483,40 @@ def api_bulk_import():
             continue
         original = secure_filename(file.filename)
         ext = original.rsplit('.', 1)[1].lower()
-        unique_name = f"{uuid.uuid4().hex}.{ext}"
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-        file.save(filepath)
-
         ftype = get_file_type(original)
-        media = MediaItem(
-            filename=unique_name,
-            original_filename=original,
-            file_type=ftype,
-            mime_type=mimetypes.guess_type(original)[0] or 'application/octet-stream',
-            file_size=os.path.getsize(filepath),
-            url=f'/media/file/{unique_name}',
-            storage_source='local',
-            category_id=category_id,
-        )
+        mime = mimetypes.guess_type(original)[0] or 'application/octet-stream'
+
+        file_bytes = file.read()
+        cl = _cloudinary_upload(io.BytesIO(file_bytes), original)
+
+        if cl:
+            media = MediaItem(
+                filename=cl['public_id'],
+                original_filename=original,
+                file_type=ftype,
+                mime_type=mime,
+                file_size=cl.get('bytes', len(file_bytes)),
+                width=cl.get('width'),
+                height=cl.get('height'),
+                url=cl['secure_url'],
+                storage_source='cloudinary',
+                category_id=category_id,
+            )
+        else:
+            unique_name = f"{uuid.uuid4().hex}.{ext}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+            with open(filepath, 'wb') as f:
+                f.write(file_bytes)
+            media = MediaItem(
+                filename=unique_name,
+                original_filename=original,
+                file_type=ftype,
+                mime_type=mime,
+                file_size=os.path.getsize(filepath),
+                url=f'/media/file/{unique_name}',
+                storage_source='local',
+                category_id=category_id,
+            )
         db.session.add(media)
         db.session.flush()  # media.id verfügbar
 

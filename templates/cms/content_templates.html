@@ -46,7 +46,7 @@
     <!-- Vorschau-Bild -->
     {% if t.preview_image %}
     <div style="height:160px;overflow:hidden;background:var(--surface2);position:relative">
-      <img src="/media/file/{{ t.preview_image }}" alt=""
+      <img src="{{ t.preview_image if t.preview_image.startswith('http') else '/media/file/' ~ t.preview_image }}" alt=""
            style="width:100%;height:100%;object-fit:cover;opacity:.9">
       <!-- Bildformat-Overlay -->
       <span style="position:absolute;top:8px;right:8px" class="ratio-pill">{{ t.image_ratio }}</span>
@@ -476,7 +476,7 @@ function fillForm(d) {
   updateAccLabels();
   // Bild
   if (d.preview_image) {
-    document.getElementById('imgPreviewEl').src = '/media/file/' + d.preview_image;
+    document.getElementById('imgPreviewEl').src = d.preview_image.startsWith('http') ? d.preview_image : '/media/file/' + d.preview_image;
     document.getElementById('imgPreview').style.display = 'block';
     document.getElementById('imgDropText').style.display = 'none';
     document.getElementById('currentImgNote').style.display = 'block';
