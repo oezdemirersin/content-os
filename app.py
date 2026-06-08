@@ -1150,11 +1150,17 @@ def account_delete(account_id):
     account = Account.query.get_or_404(account_id)
     name = account.name
     # PostgreSQL FK-Constraints: manuell auflösen bevor Account gelöscht wird.
-    # (nullable FKs → NULL setzen, non-nullable → Zeilen löschen)
-    from models import SystemAlert, AppNotification, HashtagSet, AccountAutomationProfile, RecurringPost
+    # Reihenfolge ist wichtig: zuerst Blätter, dann Äste, dann Stamm.
+    from models import AutomationRunLog, SystemAlert, AppNotification, HashtagSet, AccountAutomationProfile, RecurringPost
+    # AutomationRunLog.rule_id → AutomationRule (non-nullable): zuerst Logs löschen
+    rule_ids = [r.id for r in AutomationRule.query.filter_by(account_id=account_id).all()]
+    if rule_ids:
+        AutomationRunLog.query.filter(AutomationRunLog.rule_id.in_(rule_ids)).delete(synchronize_session='fetch')
+    # nullable FKs → NULL
     SystemAlert.query.filter_by(account_id=account_id).update({'account_id': None})
     AppNotification.query.filter_by(account_id=account_id).update({'account_id': None})
     HashtagSet.query.filter_by(account_id=account_id).update({'account_id': None})
+    # non-nullable FKs → ganze Zeile löschen
     AccountAutomationProfile.query.filter_by(account_id=account_id).delete()
     RecurringPost.query.filter_by(account_id=account_id).delete()
     db.session.flush()
