@@ -366,6 +366,9 @@
     <a href="{{ url_for('content_hub') }}" class="nav-item {% if active_page == 'content' %}active{% endif %}">
       <i class="fa-solid fa-inbox"></i> Content Hub
     </a>
+    <a href="{{ url_for('content_automation') }}" class="nav-sub {% if active_page == 'content_automation' %}active{% endif %}">
+      <i class="fa-solid fa-robot"></i> Automation
+    </a>
     <a href="{{ url_for('content_review') }}" class="nav-sub {% if active_page == 'review' %}active{% endif %}">
       <i class="fa-solid fa-clipboard-check"></i> Review-Queue
     </a>

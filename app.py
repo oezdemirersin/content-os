@@ -16,7 +16,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     ContentItem, MediaItem, ScheduledPost, AnalyticsSnapshot,
                     AutomationRule, AutomationRunLog, SystemAlert, User, ActivityLog,
                     AccountGroup, ContentTemplate, ContentComment,
-                    HashtagSet, NotificationSettings, AppNotification, RecurringPost)
+                    HashtagSet, NotificationSettings, AppNotification, RecurringPost,
+                    AccountAutomationProfile)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -3856,6 +3857,102 @@ def account_recurring_posts(account_id):
             'created_at': r.created_at.strftime('%d.%m.%Y'),
         })
     return jsonify(result)
+
+
+# ─────────────────── AUTOMATION PROFILE ──────────────────────
+
+@app.route('/api/accounts/<int:account_id>/auto-profile', methods=['GET'])
+@login_required
+def get_auto_profile(account_id):
+    acc = Account.query.get_or_404(account_id)
+    p = acc.auto_profile
+    hashtag_sets = HashtagSet.query.order_by(HashtagSet.name).all()
+    if not p:
+        return jsonify({
+            'mode': 'manual', 'source_type': '', 'rss_url': '', 'ai_prompt': '',
+            'ai_style': 'neutral', 'citybot_key': '',
+            'posts_per_day': 1.0, 'preferred_times': ['09:00'],
+            'default_post_type': 'feed', 'caption_template': '',
+            'hashtag_set_id': None, 'auto_approve': False,
+            'disable_stock_amp': False, 'notes': '',
+            'hashtag_sets': [{'id': h.id, 'name': h.name} for h in hashtag_sets],
+        })
+    return jsonify({
+        'mode': p.mode,
+        'source_type': p.source_type or '',
+        'rss_url': p.rss_url or '',
+        'ai_prompt': p.ai_prompt or '',
+        'ai_style': p.ai_style or 'neutral',
+        'citybot_key': p.citybot_key or '',
+        'posts_per_day': p.posts_per_day or 1.0,
+        'preferred_times': p.get_times(),
+        'default_post_type': p.default_post_type or 'feed',
+        'caption_template': p.caption_template or '',
+        'hashtag_set_id': p.hashtag_set_id,
+        'auto_approve': p.auto_approve,
+        'disable_stock_amp': p.disable_stock_amp,
+        'notes': p.notes or '',
+        'hashtag_sets': [{'id': h.id, 'name': h.name} for h in hashtag_sets],
+    })
+
+
+@app.route('/api/accounts/<int:account_id>/auto-profile', methods=['POST'])
+@login_required
+def save_auto_profile(account_id):
+    acc = Account.query.get_or_404(account_id)
+    d = request.get_json() or {}
+    p = acc.auto_profile
+    if not p:
+        p = AccountAutomationProfile(account_id=account_id)
+        db.session.add(p)
+
+    p.mode             = d.get('mode', 'manual')
+    p.source_type      = d.get('source_type', '')
+    p.rss_url          = d.get('rss_url', '')
+    p.ai_prompt        = d.get('ai_prompt', '')
+    p.ai_style         = d.get('ai_style', 'neutral')
+    p.citybot_key      = d.get('citybot_key', '')
+    p.posts_per_day    = float(d.get('posts_per_day', 1.0))
+    p.preferred_times  = json.dumps(d.get('preferred_times', ['09:00']))
+    p.default_post_type = d.get('default_post_type', 'feed')
+    p.caption_template = d.get('caption_template', '')
+    p.hashtag_set_id   = d.get('hashtag_set_id') or None
+    p.auto_approve     = bool(d.get('auto_approve', False))
+    p.disable_stock_amp = bool(d.get('disable_stock_amp', False))
+    p.notes            = d.get('notes', '')
+    p.updated_at       = datetime.utcnow()
+
+    # Sync automation_level auf Account
+    acc.automation_level = 2 if p.mode == 'auto' else 0
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/accounts/<int:account_id>/toggle-auto', methods=['POST'])
+@login_required
+def toggle_auto(account_id):
+    acc = Account.query.get_or_404(account_id)
+    p = acc.auto_profile
+    if not p:
+        p = AccountAutomationProfile(account_id=account_id, mode='auto')
+        db.session.add(p)
+    else:
+        p.mode = 'manual' if p.mode == 'auto' else 'auto'
+    p.updated_at = datetime.utcnow()
+    acc.automation_level = 2 if p.mode == 'auto' else 0
+    db.session.commit()
+    return jsonify({'ok': True, 'mode': p.mode})
+
+
+# ─────────────────────────────────────────────────────────────
+# Automation-Übersicht: alle Accounts mit Profil-Daten
+@app.route('/content/automation')
+@login_required
+def content_automation():
+    accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
+    hashtag_sets = HashtagSet.query.order_by(HashtagSet.name).all()
+    return render_template('content_automation.html',
+        accounts=accounts, hashtag_sets=hashtag_sets, active_page='content')
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────

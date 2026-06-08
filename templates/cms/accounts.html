@@ -218,13 +218,25 @@
           </div>
         </td>
         <td style="text-align:center">
-          <div style="display:flex;gap:3px;justify-content:center">
-            {% for i in range(5) %}
-            <div style="width:5px;height:16px;border-radius:2px;
-              background:{% if i < acc.automation_level %}var(--accent){% else %}var(--surface2){% endif %}"></div>
-            {% endfor %}
-          </div>
-          <div style="font-size:10px;color:var(--muted);margin-top:3px">Stufe {{ acc.automation_level }}</div>
+          {% set p = acc.auto_profile %}
+          {% if p and p.mode == 'auto' %}
+            <a href="{{ url_for('content_automation') }}"
+               style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;
+                      background:rgba(99,102,241,.12);color:#818cf8;
+                      padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700">
+              🤖 Auto
+            </a>
+            {% if p.source_type %}
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">{{ p.source_type|upper }}</div>
+            {% endif %}
+          {% else %}
+            <a href="{{ url_for('content_automation') }}"
+               style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;
+                      background:rgba(100,116,139,.1);color:var(--muted);
+                      padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700">
+              ✍️ Manuell
+            </a>
+          {% endif %}
         </td>
         <td style="text-align:center">
           {% if acc.status == 'active' %}

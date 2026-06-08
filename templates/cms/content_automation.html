@@ -1,0 +1,610 @@
+{% extends "base.html" %}
+{% block title %}Content-Automation — Content OS{% endblock %}
+{% block page_title %}CONTENT-AUTOMATION{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <div>
+    <div style="font-size:13px;color:var(--muted)">
+      Lege für jeden Account fest, ob Content manuell gepflegt oder automatisch erstellt wird
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <!-- Filter chips -->
+    <div style="display:flex;gap:6px" id="filterChips">
+      <button onclick="filterAccounts('all')" id="chipAll"
+              class="chip-btn chip-active">Alle ({{ accounts|length }})</button>
+      <button onclick="filterAccounts('auto')" id="chipAuto"
+              class="chip-btn">🤖 Automatisiert</button>
+      <button onclick="filterAccounts('manual')" id="chipManual"
+              class="chip-btn">✍️ Manuell</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.chip-btn {
+  padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;
+  letter-spacing:.3px;border:1px solid var(--border);background:none;
+  color:var(--muted);cursor:pointer;transition:all .15s;
+}
+.chip-btn.chip-active { background:var(--accent);color:white;border-color:var(--accent); }
+.chip-btn:hover:not(.chip-active) { border-color:var(--accent);color:var(--accent); }
+
+.auto-card {
+  background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  padding:20px;display:flex;flex-direction:column;gap:14px;
+  transition:border-color .2s;cursor:default;
+}
+.auto-card.is-auto { border-color:rgba(99,102,241,.35); }
+.auto-card:hover { border-color:rgba(255,255,255,.15); }
+
+.mode-badge {
+  display:inline-flex;align-items:center;gap:5px;
+  padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.3px;
+}
+.mode-badge.auto { background:rgba(99,102,241,.15);color:#818cf8; }
+.mode-badge.manual { background:rgba(100,116,139,.12);color:var(--muted); }
+
+.source-chip {
+  display:inline-flex;align-items:center;gap:4px;
+  padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;
+  background:rgba(59,130,246,.12);color:#60a5fa;letter-spacing:.3px;
+}
+
+/* Toggle switch */
+.toggle-wrap { display:flex;align-items:center;gap:8px }
+.tog {
+  position:relative;width:38px;height:20px;flex-shrink:0;
+  background:var(--border);border-radius:20px;cursor:pointer;
+  transition:background .2s;
+}
+.tog.on { background:var(--accent); }
+.tog::after {
+  content:'';position:absolute;top:3px;left:3px;
+  width:14px;height:14px;border-radius:50%;background:white;
+  transition:left .2s;
+}
+.tog.on::after { left:21px; }
+</style>
+
+<!-- Account Grid -->
+<div id="accountGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+  {% for acc in accounts %}
+  {% set p = acc.auto_profile %}
+  {% set is_auto = p and p.mode == 'auto' %}
+  <div class="auto-card {% if is_auto %}is-auto{% endif %}"
+       data-mode="{{ 'auto' if is_auto else 'manual' }}"
+       id="card-{{ acc.id }}">
+
+    <!-- Account header -->
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="width:40px;height:40px;border-radius:10px;
+                  background:{% if is_auto %}rgba(99,102,241,.15){% else %}rgba(100,116,139,.1){% endif %};
+                  display:flex;align-items:center;justify-content:center;
+                  font-family:var(--font-display);font-size:20px;
+                  color:{% if is_auto %}#818cf8{% else %}var(--muted){% endif %};flex-shrink:0"
+           id="avatar-{{ acc.id }}">
+        {{ acc.name[0] }}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          {{ acc.name }}
+        </div>
+        <div style="font-size:11px;color:var(--muted)">
+          {{ acc.handle or '—' }}
+          {% if acc.category %} · {{ acc.category.name }}{% endif %}
+        </div>
+      </div>
+      <!-- Toggle -->
+      <div class="toggle-wrap" title="Automation ein-/ausschalten">
+        <div class="tog {% if is_auto %}on{% endif %}" id="tog-{{ acc.id }}"
+             onclick="quickToggle({{ acc.id }})"></div>
+      </div>
+    </div>
+
+    <!-- Mode & source info -->
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+      <span class="mode-badge {% if is_auto %}auto{% endif %} {% if not is_auto %}manual{% endif %}"
+            id="badge-{{ acc.id }}">
+        {% if is_auto %}🤖 Automatisiert{% else %}✍️ Manuell{% endif %}
+      </span>
+      {% if is_auto and p.source_type %}
+      <span class="source-chip" id="src-{{ acc.id }}">
+        {% if p.source_type == 'rss' %}<i class="fa-solid fa-rss"></i> RSS
+        {% elif p.source_type == 'ai' %}<i class="fa-solid fa-brain"></i> KI
+        {% elif p.source_type == 'citybot' %}<i class="fa-solid fa-robot"></i> CityBot
+        {% elif p.source_type == 'template' %}<i class="fa-solid fa-rectangle-list"></i> Template
+        {% endif %}
+      </span>
+      {% endif %}
+      {% if is_auto and p.posts_per_day %}
+      <span style="font-size:11px;color:var(--muted)" id="freq-{{ acc.id }}">
+        {{ p.posts_per_day | int if p.posts_per_day == p.posts_per_day|int else p.posts_per_day }} Posts/Tag
+      </span>
+      {% endif %}
+    </div>
+
+    <!-- Details (nur bei auto) -->
+    {% if is_auto %}
+    <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:12px;
+                display:flex;flex-direction:column;gap:4px" id="details-{{ acc.id }}">
+      {% if p.preferred_times %}
+      <div style="color:var(--muted)">
+        <i class="fa-regular fa-clock" style="margin-right:4px"></i>
+        {{ p.get_times()|join(', ') }}
+      </div>
+      {% endif %}
+      {% if p.source_type == 'rss' and p.rss_url %}
+      <div style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        <i class="fa-solid fa-link" style="margin-right:4px"></i>{{ p.rss_url }}
+      </div>
+      {% endif %}
+      {% if p.source_type == 'ai' and p.ai_prompt %}
+      <div style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        <i class="fa-solid fa-comment" style="margin-right:4px"></i>{{ p.ai_prompt[:60] }}{% if p.ai_prompt|length > 60 %}…{% endif %}
+      </div>
+      {% endif %}
+      {% if p.auto_approve %}
+      <div style="color:#34d399;font-size:11px"><i class="fa-solid fa-circle-check" style="margin-right:4px"></i>Auto-Freigabe aktiv</div>
+      {% endif %}
+      {% if p.disable_stock_amp %}
+      <div style="color:var(--muted);font-size:11px"><i class="fa-solid fa-gauge" style="margin-right:4px"></i>Vorrats-Ampel deaktiviert</div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div style="font-size:12px;color:var(--muted);padding:2px 0" id="details-{{ acc.id }}">
+      Content wird manuell hochgeladen und gepflegt.
+    </div>
+    {% endif %}
+
+    <!-- Action button -->
+    <button onclick="openConfig({{ acc.id }}, '{{ acc.name|replace("'", "\\'") }}')"
+            class="btn btn-ghost" style="width:100%;font-size:12px;justify-content:center">
+      <i class="fa-solid fa-sliders"></i> Einstellungen konfigurieren
+    </button>
+  </div>
+  {% endfor %}
+</div>
+
+
+<!-- ══════ KONFIG-MODAL ══════ -->
+<div id="configModal"
+     style="display:none;position:fixed;inset:0;z-index:600;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.65);backdrop-filter:blur(6px)"
+     onclick="if(event.target===this)closeConfig()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:18px;
+              width:100%;max-width:580px;margin:16px;
+              box-shadow:0 32px 100px rgba(0,0,0,.7);max-height:90vh;overflow-y:auto">
+
+    <!-- Header -->
+    <div style="padding:22px 24px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between;
+                position:sticky;top:0;background:var(--surface);z-index:1;border-radius:18px 18px 0 0">
+      <div>
+        <div style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">
+          AUTOMATION-EINSTELLUNGEN
+        </div>
+        <div id="modalSubtitle" style="font-size:12px;color:var(--muted);margin-top:3px"></div>
+      </div>
+      <button onclick="closeConfig()"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;padding:4px;
+                     width:32px;height:32px;display:flex;align-items:center;justify-content:center;
+                     border-radius:8px;transition:background .15s"
+              onmouseover="this.style.background='var(--surface2)'"
+              onmouseout="this.style.background='none'">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <div style="padding:24px;display:flex;flex-direction:column;gap:22px">
+
+      <!-- 1. MODUS -->
+      <div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-bottom:12px">MODUS</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <label id="modeManualCard"
+                 style="border:2px solid var(--border);border-radius:12px;padding:14px 16px;cursor:pointer;
+                        display:flex;flex-direction:column;gap:6px;transition:all .15s">
+            <input type="radio" name="mode" value="manual" id="modeManual" style="display:none"
+                   onchange="onModeChange()">
+            <div style="font-size:13px;font-weight:700">✍️ Manuell</div>
+            <div style="font-size:11px;color:var(--muted);line-height:1.5">
+              Ich lade Content selber hoch und pflege ihn manuell.
+            </div>
+          </label>
+          <label id="modeAutoCard"
+                 style="border:2px solid var(--border);border-radius:12px;padding:14px 16px;cursor:pointer;
+                        display:flex;flex-direction:column;gap:6px;transition:all .15s">
+            <input type="radio" name="mode" value="auto" id="modeAuto" style="display:none"
+                   onchange="onModeChange()">
+            <div style="font-size:13px;font-weight:700">🤖 Automatisiert</div>
+            <div style="font-size:11px;color:var(--muted);line-height:1.5">
+              Content wird automatisch erstellt und eingeplant.
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- 2. QUELLE (nur bei Auto) -->
+      <div id="sourceSection">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-bottom:12px">QUELLE</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+          {% for src, icon, label in [
+            ('rss','fa-rss','RSS-Feed'),
+            ('ai','fa-brain','KI-generiert'),
+            ('citybot','fa-robot','CityBot'),
+            ('template','fa-rectangle-list','Templates')
+          ] %}
+          <label id="src{{ src }}Card"
+                 style="border:1.5px solid var(--border);border-radius:10px;padding:10px 8px;
+                        cursor:pointer;text-align:center;transition:all .15s;display:flex;
+                        flex-direction:column;align-items:center;gap:5px">
+            <input type="radio" name="source_type" value="{{ src }}" id="src{{ src }}" style="display:none"
+                   onchange="onSourceChange()">
+            <i class="fa-solid {{ icon }}" style="font-size:16px;color:var(--muted)"></i>
+            <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.3px;line-height:1.3">
+              {{ label }}
+            </div>
+          </label>
+          {% endfor %}
+        </div>
+
+        <!-- RSS fields -->
+        <div id="fieldsRss" style="display:none;flex-direction:column;gap:10px">
+          <div>
+            <label class="form-label">RSS/Atom Feed-URL</label>
+            <input type="url" id="rssUrl" class="input-field" placeholder="https://example.com/feed.xml">
+          </div>
+        </div>
+
+        <!-- AI fields -->
+        <div id="fieldsAi" style="display:none;flex-direction:column;gap:10px">
+          <div>
+            <label class="form-label">Themen / Prompt</label>
+            <textarea id="aiPrompt" class="input-field" rows="3"
+                      placeholder="Beschreibe, worüber KI Posts erstellen soll…"></textarea>
+          </div>
+          <div>
+            <label class="form-label">Stil</label>
+            <select id="aiStyle" class="select-field">
+              <option value="neutral">Neutral / Informativ</option>
+              <option value="engaging">Engagiert / Lebendig</option>
+              <option value="formal">Formell / Professionell</option>
+              <option value="casual">Locker / Casual</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- CityBot fields -->
+        <div id="fieldsCitybot" style="display:none;flex-direction:column;gap:10px">
+          <div>
+            <label class="form-label">CityBot-Key / Bot-ID</label>
+            <input type="text" id="citybotKey" class="input-field"
+                   placeholder="API-Key oder Bot-Kennung des externen News-Bots">
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">
+              Dein externer CityBot sendet automatisch Posts an diesen Account.
+            </div>
+          </div>
+        </div>
+
+        <!-- Template fields -->
+        <div id="fieldsTemplate" style="display:none;flex-direction:column;gap:10px">
+          <div style="font-size:12px;color:var(--muted);background:var(--surface2);padding:12px 14px;border-radius:8px;line-height:1.6">
+            <i class="fa-solid fa-circle-info" style="margin-right:6px"></i>
+            Inhalte werden aus dem Content-Template-Pool automatisch ausgewählt und eingeplant.
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. ZEITPLAN -->
+      <div id="scheduleSection">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-bottom:12px">ZEITPLAN</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div>
+            <label class="form-label">Posts pro Tag</label>
+            <select id="postsPerDay" class="select-field">
+              <option value="0.5">0.5 (alle 2 Tage)</option>
+              <option value="1" selected>1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Standard-Format</label>
+            <select id="defaultPostType" class="select-field">
+              <option value="feed">Feed-Post</option>
+              <option value="story">Story</option>
+              <option value="reel">Reel</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <label class="form-label">Bevorzugte Uhrzeiten</label>
+          <div id="timesContainer" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px"></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="time" id="newTimeInput" class="input-field" style="max-width:130px;padding:7px 10px">
+            <button onclick="addTime()" class="btn btn-ghost" style="font-size:12px;padding:7px 14px">
+              <i class="fa-solid fa-plus"></i> Zeit
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. FORMAT & CAPTION -->
+      <div id="formatSection">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-bottom:12px">FORMAT & CAPTION</div>
+        <div>
+          <label class="form-label">Hashtag-Set</label>
+          <select id="hashtagSetId" class="select-field">
+            <option value="">— Kein Hashtag-Set —</option>
+            {% for hs in hashtag_sets %}
+            <option value="{{ hs.id }}">{{ hs.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div style="margin-top:12px">
+          <label class="form-label">Caption-Template <span style="color:var(--muted);font-weight:400;font-size:11px">(optional)</span></label>
+          <textarea id="captionTemplate" class="input-field" rows="3"
+                    placeholder="{{TITEL}} · {{DATUM}} · Platzhalter optional…"></textarea>
+        </div>
+      </div>
+
+      <!-- 5. OPTIONEN -->
+      <div id="optionsSection">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-bottom:12px">OPTIONEN</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" id="autoApprove"
+                   style="width:15px;height:15px;accent-color:var(--accent)">
+            <div>
+              <div style="font-size:13px;font-weight:600">Auto-Freigabe</div>
+              <div style="font-size:11px;color:var(--muted)">Posts werden ohne manuellen Review direkt geplant</div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" id="disableStockAmp"
+                   style="width:15px;height:15px;accent-color:var(--accent)">
+            <div>
+              <div style="font-size:13px;font-weight:600">Vorrats-Ampel deaktivieren</div>
+              <div style="font-size:11px;color:var(--muted)">Kein Alarm bei niedrigem Content-Vorrat (da auto-befüllt)</div>
+            </div>
+          </label>
+        </div>
+        <div style="margin-top:14px">
+          <label class="form-label">Interne Notiz <span style="color:var(--muted);font-weight:400;font-size:11px">(optional)</span></label>
+          <textarea id="profileNotes" class="input-field" rows="2"
+                    placeholder="Hinweise zur Automation dieser Seite…"></textarea>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:16px 24px;border-top:1px solid var(--border);
+                display:flex;justify-content:flex-end;gap:10px;
+                position:sticky;bottom:0;background:var(--surface);border-radius:0 0 18px 18px">
+      <button onclick="closeConfig()" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="saveConfig()" class="btn btn-primary" id="saveBtn">
+        <i class="fa-solid fa-floppy-disk"></i> Speichern
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentAccountId = null;
+let selectedTimes = [];
+
+// ─── Filter ───────────────────────────────────────────
+function filterAccounts(mode) {
+  document.querySelectorAll('.chip-btn').forEach(b => b.classList.remove('chip-active'));
+  document.getElementById('chip' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('chip-active');
+  document.querySelectorAll('#accountGrid .auto-card').forEach(card => {
+    if (mode === 'all') { card.style.display = ''; return; }
+    card.style.display = card.dataset.mode === mode ? '' : 'none';
+  });
+}
+
+// ─── Toggle Quick ──────────────────────────────────────
+async function quickToggle(accId) {
+  const tog = document.getElementById('tog-' + accId);
+  const res = await fetch(`/api/accounts/${accId}/toggle-auto`, {method:'POST'}).then(r=>r.json());
+  if (!res.ok) return;
+  const isAuto = res.mode === 'auto';
+  updateCardUI(accId, isAuto, {});
+  showToast(isAuto ? '🤖 Automatisierung aktiviert' : '✍️ Manuell-Modus aktiviert');
+}
+
+function updateCardUI(accId, isAuto, data) {
+  const tog = document.getElementById('tog-' + accId);
+  const badge = document.getElementById('badge-' + accId);
+  const avatar = document.getElementById('avatar-' + accId);
+  const card = document.getElementById('card-' + accId);
+
+  if (tog) { if(isAuto) tog.classList.add('on'); else tog.classList.remove('on'); }
+  if (badge) {
+    badge.textContent = isAuto ? '🤖 Automatisiert' : '✍️ Manuell';
+    badge.className = `mode-badge ${isAuto ? 'auto' : 'manual'}`;
+  }
+  if (card) {
+    card.dataset.mode = isAuto ? 'auto' : 'manual';
+    if(isAuto) card.classList.add('is-auto'); else card.classList.remove('is-auto');
+  }
+  if (avatar) {
+    avatar.style.background = isAuto ? 'rgba(99,102,241,.15)' : 'rgba(100,116,139,.1)';
+    avatar.style.color = isAuto ? '#818cf8' : 'var(--muted)';
+  }
+}
+
+// ─── Config Modal ──────────────────────────────────────
+async function openConfig(accId, name) {
+  currentAccountId = accId;
+  document.getElementById('modalSubtitle').textContent = name;
+  document.getElementById('configModal').style.display = 'flex';
+
+  const data = await fetch(`/api/accounts/${accId}/auto-profile`).then(r=>r.json());
+  loadFormData(data);
+}
+
+function closeConfig() {
+  document.getElementById('configModal').style.display = 'none';
+  currentAccountId = null;
+}
+
+function loadFormData(data) {
+  // Mode
+  const isAuto = data.mode === 'auto';
+  document.getElementById('modeManual').checked = !isAuto;
+  document.getElementById('modeAuto').checked = isAuto;
+  updateModeCards(isAuto);
+
+  // Source
+  const srcId = 'src' + data.source_type;
+  const srcEl = document.getElementById(srcId);
+  if (srcEl) srcEl.checked = true;
+  onSourceChange();
+
+  // Source fields
+  document.getElementById('rssUrl').value = data.rss_url || '';
+  document.getElementById('aiPrompt').value = data.ai_prompt || '';
+  document.getElementById('aiStyle').value = data.ai_style || 'neutral';
+  document.getElementById('citybotKey').value = data.citybot_key || '';
+
+  // Schedule
+  const ppd = document.getElementById('postsPerDay');
+  ppd.value = data.posts_per_day || 1;
+  if (![...ppd.options].some(o => o.value == ppd.value)) ppd.value = '1';
+
+  document.getElementById('defaultPostType').value = data.default_post_type || 'feed';
+  selectedTimes = Array.isArray(data.preferred_times) ? [...data.preferred_times] : ['09:00'];
+  renderTimes();
+
+  // Format
+  document.getElementById('hashtagSetId').value = data.hashtag_set_id || '';
+  document.getElementById('captionTemplate').value = data.caption_template || '';
+
+  // Options
+  document.getElementById('autoApprove').checked = data.auto_approve || false;
+  document.getElementById('disableStockAmp').checked = data.disable_stock_amp || false;
+  document.getElementById('profileNotes').value = data.notes || '';
+
+  // Show/hide sections
+  updateSourceSections(isAuto);
+}
+
+function onModeChange() {
+  const isAuto = document.getElementById('modeAuto').checked;
+  updateModeCards(isAuto);
+  updateSourceSections(isAuto);
+}
+
+function updateModeCards(isAuto) {
+  const manCard = document.getElementById('modeManualCard');
+  const autoCard = document.getElementById('modeAutoCard');
+  manCard.style.borderColor  = !isAuto ? 'var(--accent)' : 'var(--border)';
+  manCard.style.background   = !isAuto ? 'rgba(59,130,246,.06)' : '';
+  autoCard.style.borderColor = isAuto ? 'var(--accent)' : 'var(--border)';
+  autoCard.style.background  = isAuto ? 'rgba(59,130,246,.06)' : '';
+}
+
+function updateSourceSections(isAuto) {
+  ['sourceSection','scheduleSection','formatSection','optionsSection'].forEach(id => {
+    document.getElementById(id).style.display = isAuto ? '' : 'none';
+  });
+  if (isAuto) onSourceChange();
+}
+
+function onSourceChange() {
+  const src = document.querySelector('input[name="source_type"]:checked')?.value || '';
+  // Update source card highlights
+  ['rss','ai','citybot','template'].forEach(s => {
+    const card = document.getElementById('src' + s + 'Card');
+    if (card) {
+      card.style.borderColor = s === src ? 'var(--accent)' : 'var(--border)';
+      card.style.background  = s === src ? 'rgba(59,130,246,.06)' : '';
+      card.querySelector('i').style.color = s === src ? 'var(--accent)' : 'var(--muted)';
+      card.querySelector('div').style.color = s === src ? 'var(--accent)' : 'var(--muted)';
+    }
+  });
+  // Show matching field section
+  ['Rss','Ai','Citybot','Template'].forEach(name => {
+    const el = document.getElementById('fields' + name);
+    if (el) el.style.display = (src.toLowerCase() === name.toLowerCase()) ? 'flex' : 'none';
+  });
+}
+
+// ─── Times ─────────────────────────────────────────────
+function renderTimes() {
+  const c = document.getElementById('timesContainer');
+  c.innerHTML = selectedTimes.map((t, i) => `
+    <div style="display:inline-flex;align-items:center;gap:6px;background:var(--surface2);
+                border:1px solid var(--border);border-radius:20px;padding:4px 10px 4px 12px;font-size:12px;font-weight:700">
+      <i class="fa-regular fa-clock" style="color:var(--muted);font-size:10px"></i>
+      ${t}
+      <button onclick="removeTime(${i})"
+              style="background:none;border:none;cursor:pointer;color:var(--muted);
+                     font-size:12px;padding:0 0 0 2px;display:flex;align-items:center">×</button>
+    </div>`).join('');
+}
+function addTime() {
+  const v = document.getElementById('newTimeInput').value;
+  if (!v || selectedTimes.includes(v)) return;
+  selectedTimes.push(v);
+  selectedTimes.sort();
+  renderTimes();
+  document.getElementById('newTimeInput').value = '';
+}
+function removeTime(i) { selectedTimes.splice(i, 1); renderTimes(); }
+
+// ─── Save ──────────────────────────────────────────────
+async function saveConfig() {
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Speichern…';
+
+  const mode = document.querySelector('input[name="mode"]:checked')?.value || 'manual';
+  const src  = document.querySelector('input[name="source_type"]:checked')?.value || '';
+
+  const payload = {
+    mode,
+    source_type:      src,
+    rss_url:          document.getElementById('rssUrl').value.trim(),
+    ai_prompt:        document.getElementById('aiPrompt').value.trim(),
+    ai_style:         document.getElementById('aiStyle').value,
+    citybot_key:      document.getElementById('citybotKey').value.trim(),
+    posts_per_day:    parseFloat(document.getElementById('postsPerDay').value),
+    preferred_times:  selectedTimes,
+    default_post_type: document.getElementById('defaultPostType').value,
+    caption_template: document.getElementById('captionTemplate').value.trim(),
+    hashtag_set_id:   parseInt(document.getElementById('hashtagSetId').value) || null,
+    auto_approve:     document.getElementById('autoApprove').checked,
+    disable_stock_amp: document.getElementById('disableStockAmp').checked,
+    notes:            document.getElementById('profileNotes').value.trim(),
+  };
+
+  const res = await fetch(`/api/accounts/${currentAccountId}/auto-profile`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload),
+  }).then(r=>r.json());
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Speichern';
+
+  if (res.ok) {
+    updateCardUI(currentAccountId, mode === 'auto', payload);
+    closeConfig();
+    showToast('✅ Einstellungen gespeichert');
+    // Reload to refresh details
+    setTimeout(() => location.reload(), 800);
+  } else {
+    showToast('❌ Fehler beim Speichern', 'error');
+  }
+}
+</script>
+{% endblock %}

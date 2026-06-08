@@ -461,6 +461,49 @@ class AppNotification(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     account    = db.relationship('Account', backref='notifications')
 
+# ── Account Automation Profile ───────────────────────────────
+class AccountAutomationProfile(db.Model):
+    """Konfiguriert den Content-Modus jedes Accounts: manuell oder automatisiert."""
+    id          = db.Column(db.Integer, primary_key=True)
+    account_id  = db.Column(db.Integer, db.ForeignKey('account.id'), unique=True, nullable=False)
+    account     = db.relationship('Account', backref=db.backref('auto_profile', uselist=False))
+
+    # Haupt-Modus
+    mode        = db.Column(db.String(20), default='manual')  # manual | auto
+
+    # Quelle (bei auto)
+    source_type = db.Column(db.String(30), default='')  # rss | ai | citybot | template
+    rss_url     = db.Column(db.String(500))
+    ai_prompt   = db.Column(db.Text)
+    ai_style    = db.Column(db.String(50), default='neutral')  # neutral | engaging | formal | casual
+    citybot_key = db.Column(db.String(200))  # API-Key / Bot-ID des externen CityBots
+
+    # Zeitplan
+    posts_per_day    = db.Column(db.Float, default=1.0)
+    preferred_times  = db.Column(db.Text, default='["09:00"]')  # JSON-Array
+
+    # Format
+    default_post_type = db.Column(db.String(20), default='feed')  # feed | story | reel
+    caption_template  = db.Column(db.Text)
+    hashtag_set_id    = db.Column(db.Integer, db.ForeignKey('hashtag_set.id'), nullable=True)
+    hashtag_set       = db.relationship('HashtagSet', backref='auto_profiles')
+
+    # Optionen
+    auto_approve      = db.Column(db.Boolean, default=False)  # Freigabe ohne Review
+    disable_stock_amp = db.Column(db.Boolean, default=False)  # Vorrats-Ampel aus
+
+    notes      = db.Column(db.Text)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def get_times(self):
+        import json
+        return json.loads(self.preferred_times or '["09:00"]')
+
+    @property
+    def is_auto(self):
+        return self.mode == 'auto'
+
+
 # ── Wiederkehrende Posts ──────────────────────────────────────
 class RecurringPost(db.Model):
     id              = db.Column(db.Integer, primary_key=True)
