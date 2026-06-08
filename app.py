@@ -590,8 +590,13 @@ def schedule_automations():
             with app.app_context():
                 now = datetime.utcnow()
 
-                # ── Täglicher Follower-Snapshot um Mitternacht (00:00–00:59) ──
+                # ── Täglicher Follower-Sync + Snapshot um Mitternacht (00:00–00:59) ──
                 if now.hour == 0:
+                    # Erst live Follower-Zahlen von Instagram holen …
+                    if not _ig_sync_status['running']:
+                        _ig_sync_status.update({'running': True, 'error': None, 'result': None, 'progress': 0, 'current': ''})
+                        threading.Thread(target=_run_ig_follower_sync, daemon=True).start()
+                    # … danach (oder wenn kein Handle) Snapshot-Fallback
                     _daily_follower_snapshot()
 
                 due_rules = AutomationRule.query.filter(
@@ -3916,15 +3921,10 @@ self.addEventListener('fetch', e => {
 @app.route('/accounts/bulk-follower-update', methods=['GET'])
 def bulk_follower_update_page():
     accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
-    apify_token_set = bool(
-        AppSettings.query.filter_by(key='apify_token').first() and
-        AppSettings.query.filter_by(key='apify_token').first().value
-    )
     instagram_accounts = [a for a in accounts if a.handle]
     return render_template('bulk_follower_update.html',
         accounts=accounts,
         instagram_accounts=instagram_accounts,
-        apify_token_set=apify_token_set,
         active_page='accounts')
 
 @app.route('/api/accounts/bulk-follower-update', methods=['POST'])
@@ -3971,128 +3971,110 @@ def api_bulk_follower_update():
     return jsonify({'ok': True, 'updated': updated, 'errors': errors})
 
 
-# ─────────────────── APIFY FOLLOWER SYNC ────────────────────────
+# ─────────────────── INSTAGRAM AUTO-SYNC (kein API-Key nötig) ────
 
-import requests as _requests
+import urllib.request as _urllib_request
+import time as _time
 
-_apify_sync_status = {
+_ig_sync_status = {
     'running': False,
+    'progress': 0,      # 0–100
+    'current': '',      # aktuell verarbeiteter Account-Name
     'last_run': None,
-    'result': None,   # {'updated': int, 'errors': list, 'skipped': int}
+    'result': None,
     'error': None,
 }
 
+_IG_HEADERS = {
+    'User-Agent': (
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
+        'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
+        'Mobile/15E148 Safari/604.1'
+    ),
+    'Accept': '*/*',
+    'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
+    'X-IG-App-ID': '936619743392459',
+    'X-Requested-With': 'XMLHttpRequest',
+}
 
-def _run_apify_follower_sync():
+
+def _fetch_ig_followers(username):
     """
-    Holt Follower-Zahlen für alle Accounts mit Instagram-Handle via Apify API.
-    Läuft im Hintergrund-Thread.
-    Actor: apify/instagram-scraper — gibt followersCount je Profil zurück.
+    Ruft die Follower-Zahl eines öffentlichen Instagram-Accounts ab.
+    Kein Login, kein API-Key — nutzt Instagrams interne Web-API.
+    Gibt (followers:int, error:str|None) zurück.
     """
-    global _apify_sync_status
+    import json as _json
+    url = f'https://www.instagram.com/api/v1/users/web_profile_info/?username={username}'
+    req = _urllib_request.Request(url, headers=_IG_HEADERS)
+    try:
+        with _urllib_request.urlopen(req, timeout=15) as r:
+            data = _json.loads(r.read())
+            user = data['data']['user']
+            return user['edge_followed_by']['count'], None
+    except _urllib_request.HTTPError as e:
+        if e.code == 404:
+            return None, f'Account @{username} nicht gefunden (privat oder gelöscht)'
+        if e.code == 429:
+            return None, f'Rate-Limit — zu viele Anfragen (bitte später nochmal)'
+        return None, f'HTTP {e.code} für @{username}'
+    except Exception as e:
+        return None, f'Fehler bei @{username}: {str(e)}'
+
+
+def _run_ig_follower_sync():
+    """
+    Holt Follower-Zahlen für alle aktiven Accounts mit Instagram-Handle.
+    Kein API-Key benötigt. Läuft im Hintergrund-Thread.
+    """
+    global _ig_sync_status
     try:
         with app.app_context():
-            token = AppSettings.query.filter_by(key='apify_token').first()
-            token = token.value if token and token.value else None
-            if not token:
-                _apify_sync_status.update({'running': False, 'error': 'Kein API-Token gesetzt'})
-                return
-
-            # Alle Accounts mit Instagram-Handle sammeln
             accounts = Account.query.filter(
                 Account.handle != None,
                 Account.handle != '',
                 Account.status == 'active'
-            ).all()
+            ).order_by(Account.name).all()
 
             if not accounts:
-                _apify_sync_status.update({
+                _ig_sync_status.update({
                     'running': False,
-                    'result': {'updated': 0, 'errors': [], 'skipped': 0},
+                    'result': {'updated': 0, 'details': [], 'errors': [], 'total_queried': 0},
                     'last_run': datetime.utcnow().isoformat(),
                     'error': None,
                 })
                 return
 
-            usernames = [acc.handle.lstrip('@') for acc in accounts]
-            app.logger.info(f'[Apify Sync] Starte Sync für {len(usernames)} Accounts: {usernames}')
-
-            # Apify Instagram Followers Count Scraper aufrufen
-            # Actor: apify/instagram-followers-count-scraper
-            # Input: {"usernames": ["name1", "name2"]}
-            url = f'https://api.apify.com/v2/acts/apify~instagram-followers-count-scraper/run-sync-get-dataset-items?token={token}'
-            payload = {'usernames': usernames}
-
-            resp = _requests.post(url, json=payload, timeout=300)
-
-            if resp.status_code != 200:
-                err = f'Apify API Fehler: HTTP {resp.status_code} — {resp.text[:200]}'
-                app.logger.error(f'[Apify Sync] {err}')
-                _apify_sync_status.update({'running': False, 'error': err})
-                return
-
-            items = resp.json()
-            if not isinstance(items, list):
-                err = f'Unerwartetes Antwort-Format von Apify: {str(items)[:200]}'
-                _apify_sync_status.update({'running': False, 'error': err})
-                return
-
-            app.logger.info(f'[Apify Sync] {len(items)} Ergebnisse erhalten')
-
-            # Ergebnisse auswerten und Follower-Zahlen aktualisieren
+            total = len(accounts)
             updated_list = []
             errors = []
-            skipped = 0
 
-            # Lookup-Map: username → account
-            acc_map = {acc.handle.lstrip('@').lower(): acc for acc in accounts}
+            app.logger.info(f'[IG Sync] Starte für {total} Accounts')
 
-            for item in items:
-                # Versuche verschiedene Feldnamen (API kann variieren)
-                username = (
-                    item.get('username') or
-                    item.get('userName') or
-                    item.get('user_name') or ''
-                ).lower().lstrip('@')
+            for i, acc in enumerate(accounts):
+                username = acc.handle.lstrip('@')
+                _ig_sync_status['current'] = acc.name
+                _ig_sync_status['progress'] = int((i / total) * 100)
 
-                followers = (
-                    item.get('followersCount') or
-                    item.get('followers_count') or
-                    item.get('followers') or
-                    item.get('follower_count') or
-                    0
-                )
+                followers, err = _fetch_ig_followers(username)
 
-                if not username:
-                    skipped += 1
-                    continue
+                if err:
+                    app.logger.warning(f'[IG Sync] {err}')
+                    errors.append(err)
+                elif followers is not None and followers > 0:
+                    old, delta = _set_follower_count(acc, followers)
+                    updated_list.append({
+                        'name': acc.name,
+                        'handle': username,
+                        'old': old,
+                        'new': followers,
+                        'delta': delta,
+                    })
+                    app.logger.info(f'[IG Sync] @{username}: {old} → {followers} (Δ{delta:+})')
 
-                acc = acc_map.get(username)
-                if not acc:
-                    # Fuzzy match
-                    for k, v in acc_map.items():
-                        if username in k or k in username:
-                            acc = v
-                            break
-
-                if not acc:
-                    errors.append(f'Account für @{username} nicht gefunden')
-                    skipped += 1
-                    continue
-
-                if not isinstance(followers, int) or followers <= 0:
-                    errors.append(f'@{username}: ungültige Follower-Zahl ({followers})')
-                    skipped += 1
-                    continue
-
-                old, delta = _set_follower_count(acc, followers)
-                updated_list.append({
-                    'name': acc.name,
-                    'handle': username,
-                    'old': old,
-                    'new': followers,
-                    'delta': delta,
-                })
+                # Pause zwischen Anfragen — verhindert Rate-Limiting
+                if i < total - 1:
+                    _time.sleep(1.5)
 
             db.session.commit()
 
@@ -4100,62 +4082,54 @@ def _run_apify_follower_sync():
                 'updated': len(updated_list),
                 'details': updated_list,
                 'errors': errors,
-                'skipped': skipped,
-                'total_queried': len(usernames),
+                'total_queried': total,
             }
-            app.logger.info(f'[Apify Sync] Fertig: {len(updated_list)} aktualisiert, {skipped} übersprungen')
-            _apify_sync_status.update({
+            app.logger.info(
+                f'[IG Sync] Fertig: {len(updated_list)}/{total} aktualisiert, '
+                f'{len(errors)} Fehler'
+            )
+            _ig_sync_status.update({
                 'running': False,
+                'progress': 100,
+                'current': '',
                 'last_run': datetime.utcnow().isoformat(),
                 'result': result,
                 'error': None,
             })
 
     except Exception as e:
-        app.logger.error(f'[Apify Sync] Exception: {e}')
-        _apify_sync_status.update({'running': False, 'error': str(e)})
+        app.logger.error(f'[IG Sync] Exception: {e}')
+        _ig_sync_status.update({'running': False, 'error': str(e)})
 
 
 @app.route('/api/analytics/sync-followers-apify', methods=['POST'])
 @login_required
 def sync_followers_apify():
-    """Startet den Apify-Follower-Sync im Hintergrund."""
-    if _apify_sync_status['running']:
+    """Startet den Instagram-Follower-Sync im Hintergrund (kein API-Key nötig)."""
+    if _ig_sync_status['running']:
         return jsonify({'ok': False, 'error': 'Sync läuft bereits — bitte warten'}), 409
 
-    token = AppSettings.query.filter_by(key='apify_token').first()
-    if not token or not token.value:
-        return jsonify({'ok': False, 'error': 'Kein Apify API-Token konfiguriert. Bitte in den Einstellungen eintragen.'}), 400
+    # Prüfe ob überhaupt Accounts mit Handle vorhanden sind
+    count = Account.query.filter(
+        Account.handle != None,
+        Account.handle != '',
+        Account.status == 'active'
+    ).count()
+    if count == 0:
+        return jsonify({'ok': False, 'error': 'Keine Accounts mit Instagram-Handle gefunden'}), 400
 
-    _apify_sync_status['running'] = True
-    _apify_sync_status['error'] = None
-    _apify_sync_status['result'] = None
+    _ig_sync_status.update({'running': True, 'error': None, 'result': None, 'progress': 0, 'current': ''})
 
-    t = threading.Thread(target=_run_apify_follower_sync, daemon=True)
+    t = threading.Thread(target=_run_ig_follower_sync, daemon=True)
     t.start()
-    return jsonify({'ok': True, 'status': 'started'})
+    return jsonify({'ok': True, 'status': 'started', 'total': count})
 
 
 @app.route('/api/analytics/sync-followers-apify/status')
 @login_required
 def sync_followers_apify_status():
-    """Gibt den aktuellen Status des Apify-Syncs zurück."""
-    return jsonify(_apify_sync_status)
-
-
-@app.route('/settings/apify-token', methods=['POST'])
-@login_required
-def save_apify_token():
-    """Speichert den Apify API-Token."""
-    token = request.form.get('apify_token', '').strip()
-    s = AppSettings.query.filter_by(key='apify_token').first()
-    if not s:
-        s = AppSettings(key='apify_token')
-        db.session.add(s)
-    s.value = token
-    db.session.commit()
-    flash('Apify API-Token gespeichert.', 'success')
-    return redirect(url_for('bulk_follower_update_page'))
+    """Gibt den aktuellen Status des Instagram-Syncs zurück."""
+    return jsonify(_ig_sync_status)
 
 
 # ─────────────────── ACCOUNT-KLONEN ─────────────────────────────

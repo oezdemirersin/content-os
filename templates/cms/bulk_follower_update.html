@@ -10,69 +10,74 @@
   </div>
 </div>
 
-<!-- ── APIFY AUTO-SYNC ─────────────────────────────────────────── -->
-<div class="card" style="padding:20px;margin-bottom:20px;border:1px solid rgba(99,102,241,.25);background:linear-gradient(135deg,rgba(99,102,241,.06) 0%,rgba(139,92,246,.06) 100%)">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+<!-- ── AUTO-SYNC CARD ─────────────────────────────────────────── -->
+<div class="card" style="padding:24px;margin-bottom:24px;background:linear-gradient(135deg,rgba(99,102,241,.07) 0%,rgba(168,85,247,.07) 100%);border:1px solid rgba(99,102,241,.2)">
+
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
     <div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <i class="fa-brands fa-instagram" style="color:#c13584;font-size:18px"></i>
-        <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.3px">AUTO-SYNC VIA APIFY</span>
-        <span style="font-size:10px;background:rgba(99,102,241,.15);color:var(--accent);padding:2px 8px;border-radius:20px;font-weight:700;letter-spacing:.5px">BETA</span>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <i class="fa-brands fa-instagram" style="font-size:20px;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);-webkit-background-clip:text;-webkit-text-fill-color:transparent"></i>
+        <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.4px">INSTAGRAM AUTO-SYNC</span>
+        <span style="background:rgba(16,185,129,.15);color:#10b981;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;letter-spacing:.5px">KOSTENLOS</span>
       </div>
-      <div style="font-size:12px;color:var(--muted);max-width:520px;line-height:1.6">
-        Holt Follower-Zahlen automatisch für alle {{ instagram_accounts|length }} Instagram-Accounts mit Handle
-        über die <strong>Apify API</strong> — kein Instagram-Login nötig.
-        {% if not apify_token_set %}
-        <span style="color:var(--warning);font-weight:600"> ⚠ API-Token nicht konfiguriert</span>
+      <div style="font-size:13px;color:var(--muted);line-height:1.7;max-width:500px">
+        Holt automatisch die aktuellen Follower-Zahlen von Instagram — direkt, ohne API-Key und ohne Registrierung.
+        {% if instagram_accounts %}
+        <br><span style="color:var(--text)"><strong>{{ instagram_accounts|length }}</strong> Accounts mit Handle gefunden.</span>
+        {% else %}
+        <br><span style="color:var(--warning)">⚠ Kein Account hat einen Instagram-Handle. Im Account bearbeiten eintragen.</span>
         {% endif %}
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
-      {% if not apify_token_set %}
-      <button onclick="document.getElementById('apifyTokenCard').scrollIntoView({behavior:'smooth'})"
-              class="btn btn-ghost" style="font-size:12px;border-color:var(--warning);color:var(--warning)">
-        <i class="fa-solid fa-key"></i> API-Token eintragen
-      </button>
-      {% else %}
-      <div id="syncStatus" style="font-size:12px;color:var(--muted);display:none"></div>
-      <button id="syncBtn" onclick="startApifySync()" class="btn btn-primary" style="font-size:13px"
-              {% if instagram_accounts|length == 0 %}disabled title="Keine Accounts mit Instagram-Handle"{% endif %}>
+
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0">
+      <button id="syncBtn" onclick="startSync()"
+              class="btn btn-primary"
+              style="font-size:13px;padding:10px 20px;gap:8px"
+              {% if not instagram_accounts %}disabled{% endif %}>
         <i class="fa-solid fa-rotate" id="syncIcon"></i>
-        Jetzt synchronisieren
-        {% if instagram_accounts|length > 0 %}
-        <span style="opacity:.7;font-size:11px">({{ instagram_accounts|length }} Accounts)</span>
-        {% endif %}
+        Jetzt alle synchronisieren
       </button>
-      {% endif %}
+      <div id="lastRun" style="font-size:11px;color:var(--muted)"></div>
     </div>
   </div>
 
-  <!-- Sync-Ergebnis -->
-  <div id="syncResult" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)"></div>
-
-  <!-- Accounts-Vorschau -->
+  <!-- Account-Chips -->
   {% if instagram_accounts %}
-  <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px">
+  <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:6px">
     {% for acc in instagram_accounts %}
-    <span style="font-size:11px;background:var(--surface2);padding:3px 10px;border-radius:20px;color:var(--muted)">
+    <span class="ig-chip" id="chip-{{ acc.id }}"
+          style="font-size:11px;background:var(--surface2);padding:4px 12px;border-radius:20px;color:var(--muted);transition:all .3s">
       @{{ acc.handle }}
     </span>
     {% endfor %}
-    {% if not instagram_accounts %}
-    <span style="font-size:12px;color:var(--muted)">Keine Accounts mit Instagram-Handle gefunden. Handle im Account-Bearbeiten-Formular eintragen.</span>
-    {% endif %}
   </div>
   {% endif %}
+
+  <!-- Fortschrittsbalken -->
+  <div id="progressWrap" style="display:none;margin-top:16px">
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+      <span id="progressLabel" style="color:var(--muted)">Wird abgerufen…</span>
+      <span id="progressPct" style="color:var(--accent);font-weight:700">0%</span>
+    </div>
+    <div style="background:var(--surface2);border-radius:20px;height:6px;overflow:hidden">
+      <div id="progressBar" style="height:100%;background:linear-gradient(90deg,#6366f1,#a855f7);border-radius:20px;width:0%;transition:width .4s"></div>
+    </div>
+  </div>
+
+  <!-- Ergebnis -->
+  <div id="syncResult" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)"></div>
+
 </div>
 
-<!-- Grid: Manuell + CSV -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;margin-bottom:20px">
+<!-- ── GRID: MANUELL + CSV ──────────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
 
   <!-- Manuelle Tabelle -->
   <div class="card" style="padding:20px">
     <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.3px;margin-bottom:16px">MANUELL EINGEBEN</div>
     <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse" id="manualTable">
+      <table style="width:100%;border-collapse:collapse">
         <thead>
           <tr style="border-bottom:1px solid var(--border)">
             <th style="text-align:left;padding:6px 8px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px">ACCOUNT</th>
@@ -81,15 +86,17 @@
         </thead>
         <tbody>
           {% for acc in accounts %}
-          <tr style="border-bottom:1px solid var(--border)" id="row-{{ acc.id }}">
+          <tr style="border-bottom:1px solid var(--border)">
             <td style="padding:8px;font-size:13px;font-weight:600">
               {{ acc.name }}
-              {% if acc.handle %}<span style="font-size:11px;color:var(--muted);font-weight:400">@{{ acc.handle }}</span>{% endif %}
-              <input type="hidden" name="acc_id" value="{{ acc.id }}">
+              {% if acc.handle %}
+              <span style="font-size:11px;color:var(--muted);font-weight:400">@{{ acc.handle }}</span>
+              {% endif %}
             </td>
             <td style="padding:8px;text-align:right">
               <input type="number" value="{{ acc.follower_count }}" min="0"
-                     class="input-field follower-input" data-id="{{ acc.id }}" data-name="{{ acc.name }}"
+                     class="input-field follower-input"
+                     data-id="{{ acc.id }}" data-name="{{ acc.name }}"
                      style="width:110px;text-align:right;padding:6px 10px;font-size:13px;font-weight:700">
             </td>
           </tr>
@@ -102,18 +109,15 @@
     </button>
   </div>
 
-  <!-- CSV Upload + API-Token -->
+  <!-- CSV Upload -->
   <div style="display:flex;flex-direction:column;gap:16px">
     <div class="card" style="padding:20px">
       <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.3px;margin-bottom:12px">CSV HOCHLADEN</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">
-        CSV-Format:<br>
-        <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:11px">account,followers</code><br>
-        Erste Spalte: Account-Name oder ID<br>
-        Zweite Spalte: Follower-Zahl
+        Format: <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:11px">account,followers</code>
       </div>
       <div id="csvDropZone"
-           style="border:2px dashed var(--border);border-radius:10px;padding:30px;text-align:center;cursor:pointer"
+           style="border:2px dashed var(--border);border-radius:10px;padding:30px;text-align:center;cursor:pointer;transition:border-color .2s"
            ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
            ondragleave="this.style.borderColor='var(--border)'"
            ondrop="handleCsvDrop(event)"
@@ -131,169 +135,129 @@
       </div>
     </div>
 
-    <!-- Apify Token Einstellungen -->
-    <div class="card" style="padding:20px" id="apifyTokenCard">
-      <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.3px;margin-bottom:8px">
-        <i class="fa-solid fa-key" style="color:var(--accent);margin-right:6px"></i>APIFY API-TOKEN
-      </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">
-        Für die automatische Follower-Synchronisierung wird ein
-        <a href="https://apify.com" target="_blank" style="color:var(--accent)">Apify</a>-Account benötigt.
-        Kostenloser Plan verfügbar — ca. $1.30 / 1.000 Profiles.<br><br>
-        <strong>Setup:</strong>
-        <a href="https://apify.com/sign-up" target="_blank" style="color:var(--accent)">Registrieren</a> →
-        <a href="https://console.apify.com/settings/integrations" target="_blank" style="color:var(--accent)">API-Token kopieren</a>
-      </div>
-      <form method="POST" action="{{ url_for('save_apify_token') }}" style="display:flex;gap:8px">
-        <input type="text" name="apify_token" placeholder="apify_xxxxxxxxxxxx…"
-               value="{% if apify_token_set %}••••••••••••••••{% endif %}"
-               class="input-field" style="flex:1;font-family:monospace;font-size:12px">
-        <button type="submit" class="btn btn-primary" style="white-space:nowrap;font-size:12px">
-          <i class="fa-solid fa-floppy-disk"></i> Speichern
-        </button>
-      </form>
-      {% if apify_token_set %}
-      <div style="margin-top:8px;font-size:11px;color:var(--success)">
-        <i class="fa-solid fa-circle-check"></i> Token ist konfiguriert
-      </div>
-      {% endif %}
-    </div>
-
-    <!-- Ergebnis -->
+    <!-- Ergebnis CSV/Manuell -->
     <div id="resultBox" style="display:none" class="card" style="padding:20px"></div>
   </div>
-</div>
 
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-let csvRows = [];
+// ── Auto-Sync ─────────────────────────────────────────────────
+let pollTimer = null;
 
-// ── Apify Sync ───────────────────────────────────────────────
-let syncPollInterval = null;
-
-async function startApifySync() {
-  const btn = document.getElementById('syncBtn');
-  const icon = document.getElementById('syncIcon');
-  const statusEl = document.getElementById('syncStatus');
-  const resultEl = document.getElementById('syncResult');
+async function startSync() {
+  const btn   = document.getElementById('syncBtn');
+  const icon  = document.getElementById('syncIcon');
+  const prog  = document.getElementById('progressWrap');
+  const res   = document.getElementById('syncResult');
 
   btn.disabled = true;
   icon.className = 'fa-solid fa-rotate fa-spin';
-  statusEl.style.display = 'block';
-  statusEl.textContent = 'Sync wird gestartet…';
-  resultEl.style.display = 'none';
+  prog.style.display = 'block';
+  res.style.display = 'none';
+  setProgress(0, 'Verbinde mit Instagram…');
 
   try {
-    const res = await fetch('/api/analytics/sync-followers-apify', {
+    const r = await fetch('/api/analytics/sync-followers-apify', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json'}
     }).then(r => r.json());
 
-    if (!res.ok) {
-      showSyncError(res.error || 'Fehler beim Starten');
+    if (!r.ok) {
+      endSync(false, r.error);
       return;
     }
-
-    // Starte Polling
-    statusEl.textContent = 'Apify ruft Instagram-Daten ab… (kann 1–2 Min. dauern)';
-    syncPollInterval = setInterval(pollSyncStatus, 3000);
+    setProgress(5, `Rufe ${r.total} Accounts ab…`);
+    pollTimer = setInterval(pollStatus, 2000);
 
   } catch(e) {
-    showSyncError('Netzwerkfehler: ' + e.message);
+    endSync(false, 'Netzwerkfehler: ' + e.message);
   }
 }
 
-async function pollSyncStatus() {
+async function pollStatus() {
   try {
-    const status = await fetch('/api/analytics/sync-followers-apify/status').then(r => r.json());
+    const s = await fetch('/api/analytics/sync-followers-apify/status').then(r => r.json());
 
-    if (status.running) return; // Noch am laufen
-
-    // Fertig
-    clearInterval(syncPollInterval);
-    syncPollInterval = null;
-
-    const btn = document.getElementById('syncBtn');
-    const icon = document.getElementById('syncIcon');
-    const statusEl = document.getElementById('syncStatus');
-
-    btn.disabled = false;
-    icon.className = 'fa-solid fa-rotate';
-
-    if (status.error) {
-      showSyncError(status.error);
+    if (s.running) {
+      setProgress(s.progress || 5, s.current ? `@${s.current.toLowerCase().replace(' ','')} …` : 'Läuft…');
       return;
     }
 
-    statusEl.style.display = 'none';
-    showSyncResult(status.result);
+    clearInterval(pollTimer); pollTimer = null;
 
-    // Tabelle aktualisieren — Seite neu laden nach kurzer Pause
-    setTimeout(() => location.reload(), 2500);
+    if (s.error) { endSync(false, s.error); return; }
 
-  } catch(e) {
-    console.error('Polling-Fehler:', e);
-  }
+    setProgress(100, 'Fertig!');
+    showSyncResult(s.result, s.last_run);
+    endSync(true);
+
+    // Eingabe-Tabelle mit neuen Werten füllen
+    if (s.result && s.result.details) {
+      s.result.details.forEach(u => {
+        document.querySelectorAll('.follower-input').forEach(inp => {
+          if (inp.dataset.name === u.name) inp.value = u.new;
+        });
+      });
+    }
+
+  } catch(e) { console.error(e); }
 }
 
-function showSyncError(msg) {
-  const btn = document.getElementById('syncBtn');
-  const icon = document.getElementById('syncIcon');
-  const statusEl = document.getElementById('syncStatus');
-  const resultEl = document.getElementById('syncResult');
+function setProgress(pct, label) {
+  document.getElementById('progressBar').style.width = pct + '%';
+  document.getElementById('progressPct').textContent = pct + '%';
+  document.getElementById('progressLabel').textContent = label;
+}
 
+function endSync(ok) {
+  const btn  = document.getElementById('syncBtn');
+  const icon = document.getElementById('syncIcon');
   btn.disabled = false;
   icon.className = 'fa-solid fa-rotate';
-  statusEl.style.display = 'none';
-  resultEl.style.display = 'block';
-  resultEl.innerHTML = `
-    <div style="color:var(--danger);display:flex;align-items:center;gap:8px">
-      <i class="fa-solid fa-circle-exclamation"></i>
-      <span>${msg}</span>
-    </div>`;
-
-  if (syncPollInterval) { clearInterval(syncPollInterval); syncPollInterval = null; }
+  if (!ok) document.getElementById('progressWrap').style.display = 'none';
 }
 
-function showSyncResult(result) {
-  const resultEl = document.getElementById('syncResult');
+function showSyncResult(result, lastRun) {
   if (!result) return;
-
+  const el = document.getElementById('syncResult');
   const details = result.details || [];
-  const errors = result.errors || [];
+  const errors  = result.errors  || [];
 
-  resultEl.style.display = 'block';
-  resultEl.innerHTML = `
-    <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap">
+  document.getElementById('lastRun').textContent =
+    'Letzter Sync: ' + new Date(lastRun).toLocaleString('de-DE');
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:6px">
         <i class="fa-solid fa-circle-check" style="color:var(--success)"></i>
         <strong style="font-size:14px">${result.updated} von ${result.total_queried} aktualisiert</strong>
       </div>
-      ${result.skipped ? `<span style="font-size:12px;color:var(--muted)">${result.skipped} übersprungen</span>` : ''}
-      ${errors.length ? `<span style="font-size:12px;color:var(--warning)">${errors.length} Fehler</span>` : ''}
+      ${errors.length ? `<span style="font-size:12px;color:var(--warning)">⚠ ${errors.length} Fehler</span>` : ''}
     </div>
     ${details.length ? `
-    <div style="max-height:220px;overflow-y:auto">
-      ${details.map(u => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
-          <div>
-            <span style="font-weight:600">${u.name}</span>
-            <span style="color:var(--muted);margin-left:4px">@${u.handle}</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="color:${u.delta > 0 ? 'var(--success)' : u.delta < 0 ? 'var(--danger)' : 'var(--muted)'}">
-              ${u.delta > 0 ? '+' : ''}${u.delta.toLocaleString('de-DE')}
-            </span>
-            <span style="font-weight:700">${u.new.toLocaleString('de-DE')}</span>
-          </div>
-        </div>`).join('')}
-    </div>` : ''}
+      <div style="max-height:240px;overflow-y:auto">
+        ${details.map(u => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">
+            <div>
+              <span style="font-weight:600">${u.name}</span>
+              <span style="color:var(--muted);margin-left:4px">@${u.handle}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="color:${u.delta > 0 ? 'var(--success)' : u.delta < 0 ? 'var(--danger)' : 'var(--muted)'};font-weight:600">
+                ${u.delta > 0 ? '+' : ''}${u.delta.toLocaleString('de-DE')}
+              </span>
+              <span style="font-weight:700;min-width:70px;text-align:right">${u.new.toLocaleString('de-DE')}</span>
+            </div>
+          </div>`).join('')}
+      </div>` : ''}
     ${errors.length ? `
-    <div style="margin-top:10px;padding:10px;background:rgba(239,68,68,.08);border-radius:8px">
-      ${errors.map(e => `<div style="font-size:11px;color:var(--danger)">${e}</div>`).join('')}
-    </div>` : ''}`;
+      <div style="margin-top:10px;padding:10px;background:rgba(239,68,68,.08);border-radius:8px">
+        ${errors.map(e => `<div style="font-size:11px;color:var(--danger);line-height:1.8">${e}</div>`).join('')}
+      </div>` : ''}`;
 
   showToast(`✅ ${result.updated} Follower-Zahlen aktualisiert`);
 }
@@ -301,19 +265,18 @@ function showSyncResult(result) {
 // ── Manuelle Eingabe ──────────────────────────────────────────
 async function submitManual() {
   const inputs = document.querySelectorAll('.follower-input');
-  const rows = [...inputs].map(i => ({
-    account: i.dataset.name,
-    followers: parseInt(i.value) || 0,
-  }));
+  const rows = [...inputs].map(i => ({account: i.dataset.name, followers: parseInt(i.value) || 0}));
   const res = await fetch('/api/accounts/bulk-follower-update', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({rows_json: JSON.stringify(rows)}),
   }).then(r => r.json());
-  showResult(res);
+  showManualResult(res);
 }
 
-// ── CSV Upload ────────────────────────────────────────────────
+// ── CSV ───────────────────────────────────────────────────────
+let csvRows = [];
+
 function handleCsvDrop(e) {
   e.preventDefault();
   e.currentTarget.style.borderColor = 'var(--border)';
@@ -325,20 +288,18 @@ function loadCsv(file) {
   const reader = new FileReader();
   reader.onload = e => {
     const lines = e.target.result.split('\n').filter(l => l.trim());
-    const header = lines[0].toLowerCase();
-    const startIdx = (header.includes('account') || header.includes('name')) ? 1 : 0;
-    csvRows = lines.slice(startIdx).map(line => {
+    const hdr = lines[0].toLowerCase();
+    const start = (hdr.includes('account') || hdr.includes('name')) ? 1 : 0;
+    csvRows = lines.slice(start).map(line => {
       const parts = line.split(/[,;]/).map(p => p.trim().replace(/^"|"$/g,''));
-      return { account: parts[0], followers: parts[1] };
+      return {account: parts[0], followers: parts[1]};
     }).filter(r => r.account && r.followers);
-
     document.getElementById('csvPreviewTitle').textContent = `${csvRows.length} Accounts gefunden`;
     document.getElementById('csvPreviewList').innerHTML = csvRows.slice(0,10).map(r =>
       `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
-         <span>${r.account}</span>
-         <span style="font-weight:700">${parseInt(r.followers||0).toLocaleString('de-DE')}</span>
-       </div>`
-    ).join('') + (csvRows.length > 10 ? `<div style="font-size:11px;color:var(--muted);padding:6px 0">... und ${csvRows.length-10} weitere</div>` : '');
+         <span>${r.account}</span><span style="font-weight:700">${parseInt(r.followers||0).toLocaleString('de-DE')}</span>
+       </div>`).join('') +
+      (csvRows.length > 10 ? `<div style="font-size:11px;color:var(--muted);padding:6px 0">…${csvRows.length-10} weitere</div>` : '');
     document.getElementById('csvPreview').style.display = 'block';
   };
   reader.readAsText(file, 'UTF-8');
@@ -349,19 +310,17 @@ async function submitCsv() {
   const fd = new FormData();
   fd.append('rows_json', JSON.stringify(csvRows));
   const res = await fetch('/api/accounts/bulk-follower-update', {method:'POST', body:fd}).then(r=>r.json());
-  showResult(res);
+  showManualResult(res);
 }
 
-function showResult(res) {
+function showManualResult(res) {
   const box = document.getElementById('resultBox');
   box.style.display = 'block';
   if (!res.ok) { box.innerHTML = `<div style="color:var(--danger)">${res.error}</div>`; return; }
-
-  const upd = res.updated || [];
-  const err = res.errors || [];
+  const upd = res.updated || [], err = res.errors || [];
   box.innerHTML = `
     <div style="font-weight:700;font-size:15px;margin-bottom:12px">
-      ✅ ${upd.length} Accounts aktualisiert${err.length ? ` · ⚠️ ${err.length} Fehler` : ''}
+      ✅ ${upd.length} aktualisiert${err.length ? ` · ⚠ ${err.length} Fehler` : ''}
     </div>
     ${upd.map(u => `
       <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
