@@ -73,10 +73,6 @@
     <option value="paused">Pausiert</option>
     <option value="inactive">Inaktiv</option>
   </select>
-  <select id="bulkAccAuto" class="select-field" style="width:auto;font-size:12px;padding:6px 10px">
-    <option value="">Automatisierung…</option>
-    {% for i in range(5) %}<option value="{{ i }}">Stufe {{ i }}</option>{% endfor %}
-  </select>
   <select id="bulkAccPrio" class="select-field" style="width:auto;font-size:12px;padding:6px 10px">
     <option value="">Priorität…</option>
     <option value="critical">Kritisch</option>
@@ -84,8 +80,7 @@
     <option value="medium">Mittel</option>
     <option value="low">Niedrig</option>
   </select>
-  <button onclick="accBulk('status',document.getElementById('bulkAccStatus').value)" class="btn btn-primary" style="font-size:12px;padding:6px 14px">Anwenden</button>
-  <button onclick="accBulk('automation',document.getElementById('bulkAccAuto').value)" class="btn btn-ghost" style="font-size:12px;padding:6px 14px">Automation</button>
+  <button onclick="accBulk('status',document.getElementById('bulkAccStatus').value)" class="btn btn-primary" style="font-size:12px;padding:6px 14px">Status setzen</button>
   <button onclick="accBulk('priority',document.getElementById('bulkAccPrio').value)" class="btn btn-ghost" style="font-size:12px;padding:6px 14px">Priorität</button>
   <button onclick="accDeselect()" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;margin-left:auto">Aufheben</button>
 </div>
@@ -124,15 +119,6 @@
         <option value="error" {% if filters.status=='error' %}selected{% endif %}>Fehler</option>
       </select>
     </div>
-    <div style="min-width:120px">
-      <label class="form-label">Automatisierung</label>
-      <select name="automation" class="select-field">
-        <option value="">Alle</option>
-        {% for i in range(5) %}
-        <option value="{{ i }}" {% if filters.automation==i|string %}selected{% endif %}>Stufe {{ i }}</option>
-        {% endfor %}
-      </select>
-    </div>
     <div style="min-width:110px">
       <label class="form-label">Priorität</label>
       <select name="priority" class="select-field">
@@ -161,7 +147,6 @@
         <th class="sortable" data-col="1" onclick="sortTable(1)" style="cursor:pointer;user-select:none">Kategorie <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th class="sortable" data-col="2" onclick="sortTable(2)" style="text-align:right;cursor:pointer;user-select:none">Follower <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th class="sortable" data-col="3" onclick="sortTable(3)" style="text-align:center;cursor:pointer;user-select:none">Vorrat <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
-        <th style="text-align:center">Automation</th>
         <th style="text-align:center">Status</th>
         <th style="text-align:center">Priorität</th>
         <th></th>
@@ -205,37 +190,26 @@
           </span>
         </td>
         <td style="text-align:center">
-          <div>
-            <div style="font-size:14px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
-            <div style="height:3px;background:var(--surface2);border-radius:3px;margin-top:4px;width:60px;margin-inline:auto">
-              {% set pct = [acc.stock_days_display()|float / 14 * 100, 100]|min %}
-              <div style="height:100%;border-radius:3px;width:{{ pct }}%;
-                background:{% if acc.stock_status()=='green' %}var(--success)
-                {% elif acc.stock_status()=='yellow' %}var(--warning)
-                {% elif acc.stock_status()=='orange' %}#f97316
-                {% else %}var(--danger){% endif %}"></div>
-            </div>
-          </div>
-        </td>
-        <td style="text-align:center">
           {% set p = acc.auto_profile %}
-          {% if p and p.mode == 'auto' %}
-            <a href="{{ url_for('content_automation') }}"
+          {% if p and p.disable_stock_amp %}
+            {# Automatisierter Account ohne Vorrats-Ampel #}
+            <a href="{{ url_for('content_automation') }}" title="Automatisiert — kein Vorrat nötig"
                style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;
-                      background:rgba(99,102,241,.12);color:#818cf8;
-                      padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700">
-              🤖 Auto
+                      color:#818cf8;font-size:11px;font-weight:700">
+              <i class="fa-solid fa-robot" style="font-size:10px"></i> Auto
             </a>
-            {% if p.source_type %}
-            <div style="font-size:10px;color:var(--muted);margin-top:3px">{{ p.source_type|upper }}</div>
-            {% endif %}
           {% else %}
-            <a href="{{ url_for('content_automation') }}"
-               style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;
-                      background:rgba(100,116,139,.1);color:var(--muted);
-                      padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700">
-              ✍️ Manuell
-            </a>
+            <div>
+              <div style="font-size:14px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
+              <div style="height:3px;background:var(--surface2);border-radius:3px;margin-top:4px;width:60px;margin-inline:auto">
+                {% set pct = [acc.stock_days_display()|float / 14 * 100, 100]|min %}
+                <div style="height:100%;border-radius:3px;width:{{ pct }}%;
+                  background:{% if acc.stock_status()=='green' %}var(--success)
+                  {% elif acc.stock_status()=='yellow' %}var(--warning)
+                  {% elif acc.stock_status()=='orange' %}#f97316
+                  {% else %}var(--danger){% endif %}"></div>
+              </div>
+            </div>
           {% endif %}
         </td>
         <td style="text-align:center">
