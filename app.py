@@ -22,6 +22,7 @@ import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload, selectinload
 
 app = Flask(__name__, template_folder='templates/cms')
 
@@ -72,8 +73,11 @@ if _db_url.startswith('postgres://'):
 app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_pre_ping': True,          # testet Verbindung vor jeder Anfrage
-    'pool_recycle': 300,            # Verbindung nach 5 Min. neu aufbauen
+    # pool_pre_ping entfernt: war +50-100ms auf JEDE Anfrage (Supabase-Roundtrip)
+    # pool_recycle=300 reicht um stale connections zu verhindern
+    'pool_recycle': 300,
+    'pool_size': 5,
+    'max_overflow': 10,
     'connect_args': {'sslmode': 'require'} if _db_url.startswith('postgresql://') else {},
 }
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
@@ -971,7 +975,11 @@ def accounts():
 
     page = request.args.get('page', 1, type=int)
     per_page = 50
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    # eager-load: verhindert N+1 für platform.name / category.name im Template
+    pagination = query.options(
+        joinedload(Account.platform),
+        joinedload(Account.category),
+    ).paginate(page=page, per_page=per_page, error_out=False)
     categories = Category.query.order_by(Category.name).all()
     platforms = Platform.query.all()
 
@@ -1149,7 +1157,12 @@ def account_stack(account_id):
         query = query.filter(
             ContentItem.title.ilike(f'%{q}%') | ContentItem.caption.ilike(f'%{q}%'))
 
-    items = query.order_by(ContentItem.created_at.desc()).limit(300).all()
+    # eager-load: verhindert N+1 für category/labels/media_items (war bis 900 Queries!)
+    items = query.options(
+        joinedload(ContentItem.category),
+        selectinload(ContentItem.labels),
+        selectinload(ContentItem.media_items),
+    ).order_by(ContentItem.created_at.desc()).limit(300).all()
     return jsonify([{
         'id': c.id,
         'title': c.title,
@@ -1185,6 +1198,9 @@ def planer_events(account_id):
         ScheduledPost.account_id == account_id,
         ScheduledPost.scheduled_at >= start,
         ScheduledPost.scheduled_at <= end,
+    ).options(
+        # eager-load: verhindert N+1 für p.content_item und ci.media_items
+        joinedload(ScheduledPost.content_item).selectinload(ContentItem.media_items)
     ).order_by(ScheduledPost.scheduled_at).all()
 
     result = []
@@ -1254,9 +1270,13 @@ def planer_auto_fill(account_id):
         return jsonify({'ok': False, 'error': 'content_ids und start_date erforderlich'}), 400
 
     base = datetime.strptime(f'{start_date} {time_str}', '%Y-%m-%d %H:%M')
+    # Bulk-load: 1 Query statt 1 Query pro ContentItem
+    ci_map = {c.id: c for c in ContentItem.query.filter(
+        ContentItem.id.in_(content_ids)
+    ).options(selectinload(ContentItem.media_items)).all()}
     created = []
     for i, cid in enumerate(content_ids):
-        ci = ContentItem.query.get(cid)
+        ci = ci_map.get(cid)
         if not ci:
             continue
         scheduled_at = base + timedelta(days=i * interval)
@@ -1460,11 +1480,15 @@ def content_hub():
 
     page = request.args.get('page', 1, type=int)
     per_page = 40
-    ordered = query.order_by(ContentItem.created_at.desc())
+    # eager-load: verhindert N+1 für category/labels/media_items im Template
+    _opts = [joinedload(ContentItem.category),
+             selectinload(ContentItem.labels),
+             selectinload(ContentItem.media_items)]
+    ordered = query.options(*_opts).order_by(ContentItem.created_at.desc())
     pagination = ordered.paginate(page=page, per_page=per_page, error_out=False)
 
     # Für Kanban alle Items (max 200) ohne Pagination
-    kanban_items = ordered.limit(200).all()
+    kanban_items = query.options(*_opts).order_by(ContentItem.created_at.desc()).limit(200).all()
 
     categories = Category.query.order_by(Category.name).all()
     labels = Label.query.order_by(Label.name).all()
@@ -1671,10 +1695,14 @@ def media_library():
     pagination = query.order_by(MediaItem.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     categories = Category.query.order_by(Category.name).all()
 
+    # 1 GROUP-BY statt 3 separater COUNT-Queries
+    _tc_rows = db.session.query(MediaItem.file_type, func.count(MediaItem.id))\
+                         .group_by(MediaItem.file_type).all()
+    _tc_map = {ft: cnt for ft, cnt in _tc_rows}
     type_counts = {
-        'image': MediaItem.query.filter_by(file_type='image').count(),
-        'video': MediaItem.query.filter_by(file_type='video').count(),
-        'other': MediaItem.query.filter(MediaItem.file_type.notin_(['image', 'video'])).count(),
+        'image': _tc_map.get('image', 0),
+        'video': _tc_map.get('video', 0),
+        'other': sum(v for k, v in _tc_map.items() if k not in ('image', 'video')),
     }
 
     all_accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
