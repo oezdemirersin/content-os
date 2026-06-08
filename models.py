@@ -75,7 +75,7 @@ class ActivityLog(db.Model):
     entity_type = db.Column(db.String(50))
     entity_id = db.Column(db.Integer)
     description = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     user = db.relationship('User', backref='activity')
 
 
@@ -111,7 +111,7 @@ class Account(db.Model):
     following_count = db.Column(db.Integer, default=0)
     post_count = db.Column(db.Integer, default=0)
 
-    status = db.Column(db.String(20), default='active')  # active, paused, error, inactive
+    status = db.Column(db.String(20), default='active', index=True)  # active, paused, error, inactive
     automation_level = db.Column(db.Integer, default=0)  # 0-4
     priority = db.Column(db.String(20), default='medium')  # low, medium, high, critical
 
@@ -218,13 +218,13 @@ class ContentItem(db.Model):
     labels = db.relationship('Label', secondary=content_labels, backref='content_items')
     accounts = db.relationship('Account', secondary=content_accounts, backref='content_items')
 
-    status = db.Column(db.String(30), default='draft')
+    status = db.Column(db.String(30), default='draft', index=True)
     # draft, in_progress, ready, scheduled, published, archived, error
 
     author_id = db.Column(db.Integer, db.ForeignKey('team_member.id'))
     author = db.relationship('TeamMember', foreign_keys='ContentItem.author_id', backref='content_items')
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     published_at = db.Column(db.DateTime)
 
@@ -291,8 +291,8 @@ class ScheduledPost(db.Model):
 
     caption = db.Column(db.Text)
     hashtags = db.Column(db.Text)
-    post_type = db.Column(db.String(30), default='feed')   # feed, reel, story, carousel
-    status    = db.Column(db.String(30), default='scheduled')
+    post_type = db.Column(db.String(30), default='feed', index=True)   # feed, reel, story, carousel
+    status    = db.Column(db.String(30), default='scheduled', index=True)
     # scheduled, published, failed, draft, cancelled, disabled
 
     # Slot-Typ: wie dieser Tag behandelt wird
@@ -301,7 +301,7 @@ class ScheduledPost(db.Model):
     # flexible → irgendein freier Post aus dem Vorrat wird genommen
     # disabled → kein Post, User postet selbst
 
-    scheduled_at = db.Column(db.DateTime, nullable=False)
+    scheduled_at = db.Column(db.DateTime, nullable=False, index=True)
     published_at = db.Column(db.DateTime)
     error_message = db.Column(db.Text)
 
@@ -321,8 +321,8 @@ class ScheduledPost(db.Model):
 
 class AnalyticsSnapshot(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
-    recorded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False, index=True)
+    recorded_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     followers = db.Column(db.Integer, default=0)
     following = db.Column(db.Integer, default=0)
     posts = db.Column(db.Integer, default=0)
@@ -381,7 +381,7 @@ class SystemAlert(db.Model):
     alert_type = db.Column(db.String(50))
     severity = db.Column(db.String(20), default='warning')
     message = db.Column(db.Text)
-    resolved = db.Column(db.Boolean, default=False)
+    resolved = db.Column(db.Boolean, default=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     resolved_at = db.Column(db.DateTime)
     account = db.relationship('Account', backref='alerts')

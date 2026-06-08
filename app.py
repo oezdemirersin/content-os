@@ -373,6 +373,23 @@ def init_db():
             except Exception:
                 pass
 
+        # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
+        if is_postgres:
+            idx_stmts = [
+                'CREATE INDEX IF NOT EXISTS ix_account_status          ON account(status)',
+                'CREATE INDEX IF NOT EXISTS ix_content_item_status      ON content_item(status)',
+                'CREATE INDEX IF NOT EXISTS ix_content_item_created_at  ON content_item(created_at DESC)',
+                'CREATE INDEX IF NOT EXISTS ix_scheduled_post_sched_at  ON scheduled_post(scheduled_at)',
+                'CREATE INDEX IF NOT EXISTS ix_scheduled_post_status    ON scheduled_post(status)',
+                'CREATE INDEX IF NOT EXISTS ix_scheduled_post_acc_type  ON scheduled_post(account_id, post_type, status)',
+                'CREATE INDEX IF NOT EXISTS ix_analytics_snap_rec_at    ON analytics_snapshot(recorded_at)',
+                'CREATE INDEX IF NOT EXISTS ix_analytics_snap_acc_rec   ON analytics_snapshot(account_id, recorded_at)',
+                'CREATE INDEX IF NOT EXISTS ix_system_alert_resolved    ON system_alert(resolved)',
+                'CREATE INDEX IF NOT EXISTS ix_activity_log_created_at  ON activity_log(created_at DESC)',
+            ]
+            for stmt in idx_stmts:
+                safe_alter(stmt)
+
         seed_data()
 
         # Memes-Kategorie anlegen falls nicht vorhanden
@@ -693,8 +710,11 @@ def schedule_automations():
                     for rule in due_rules:
                         threading.Thread(target=run_automation_rule, args=(rule.id,), daemon=True).start()
 
-            # Housekeeping every 60 ticks (~1 hour)
             tick += 1
+            # Alerts alle 5 Min. refreshen (statt bei jedem Dashboard-Load)
+            if tick % 5 == 0:
+                generate_alerts()
+            # Housekeeping every 60 ticks (~1 hour)
             if tick % 60 == 0:
                 auto_archive_old_content()
 
@@ -765,8 +785,46 @@ def get_file_type(filename):
     return 'other'
 
 
-def get_dashboard_stats():
-    total_accounts = Account.query.filter_by(status='active').count()
+def _get_planned_days_batch(accounts):
+    """Feed-stock-days für mehrere Accounts in EINER einzigen DB-Query.
+    Gibt {account_id: days_float} zurück."""
+    if not accounts:
+        return {}
+    now = datetime.utcnow()
+    ids = [a.id for a in accounts]
+    rows = db.session.query(
+        ScheduledPost.account_id,
+        func.count(ScheduledPost.id).label('cnt')
+    ).filter(
+        ScheduledPost.account_id.in_(ids),
+        ScheduledPost.post_type == 'feed',
+        ScheduledPost.status == 'scheduled',
+        ScheduledPost.scheduled_at >= now
+    ).group_by(ScheduledPost.account_id).all()
+    cnt_map = {r.account_id: r.cnt for r in rows}
+    return {
+        a.id: (cnt_map.get(a.id, 0) / a.target_feed_per_day
+               if a.target_feed_per_day else 0)
+        for a in accounts
+    }
+
+
+def _days_to_status(days):
+    """Gleiche Logik wie Account.stock_status(), aber ohne DB-Query."""
+    if days >= 14: return 'green'
+    if days >= 7:  return 'yellow'
+    if days >= 3:  return 'orange'
+    return 'red'
+
+
+def get_dashboard_stats(active_accounts=None, days_map=None):
+    """Wenn active_accounts + days_map übergeben werden, braucht die Funktion
+    keine eigenen Account-Queries mehr (Dashboard-Route übergibt sie)."""
+    if active_accounts is None:
+        active_accounts = Account.query.filter_by(status='active').all()
+    if days_map is None:
+        days_map = _get_planned_days_batch(active_accounts)
+
     total_followers = db.session.query(func.sum(Account.follower_count)).scalar() or 0
 
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0)
@@ -777,9 +835,9 @@ def get_dashboard_stats():
     ).count()
 
     content_ready = ContentItem.query.filter_by(status='ready').count()
-    accounts = Account.query.filter_by(status='active').all()
-    critical_accounts = [a for a in accounts if a.stock_status() == 'red']
-    warning_accounts = [a for a in accounts if a.stock_status() in ('orange', 'yellow')]
+    # Batch: kein DB-Query pro Account mehr
+    critical_accounts = [a for a in active_accounts if _days_to_status(days_map[a.id]) == 'red']
+    warning_accounts  = [a for a in active_accounts if _days_to_status(days_map[a.id]) in ('orange', 'yellow')]
     active_alerts = SystemAlert.query.filter_by(resolved=False).count()
 
     week_ago = datetime.utcnow() - timedelta(days=7)
@@ -788,7 +846,7 @@ def get_dashboard_stats():
     growth_7d = total_followers - old_snap
 
     return {
-        'total_accounts': total_accounts,
+        'total_accounts': len(active_accounts),
         'total_followers': total_followers,
         'posts_today': posts_today,
         'content_ready': content_ready,
@@ -818,50 +876,63 @@ def linear_forecast(data_points, days_ahead=30):
 @app.route('/')
 @login_required
 def dashboard():
-    generate_alerts()
-    stats = get_dashboard_stats()
-    accounts = Account.query.order_by(Account.priority.desc(), Account.follower_count.desc()).limit(10).all()
-    recent_content = ContentItem.query.order_by(ContentItem.created_at.desc()).limit(8).all()
-    alerts = SystemAlert.query.filter_by(resolved=False).order_by(SystemAlert.severity.desc()).limit(10).all()
+    # generate_alerts() wird jetzt vom Scheduler alle 5 Min. ausgeführt —
+    # NICHT mehr bei jedem Seitenaufruf (war ~30 Extra-Queries pro Load).
+    now = datetime.utcnow()
 
+    # ── 1× Accounts laden + 1× Batch-Stock-Query (ersetzt N×6 Queries) ──
+    all_active = Account.query.filter_by(status='active').all()
+    days_map   = _get_planned_days_batch(all_active)
+
+    # stats nutzt die bereits geladenen Daten (keine eigenen Account-Queries)
+    stats = get_dashboard_stats(active_accounts=all_active, days_map=days_map)
+
+    # stock_summary: kein einziger DB-Aufruf mehr (uses days_map)
+    stock_summary = {'green': 0, 'yellow': 0, 'orange': 0, 'red': 0}
+    for a in all_active:
+        stock_summary[_days_to_status(days_map[a.id])] += 1
+
+    # ── Chart: 1 GROUP-BY-Query statt 30 Einzel-Queries ──────────────
+    chart_cutoff = now - timedelta(days=29)
+    snap_rows = db.session.query(
+        func.date(AnalyticsSnapshot.recorded_at).label('d'),
+        func.sum(AnalyticsSnapshot.followers).label('total')
+    ).filter(AnalyticsSnapshot.recorded_at >= chart_cutoff)\
+     .group_by(func.date(AnalyticsSnapshot.recorded_at)).all()
+    snap_dict = {str(r.d): int(r.total or 0) for r in snap_rows}
     chart_labels, chart_data = [], []
     for i in range(29, -1, -1):
-        day = datetime.utcnow() - timedelta(days=i)
-        total = db.session.query(func.sum(AnalyticsSnapshot.followers))\
-            .filter(func.date(AnalyticsSnapshot.recorded_at) == day.date()).scalar() or 0
+        day = now - timedelta(days=i)
         chart_labels.append(day.strftime('%d.%m'))
-        chart_data.append(total)
+        chart_data.append(snap_dict.get(day.date().isoformat(), 0))
 
     forecast = linear_forecast(chart_data, 14)
 
-    # Network stock overview
-    all_active = Account.query.filter_by(status='active').all()
-    stock_summary = {
-        'green': sum(1 for a in all_active if a.stock_status() == 'green'),
-        'yellow': sum(1 for a in all_active if a.stock_status() == 'yellow'),
-        'orange': sum(1 for a in all_active if a.stock_status() == 'orange'),
-        'red': sum(1 for a in all_active if a.stock_status() == 'red'),
-    }
-
+    # ── Restliche Queries (nicht weiter optimierbar) ──────────────────
+    accounts       = sorted(all_active, key=lambda a: (
+        {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}.get(a.priority, 2),
+        -(a.follower_count or 0)
+    ))[:10]
+    recent_content = ContentItem.query.order_by(ContentItem.created_at.desc()).limit(8).all()
+    alerts         = SystemAlert.query.filter_by(resolved=False)\
+                         .order_by(SystemAlert.severity.desc()).limit(10).all()
     recent_activity = ActivityLog.query.order_by(ActivityLog.created_at.desc()).limit(15).all()
 
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = today_start + timedelta(days=1)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     posts_today = ScheduledPost.query.filter(
         ScheduledPost.scheduled_at >= today_start,
-        ScheduledPost.scheduled_at < today_end,
+        ScheduledPost.scheduled_at < today_start + timedelta(days=1),
         ScheduledPost.status.in_(['scheduled', 'published'])
     ).order_by(ScheduledPost.scheduled_at).all()
 
-    all_accounts_list = Account.query.order_by(Account.follower_count.desc()).all()
-
     categories = Category.query.order_by(Category.name).all()
+
     return render_template('dashboard.html',
         stats=stats, accounts=accounts, recent_content=recent_content, alerts=alerts,
         chart_labels=json.dumps(chart_labels), chart_data=json.dumps(chart_data),
         forecast=json.dumps(forecast), stock_summary=stock_summary,
         recent_activity=recent_activity, posts_today=posts_today,
-        all_accounts=all_accounts_list, categories=categories,
+        all_accounts=all_active, categories=categories,
         active_page='dashboard')
 
 
@@ -1398,9 +1469,13 @@ def content_hub():
     categories = Category.query.order_by(Category.name).all()
     labels = Label.query.order_by(Label.name).all()
 
-    status_counts = {}
-    for s in ['draft', 'in_progress', 'ready', 'scheduled', 'published', 'archived', 'error']:
-        status_counts[s] = ContentItem.query.filter_by(status=s).count()
+    # 1 GROUP-BY statt 7 einzelner COUNT-Queries
+    _sc_rows = db.session.query(ContentItem.status, func.count(ContentItem.id))\
+                         .group_by(ContentItem.status).all()
+    status_counts = {s: 0 for s in ['draft', 'in_progress', 'ready', 'scheduled', 'published', 'archived', 'error']}
+    for _s, _c in _sc_rows:
+        if _s in status_counts:
+            status_counts[_s] = _c
 
     _f = {'q': q, 'status': status, 'category': category_id, 'type': content_type}
     return render_template('content.html',
