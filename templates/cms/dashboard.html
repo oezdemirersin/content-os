@@ -626,14 +626,16 @@ async function loadPortfolio(days, btn) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: 'var(--surface)',
-          borderColor: 'rgba(99,102,241,.4)',
+          backgroundColor: '#1e2640',
+          borderColor: 'rgba(99,102,241,.5)',
           borderWidth: 1,
-          titleColor: 'var(--muted)',
-          bodyColor: 'var(--text)',
-          padding: 10,
+          titleColor: '#94a3b8',
+          bodyColor: '#e2e8f0',
+          padding: 12,
+          displayColors: false,
           callbacks: {
-            label: c => ' ' + (c.raw || 0).toLocaleString('de-DE') + ' Follower'
+            title: items => items[0]?.label || '',
+            label: c => '  ' + (c.raw || 0).toLocaleString('de-DE') + ' Follower'
           }
         }
       },
