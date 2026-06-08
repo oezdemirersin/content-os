@@ -1635,16 +1635,34 @@ def analytics_portfolio():
     current_total = db.session.query(func.sum(Account.follower_count))\
         .filter(Account.status == 'active').scalar() or 0
 
-    # Alle Snapshots im Zeitraum, pro Tag summiert
+    # Pro Account + Tag: nur den NEUESTEN Snapshot nehmen, dann über alle Accounts summieren.
+    # So werden mehrfache Updates am selben Tag nicht aufsummiert.
     start_date = today - timedelta(days=days - 1)
-    rows = db.session.query(
-        func.date(AnalyticsSnapshot.recorded_at).label('day'),
-        func.sum(AnalyticsSnapshot.followers).label('total')
+
+    # Subquery: spätester recorded_at pro (account_id, tag)
+    latest_per_acc_day = db.session.query(
+        AnalyticsSnapshot.account_id,
+        func.date(AnalyticsSnapshot.recorded_at).label('snap_day'),
+        func.max(AnalyticsSnapshot.recorded_at).label('latest_at')
     ).filter(
         func.date(AnalyticsSnapshot.recorded_at) >= start_date
     ).group_by(
+        AnalyticsSnapshot.account_id,
         func.date(AnalyticsSnapshot.recorded_at)
-    ).order_by('day').all()
+    ).subquery()
+
+    # Haupt-Query: followers des neuesten Snapshots summieren
+    rows = db.session.query(
+        latest_per_acc_day.c.snap_day.label('day'),
+        func.sum(AnalyticsSnapshot.followers).label('total')
+    ).join(
+        AnalyticsSnapshot,
+        db.and_(
+            AnalyticsSnapshot.account_id == latest_per_acc_day.c.account_id,
+            AnalyticsSnapshot.recorded_at == latest_per_acc_day.c.latest_at
+        )
+    ).group_by(latest_per_acc_day.c.snap_day)\
+     .order_by(latest_per_acc_day.c.snap_day).all()
 
     # In dict umwandeln
     snap_by_day = {str(r.day): int(r.total) for r in rows}
