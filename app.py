@@ -548,6 +548,40 @@ def auto_archive_old_content():
             db.session.commit()
 
 
+_last_daily_snap_date = None  # verhindert mehrfaches Laufen pro Tag
+
+def _daily_follower_snapshot():
+    """
+    Erstellt täglich um Mitternacht einen AnalyticsSnapshot für jeden aktiven
+    Account, falls noch keiner für heute existiert.
+    Läuft automatisch — kein manueller Aufruf nötig.
+    """
+    global _last_daily_snap_date
+    today = datetime.utcnow().date()
+    if _last_daily_snap_date == today:
+        return  # heute schon gelaufen
+    _last_daily_snap_date = today
+    try:
+        with app.app_context():
+            accounts = Account.query.filter_by(status='active').all()
+            created = 0
+            for acc in accounts:
+                existing = AnalyticsSnapshot.query.filter_by(account_id=acc.id)\
+                    .filter(func.date(AnalyticsSnapshot.recorded_at) == today).first()
+                if not existing:
+                    db.session.add(AnalyticsSnapshot(
+                        account_id  = acc.id,
+                        followers   = acc.follower_count or 0,
+                        recorded_at = datetime.utcnow(),
+                    ))
+                    created += 1
+            if created:
+                db.session.commit()
+                app.logger.info(f'[Daily Snapshot] {created} Snapshots für {today} angelegt')
+    except Exception as e:
+        app.logger.error(f'[Daily Snapshot] Fehler: {e}')
+
+
 def schedule_automations():
     """Background thread that runs automation rules and housekeeping."""
     tick = 0
@@ -555,6 +589,11 @@ def schedule_automations():
         try:
             with app.app_context():
                 now = datetime.utcnow()
+
+                # ── Täglicher Follower-Snapshot um Mitternacht (00:00–00:59) ──
+                if now.hour == 0:
+                    _daily_follower_snapshot()
+
                 due_rules = AutomationRule.query.filter(
                     AutomationRule.active == True,
                     (AutomationRule.next_run_at == None) |
@@ -582,6 +621,31 @@ automation_thread.start()
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def _set_follower_count(acc, new_count):
+    """
+    Zentrale Funktion für Follower-Updates.
+    Aktualisiert Account.follower_count UND erstellt/aktualisiert den
+    heutigen AnalyticsSnapshot — sodass alle Charts & KPIs konsistent sind.
+    Kein db.session.commit() — muss vom Aufrufer gemacht werden.
+    Gibt (old_count, delta) zurück.
+    """
+    old = acc.follower_count or 0
+    acc.follower_count = new_count
+    today = datetime.utcnow().date()
+    snap = AnalyticsSnapshot.query.filter_by(account_id=acc.id)\
+        .filter(func.date(AnalyticsSnapshot.recorded_at) == today).first()
+    if snap:
+        snap.followers   = new_count
+        snap.recorded_at = datetime.utcnow()
+    else:
+        db.session.add(AnalyticsSnapshot(
+            account_id  = acc.id,
+            followers   = new_count,
+            recorded_at = datetime.utcnow(),
+        ))
+    return old, new_count - old
 
 
 def get_file_type(filename):
@@ -833,7 +897,7 @@ def account_edit(account_id):
         account.profile_url = d.get('profile_url', '')
         account.platform_id = int(d['platform_id'])
         account.category_id = int(d['category_id']) if d.get('category_id') else None
-        account.follower_count = int(d.get('follower_count') or 0)
+        _set_follower_count(account, int(d.get('follower_count') or 0))
         account.automation_level = int(d.get('automation_level', 0))
         account.priority = d.get('priority', 'medium')
         account.status = d.get('status', 'active')
@@ -2544,11 +2608,7 @@ def bulk_followers_update():
     for u in updates:
         acc = Account.query.get(u.get('id'))
         if acc and u.get('followers') is not None:
-            old = acc.follower_count
-            acc.follower_count = int(u['followers'])
-            snap = AnalyticsSnapshot(account_id=acc.id, followers=acc.follower_count,
-                                     recorded_at=datetime.utcnow())
-            db.session.add(snap)
+            _set_follower_count(acc, int(u['followers']))
             count += 1
     db.session.commit()
     log_activity('bulk_followers_updated', f'{count} Accounts Follower aktualisiert')
@@ -3879,15 +3939,8 @@ def api_bulk_follower_update():
             errors.append(f'Account nicht gefunden: "{name_or_id}"')
             continue
 
-        old = acc.follower_count
-        acc.follower_count = followers
-        snap = AnalyticsSnapshot(
-            account_id=acc.id,
-            followers=followers,
-            recorded_at=datetime.utcnow(),
-        )
-        db.session.add(snap)
-        updated.append({'name': acc.name, 'old': old, 'new': followers, 'delta': followers - old})
+        old, delta = _set_follower_count(acc, followers)
+        updated.append({'name': acc.name, 'old': old, 'new': followers, 'delta': delta})
 
     db.session.commit()
     return jsonify({'ok': True, 'updated': updated, 'errors': errors})
@@ -4014,6 +4067,18 @@ def account_recurring_posts(account_id):
             'created_at': r.created_at.strftime('%d.%m.%Y'),
         })
     return jsonify(result)
+
+
+# ─────────────────── MANUELLER SNAPSHOT-TRIGGER ────────────────
+@app.route('/api/analytics/snapshot-now', methods=['POST'])
+@login_required
+def snapshot_now():
+    """Erstellt sofort einen AnalyticsSnapshot für alle Accounts (ohne auf Mitternacht zu warten)."""
+    global _last_daily_snap_date
+    _last_daily_snap_date = None   # Reset → _daily_follower_snapshot läuft erneut
+    _daily_follower_snapshot()
+    count = Account.query.filter_by(status='active').count()
+    return jsonify({'ok': True, 'message': f'Snapshots für {count} Accounts angelegt'})
 
 
 # ─────────────────── AUTOMATION PROFILE ──────────────────────
