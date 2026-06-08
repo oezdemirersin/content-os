@@ -2235,13 +2235,18 @@ def api_categories():
 
 @app.route('/api/accounts')
 def api_accounts():
-    accounts = Account.query.filter_by(status='active').order_by(Account.follower_count.desc()).all()
+    accounts = Account.query.filter_by(status='active')\
+        .options(joinedload(Account.platform), joinedload(Account.category))\
+        .order_by(Account.follower_count.desc()).all()
+    # Batch-Stock-Query statt N×1 stock_status()-DB-Queries
+    days_map = _get_planned_days_batch(accounts)
     return jsonify([{
         'id': a.id, 'name': a.name, 'handle': a.handle,
         'followers': a.follower_count, 'status': a.status,
         'category': a.category.name if a.category else '',
         'platform': a.platform.name if a.platform else '',
-        'stock_status': a.stock_status(), 'stock_days': a.stock_days_display(),
+        'stock_status': _days_to_status(days_map[a.id]),
+        'stock_days': round(days_map[a.id], 1),
     } for a in accounts])
 
 

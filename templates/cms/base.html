@@ -10,15 +10,20 @@
   <meta name="apple-mobile-web-app-title" content="Content OS">
   <link rel="manifest" href="/manifest.json">
   <title>{% block title %}Content OS{% endblock %}</title>
-  <!-- NProgress -->
-  <script src="https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.js"></script>
+  <!-- Preconnect: schnellere DNS für CDN-Domains -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- NProgress (klein ~8KB, deferred) -->
+  <script src="https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.js" defer></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nprogress@0.2.0/nprogress.css">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.9/index.global.min.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.9/index.global.min.js"></script>
+  <!-- Chart.js (208KB) und FullCalendar (281KB) werden NUR in Seiten
+       geladen die sie brauchen — nicht mehr auf allen 39 Seiten! -->
+  {% block extra_head %}{% endblock %}
   <style>
     :root {
       --bg: #080b12;
@@ -585,17 +590,18 @@ offlineBanner.style.display = 'none';
 window.addEventListener('offline', () => { offlineBanner.style.display = 'flex'; });
 window.addEventListener('online',  () => { offlineBanner.style.display = 'none'; showToast('Verbindung wiederhergestellt.', 'success'); });
 
-// ── NProgress ──
-if (typeof NProgress !== 'undefined') {
+// ── NProgress (deferred — läuft erst wenn DOM + NProgress-Script geladen) ──
+window.addEventListener('load', () => {
+  if (typeof NProgress === 'undefined') return;
   NProgress.configure({ showSpinner: false, speed: 300, minimum: 0.1 });
+  NProgress.done(); // aktuelle Seite als fertig markieren
   document.addEventListener('click', e => {
     const a = e.target.closest('a[href]');
     if (a && !a.href.startsWith('#') && !a.target && !e.ctrlKey && !e.metaKey && a.hostname === location.hostname) {
       NProgress.start();
     }
   });
-  window.addEventListener('pageshow', () => NProgress.done());
-}
+});
 
 // ── Live Clock ──
 function updateClock() {
