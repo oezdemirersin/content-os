@@ -403,17 +403,47 @@ class AccountGroup(db.Model):
 
 
 # ── Content Templates ───────────────────────────────────────────
+template_accounts = db.Table('template_accounts',
+    db.Column('template_id', db.Integer, db.ForeignKey('content_template.id'), primary_key=True),
+    db.Column('account_id',  db.Integer, db.ForeignKey('account.id'),          primary_key=True),
+)
+
 class ContentTemplate(db.Model):
     id               = db.Column(db.Integer, primary_key=True)
     name             = db.Column(db.String(200), nullable=False)
     category_id      = db.Column(db.Integer, db.ForeignKey('category.id'))
-    content_type     = db.Column(db.String(30), default='feed')
-    caption_template = db.Column(db.Text)   # {{TITEL}}, {{DATUM}} als Platzhalter
+    content_type     = db.Column(db.String(30), default='feed')  # feed|reel|story|carousel
+    caption_template = db.Column(db.Text)   # {{TITEL}}, {{DATUM}}, {{STADT}} als Platzhalter
+    cta_template     = db.Column(db.Text)   # Call to Action, optional extra Block
     hashtags         = db.Column(db.Text)
     notes            = db.Column(db.Text)
+
+    # Visuell
+    preview_image    = db.Column(db.String(500))  # Dateiname im uploads-Ordner
+    primary_color    = db.Column(db.String(20), default='')
+    secondary_color  = db.Column(db.String(20), default='')
+    image_ratio      = db.Column(db.String(10), default='1:1')   # 1:1 | 4:5 | 9:16 | 16:9
+    style_notes      = db.Column(db.Text)  # Schriftart, Mood, Layout-Hinweise
+
+    # Zeitplan-Empfehlung
+    posting_days     = db.Column(db.Text, default='[]')  # JSON: ["Mon","Wed","Fri"]
+    posting_time_pref = db.Column(db.String(10), default='')  # "09:00"
+
+    # Ziel-Accounts (M2M über Hilfstabelle)
+    target_accounts  = db.relationship('Account', secondary='template_accounts', backref='templates')
+
     use_count        = db.Column(db.Integer, default=0)
     created_at       = db.Column(db.DateTime, default=datetime.utcnow)
     category         = db.relationship('Category', backref='templates')
+
+    def get_posting_days(self):
+        return json.loads(self.posting_days or '[]')
+
+    @property
+    def ratio_px(self):
+        """Liefert Pixel-Größe (Breite×Höhe) zum Bildformat."""
+        return {'1:1': '1080×1080', '4:5': '1080×1350',
+                '9:16': '1080×1920', '16:9': '1080×607'}.get(self.image_ratio, '1080×1080')
 
 
 # ── Content Comments ────────────────────────────────────────────

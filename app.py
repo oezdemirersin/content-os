@@ -272,6 +272,23 @@ def init_db():
                 if 'media_ids'  not in sp_cols: safe_alter("ALTER TABLE scheduled_post ADD COLUMN media_ids TEXT DEFAULT '[]'")
                 if 'profile_url'           not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN profile_url VARCHAR(500)')
                 if 'posting_interval_days' not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN posting_interval_days FLOAT DEFAULT 1.0')
+                # ContentTemplate neue Felder
+                try:
+                    ct_cols = [c['name'] for c in inspector.get_columns('content_template')]
+                    for col, ddl in [
+                        ('cta_template',     'ALTER TABLE content_template ADD COLUMN cta_template TEXT'),
+                        ('preview_image',    'ALTER TABLE content_template ADD COLUMN preview_image VARCHAR(500)'),
+                        ('primary_color',    "ALTER TABLE content_template ADD COLUMN primary_color VARCHAR(20) DEFAULT ''"),
+                        ('secondary_color',  "ALTER TABLE content_template ADD COLUMN secondary_color VARCHAR(20) DEFAULT ''"),
+                        ('image_ratio',      "ALTER TABLE content_template ADD COLUMN image_ratio VARCHAR(10) DEFAULT '1:1'"),
+                        ('style_notes',      'ALTER TABLE content_template ADD COLUMN style_notes TEXT'),
+                        ('posting_days',     "ALTER TABLE content_template ADD COLUMN posting_days TEXT DEFAULT '[]'"),
+                        ('posting_time_pref','ALTER TABLE content_template ADD COLUMN posting_time_pref VARCHAR(10) DEFAULT ""'),
+                    ]:
+                        if col not in ct_cols:
+                            safe_alter(ddl)
+                except Exception:
+                    pass  # Tabelle existiert noch nicht → db.create_all() legt sie an
             conn.commit()
         seed_data()
 
@@ -2532,27 +2549,92 @@ def group_update_members(group_id):
 # ─────────────────────── CONTENT TEMPLATES ───────────────────────
 
 @app.route('/templates')
+@login_required
 def content_templates():
-    templates = ContentTemplate.query.order_by(ContentTemplate.use_count.desc()).all()
+    templates = ContentTemplate.query.order_by(ContentTemplate.created_at.desc()).all()
     categories = Category.query.order_by(Category.name).all()
+    accounts   = Account.query.filter_by(status='active').order_by(Account.name).all()
     return render_template('content_templates.html', templates=templates,
-                           categories=categories, active_page='content')
+                           categories=categories, accounts=accounts, active_page='content')
+
+def _save_template_from_form(t):
+    """Liest Formular-Daten + Datei-Upload in ein ContentTemplate-Objekt."""
+    d = request.form
+    t.name             = d['name']
+    t.category_id      = int(d['category_id']) if d.get('category_id') else None
+    t.content_type     = d.get('content_type', 'feed')
+    t.caption_template = d.get('caption_template', '')
+    t.cta_template     = d.get('cta_template', '')
+    t.hashtags         = d.get('hashtags', '')
+    t.notes            = d.get('notes', '')
+    t.primary_color    = d.get('primary_color', '')
+    t.secondary_color  = d.get('secondary_color', '')
+    t.image_ratio      = d.get('image_ratio', '1:1')
+    t.style_notes      = d.get('style_notes', '')
+    t.posting_days     = json.dumps(request.form.getlist('posting_days'))
+    t.posting_time_pref = d.get('posting_time_pref', '')
+    # Ziel-Accounts (M2M)
+    acc_ids = [int(x) for x in request.form.getlist('target_accounts') if x.isdigit()]
+    t.target_accounts  = Account.query.filter(Account.id.in_(acc_ids)).all() if acc_ids else []
+    # Bild-Upload
+    file = request.files.get('preview_image')
+    if file and file.filename and allowed_file(file.filename):
+        original = secure_filename(file.filename)
+        ext = original.rsplit('.', 1)[1].lower()
+        unique_name = f"tmpl_{uuid.uuid4().hex}.{ext}"
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_name))
+        t.preview_image = unique_name
+
 
 @app.route('/templates/new', methods=['POST'])
+@login_required
 def template_new():
-    d = request.form
-    t = ContentTemplate(
-        name=d['name'],
-        category_id=int(d['category_id']) if d.get('category_id') else None,
-        content_type=d.get('content_type','feed'),
-        caption_template=d.get('caption_template',''),
-        hashtags=d.get('hashtags',''),
-        notes=d.get('notes',''),
-    )
+    t = ContentTemplate()
+    _save_template_from_form(t)
     db.session.add(t)
     db.session.commit()
     flash(f'Template "{t.name}" gespeichert.', 'success')
     return redirect(url_for('content_templates'))
+
+
+@app.route('/templates/<int:tmpl_id>/edit', methods=['POST'])
+@login_required
+def template_edit(tmpl_id):
+    t = ContentTemplate.query.get_or_404(tmpl_id)
+    # Altes Bild löschen wenn neues hochgeladen
+    old_img = t.preview_image
+    _save_template_from_form(t)
+    if t.preview_image and old_img and old_img != t.preview_image:
+        try:
+            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], old_img))
+        except Exception:
+            pass
+    db.session.commit()
+    flash(f'Template "{t.name}" aktualisiert.', 'success')
+    return redirect(url_for('content_templates'))
+
+
+@app.route('/api/templates/<int:tmpl_id>')
+@login_required
+def template_get(tmpl_id):
+    t = ContentTemplate.query.get_or_404(tmpl_id)
+    return jsonify({
+        'id': t.id, 'name': t.name,
+        'category_id': t.category_id,
+        'content_type': t.content_type,
+        'caption_template': t.caption_template or '',
+        'cta_template': t.cta_template or '',
+        'hashtags': t.hashtags or '',
+        'notes': t.notes or '',
+        'primary_color': t.primary_color or '',
+        'secondary_color': t.secondary_color or '',
+        'image_ratio': t.image_ratio or '1:1',
+        'style_notes': t.style_notes or '',
+        'posting_days': t.get_posting_days(),
+        'posting_time_pref': t.posting_time_pref or '',
+        'preview_image': t.preview_image or '',
+        'target_account_ids': [a.id for a in t.target_accounts],
+    })
 
 @app.route('/templates/<int:tmpl_id>/apply')
 def template_apply(tmpl_id):

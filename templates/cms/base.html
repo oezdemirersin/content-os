@@ -384,7 +384,7 @@
     <a href="{{ url_for('distribute') }}" class="nav-item {% if active_page == 'distribute' %}active{% endif %}">
       <i class="fa-solid fa-arrows-split-up-and-left"></i> Verteilen
     </a>
-    <a href="{{ url_for('content_templates') }}" class="nav-item {% if active_page == 'templates' %}active{% endif %}">
+    <a href="{{ url_for('content_templates') }}" class="nav-sub {% if active_page == 'templates' %}active{% endif %}">
       <i class="fa-solid fa-rectangle-list"></i> Templates
     </a>
     <a href="{{ url_for('beichten_dashboard') }}" class="nav-item {% if active_page == 'beichten' %}active{% endif %}">
