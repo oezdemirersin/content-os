@@ -25,14 +25,31 @@ from sqlalchemy import func
 
 app = Flask(__name__, template_folder='templates/cms')
 
+# ── Emergency-Pause Cache ─────────────────────────────────────────────────────
+# Shared by inject_globals() (every request) AND the scheduler (every 60 s).
+# Avoids one DB round-trip per request; refreshes every 10 s automatically.
+import time as _time_mod
+_ep_cache: dict = {'paused': False, 'expires': 0.0}
+
+def _is_emergency_paused() -> bool:
+    """Return True if Notfall-Pause is active. Result cached for 10 s."""
+    now = _time_mod.monotonic()
+    if now > _ep_cache['expires']:
+        try:
+            ep = AppSettings.query.filter_by(key='emergency_pause').first()
+            _ep_cache['paused']  = bool(ep and ep.value == '1')
+            _ep_cache['expires'] = now + 10
+        except Exception as e:
+            app.logger.warning('_is_emergency_paused: DB error — %s', e)
+    return _ep_cache['paused']
+
+def _invalidate_ep_cache() -> None:
+    """Force the next call to _is_emergency_paused() to re-read the DB."""
+    _ep_cache['expires'] = 0.0
+
 @app.context_processor
 def inject_globals():
-    try:
-        ep = AppSettings.query.filter_by(key='emergency_pause').first()
-        emergency_pause_active = ep and ep.value == '1'
-    except Exception:
-        emergency_pause_active = False
-    return {'now': datetime.utcnow, 'emergency_pause_active': emergency_pause_active}
+    return {'now': datetime.utcnow, 'emergency_pause_active': _is_emergency_paused()}
 
 @app.template_filter('fmt_followers')
 def fmt_followers(n):
@@ -667,10 +684,7 @@ def schedule_automations():
                     _daily_follower_snapshot()
 
                 # ── Notfall-Pause: alle Automationen sofort stoppen ──
-                emergency = AppSettings.query.filter_by(key='emergency_pause').first()
-                if emergency and emergency.value == '1':
-                    pass  # Kein Rule-Run solange Notfall-Pause aktiv
-                else:
+                if not _is_emergency_paused():
                     due_rules = AutomationRule.query.filter(
                         AutomationRule.active == True,
                         (AutomationRule.next_run_at == None) |
@@ -1664,9 +1678,9 @@ def media_file(filename):
 def media_delete(media_id):
     item = MediaItem.query.get_or_404(media_id)
     if item.storage_source == 'cloudinary':
-        # Cloudinary-Asset löschen (Videos haben resource_type='video')
-        ext = item.filename.rsplit('.', 1)[-1].lower() if '.' in item.filename else ''
-        rtype = 'video' if ext in {'mp4', 'mov', 'avi', 'webm'} else 'image'
+        # Cloudinary public_ids have no file extension — use the stored file_type
+        # column instead (values: 'image', 'video', 'reel', 'story', …)
+        rtype = 'video' if item.file_type in {'video', 'reel'} else 'image'
         _cloudinary_delete(item.filename, resource_type=rtype)
     else:
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], item.filename)
@@ -1912,11 +1926,9 @@ def analytics_export():
 def automation():
     rules = AutomationRule.query.order_by(AutomationRule.active.desc(), AutomationRule.name).all()
     all_accounts = Account.query.order_by(Account.name).all()
-    ep = AppSettings.query.filter_by(key='emergency_pause').first()
-    emergency_pause = ep and ep.value == '1'
     return render_template('automation.html',
         rules=rules, accounts=all_accounts, active_page='automation',
-        emergency_pause=emergency_pause)
+        emergency_pause=_is_emergency_paused())
 
 
 @app.route('/api/automation/emergency-pause', methods=['POST'])
@@ -1926,6 +1938,7 @@ def api_emergency_pause():
     action = data.get('action')   # 'pause' oder 'resume'
     val    = '1' if action == 'pause' else '0'
     _set_setting('emergency_pause', val)
+    _invalidate_ep_cache()   # force cache refresh on next request/scheduler tick
     return jsonify({'ok': True, 'paused': val == '1'})
 
 
