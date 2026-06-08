@@ -534,6 +534,15 @@ class AccountAutomationProfile(db.Model):
         return self.mode == 'auto'
 
 
+# ── App-weite Einstellungen (Key-Value-Store) ─────────────────
+class AppSettings(db.Model):
+    """Allgemeiner Key-Value-Store für API-Keys und globale Konfiguration."""
+    id         = db.Column(db.Integer, primary_key=True)
+    key        = db.Column(db.String(100), unique=True, nullable=False)
+    value      = db.Column(db.Text)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ── Wiederkehrende Posts ──────────────────────────────────────
 class RecurringPost(db.Model):
     id              = db.Column(db.Integer, primary_key=True)

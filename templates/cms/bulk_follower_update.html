@@ -1,16 +1,72 @@
 {% extends "base.html" %}
-{% block title %}Bulk-Follower-Update — Content OS{% endblock %}
+{% block title %}Follower-Update — Content OS{% endblock %}
 {% block page_title %}FOLLOWER-UPDATE{% endblock %}
 
 {% block content %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
   <div style="display:flex;align-items:center;gap:10px">
     <a href="{{ url_for('accounts') }}" class="btn btn-ghost" style="font-size:12px">← Accounts</a>
-    <span style="font-size:13px;color:var(--muted)">Alle Accounts auf einmal aktualisieren — per CSV oder Tabelle</span>
+    <span style="font-size:13px;color:var(--muted)">Follower-Zahlen aller Accounts aktualisieren</span>
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+<!-- ── APIFY AUTO-SYNC ─────────────────────────────────────────── -->
+<div class="card" style="padding:20px;margin-bottom:20px;border:1px solid rgba(99,102,241,.25);background:linear-gradient(135deg,rgba(99,102,241,.06) 0%,rgba(139,92,246,.06) 100%)">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <i class="fa-brands fa-instagram" style="color:#c13584;font-size:18px"></i>
+        <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.3px">AUTO-SYNC VIA APIFY</span>
+        <span style="font-size:10px;background:rgba(99,102,241,.15);color:var(--accent);padding:2px 8px;border-radius:20px;font-weight:700;letter-spacing:.5px">BETA</span>
+      </div>
+      <div style="font-size:12px;color:var(--muted);max-width:520px;line-height:1.6">
+        Holt Follower-Zahlen automatisch für alle {{ instagram_accounts|length }} Instagram-Accounts mit Handle
+        über die <strong>Apify API</strong> — kein Instagram-Login nötig.
+        {% if not apify_token_set %}
+        <span style="color:var(--warning);font-weight:600"> ⚠ API-Token nicht konfiguriert</span>
+        {% endif %}
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+      {% if not apify_token_set %}
+      <button onclick="document.getElementById('apifyTokenCard').scrollIntoView({behavior:'smooth'})"
+              class="btn btn-ghost" style="font-size:12px;border-color:var(--warning);color:var(--warning)">
+        <i class="fa-solid fa-key"></i> API-Token eintragen
+      </button>
+      {% else %}
+      <div id="syncStatus" style="font-size:12px;color:var(--muted);display:none"></div>
+      <button id="syncBtn" onclick="startApifySync()" class="btn btn-primary" style="font-size:13px"
+              {% if instagram_accounts|length == 0 %}disabled title="Keine Accounts mit Instagram-Handle"{% endif %}>
+        <i class="fa-solid fa-rotate" id="syncIcon"></i>
+        Jetzt synchronisieren
+        {% if instagram_accounts|length > 0 %}
+        <span style="opacity:.7;font-size:11px">({{ instagram_accounts|length }} Accounts)</span>
+        {% endif %}
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Sync-Ergebnis -->
+  <div id="syncResult" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)"></div>
+
+  <!-- Accounts-Vorschau -->
+  {% if instagram_accounts %}
+  <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px">
+    {% for acc in instagram_accounts %}
+    <span style="font-size:11px;background:var(--surface2);padding:3px 10px;border-radius:20px;color:var(--muted)">
+      @{{ acc.handle }}
+    </span>
+    {% endfor %}
+    {% if not instagram_accounts %}
+    <span style="font-size:12px;color:var(--muted)">Keine Accounts mit Instagram-Handle gefunden. Handle im Account-Bearbeiten-Formular eintragen.</span>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- Grid: Manuell + CSV -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;margin-bottom:20px">
 
   <!-- Manuelle Tabelle -->
   <div class="card" style="padding:20px">
@@ -25,7 +81,7 @@
         </thead>
         <tbody>
           {% for acc in accounts %}
-          <tr style="border-bottom:1px solid var(--border)">
+          <tr style="border-bottom:1px solid var(--border)" id="row-{{ acc.id }}">
             <td style="padding:8px;font-size:13px;font-weight:600">
               {{ acc.name }}
               {% if acc.handle %}<span style="font-size:11px;color:var(--muted);font-weight:400">@{{ acc.handle }}</span>{% endif %}
@@ -46,7 +102,7 @@
     </button>
   </div>
 
-  <!-- CSV Upload -->
+  <!-- CSV Upload + API-Token -->
   <div style="display:flex;flex-direction:column;gap:16px">
     <div class="card" style="padding:20px">
       <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.3px;margin-bottom:12px">CSV HOCHLADEN</div>
@@ -75,6 +131,34 @@
       </div>
     </div>
 
+    <!-- Apify Token Einstellungen -->
+    <div class="card" style="padding:20px" id="apifyTokenCard">
+      <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.3px;margin-bottom:8px">
+        <i class="fa-solid fa-key" style="color:var(--accent);margin-right:6px"></i>APIFY API-TOKEN
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">
+        Für die automatische Follower-Synchronisierung wird ein
+        <a href="https://apify.com" target="_blank" style="color:var(--accent)">Apify</a>-Account benötigt.
+        Kostenloser Plan verfügbar — ca. $1.30 / 1.000 Profiles.<br><br>
+        <strong>Setup:</strong>
+        <a href="https://apify.com/sign-up" target="_blank" style="color:var(--accent)">Registrieren</a> →
+        <a href="https://console.apify.com/settings/integrations" target="_blank" style="color:var(--accent)">API-Token kopieren</a>
+      </div>
+      <form method="POST" action="{{ url_for('save_apify_token') }}" style="display:flex;gap:8px">
+        <input type="text" name="apify_token" placeholder="apify_xxxxxxxxxxxx…"
+               value="{% if apify_token_set %}••••••••••••••••{% endif %}"
+               class="input-field" style="flex:1;font-family:monospace;font-size:12px">
+        <button type="submit" class="btn btn-primary" style="white-space:nowrap;font-size:12px">
+          <i class="fa-solid fa-floppy-disk"></i> Speichern
+        </button>
+      </form>
+      {% if apify_token_set %}
+      <div style="margin-top:8px;font-size:11px;color:var(--success)">
+        <i class="fa-solid fa-circle-check"></i> Token ist konfiguriert
+      </div>
+      {% endif %}
+    </div>
+
     <!-- Ergebnis -->
     <div id="resultBox" style="display:none" class="card" style="padding:20px"></div>
   </div>
@@ -86,6 +170,135 @@
 <script>
 let csvRows = [];
 
+// ── Apify Sync ───────────────────────────────────────────────
+let syncPollInterval = null;
+
+async function startApifySync() {
+  const btn = document.getElementById('syncBtn');
+  const icon = document.getElementById('syncIcon');
+  const statusEl = document.getElementById('syncStatus');
+  const resultEl = document.getElementById('syncResult');
+
+  btn.disabled = true;
+  icon.className = 'fa-solid fa-rotate fa-spin';
+  statusEl.style.display = 'block';
+  statusEl.textContent = 'Sync wird gestartet…';
+  resultEl.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/analytics/sync-followers-apify', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+    }).then(r => r.json());
+
+    if (!res.ok) {
+      showSyncError(res.error || 'Fehler beim Starten');
+      return;
+    }
+
+    // Starte Polling
+    statusEl.textContent = 'Apify ruft Instagram-Daten ab… (kann 1–2 Min. dauern)';
+    syncPollInterval = setInterval(pollSyncStatus, 3000);
+
+  } catch(e) {
+    showSyncError('Netzwerkfehler: ' + e.message);
+  }
+}
+
+async function pollSyncStatus() {
+  try {
+    const status = await fetch('/api/analytics/sync-followers-apify/status').then(r => r.json());
+
+    if (status.running) return; // Noch am laufen
+
+    // Fertig
+    clearInterval(syncPollInterval);
+    syncPollInterval = null;
+
+    const btn = document.getElementById('syncBtn');
+    const icon = document.getElementById('syncIcon');
+    const statusEl = document.getElementById('syncStatus');
+
+    btn.disabled = false;
+    icon.className = 'fa-solid fa-rotate';
+
+    if (status.error) {
+      showSyncError(status.error);
+      return;
+    }
+
+    statusEl.style.display = 'none';
+    showSyncResult(status.result);
+
+    // Tabelle aktualisieren — Seite neu laden nach kurzer Pause
+    setTimeout(() => location.reload(), 2500);
+
+  } catch(e) {
+    console.error('Polling-Fehler:', e);
+  }
+}
+
+function showSyncError(msg) {
+  const btn = document.getElementById('syncBtn');
+  const icon = document.getElementById('syncIcon');
+  const statusEl = document.getElementById('syncStatus');
+  const resultEl = document.getElementById('syncResult');
+
+  btn.disabled = false;
+  icon.className = 'fa-solid fa-rotate';
+  statusEl.style.display = 'none';
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = `
+    <div style="color:var(--danger);display:flex;align-items:center;gap:8px">
+      <i class="fa-solid fa-circle-exclamation"></i>
+      <span>${msg}</span>
+    </div>`;
+
+  if (syncPollInterval) { clearInterval(syncPollInterval); syncPollInterval = null; }
+}
+
+function showSyncResult(result) {
+  const resultEl = document.getElementById('syncResult');
+  if (!result) return;
+
+  const details = result.details || [];
+  const errors = result.errors || [];
+
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:6px">
+        <i class="fa-solid fa-circle-check" style="color:var(--success)"></i>
+        <strong style="font-size:14px">${result.updated} von ${result.total_queried} aktualisiert</strong>
+      </div>
+      ${result.skipped ? `<span style="font-size:12px;color:var(--muted)">${result.skipped} übersprungen</span>` : ''}
+      ${errors.length ? `<span style="font-size:12px;color:var(--warning)">${errors.length} Fehler</span>` : ''}
+    </div>
+    ${details.length ? `
+    <div style="max-height:220px;overflow-y:auto">
+      ${details.map(u => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
+          <div>
+            <span style="font-weight:600">${u.name}</span>
+            <span style="color:var(--muted);margin-left:4px">@${u.handle}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="color:${u.delta > 0 ? 'var(--success)' : u.delta < 0 ? 'var(--danger)' : 'var(--muted)'}">
+              ${u.delta > 0 ? '+' : ''}${u.delta.toLocaleString('de-DE')}
+            </span>
+            <span style="font-weight:700">${u.new.toLocaleString('de-DE')}</span>
+          </div>
+        </div>`).join('')}
+    </div>` : ''}
+    ${errors.length ? `
+    <div style="margin-top:10px;padding:10px;background:rgba(239,68,68,.08);border-radius:8px">
+      ${errors.map(e => `<div style="font-size:11px;color:var(--danger)">${e}</div>`).join('')}
+    </div>` : ''}`;
+
+  showToast(`✅ ${result.updated} Follower-Zahlen aktualisiert`);
+}
+
+// ── Manuelle Eingabe ──────────────────────────────────────────
 async function submitManual() {
   const inputs = document.querySelectorAll('.follower-input');
   const rows = [...inputs].map(i => ({
@@ -100,6 +313,7 @@ async function submitManual() {
   showResult(res);
 }
 
+// ── CSV Upload ────────────────────────────────────────────────
 function handleCsvDrop(e) {
   e.preventDefault();
   e.currentTarget.style.borderColor = 'var(--border)';
