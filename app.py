@@ -239,71 +239,76 @@ def seed_data():
 def init_db():
     with app.app_context():
         db.create_all()
-        # SQLite migrations — neue Spalten hinzufügen falls nicht vorhanden
         from sqlalchemy import text, inspect
-        inspector = inspect(db.engine)
-        # PostgreSQL-kompatible Migrations (IF NOT EXISTS + TIMESTAMP statt DATETIME)
-        is_postgres = 'postgresql' in str(db.engine.url)
-        with db.engine.connect() as conn:
-            def safe_alter(sql):
-                try:
-                    conn.execute(text(sql))
-                except Exception:
-                    pass  # Spalte existiert bereits
 
-            if is_postgres:
-                # PostgreSQL: ADD COLUMN IF NOT EXISTS direkt unterstützt
-                # ── account ──
-                safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS growth_goal INTEGER')
-                safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS growth_goal_date TIMESTAMP')
-                safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS share_token VARCHAR(64)')
-                safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS profile_url VARCHAR(500)')
-                safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS posting_interval_days FLOAT DEFAULT 1.0')
-                # ── content_item ──
-                safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS caption_score_manual FLOAT')
-                # ── scheduled_post ──
-                safe_alter("ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS slot_type VARCHAR(20) DEFAULT 'fixed'")
-                safe_alter("ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS media_ids TEXT DEFAULT '[]'")
-                # ── content_template ──
-                safe_alter('ALTER TABLE content_template ADD COLUMN IF NOT EXISTS cta_template TEXT')
-                safe_alter('ALTER TABLE content_template ADD COLUMN IF NOT EXISTS preview_image VARCHAR(500)')
-                safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS primary_color VARCHAR(20) DEFAULT ''")
-                safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS secondary_color VARCHAR(20) DEFAULT ''")
-                safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS image_ratio VARCHAR(10) DEFAULT '1:1'")
-                safe_alter('ALTER TABLE content_template ADD COLUMN IF NOT EXISTS style_notes TEXT')
-                safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS posting_days TEXT DEFAULT '[]'")
-                safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS posting_time_pref VARCHAR(10) DEFAULT ''")
-            else:
-                # SQLite: kein IF NOT EXISTS → mit Python-Check
-                account_cols = [c['name'] for c in inspector.get_columns('account')]
-                if 'growth_goal'      not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN growth_goal INTEGER')
-                if 'growth_goal_date' not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN growth_goal_date DATETIME')
-                if 'share_token'      not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN share_token VARCHAR(64)')
-                ci_cols = [c['name'] for c in inspector.get_columns('content_item')]
-                if 'caption_score_manual' not in ci_cols: safe_alter('ALTER TABLE content_item ADD COLUMN caption_score_manual FLOAT')
-                sp_cols = [c['name'] for c in inspector.get_columns('scheduled_post')]
-                if 'slot_type'  not in sp_cols: safe_alter("ALTER TABLE scheduled_post ADD COLUMN slot_type VARCHAR(20) DEFAULT 'fixed'")
-                if 'media_ids'  not in sp_cols: safe_alter("ALTER TABLE scheduled_post ADD COLUMN media_ids TEXT DEFAULT '[]'")
-                if 'profile_url'           not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN profile_url VARCHAR(500)')
-                if 'posting_interval_days' not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN posting_interval_days FLOAT DEFAULT 1.0')
-                # ContentTemplate neue Felder
-                try:
-                    ct_cols = [c['name'] for c in inspector.get_columns('content_template')]
-                    for col, ddl in [
-                        ('cta_template',     'ALTER TABLE content_template ADD COLUMN cta_template TEXT'),
-                        ('preview_image',    'ALTER TABLE content_template ADD COLUMN preview_image VARCHAR(500)'),
-                        ('primary_color',    "ALTER TABLE content_template ADD COLUMN primary_color VARCHAR(20) DEFAULT ''"),
-                        ('secondary_color',  "ALTER TABLE content_template ADD COLUMN secondary_color VARCHAR(20) DEFAULT ''"),
-                        ('image_ratio',      "ALTER TABLE content_template ADD COLUMN image_ratio VARCHAR(10) DEFAULT '1:1'"),
-                        ('style_notes',      'ALTER TABLE content_template ADD COLUMN style_notes TEXT'),
-                        ('posting_days',     "ALTER TABLE content_template ADD COLUMN posting_days TEXT DEFAULT '[]'"),
-                        ('posting_time_pref','ALTER TABLE content_template ADD COLUMN posting_time_pref VARCHAR(10) DEFAULT ""'),
-                    ]:
-                        if col not in ct_cols:
-                            safe_alter(ddl)
-                except Exception:
-                    pass  # Tabelle existiert noch nicht → db.create_all() legt sie an
-            conn.commit()
+        is_postgres = 'postgresql' in str(db.engine.url)
+
+        # Jede Migration läuft in ihrer eigenen Verbindung + Commit.
+        # Auf PostgreSQL: bricht eine Anweisung ab, bleibt die nächste davon unberührt.
+        def safe_alter(sql):
+            try:
+                with db.engine.connect() as _conn:
+                    _conn.execute(text(sql))
+                    _conn.commit()
+            except Exception as e:
+                app.logger.debug(f'Migration skipped ({e.__class__.__name__}): {sql[:60]}')
+
+        if is_postgres:
+            # ── account ──────────────────────────────────────────────────
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS growth_goal INTEGER')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS growth_goal_date TIMESTAMP')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS share_token VARCHAR(64)')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS profile_url VARCHAR(500)')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS posting_interval_days FLOAT DEFAULT 1.0')
+            # ── content_item ─────────────────────────────────────────────
+            safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS caption_score_manual FLOAT')
+            # ── scheduled_post ───────────────────────────────────────────
+            safe_alter("ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS slot_type VARCHAR(20) DEFAULT 'fixed'")
+            safe_alter("ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS media_ids TEXT DEFAULT '[]'")
+            # ── content_template ─────────────────────────────────────────
+            safe_alter('ALTER TABLE content_template ADD COLUMN IF NOT EXISTS cta_template TEXT')
+            safe_alter('ALTER TABLE content_template ADD COLUMN IF NOT EXISTS preview_image VARCHAR(500)')
+            safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS primary_color VARCHAR(20) DEFAULT ''")
+            safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS secondary_color VARCHAR(20) DEFAULT ''")
+            safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS image_ratio VARCHAR(10) DEFAULT '1:1'")
+            safe_alter('ALTER TABLE content_template ADD COLUMN IF NOT EXISTS style_notes TEXT')
+            safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS posting_days TEXT DEFAULT '[]'")
+            safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS posting_time_pref VARCHAR(10) DEFAULT ''")
+
+        else:
+            # SQLite: kein IF NOT EXISTS → mit inspect prüfen
+            inspector = inspect(db.engine)
+            account_cols = [c['name'] for c in inspector.get_columns('account')]
+            if 'growth_goal'           not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN growth_goal INTEGER')
+            if 'growth_goal_date'      not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN growth_goal_date DATETIME')
+            if 'share_token'           not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN share_token VARCHAR(64)')
+            if 'profile_url'           not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN profile_url VARCHAR(500)')
+            if 'posting_interval_days' not in account_cols: safe_alter('ALTER TABLE account ADD COLUMN posting_interval_days FLOAT DEFAULT 1.0')
+
+            ci_cols = [c['name'] for c in inspector.get_columns('content_item')]
+            if 'caption_score_manual' not in ci_cols: safe_alter('ALTER TABLE content_item ADD COLUMN caption_score_manual FLOAT')
+
+            sp_cols = [c['name'] for c in inspector.get_columns('scheduled_post')]
+            if 'slot_type' not in sp_cols: safe_alter("ALTER TABLE scheduled_post ADD COLUMN slot_type VARCHAR(20) DEFAULT 'fixed'")
+            if 'media_ids' not in sp_cols: safe_alter("ALTER TABLE scheduled_post ADD COLUMN media_ids TEXT DEFAULT '[]'")
+
+            try:
+                ct_cols = [c['name'] for c in inspector.get_columns('content_template')]
+                for col, ddl in [
+                    ('cta_template',      'ALTER TABLE content_template ADD COLUMN cta_template TEXT'),
+                    ('preview_image',     'ALTER TABLE content_template ADD COLUMN preview_image VARCHAR(500)'),
+                    ('primary_color',     "ALTER TABLE content_template ADD COLUMN primary_color VARCHAR(20) DEFAULT ''"),
+                    ('secondary_color',   "ALTER TABLE content_template ADD COLUMN secondary_color VARCHAR(20) DEFAULT ''"),
+                    ('image_ratio',       "ALTER TABLE content_template ADD COLUMN image_ratio VARCHAR(10) DEFAULT '1:1'"),
+                    ('style_notes',       'ALTER TABLE content_template ADD COLUMN style_notes TEXT'),
+                    ('posting_days',      "ALTER TABLE content_template ADD COLUMN posting_days TEXT DEFAULT '[]'"),
+                    ('posting_time_pref', "ALTER TABLE content_template ADD COLUMN posting_time_pref VARCHAR(10) DEFAULT ''"),
+                ]:
+                    if col not in ct_cols:
+                        safe_alter(ddl)
+            except Exception:
+                pass
+
         seed_data()
 
         # Memes-Kategorie anlegen falls nicht vorhanden
