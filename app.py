@@ -49,6 +49,11 @@ if _db_url.startswith('postgres://'):
     _db_url = _db_url.replace('postgres://', 'postgresql://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,          # testet Verbindung vor jeder Anfrage
+    'pool_recycle': 300,            # Verbindung nach 5 Min. neu aufbauen
+    'connect_args': {'sslmode': 'require'} if _db_url.startswith('postgresql://') else {},
+}
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
 
