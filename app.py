@@ -1621,6 +1621,63 @@ def analytics_growth():
     return jsonify(result)
 
 
+@app.route('/api/analytics/portfolio')
+def analytics_portfolio():
+    """
+    Gesamt-Follower über alle Accounts pro Tag.
+    Lücken werden mit dem zuletzt bekannten Wert aufgefüllt (forward-fill).
+    Heute = max(letzter Snapshot, aktueller Account.follower_count).
+    """
+    days = request.args.get('days', 30, type=int)
+    today = datetime.utcnow().date()
+
+    # Aktuelles Portfolio-Total aus Account.follower_count
+    current_total = db.session.query(func.sum(Account.follower_count))\
+        .filter(Account.status == 'active').scalar() or 0
+
+    # Alle Snapshots im Zeitraum, pro Tag summiert
+    start_date = today - timedelta(days=days - 1)
+    rows = db.session.query(
+        func.date(AnalyticsSnapshot.recorded_at).label('day'),
+        func.sum(AnalyticsSnapshot.followers).label('total')
+    ).filter(
+        func.date(AnalyticsSnapshot.recorded_at) >= start_date
+    ).group_by(
+        func.date(AnalyticsSnapshot.recorded_at)
+    ).order_by('day').all()
+
+    # In dict umwandeln
+    snap_by_day = {str(r.day): int(r.total) for r in rows}
+
+    labels, data = [], []
+    last_known = None
+    for i in range(days - 1, -1, -1):
+        d = today - timedelta(days=i)
+        day_str = d.strftime('%d.%m')
+        db_key  = str(d)
+        labels.append(day_str)
+        if db_key in snap_by_day:
+            last_known = snap_by_day[db_key]
+        val = last_known  # forward-fill
+        # Für heute: nimm das Maximum aus Snapshot und aktuellem Stand
+        if i == 0:
+            val = max(val or 0, current_total)
+        data.append(val)
+
+    # Wachstum berechnen (erster bekannter Wert vs. letzter)
+    first_val = next((v for v in data if v), 0)
+    last_val  = data[-1] or 0
+    delta     = last_val - first_val
+
+    return jsonify({
+        'labels':  labels,
+        'data':    data,
+        'current': current_total,
+        'delta':   delta,
+        'days':    days,
+    })
+
+
 @app.route('/analytics/export')
 def analytics_export():
     """Export analytics data as CSV."""

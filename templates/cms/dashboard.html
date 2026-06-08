@@ -170,6 +170,44 @@
   </div>
 </div>
 
+<!-- ── Portfolio-Gesamt-Chart ── -->
+<div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,rgba(99,102,241,.06) 0%,var(--surface) 60%)">
+  <div class="card-header" style="border-bottom:1px solid var(--border);padding:16px 20px">
+    <div>
+      <span class="card-title">PORTFOLIO-WACHSTUM</span>
+      <span style="font-size:11px;color:var(--muted);margin-left:10px">Gesamt-Follower aller Accounts</span>
+    </div>
+    <div style="display:flex;gap:6px" id="portPeriodBtns">
+      {% for d,label in [(7,'7T'),(30,'30T'),(90,'90T'),(365,'1J')] %}
+      <button onclick="loadPortfolio({{ d }},this)"
+              style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);
+                     background:{% if d==30 %}var(--accent){% else %}transparent{% endif %};
+                     color:{% if d==30 %}white{% else %}var(--muted){% endif %};
+                     font-family:var(--font-body);font-size:11px;font-weight:700;
+                     letter-spacing:.5px;cursor:pointer;transition:all .15s">{{ label }}</button>
+      {% endfor %}
+    </div>
+  </div>
+  <div style="padding:20px">
+    <!-- KPI-Zeile -->
+    <div style="display:flex;gap:32px;margin-bottom:16px;align-items:flex-end">
+      <div>
+        <div style="font-size:11px;color:var(--muted);letter-spacing:.5px;margin-bottom:2px">GESAMT HEUTE</div>
+        <div id="portTotal" style="font-family:var(--font-display);font-size:30px;color:var(--text);letter-spacing:.5px">—</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);letter-spacing:.5px;margin-bottom:2px">WACHSTUM</div>
+        <div id="portDelta" style="font-size:18px;font-weight:700;color:var(--success)">—</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted);letter-spacing:.5px;margin-bottom:2px">ZEITRAUM</div>
+        <div id="portPeriodLabel" style="font-size:14px;font-weight:600;color:var(--muted)">30 Tage</div>
+      </div>
+    </div>
+    <div style="height:200px;position:relative"><canvas id="portfolioChart"></canvas></div>
+  </div>
+</div>
+
 <!-- ── Main grid ── -->
 <div style="display:grid;grid-template-columns:1fr 1fr 340px;gap:20px;margin-bottom:20px">
 
@@ -533,7 +571,98 @@
 
 {% block scripts %}
 <script>
-// ── Follower Chart ──
+// ── Portfolio-Gesamt-Chart ──────────────────────────────────────
+let portfolioChart, portDays = 30;
+
+async function loadPortfolio(days, btn) {
+  portDays = days || portDays;
+  document.querySelectorAll('#portPeriodBtns button').forEach(b => {
+    b.style.background = 'transparent'; b.style.color = 'var(--muted)'; b.style.borderColor = 'var(--border)';
+  });
+  if (btn) { btn.style.background='var(--accent)'; btn.style.color='white'; btn.style.borderColor='var(--accent)'; }
+
+  const d = await (await fetch(`/api/analytics/portfolio?days=${portDays}`)).json();
+
+  // KPI-Zeile
+  document.getElementById('portTotal').textContent = (d.current || 0).toLocaleString('de-DE');
+  const delta = d.delta || 0;
+  const deltaEl = document.getElementById('portDelta');
+  deltaEl.textContent = (delta >= 0 ? '+' : '') + delta.toLocaleString('de-DE');
+  deltaEl.style.color = delta >= 0 ? 'var(--success)' : 'var(--danger)';
+  document.getElementById('portPeriodLabel').textContent = portDays + ' Tage';
+
+  const ctx = document.getElementById('portfolioChart').getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, 200);
+  grad.addColorStop(0, 'rgba(99,102,241,0.3)');
+  grad.addColorStop(1, 'rgba(99,102,241,0)');
+
+  // Null-Werte (keine Snapshots) als spanGaps-aware behandeln
+  const chartData = d.data.map(v => v === null ? null : v);
+
+  if (portfolioChart) portfolioChart.destroy();
+  portfolioChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: d.labels,
+      datasets: [{
+        label: 'Gesamt-Follower',
+        data: chartData,
+        borderColor: '#6366f1',
+        backgroundColor: grad,
+        borderWidth: 2.5,
+        tension: 0.4,
+        fill: true,
+        pointRadius: 0,
+        pointHoverRadius: 6,
+        pointHoverBackgroundColor: '#6366f1',
+        pointHoverBorderColor: 'white',
+        pointHoverBorderWidth: 2,
+        spanGaps: true,   // Lücken überbrücken
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'var(--surface)',
+          borderColor: 'rgba(99,102,241,.4)',
+          borderWidth: 1,
+          titleColor: 'var(--muted)',
+          bodyColor: 'var(--text)',
+          padding: 10,
+          callbacks: {
+            label: c => ' ' + (c.raw || 0).toLocaleString('de-DE') + ' Follower'
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { maxTicksLimit: 8, color: 'rgba(255,255,255,.3)', font: { size: 10 } }
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: {
+            color: 'rgba(255,255,255,.3)',
+            font: { size: 10 },
+            callback: v => {
+              if (v >= 1000000) return (v/1000000).toFixed(1) + 'M';
+              if (v >= 1000)    return (v/1000).toFixed(0) + 'K';
+              return v;
+            }
+          }
+        }
+      },
+      interaction: { mode: 'index', intersect: false }
+    }
+  });
+}
+
+loadPortfolio(30, document.querySelectorAll('#portPeriodBtns button')[1]);
+
+// ── Follower Chart ──────────────────────────────────────────────
 let followerChart, currentDays = 30;
 
 async function loadChart(days, btn) {
