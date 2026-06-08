@@ -460,3 +460,14 @@ class AppNotification(db.Model):
     account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     account    = db.relationship('Account', backref='notifications')
+
+# ── Wiederkehrende Posts ──────────────────────────────────────
+class RecurringPost(db.Model):
+    id              = db.Column(db.Integer, primary_key=True)
+    content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'))
+    account_id      = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
+    scheduled_dates = db.Column(db.Text, default='[]')  # JSON-Array von YYYY-MM-DD Strings
+    note            = db.Column(db.Text)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    content_item    = db.relationship('ContentItem', backref='recurring_posts')
+    account         = db.relationship('Account', backref='recurring_posts')

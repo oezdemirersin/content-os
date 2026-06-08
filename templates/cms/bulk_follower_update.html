@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Bulk-Follower-Update — Content OS{% endblock %}
+{% block page_title %}FOLLOWER-UPDATE{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+  <div style="display:flex;align-items:center;gap:10px">
+    <a href="{{ url_for('accounts') }}" class="btn btn-ghost" style="font-size:12px">← Accounts</a>
+    <span style="font-size:13px;color:var(--muted)">Alle Accounts auf einmal aktualisieren — per CSV oder Tabelle</span>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+  <!-- Manuelle Tabelle -->
+  <div class="card" style="padding:20px">
+    <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.3px;margin-bottom:16px">MANUELL EINGEBEN</div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse" id="manualTable">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:6px 8px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px">ACCOUNT</th>
+            <th style="text-align:right;padding:6px 8px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px">FOLLOWER</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for acc in accounts %}
+          <tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:8px;font-size:13px;font-weight:600">
+              {{ acc.name }}
+              {% if acc.handle %}<span style="font-size:11px;color:var(--muted);font-weight:400">@{{ acc.handle }}</span>{% endif %}
+              <input type="hidden" name="acc_id" value="{{ acc.id }}">
+            </td>
+            <td style="padding:8px;text-align:right">
+              <input type="number" value="{{ acc.follower_count }}" min="0"
+                     class="input-field follower-input" data-id="{{ acc.id }}" data-name="{{ acc.name }}"
+                     style="width:110px;text-align:right;padding:6px 10px;font-size:13px;font-weight:700">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button onclick="submitManual()" class="btn btn-primary" style="width:100%;margin-top:16px">
+      <i class="fa-solid fa-floppy-disk"></i> Alle speichern
+    </button>
+  </div>
+
+  <!-- CSV Upload -->
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card" style="padding:20px">
+      <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.3px;margin-bottom:12px">CSV HOCHLADEN</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">
+        CSV-Format:<br>
+        <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:11px">account,followers</code><br>
+        Erste Spalte: Account-Name oder ID<br>
+        Zweite Spalte: Follower-Zahl
+      </div>
+      <div id="csvDropZone"
+           style="border:2px dashed var(--border);border-radius:10px;padding:30px;text-align:center;cursor:pointer"
+           ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+           ondragleave="this.style.borderColor='var(--border)'"
+           ondrop="handleCsvDrop(event)"
+           onclick="document.getElementById('csvInput').click()">
+        <i class="fa-solid fa-file-csv" style="font-size:32px;color:var(--muted);margin-bottom:10px;display:block"></i>
+        <div style="font-size:13px;color:var(--muted)">CSV hier ablegen oder klicken</div>
+        <input type="file" id="csvInput" accept=".csv,.txt" style="display:none" onchange="loadCsv(this.files[0])">
+      </div>
+      <div id="csvPreview" style="display:none;margin-top:14px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:8px" id="csvPreviewTitle"></div>
+        <div id="csvPreviewList" style="max-height:200px;overflow-y:auto"></div>
+        <button onclick="submitCsv()" class="btn btn-primary" style="width:100%;margin-top:12px">
+          <i class="fa-solid fa-upload"></i> Importieren
+        </button>
+      </div>
+    </div>
+
+    <!-- Ergebnis -->
+    <div id="resultBox" style="display:none" class="card" style="padding:20px"></div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let csvRows = [];
+
+async function submitManual() {
+  const inputs = document.querySelectorAll('.follower-input');
+  const rows = [...inputs].map(i => ({
+    account: i.dataset.name,
+    followers: parseInt(i.value) || 0,
+  }));
+  const res = await fetch('/api/accounts/bulk-follower-update', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({rows_json: JSON.stringify(rows)}),
+  }).then(r => r.json());
+  showResult(res);
+}
+
+function handleCsvDrop(e) {
+  e.preventDefault();
+  e.currentTarget.style.borderColor = 'var(--border)';
+  loadCsv(e.dataTransfer.files[0]);
+}
+
+function loadCsv(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const lines = e.target.result.split('\n').filter(l => l.trim());
+    const header = lines[0].toLowerCase();
+    const startIdx = (header.includes('account') || header.includes('name')) ? 1 : 0;
+    csvRows = lines.slice(startIdx).map(line => {
+      const parts = line.split(/[,;]/).map(p => p.trim().replace(/^"|"$/g,''));
+      return { account: parts[0], followers: parts[1] };
+    }).filter(r => r.account && r.followers);
+
+    document.getElementById('csvPreviewTitle').textContent = `${csvRows.length} Accounts gefunden`;
+    document.getElementById('csvPreviewList').innerHTML = csvRows.slice(0,10).map(r =>
+      `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
+         <span>${r.account}</span>
+         <span style="font-weight:700">${parseInt(r.followers||0).toLocaleString('de-DE')}</span>
+       </div>`
+    ).join('') + (csvRows.length > 10 ? `<div style="font-size:11px;color:var(--muted);padding:6px 0">... und ${csvRows.length-10} weitere</div>` : '');
+    document.getElementById('csvPreview').style.display = 'block';
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+async function submitCsv() {
+  if (!csvRows.length) return;
+  const fd = new FormData();
+  fd.append('rows_json', JSON.stringify(csvRows));
+  const res = await fetch('/api/accounts/bulk-follower-update', {method:'POST', body:fd}).then(r=>r.json());
+  showResult(res);
+}
+
+function showResult(res) {
+  const box = document.getElementById('resultBox');
+  box.style.display = 'block';
+  if (!res.ok) { box.innerHTML = `<div style="color:var(--danger)">${res.error}</div>`; return; }
+
+  const upd = res.updated || [];
+  const err = res.errors || [];
+  box.innerHTML = `
+    <div style="font-weight:700;font-size:15px;margin-bottom:12px">
+      ✅ ${upd.length} Accounts aktualisiert${err.length ? ` · ⚠️ ${err.length} Fehler` : ''}
+    </div>
+    ${upd.map(u => `
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">
+        <span>${u.name}</span>
+        <span style="color:${u.delta>0?'var(--success)':u.delta<0?'var(--danger)':'var(--muted)'}">
+          ${u.delta>0?'+':''}${u.delta.toLocaleString('de-DE')}
+          <span style="color:var(--muted);margin-left:6px">${u.new.toLocaleString('de-DE')}</span>
+        </span>
+      </div>`).join('')}
+    ${err.length ? `<div style="margin-top:10px;color:var(--danger);font-size:12px">${err.join('<br>')}</div>` : ''}`;
+  showToast(`${upd.length} Accounts aktualisiert`);
+}
+</script>
+{% endblock %}

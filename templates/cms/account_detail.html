@@ -22,6 +22,9 @@
     <button onclick="getShareLink({{ account.id }})" class="btn btn-ghost" title="Kunden-Link">
       <i class="fa-solid fa-share-nodes"></i>
     </button>
+    <button onclick="openCloneModal()" class="btn btn-ghost" title="Account klonen">
+      <i class="fa-solid fa-clone"></i>
+    </button>
     <a href="{{ url_for('account_edit', account_id=account.id) }}" class="btn btn-primary">
       <i class="fa-solid fa-pen"></i> Bearbeiten
     </a>
@@ -653,6 +656,89 @@
     </button>
   </div>
 </div>
+
+<!-- ══════ KLONEN-MODAL ══════ -->
+<div id="cloneModal" style="display:none;position:fixed;inset:0;z-index:400;align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:420px;margin:16px;padding:26px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div style="font-family:var(--font-display);font-size:16px">ACCOUNT KLONEN</div>
+      <button onclick="document.getElementById('cloneModal').style.display='none'"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">
+      Kopiert: Posting-Einstellungen, Kategorie, Labels und Hashtag-Sets.<br>
+      Content und geplante Posts werden <strong>nicht</strong> kopiert.
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div>
+        <label class="form-label">Name des neuen Accounts</label>
+        <input id="cloneName" type="text" class="input-field" value="{{ account.name }} (Kopie)" placeholder="z.B. Frankfurt Schau">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="cloneLabels" checked style="accent-color:var(--accent)"> Labels übernehmen
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="cloneHashtags" checked style="accent-color:var(--accent)"> Hashtag-Sets klonen
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="cloneCategory" checked style="accent-color:var(--accent)"> Kategorie übernehmen
+        </label>
+      </div>
+      <button onclick="doClone({{ account.id }})" class="btn btn-primary" style="width:100%;margin-top:4px">
+        <i class="fa-solid fa-clone"></i> Klonen
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ WIEDERHOLUNGS-MODAL ══════ -->
+<div id="recurModal" style="display:none;position:fixed;inset:0;z-index:400;align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:480px;margin:16px;padding:26px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div style="font-family:var(--font-display);font-size:16px">WIEDERKEHRENDER POST</div>
+      <button onclick="document.getElementById('recurModal').style.display='none'"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">
+      Lege beliebig viele Termine fest — auch in 2 oder 5 Jahren. Für jeden Termin wird automatisch ein geplanter Post erstellt.
+    </div>
+    <input type="hidden" id="recurContentId">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div>
+        <label class="form-label">Content-Item ID (optional)</label>
+        <input id="recurContentIdInput" type="number" class="input-field" placeholder="Leer = nur Slot reservieren">
+      </div>
+      <div>
+        <label class="form-label">Standard-Uhrzeit</label>
+        <input id="recurTime" type="time" value="18:00" class="input-field">
+      </div>
+      <div>
+        <label class="form-label">Notiz (optional)</label>
+        <input id="recurNote" type="text" class="input-field" placeholder="z.B. Jahrestags-Post">
+      </div>
+
+      <!-- Datum-Picker -->
+      <div>
+        <label class="form-label">Termine</label>
+        <div id="recurDates" style="display:flex;flex-wrap:wrap;gap:8px;min-height:40px;
+             padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px">
+          <input id="recurNewDate" type="date" class="input-field" style="flex:1">
+          <button onclick="addRecurDate()" class="btn btn-ghost" style="flex-shrink:0">
+            <i class="fa-solid fa-plus"></i> Hinzufügen
+          </button>
+        </div>
+      </div>
+
+      <button onclick="saveRecurring({{ account.id }})" class="btn btn-primary" style="width:100%;margin-top:4px">
+        <i class="fa-solid fa-repeat"></i> Wiederholungen speichern
+      </button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -946,6 +1032,90 @@ async function savePerformance() {
     document.getElementById('perfLikes').value='';
     document.getElementById('perfComments').value='';
     document.getElementById('perfReach').value='';
+  }
+}
+
+// ── Account klonen ──
+function openCloneModal() {
+  document.getElementById('cloneModal').style.display = 'flex';
+}
+async function doClone(accountId) {
+  const name = document.getElementById('cloneName').value.trim();
+  if (!name) { showToast('Bitte Namen eingeben', true); return; }
+  const res = await fetch(`/api/accounts/${accountId}/clone`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      name,
+      copy_labels:   document.getElementById('cloneLabels').checked,
+      copy_hashtags: document.getElementById('cloneHashtags').checked,
+      copy_category: document.getElementById('cloneCategory').checked,
+    })
+  }).then(r => r.json());
+  if (res.ok) {
+    showToast('Account geklont ✓');
+    setTimeout(() => location.href = res.redirect, 800);
+  } else {
+    showToast(res.error || 'Fehler', true);
+  }
+}
+
+// ── Wiederkehrende Posts ──
+const recurDates = new Set();
+function addRecurDate() {
+  const d = document.getElementById('recurNewDate').value;
+  if (!d) return;
+  if (recurDates.has(d)) { showToast('Datum bereits hinzugefügt'); return; }
+  recurDates.add(d);
+  renderRecurDates();
+  document.getElementById('recurNewDate').value = '';
+}
+function removeRecurDate(d) {
+  recurDates.delete(d);
+  renderRecurDates();
+}
+function renderRecurDates() {
+  const el = document.getElementById('recurDates');
+  if (!recurDates.size) { el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Noch keine Termine</span>'; return; }
+  el.innerHTML = [...recurDates].sort().map(d => {
+    const [y,m,dd] = d.split('-');
+    return `<span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;
+                         background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);font-size:12px">
+      <i class="fa-solid fa-calendar-day" style="font-size:10px;color:var(--accent2)"></i>
+      ${dd}.${m}.${y}
+      <button onclick="removeRecurDate('${d}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:10px;padding:0 0 0 4px">×</button>
+    </span>`;
+  }).join('');
+}
+
+function openRecurModal(contentItemId) {
+  recurDates.clear();
+  renderRecurDates();
+  document.getElementById('recurContentIdInput').value = contentItemId || '';
+  document.getElementById('recurNote').value = '';
+  document.getElementById('recurModal').style.display = 'flex';
+}
+
+async function saveRecurring(accountId) {
+  if (!recurDates.size) { showToast('Bitte mindestens ein Datum hinzufügen', true); return; }
+  const time = document.getElementById('recurTime').value || '18:00';
+  const note = document.getElementById('recurNote').value;
+  const ciId = parseInt(document.getElementById('recurContentIdInput').value) || null;
+
+  const res = await fetch('/api/recurring-posts', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      content_item_id: ciId,
+      account_id: accountId,
+      dates: [...recurDates].sort(),
+      time, note,
+    })
+  }).then(r => r.json());
+
+  if (res.ok) {
+    showToast(`${res.created.length} Wiederholungen gespeichert ✓`);
+    document.getElementById('recurModal').style.display = 'none';
+  } else {
+    showToast(res.error || 'Fehler', true);
   }
 }
 </script>

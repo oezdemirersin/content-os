@@ -16,7 +16,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     ContentItem, MediaItem, ScheduledPost, AnalyticsSnapshot,
                     AutomationRule, AutomationRunLog, SystemAlert, User, ActivityLog,
                     AccountGroup, ContentTemplate, ContentComment,
-                    HashtagSet, NotificationSettings, AppNotification)
+                    HashtagSet, NotificationSettings, AppNotification, RecurringPost)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -350,6 +350,20 @@ def generate_alerts():
                 account_id=acc.id, alert_type='no_posts', severity='warning',
                 message=f'"{acc.name}" hat keine geplanten Posts'
             ))
+
+        # Content-Gap-Alarm: kein Post in den nächsten 48h
+        in_48h = now + timedelta(hours=48)
+        gap_post = ScheduledPost.query.filter(
+            ScheduledPost.account_id == acc.id,
+            ScheduledPost.status == 'scheduled',
+            ScheduledPost.scheduled_at >= now,
+            ScheduledPost.scheduled_at <= in_48h,
+        ).first()
+        if not gap_post and upcoming > 0 and acc.automation_level < 3:
+            _push_notification('info',
+                f'⏰ Posting-Lücke: {acc.name}',
+                'Kein Post in den nächsten 48 Stunden geplant.',
+                link=f'/accounts/{acc.id}/planer', account_id=acc.id)
 
     # Automation errors
     broken_rules = AutomationRule.query.filter(AutomationRule.error_count > 3, AutomationRule.active == True).all()
@@ -3660,6 +3674,188 @@ self.addEventListener('fetch', e => {
 """
     from flask import Response
     return Response(sw, mimetype='application/javascript')
+
+
+# ─────────────────── BULK-FOLLOWER-CSV ──────────────────────────
+
+@app.route('/accounts/bulk-follower-update', methods=['GET'])
+def bulk_follower_update_page():
+    accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
+    return render_template('cms/bulk_follower_update.html',
+        accounts=accounts, active_page='accounts')
+
+@app.route('/api/accounts/bulk-follower-update', methods=['POST'])
+def api_bulk_follower_update():
+    """CSV-Upload: account_name_or_id,followers[,date]"""
+    import csv, io
+    file = request.files.get('csv_file')
+    rows_data = request.form.get('rows_json')
+
+    updated = []
+    errors  = []
+
+    if rows_data:
+        rows = json.loads(rows_data)
+    elif file:
+        content = file.read().decode('utf-8-sig')
+        reader = csv.DictReader(io.StringIO(content))
+        rows = list(reader)
+    else:
+        return jsonify({'ok': False, 'error': 'Keine Daten'}), 400
+
+    for row in rows:
+        name_or_id = str(row.get('account', row.get('name', row.get('id', '')))).strip()
+        followers  = row.get('followers', row.get('follower', ''))
+        try:
+            followers = int(str(followers).replace('.','').replace(',','').strip())
+        except Exception:
+            errors.append(f'Ungültige Follower-Zahl für "{name_or_id}"')
+            continue
+
+        acc = None
+        if name_or_id.isdigit():
+            acc = Account.query.get(int(name_or_id))
+        if not acc:
+            acc = Account.query.filter(Account.name.ilike(f'%{name_or_id}%')).first()
+        if not acc:
+            errors.append(f'Account nicht gefunden: "{name_or_id}"')
+            continue
+
+        old = acc.follower_count
+        acc.follower_count = followers
+        snap = AnalyticsSnapshot(
+            account_id=acc.id,
+            followers=followers,
+            recorded_at=datetime.utcnow(),
+        )
+        db.session.add(snap)
+        updated.append({'name': acc.name, 'old': old, 'new': followers, 'delta': followers - old})
+
+    db.session.commit()
+    return jsonify({'ok': True, 'updated': updated, 'errors': errors})
+
+
+# ─────────────────── ACCOUNT-KLONEN ─────────────────────────────
+
+@app.route('/api/accounts/<int:account_id>/clone', methods=['POST'])
+def account_clone(account_id):
+    src  = Account.query.get_or_404(account_id)
+    d    = request.get_json() or {}
+    name = d.get('name', f'{src.name} (Kopie)').strip()
+    if not name:
+        return jsonify({'ok': False, 'error': 'Name fehlt'}), 400
+
+    new_acc = Account(
+        name=name,
+        platform_id=src.platform_id,
+        category_id=src.category_id if d.get('copy_category', True) else None,
+        status='active',
+        posting_interval_days=src.posting_interval_days,
+        target_feed_per_day=src.target_feed_per_day,
+        target_story_per_day=src.target_story_per_day,
+        target_reel_per_week=src.target_reel_per_week,
+        min_stock_days=src.min_stock_days,
+        optimal_stock_days=src.optimal_stock_days,
+        max_stock_days=src.max_stock_days,
+        automation_level=src.automation_level,
+        priority=src.priority,
+    )
+    if d.get('copy_labels', True):
+        new_acc.labels = list(src.labels)
+    db.session.add(new_acc)
+    db.session.flush()  # get new_acc.id
+
+    # Hashtag-Sets klonen
+    if d.get('copy_hashtags', True):
+        for hs in src.hashtag_sets:
+            clone_hs = HashtagSet(
+                name=hs.name,
+                hashtags=hs.hashtags,
+                account_id=new_acc.id,
+                category_id=hs.category_id,
+            )
+            db.session.add(clone_hs)
+
+    db.session.commit()
+    log_activity('account_cloned', f'{src.name} → {new_acc.name}')
+    return jsonify({'ok': True, 'new_id': new_acc.id, 'redirect': f'/accounts/{new_acc.id}'})
+
+
+# ─────────────────── WIEDERKEHRENDE POSTS ───────────────────────
+
+@app.route('/api/recurring-posts', methods=['POST'])
+def recurring_post_create():
+    """Erstellt eine Wiederholungsreihe + sofort alle ScheduledPosts."""
+    d               = request.get_json()
+    content_item_id = d.get('content_item_id')
+    account_id      = d.get('account_id')
+    dates           = d.get('dates', [])   # Liste von 'YYYY-MM-DD HH:MM'
+    note            = d.get('note', '')
+    time_str        = d.get('time', '18:00')
+
+    if not account_id or not dates:
+        return jsonify({'ok': False, 'error': 'account_id und dates erforderlich'}), 400
+
+    ci  = ContentItem.query.get(content_item_id) if content_item_id else None
+    rec = RecurringPost(
+        content_item_id=content_item_id,
+        account_id=account_id,
+        scheduled_dates=json.dumps(dates),
+        note=note,
+    )
+    db.session.add(rec)
+
+    created = []
+    for dt_str in dates:
+        try:
+            if 'T' in dt_str or ' ' in dt_str:
+                dt = datetime.strptime(dt_str.replace('T', ' '), '%Y-%m-%d %H:%M')
+            else:
+                dt = datetime.strptime(f'{dt_str} {time_str}', '%Y-%m-%d %H:%M')
+        except Exception:
+            continue
+        post = ScheduledPost(
+            account_id=account_id,
+            content_item_id=content_item_id,
+            caption=ci.caption or ci.title if ci else '',
+            post_type=ci.content_type if ci else 'feed',
+            slot_type='fixed',
+            status='scheduled',
+            scheduled_at=dt,
+            media_item_id=ci.media_items[0].id if ci and ci.media_items else None,
+            media_ids=json.dumps([m.id for m in ci.media_items]) if ci else '[]',
+        )
+        db.session.add(post)
+        created.append(dt.strftime('%d.%m.%Y %H:%M'))
+
+    db.session.commit()
+    log_activity('recurring_created', f'{len(created)} Wiederholungen für Account {account_id}')
+    return jsonify({'ok': True, 'created': created, 'recurring_id': rec.id})
+
+@app.route('/api/recurring-posts/<int:rec_id>', methods=['DELETE'])
+def recurring_post_delete(rec_id):
+    rec = RecurringPost.query.get_or_404(rec_id)
+    db.session.delete(rec)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+@app.route('/api/accounts/<int:account_id>/recurring-posts')
+def account_recurring_posts(account_id):
+    recs = RecurringPost.query.filter_by(account_id=account_id).order_by(RecurringPost.created_at.desc()).all()
+    result = []
+    for r in recs:
+        ci = r.content_item
+        result.append({
+            'id': r.id,
+            'note': r.note or '',
+            'dates': json.loads(r.scheduled_dates or '[]'),
+            'content_item': {
+                'id': ci.id, 'title': ci.title,
+                'thumb': ci.media_items[0].url if ci and ci.media_items else None,
+            } if ci else None,
+            'created_at': r.created_at.strftime('%d.%m.%Y'),
+        })
+    return jsonify(result)
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────

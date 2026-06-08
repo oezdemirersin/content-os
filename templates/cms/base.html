@@ -341,6 +341,9 @@
     <a href="{{ url_for('accounts') }}" class="nav-item {% if active_page == 'accounts' %}active{% endif %}">
       <i class="fa-solid fa-layer-group"></i> Alle Accounts
     </a>
+    <a href="{{ url_for('bulk_follower_update_page') }}" class="nav-sub {% if active_page == 'bulk_follower' %}active{% endif %}">
+      <i class="fa-solid fa-users-line"></i> Follower-Update
+    </a>
     <a href="{{ url_for('account_groups') }}" class="nav-item {% if active_page == 'groups' or active_page == 'gruppen_planer' %}active{% endif %}">
       <i class="fa-solid fa-object-group"></i> Gruppen
     </a>
