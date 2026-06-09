@@ -139,6 +139,9 @@ class Account(db.Model):
     # Kunden-Share-Link
     share_token = db.Column(db.String(64), unique=True)
 
+    # Telegram
+    telegram_chat_id = db.Column(db.String(100))  # Channel-ID z.B. -1001234567890
+
     # Relationships
     scheduled_posts = db.relationship('ScheduledPost', backref='account', lazy=True, cascade='all,delete')
     analytics = db.relationship('AnalyticsSnapshot', backref='account', lazy=True, cascade='all,delete')
@@ -310,6 +313,9 @@ class ScheduledPost(db.Model):
 
     # Instagram post ID after publishing
     external_post_id = db.Column(db.String(200))
+
+    # Telegram
+    telegram_sent_at = db.Column(db.DateTime)  # gesetzt sobald an Telegram gesendet
 
     # Performance (filled after publishing)
     likes = db.Column(db.Integer)

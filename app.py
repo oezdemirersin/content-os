@@ -349,9 +349,12 @@ def init_db():
             safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS reviewed_by_id INTEGER')
             safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP')
             safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS review_note TEXT')
+            # ── account ── Telegram ──────────────────────────────────────
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100)')
             # ── scheduled_post ───────────────────────────────────────────
             safe_alter("ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS slot_type VARCHAR(20) DEFAULT 'fixed'")
             safe_alter("ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS media_ids TEXT DEFAULT '[]'")
+            safe_alter('ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS telegram_sent_at TIMESTAMP')
             safe_alter('ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS likes INTEGER')
             safe_alter('ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS comments INTEGER')
             safe_alter('ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS reach INTEGER')
@@ -726,6 +729,220 @@ def _daily_follower_snapshot():
         app.logger.error(f'[Daily Snapshot] Fehler: {e}')
 
 
+# ═══════════════════════════════════════════════════════════════
+# ─────────────────── TELEGRAM ENGINE ───────────────────────────
+# ═══════════════════════════════════════════════════════════════
+
+import requests as _requests
+
+_TG_API = 'https://api.telegram.org/bot{token}/{method}'
+_POST_ICONS = {'feed': '📸', 'reel': '🎬', 'story': '⭕', 'carousel': '🎠'}
+
+
+def _tg_call(token, method, **kwargs):
+    """POST to Telegram Bot API. kwargs werden als JSON-Body oder multipart gesendet."""
+    url = _TG_API.format(token=token, method=method)
+    try:
+        resp = _requests.post(url, timeout=30, **kwargs)
+        data = resp.json()
+        if not data.get('ok'):
+            app.logger.warning('Telegram %s error: %s', method, data.get('description'))
+        return data
+    except Exception as e:
+        app.logger.error('Telegram %s exception: %s', method, e)
+        return {'ok': False}
+
+
+def _tg_send_message(token, chat_id, text):
+    return _tg_call(token, 'sendMessage', json={
+        'chat_id': chat_id, 'text': text[:4096], 'parse_mode': 'HTML'
+    })
+
+
+def _tg_media_source(media_item):
+    """Gibt (url_or_None, filepath_or_None) zurück."""
+    if media_item.url:
+        return media_item.url, None
+    fpath = os.path.join(app.config['UPLOAD_FOLDER'], media_item.filename)
+    if os.path.exists(fpath):
+        return None, fpath
+    return None, None
+
+
+def _tg_send_photo(token, chat_id, media_item, caption=None):
+    url, fpath = _tg_media_source(media_item)
+    cap = (caption or '')[:1024] or None
+    if url:
+        return _tg_call(token, 'sendPhoto', json={
+            'chat_id': chat_id, 'photo': url,
+            **({'caption': cap} if cap else {})
+        })
+    elif fpath:
+        with open(fpath, 'rb') as f:
+            data = {'chat_id': chat_id, **({'caption': cap} if cap else {})}
+            return _tg_call(token, 'sendPhoto', data=data, files={'photo': f})
+    return {'ok': False}
+
+
+def _tg_send_video(token, chat_id, media_item, caption=None):
+    url, fpath = _tg_media_source(media_item)
+    cap = (caption or '')[:1024] or None
+    if url:
+        return _tg_call(token, 'sendVideo', json={
+            'chat_id': chat_id, 'video': url,
+            **({'caption': cap} if cap else {})
+        })
+    elif fpath:
+        with open(fpath, 'rb') as f:
+            data = {'chat_id': chat_id, **({'caption': cap} if cap else {})}
+            return _tg_call(token, 'sendVideo', data=data, files={'video': f})
+    return {'ok': False}
+
+
+def _tg_send_media_group(token, chat_id, media_items, caption=None):
+    """Carousel: bis zu 10 Bilder als Gruppe senden. Caption nur beim ersten."""
+    items = [mi for mi in media_items if mi][:10]
+    if not items:
+        return {'ok': False}
+
+    cap = (caption or '')[:1024] or None
+
+    # Wenn alle URLs verfügbar → reiner JSON-Call
+    if all(mi.url for mi in items):
+        media_json = []
+        for i, mi in enumerate(items):
+            obj = {'type': 'photo', 'media': mi.url}
+            if i == 0 and cap:
+                obj['caption'] = cap
+            media_json.append(obj)
+        return _tg_call(token, 'sendMediaGroup', json={'chat_id': chat_id, 'media': media_json})
+
+    # Lokale Dateien: multipart
+    files = {}
+    media_json = []
+    for i, mi in enumerate(items):
+        url, fpath = _tg_media_source(mi)
+        if url:
+            ref = url
+        elif fpath:
+            attach_key = f'file{i}'
+            files[attach_key] = (os.path.basename(fpath),
+                                 open(fpath, 'rb'),
+                                 'image/jpeg')
+            ref = f'attach://{attach_key}'
+        else:
+            continue
+        obj = {'type': 'photo', 'media': ref}
+        if i == 0 and cap:
+            obj['caption'] = cap
+        media_json.append(obj)
+
+    result = _tg_call(token, 'sendMediaGroup',
+                      data={'chat_id': chat_id, 'media': json.dumps(media_json)},
+                      files=files)
+    for fobj in files.values():
+        try: fobj[1].close()
+        except: pass
+    return result
+
+
+def _build_telegram_caption(post, account):
+    """Baut die vollständige Caption für Telegram auf."""
+    icon   = _POST_ICONS.get(post.post_type, '📌')
+    header = f'<b>{icon} {account.name}</b>'
+    tz_note = post.scheduled_at.strftime('%d.%m.%Y %H:%M') + ' UTC'
+
+    lines = [header, f'🕐 {tz_note}']
+    if post.caption:
+        lines += ['', post.caption]
+    return '\n'.join(lines)
+
+
+def send_telegram_post(post, account=None, token=None):
+    """Sendet einen ScheduledPost an den Telegram-Channel des Accounts.
+    Gibt True zurück wenn erfolgreich."""
+    if account is None:
+        account = post.account
+    if not account or not account.telegram_chat_id:
+        return False
+    if token is None:
+        token = get_setting('telegram_bot_token')
+    if not token:
+        app.logger.warning('Telegram: kein Bot-Token konfiguriert')
+        return False
+
+    chat_id   = account.telegram_chat_id
+    full_cap  = _build_telegram_caption(post, account)
+    short_cap = full_cap[:1024]  # Limit für Medien-Caption
+
+    # Media ermitteln
+    media_ids_list = post.get_media_ids()
+    primary_media  = MediaItem.query.get(post.media_item_id) if post.media_item_id else None
+    if not primary_media and media_ids_list:
+        primary_media = MediaItem.query.get(media_ids_list[0])
+
+    ok = False
+
+    if post.post_type == 'reel' and primary_media:
+        result = _tg_send_video(token, chat_id, primary_media, short_cap)
+        ok = result.get('ok', False)
+
+    elif len(media_ids_list) > 1:
+        # Carousel: alle Bilder laden
+        all_media = MediaItem.query.filter(MediaItem.id.in_(media_ids_list)).all()
+        id_order  = {mid: i for i, mid in enumerate(media_ids_list)}
+        all_media.sort(key=lambda m: id_order.get(m.id, 999))
+        result = _tg_send_media_group(token, chat_id, all_media, short_cap)
+        ok = bool(result.get('ok'))
+
+    elif primary_media:
+        result = _tg_send_photo(token, chat_id, primary_media, short_cap)
+        ok = result.get('ok', False)
+
+    else:
+        # Kein Bild → reiner Text
+        if post.caption or True:  # immer senden (auch ohne Caption = Header)
+            result = _tg_send_message(token, chat_id, full_cap)
+            ok = result.get('ok', False)
+
+    # Caption war zu lang für Medien → Rest als Folge-Nachricht
+    if ok and primary_media and len(full_cap) > 1024:
+        overflow = full_cap[1024:].strip()
+        if overflow:
+            _tg_send_message(token, chat_id, f'📝 {overflow}')
+
+    return ok
+
+
+def _send_due_telegram_posts():
+    """Prüft jede Minute ob Posts fällig sind und sendet sie an Telegram."""
+    with app.app_context():
+        try:
+            token = get_setting('telegram_bot_token')
+            if not token:
+                return
+            now = datetime.utcnow()
+            due = ScheduledPost.query.filter(
+                ScheduledPost.scheduled_at <= now,
+                ScheduledPost.status == 'scheduled',
+                ScheduledPost.slot_type != 'disabled',
+                ScheduledPost.telegram_sent_at == None,
+            ).options(joinedload(ScheduledPost.account)).all()
+
+            sent = 0
+            for post in due:
+                if send_telegram_post(post, token=token):
+                    post.telegram_sent_at = now
+                    sent += 1
+            if sent:
+                db.session.commit()
+                app.logger.info('Telegram: %d Post(s) gesendet', sent)
+        except Exception as e:
+            app.logger.error('_send_due_telegram_posts Fehler: %s', e)
+            try: db.session.rollback()
+            except: pass
+
+
 def schedule_automations():
     """Background thread that runs automation rules and housekeeping."""
     tick = 0
@@ -743,6 +960,9 @@ def schedule_automations():
                                                 'result': None, 'progress': 0, 'current': ''})
                         threading.Thread(target=_run_ig_follower_sync, daemon=True).start()
                     _daily_follower_snapshot()
+
+                # ── Telegram: fällige Posts senden ───────────────────────
+                _send_due_telegram_posts()
 
                 # ── Notfall-Pause: alle Automationen sofort stoppen ──
                 if not _is_emergency_paused():
@@ -1133,6 +1353,7 @@ def account_edit(account_id):
         account.target_feed_per_day = round(1.0 / interval, 3) if interval > 0 else 1.0
         account.min_stock_days = int(d.get('min_stock_days') or 3)
         account.optimal_stock_days = int(d.get('optimal_stock_days') or 14)
+        account.telegram_chat_id = d.get('telegram_chat_id', '').strip() or None
         db.session.commit()
         flash('Account aktualisiert.', 'success')
         return redirect(url_for('account_detail', account_id=account_id))
@@ -1484,6 +1705,39 @@ def post_delete(post_id):
     db.session.delete(post)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/posts/<int:post_id>/send-telegram', methods=['POST'])
+@login_required
+def post_send_telegram(post_id):
+    """Manuell einen Post sofort an Telegram senden (unabhängig vom Zeitplan)."""
+    post  = ScheduledPost.query.get_or_404(post_id)
+    token = get_setting('telegram_bot_token')
+    if not token:
+        return jsonify({'ok': False, 'error': 'Kein Telegram-Bot-Token konfiguriert. Bitte in Einstellungen → Integrationen eintragen.'})
+    if not post.account or not post.account.telegram_chat_id:
+        return jsonify({'ok': False, 'error': 'Kein Telegram-Channel für diesen Account konfiguriert.'})
+    ok = send_telegram_post(post, token=token)
+    if ok:
+        post.telegram_sent_at = datetime.utcnow()
+        db.session.commit()
+    return jsonify({'ok': ok, 'error': None if ok else 'Telegram-Versand fehlgeschlagen. Bot-Token und Chat-ID prüfen.'})
+
+
+@app.route('/api/telegram/test', methods=['POST'])
+@login_required
+def telegram_test():
+    """Sendet eine Test-Nachricht an einen Account-Channel."""
+    d        = request.get_json() or {}
+    chat_id  = d.get('chat_id', '').strip()
+    token    = get_setting('telegram_bot_token')
+    if not token:
+        return jsonify({'ok': False, 'error': 'Kein Bot-Token konfiguriert.'})
+    if not chat_id:
+        return jsonify({'ok': False, 'error': 'Keine Chat-ID angegeben.'})
+    result = _tg_send_message(token, chat_id, '✅ <b>Content OS</b> ist verbunden!\n\nDieser Channel empfängt ab sofort automatisch Posts wenn sie fällig sind.')
+    return jsonify({'ok': result.get('ok', False),
+                    'error': result.get('description') if not result.get('ok') else None})
 
 @app.route('/api/posts')
 def api_posts():
@@ -4583,6 +4837,7 @@ def integrations():
     apify_token     = gs('apify_token')
     ig_sync_method  = gs('ig_sync_method', 'apify' if gs('apify_token') else 'direct')
     auto_sync       = gs('ig_auto_sync', '1') != '0'
+    telegram_token  = gs('telegram_bot_token')
     ig_accounts_count = Account.query.filter(
         Account.handle != None, Account.handle != '', Account.status == 'active'
     ).count()
@@ -4591,6 +4846,7 @@ def integrations():
         ig_sync_method=ig_sync_method,
         auto_sync=auto_sync,
         ig_accounts_count=ig_accounts_count,
+        telegram_token=telegram_token,
         active_page='integrations')
 
 
@@ -4609,6 +4865,20 @@ def integrations_save():
     upsert('ig_auto_sync',   '1' if request.form.get('ig_auto_sync') else '0')
     db.session.commit()
     flash('Einstellungen gespeichert.', 'success')
+    return redirect(url_for('integrations'))
+
+
+@app.route('/settings/telegram', methods=['POST'])
+@login_required
+def telegram_settings_save():
+    token = request.form.get('telegram_bot_token', '').strip()
+    s = AppSettings.query.filter_by(key='telegram_bot_token').first()
+    if not s:
+        s = AppSettings(key='telegram_bot_token')
+        db.session.add(s)
+    s.value = token
+    db.session.commit()
+    flash('Telegram Bot-Token gespeichert.', 'success')
     return redirect(url_for('integrations'))
 
 

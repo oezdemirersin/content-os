@@ -178,6 +178,55 @@
 
     </form>
   </div>
+
+  <!-- ── TELEGRAM ──────────────────────────────────────────── -->
+  <div class="card" style="padding:28px;margin-top:20px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <div style="width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#0088cc;flex-shrink:0">
+        <i class="fa-brands fa-telegram" style="color:#fff;font-size:22px"></i>
+      </div>
+      <div>
+        <div style="font-family:var(--font-display);font-size:17px;letter-spacing:.5px">TELEGRAM BOT</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">
+          Posts automatisch an Account-Channels senden wenn sie fällig sind
+        </div>
+      </div>
+      {% if telegram_token %}
+      <span class="badge badge-green" style="margin-left:auto">Verbunden</span>
+      {% else %}
+      <span class="badge" style="margin-left:auto;background:var(--surface2);color:var(--muted)">Nicht konfiguriert</span>
+      {% endif %}
+    </div>
+
+    <form method="POST" action="{{ url_for('telegram_settings_save') }}">
+      <div style="margin-bottom:16px">
+        <label class="form-label">Bot-Token</label>
+        <input type="text" name="telegram_bot_token"
+               value="{{ telegram_token or '' }}"
+               class="input-field" placeholder="1234567890:AAF..."
+               style="font-family:monospace;font-size:13px">
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">
+          Bot erstellen: <a href="https://t.me/BotFather" target="_blank" style="color:var(--accent)">@BotFather</a> auf Telegram →
+          <code>/newbot</code> → Token kopieren
+        </div>
+      </div>
+
+      <div style="padding:14px;background:var(--surface2);border-radius:10px;margin-bottom:16px;font-size:12px;color:var(--muted);line-height:1.7">
+        <div style="font-weight:600;color:var(--text);margin-bottom:6px">📋 Setup-Anleitung</div>
+        <div>1. Bot erstellen via <a href="https://t.me/BotFather" target="_blank" style="color:var(--accent)">@BotFather</a> → Token einfügen</div>
+        <div>2. Bot als <b>Admin</b> in jeden Channel einladen</div>
+        <div>3. In jedem Account-Edit die <b>Channel-ID</b> eintragen (<a href="https://t.me/userinfobot" target="_blank" style="color:var(--accent)">@userinfobot</a> hilft)</div>
+        <div>4. ✅ Ab dann: Wenn ein Post fällig ist → Bild + Caption landen automatisch im Channel</div>
+      </div>
+
+      <div style="display:flex;gap:10px">
+        <button type="submit" class="btn btn-primary" style="flex:1">
+          <i class="fa-solid fa-floppy-disk"></i> Token speichern
+        </button>
+      </div>
+    </form>
+  </div>
+
 </div>
 {% endblock %}
 

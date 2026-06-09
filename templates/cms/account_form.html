@@ -161,6 +161,37 @@
       </div>
     </div>
 
+    <!-- TELEGRAM -->
+    <div class="card" style="padding:20px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <i class="fa-brands fa-telegram" style="font-size:18px;color:#29b6f6"></i>
+        <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">TELEGRAM CHANNEL</span>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:10px">
+        <div style="flex:1">
+          <label class="form-label">Channel-ID</label>
+          <input type="text" name="telegram_chat_id"
+                 value="{{ account.telegram_chat_id if account else '' }}"
+                 class="input-field" placeholder="-1001234567890"
+                 id="tgChatId">
+          <div style="font-size:11px;color:var(--muted);margin-top:6px">
+            Wie bekommst du die ID? Bot <b>@userinfobot</b> in deinen Channel einladen → schreibt die ID automatisch.
+          </div>
+        </div>
+        {% if account and account.telegram_chat_id %}
+        <button type="button" onclick="testTelegram()" class="btn btn-ghost" style="white-space:nowrap;flex-shrink:0">
+          <i class="fa-brands fa-telegram"></i> Test senden
+        </button>
+        {% endif %}
+      </div>
+      {% if account and account.telegram_chat_id %}
+      <div style="margin-top:10px;padding:10px 14px;background:rgba(41,182,246,.08);border-radius:8px;border:1px solid rgba(41,182,246,.2);font-size:12px;color:#29b6f6">
+        <i class="fa-solid fa-circle-check" style="margin-right:6px"></i>
+        Verbunden — Posts werden automatisch an diesen Channel gesendet wenn sie fällig sind.
+      </div>
+      {% endif %}
+    </div>
+
     <!-- NOTIZEN -->
     <div class="card" style="padding:20px">
       <label class="form-label">Notizen</label>
@@ -205,6 +236,19 @@ async function createCategoryInline() {
     if (comp) Alpine.$data(comp).newCat = false;
     showToast(`Kategorie "${name}" erstellt und ausgewählt! ✓`, 'success');
   }
+}
+
+async function testTelegram() {
+  const chatId = document.getElementById('tgChatId').value.trim();
+  if (!chatId) { showToast('Bitte Chat-ID eingeben.', 'warning'); return; }
+  const r = await fetch('/api/telegram/test', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({chat_id: chatId})
+  });
+  const d = await r.json();
+  if (d.ok) showToast('✅ Test-Nachricht gesendet! Channel ist verbunden.', 'success');
+  else showToast('❌ Fehler: ' + (d.error || 'Unbekannt'), 'error');
 }
 
 function updateFreqPreview(val) {
