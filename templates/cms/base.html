@@ -342,66 +342,48 @@
   </div>
 
   <nav class="nav">
-    <div class="nav-section">Accounts</div>
-    <a href="{{ url_for('accounts') }}" class="nav-item {% if active_page == 'accounts' %}active{% endif %}">
-      <i class="fa-solid fa-layer-group"></i> Alle Accounts
-    </a>
-    <a href="{{ url_for('bulk_follower_update_page') }}" class="nav-sub {% if active_page == 'bulk_follower' %}active{% endif %}">
-      <i class="fa-solid fa-users-line"></i> Follower-Update
-    </a>
-    <a href="{{ url_for('account_groups') }}" class="nav-item {% if active_page == 'groups' or active_page == 'gruppen_planer' %}active{% endif %}">
-      <i class="fa-solid fa-object-group"></i> Gruppen
-    </a>
-    <a href="{{ url_for('calendar_view') }}" class="nav-item {% if active_page == 'calendar' %}active{% endif %}">
-      <i class="fa-solid fa-calendar-days"></i> Kalender
+
+    <!-- TÄGLICH -->
+    <a href="{{ url_for('heute') }}"
+       class="nav-item {% if active_page == 'heute' %}active{% endif %}"
+       style="{% if active_page != 'heute' %}background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.15);margin-bottom:4px;{% endif %}">
+      <i class="fa-solid fa-sun"></i> Heute
     </a>
 
-    <div class="nav-section">Übersicht</div>
-    <a href="{{ url_for('dashboard') }}" class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
-      <i class="fa-solid fa-chart-line"></i> Dashboard
+    <div class="nav-section">Seiten</div>
+    <a href="{{ url_for('accounts') }}" class="nav-item {% if active_page == 'accounts' %}active{% endif %}">
+      <i class="fa-solid fa-layer-group"></i> Accounts
+    </a>
+    <a href="{{ url_for('account_groups') }}" class="nav-sub {% if active_page == 'groups' or active_page == 'gruppen_planer' %}active{% endif %}">
+      <i class="fa-solid fa-object-group"></i> Gruppen
+    </a>
+
+    <div class="nav-section">Planung</div>
+    <a href="{{ url_for('calendar_view') }}" class="nav-item {% if active_page == 'calendar' %}active{% endif %}">
+      <i class="fa-solid fa-calendar-days"></i> Kalender
     </a>
     <a href="{{ url_for('analytics') }}" class="nav-item {% if active_page == 'analytics' %}active{% endif %}">
       <i class="fa-solid fa-chart-bar"></i> Analytics
     </a>
-    <a href="{{ url_for('monthly_report') }}" class="nav-item {% if active_page == 'reports' %}active{% endif %}">
-      <i class="fa-solid fa-file-chart-column"></i> Monatsbericht
-    </a>
 
     <div class="nav-section">Content</div>
     <a href="{{ url_for('content_hub') }}" class="nav-item {% if active_page == 'content' %}active{% endif %}">
-      <i class="fa-solid fa-inbox"></i> Content Hub
+      <i class="fa-solid fa-inbox"></i> Content-Vorrat
     </a>
-    <a href="{{ url_for('content_automation') }}" class="nav-sub {% if active_page == 'content_automation' %}active{% endif %}">
-      <i class="fa-solid fa-robot"></i> Automation
-    </a>
-    <a href="{{ url_for('content_review') }}" class="nav-sub {% if active_page == 'review' %}active{% endif %}">
-      <i class="fa-solid fa-clipboard-check"></i> Review-Queue
-    </a>
-    <a href="{{ url_for('bulk_import_page') }}" class="nav-sub {% if active_page == 'bulk_import' %}active{% endif %}">
-      <i class="fa-solid fa-cloud-arrow-up"></i> Bulk-Import
+    <a href="{{ url_for('media_library') }}" class="nav-sub {% if active_page == 'media' %}active{% endif %}">
+      <i class="fa-solid fa-photo-film"></i> Medienbibliothek
     </a>
     <a href="{{ url_for('hashtag_sets') }}" class="nav-sub {% if active_page == 'hashtag_sets' %}active{% endif %}">
       <i class="fa-solid fa-hashtag"></i> Hashtag-Sets
     </a>
-    <a href="{{ url_for('media_library') }}" class="nav-item {% if active_page == 'media' %}active{% endif %}">
-      <i class="fa-solid fa-photo-film"></i> Medienbibliothek
-    </a>
-    <a href="{{ url_for('content_templates') }}" class="nav-sub {% if active_page == 'templates' %}active{% endif %}">
-      <i class="fa-solid fa-rectangle-list"></i> Templates
-    </a>
-    <a href="{{ url_for('beichten_dashboard') }}" class="nav-item {% if active_page == 'beichten' %}active{% endif %}">
-      <i class="fa-solid fa-heart"></i> Beichten
-    </a>
     <a href="{{ url_for('memes_dashboard') }}" class="nav-item {% if active_page == 'memes' %}active{% endif %}">
       <i class="fa-solid fa-face-laugh-squint"></i> Stadt-Memes
     </a>
-
-    <a href="{{ url_for('telegram_queue') }}" class="nav-item {% if active_page == 'tg_queue' %}active{% endif %}"
-       style="color:#29b6f6" title="Posts die per Telegram raus sind aber noch nicht als gepostet markiert">
-      <i class="fa-brands fa-telegram"></i> Telegram Queue
+    <a href="{{ url_for('beichten_dashboard') }}" class="nav-sub {% if active_page == 'beichten' %}active{% endif %}">
+      <i class="fa-solid fa-heart"></i> Beichten
     </a>
 
-    <div class="nav-section">Verwaltung</div>
+    <div class="nav-section">System</div>
     <a href="{{ url_for('alerts_center') }}" class="nav-item {% if active_page == 'alerts' %}active{% endif %}">
       <i class="fa-solid fa-bell"></i> Alerts
     </a>
@@ -411,15 +393,13 @@
     <a href="{{ url_for('ai_config_list') }}" class="nav-sub {% if active_page == 'ai' %}active{% endif %}">
       <i class="fa-solid fa-microchip"></i> KI-Zentrale
     </a>
-    <a href="{{ url_for('team') }}" class="nav-item {% if active_page == 'team' %}active{% endif %}">
-      <i class="fa-solid fa-users"></i> Team
-    </a>
-    <a href="{{ url_for('settings') }}" class="nav-item {% if active_page == 'settings' %}active{% endif %}">
+    <a href="{{ url_for('settings') }}" class="nav-item {% if active_page == 'settings' or active_page == 'integrations' %}active{% endif %}">
       <i class="fa-solid fa-gear"></i> Einstellungen
     </a>
-    <a href="{{ url_for('integrations') }}" class="nav-item {% if active_page == 'integrations' %}active{% endif %}">
+    <a href="{{ url_for('integrations') }}" class="nav-sub {% if active_page == 'integrations' %}active{% endif %}">
       <i class="fa-solid fa-plug"></i> Integrationen
     </a>
+
   </nav>
 
   <!-- User -->

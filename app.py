@@ -1152,6 +1152,12 @@ def linear_forecast(data_points, days_ahead=30):
 
 @app.route('/')
 @login_required
+def root_redirect():
+    return redirect(url_for('heute'))
+
+
+@app.route('/dashboard')
+@login_required
 def dashboard():
     # generate_alerts() wird jetzt vom Scheduler alle 5 Min. ausgeführt —
     # NICHT mehr bei jedem Seitenaufruf (war ~30 Extra-Queries pro Load).
@@ -1211,6 +1217,64 @@ def dashboard():
         recent_activity=recent_activity, posts_today=posts_today,
         all_accounts=all_active, categories=categories,
         active_page='dashboard')
+
+
+# ─────────────────────── HEUTE / DAILY ACTION CENTER ────────────────────────
+
+@app.route('/heute')
+@login_required
+def heute():
+    """Tages-Briefing: alles was heute Aufmerksamkeit braucht, auf einen Blick."""
+    now = datetime.utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # ── 1. Telegram Queue ─────────────────────────────────────────────────
+    tg_queue = (ScheduledPost.query
+                .filter(ScheduledPost.telegram_sent_at.isnot(None))
+                .filter(ScheduledPost.status != 'published')
+                .options(joinedload(ScheduledPost.account))
+                .order_by(ScheduledPost.telegram_sent_at.desc())
+                .limit(50).all())
+
+    # ── 2. Stock-Status nur für manuelle Accounts ─────────────────────────
+    manual_accounts = Account.query.filter(
+        Account.status == 'active',
+        Account.automation_level < 3
+    ).all()
+    days_map = _get_planned_days_batch(manual_accounts)
+
+    no_stock       = sorted([a for a in manual_accounts if days_map.get(a.id, 0) == 0],
+                            key=lambda a: {'critical':0,'high':1,'medium':2,'low':3}.get(a.priority,2))
+    critical_stock = sorted([a for a in manual_accounts
+                              if 0 < days_map.get(a.id, 0) < (a.min_stock_days or 3)],
+                            key=lambda a: days_map.get(a.id, 0))
+    low_stock      = sorted([a for a in manual_accounts
+                              if (a.min_stock_days or 3) <= days_map.get(a.id, 0) < 7],
+                            key=lambda a: days_map.get(a.id, 0))
+
+    # ── 3. Heute geplante Posts ───────────────────────────────────────────
+    posts_today = (ScheduledPost.query
+                   .filter(ScheduledPost.scheduled_at >= today_start,
+                           ScheduledPost.scheduled_at < today_start + timedelta(days=1))
+                   .options(joinedload(ScheduledPost.account))
+                   .order_by(ScheduledPost.scheduled_at).all())
+
+    # ── 4. Offene Alerts ─────────────────────────────────────────────────
+    open_alerts = (SystemAlert.query
+                   .filter_by(resolved=False)
+                   .order_by(SystemAlert.severity.desc())
+                   .limit(8).all())
+
+    return render_template('heute.html',
+        tg_queue=tg_queue,
+        no_stock=no_stock,
+        critical_stock=critical_stock,
+        low_stock=low_stock,
+        days_map=days_map,
+        posts_today=posts_today,
+        open_alerts=open_alerts,
+        now=now,
+        active_page='heute')
 
 
 # ─────────────────────── ACCOUNTS ───────────────────────
@@ -3044,7 +3108,7 @@ def login():
             next_url = request.args.get('next', '')
             if next_url and urlparse(next_url).netloc:
                 next_url = ''
-            return redirect(next_url or url_for('dashboard'))
+            return redirect(next_url or url_for('heute'))
         error = 'Ungültige Zugangsdaten.'
     return render_template('login.html', error=error)
 
