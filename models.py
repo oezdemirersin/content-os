@@ -571,6 +571,7 @@ class MemeTemplate(db.Model):
     cloudinary_public_id = db.Column(db.String(200))        # für späteres Löschen
     source_city          = db.Column(db.String(100))        # z.B. "Darmstadt"
     notes                = db.Column(db.Text)
+    meme_context         = db.Column(db.Text)               # JSON: Typ, Kern-Element, Ton, Zielgruppe
     created_at           = db.Column(db.DateTime, default=datetime.utcnow)
     variants             = db.relationship('MemeVariant', backref='template',
                                            lazy='select', cascade='all,delete')

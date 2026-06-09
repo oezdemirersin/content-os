@@ -384,6 +384,8 @@ def init_db():
             safe_alter('ALTER TABLE content_template ADD COLUMN IF NOT EXISTS style_notes TEXT')
             safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS posting_days TEXT DEFAULT '[]'")
             safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS posting_time_pref VARCHAR(10) DEFAULT ''")
+            # ── meme_template ────────────────────────────────────────────
+            safe_alter('ALTER TABLE meme_template ADD COLUMN IF NOT EXISTS meme_context TEXT')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -5364,9 +5366,10 @@ def meme_detail(template_id):
 def memes_adapt():
     """Claude adaptiert eine Meme-Caption für alle Städte."""
     d = request.get_json() or {}
-    source_city   = d.get('source_city', '').strip()
+    source_city    = d.get('source_city', '').strip()
     source_caption = d.get('caption', '').strip()
     target_cities  = d.get('target_cities', [c for c in CITY_PROFILES if c != source_city])
+    meme_context   = d.get('meme_context') or {}   # {typ, kern, ton, zielgruppe}
 
     if not source_caption:
         return jsonify({'ok': False, 'error': 'Keine Caption eingegeben.'})
@@ -5397,9 +5400,24 @@ def memes_adapt():
   Besonderheiten: {p['typisch']}
 """
 
+    # Optionaler Meme-Kontext aus Upload-Fragen
+    context_block = ''
+    if meme_context:
+        ctx_parts = []
+        if meme_context.get('typ'):
+            ctx_parts.append(f"Meme-Typ: {meme_context['typ']}")
+        if meme_context.get('kern'):
+            ctx_parts.append(f"Stadt-spezifisches Kern-Element (was ersetzt werden muss): {meme_context['kern']}")
+        if meme_context.get('ton'):
+            ctx_parts.append(f"Humor-Ton: {meme_context['ton']}")
+        if meme_context.get('zielgruppe'):
+            ctx_parts.append(f"Zielgruppe: {meme_context['zielgruppe']}")
+        if ctx_parts:
+            context_block = '\nKontext zu diesem Meme:\n' + '\n'.join(f'  - {p}' for p in ctx_parts) + '\n'
+
     user_prompt = f"""Quell-Stadt: {source_city}
 Original-Caption:
-\"\"\"{source_caption}\"\"\"
+\"\"\"{source_caption}\"\"\"{context_block}
 
 Stadtprofil {source_city}:
   Wahrzeichen: {', '.join(CITY_PROFILES[source_city]['wahrzeichen'][:4])}
@@ -5508,6 +5526,20 @@ def meme_template_upload():
     source_city = request.form.get('source_city', '').strip()
     notes = request.form.get('notes', '').strip()
 
+    # Kontext-Fragen
+    meme_type      = request.form.get('meme_type', '').strip()
+    core_element   = request.form.get('core_element', '').strip()
+    humor_tone     = request.form.get('humor_tone', '').strip()
+    target_audience = request.form.get('target_audience', '').strip()
+
+    import json as _json
+    meme_context = _json.dumps({
+        'typ': meme_type,
+        'kern': core_element,
+        'ton': humor_tone,
+        'zielgruppe': target_audience,
+    }, ensure_ascii=False) if any([meme_type, core_element, humor_tone, target_audience]) else None
+
     if not file or not file.filename:
         return jsonify({'ok': False, 'error': 'Kein Bild angegeben.'})
     if source_city not in CITY_PROFILES:
@@ -5529,6 +5561,7 @@ def meme_template_upload():
         cloudinary_public_id=result.get('public_id', ''),
         source_city=source_city,
         notes=notes,
+        meme_context=meme_context,
     )
     db.session.add(tmpl)
     db.session.commit()

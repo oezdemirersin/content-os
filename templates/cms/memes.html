@@ -227,6 +227,77 @@
           {% endfor %}
         </select>
       </div>
+
+      <!-- Trennlinie + Kontext-Fragen -->
+      <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.6px;margin-bottom:12px">
+          KURZE FRAGEN — helfen Claude beim Adaptieren
+        </div>
+
+        <!-- Frage 1: Meme-Typ -->
+        <div style="margin-bottom:12px">
+          <label class="form-label" style="margin-bottom:6px">Was für ein Meme-Format ist das?</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px" id="memeTypeGroup">
+            {% for val, label in [
+              ('pov',        'POV ("POV: Du bist…")'),
+              ('vergleich',  'Vorher / Nachher'),
+              ('reaktion',   'Reaktion / Ausdruck'),
+              ('alltagsproblem', 'Alltagsproblem'),
+              ('lokalstolz', 'Lokalstolz'),
+              ('sonstiges',  'Sonstiges'),
+            ] %}
+            <label style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12px" class="meme-type-opt">
+              <input type="radio" name="memeType" value="{{ val }}" style="display:none">
+              {{ label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Frage 2: Kern-Element -->
+        <div style="margin-bottom:12px">
+          <label class="form-label">Was ist das Stadt-spezifische Element? <span style="color:var(--muted);font-weight:400">(was Claude für jede Stadt ersetzen muss)</span></label>
+          <input type="text" id="uploadCoreElement" class="input-field"
+                 placeholder="z.B. Kleinmarkthalle · Äppelwoi · Stau auf der A5 · Westpark">
+        </div>
+
+        <!-- Frage 3: Humor-Ton -->
+        <div style="margin-bottom:12px">
+          <label class="form-label" style="margin-bottom:6px">Wie ist der Humor-Ton?</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            {% for val, label in [
+              ('selbstironie', '😅 Selbstironie'),
+              ('lokalstolz',  '❤️ Lokalstolz'),
+              ('alltagsfrust', '😤 Alltagsfrust'),
+              ('genz',        '💀 Gen-Z / Nischenwitz'),
+              ('nostalgie',   '🕰️ Nostalgie'),
+            ] %}
+            <label style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12px" class="humor-tone-opt">
+              <input type="radio" name="humorTone" value="{{ val }}" style="display:none">
+              {{ label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Frage 4: Zielgruppe -->
+        <div>
+          <label class="form-label" style="margin-bottom:6px">Für wen ist das Meme?</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            {% for val, label in [
+              ('locals',    '🏠 Echte Locals'),
+              ('studenten', '🎓 Studenten / Zugezogene'),
+              ('alle',      '🌍 Alle'),
+            ] %}
+            <label style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12px" class="audience-opt">
+              <input type="radio" name="targetAudience" value="{{ val }}" style="display:none">
+              {{ label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
       <div>
         <label class="form-label">Notizen (optional)</label>
         <textarea id="uploadNotes" rows="2" class="input-field" placeholder="z.B. für Sommer-Reihe, Folge 3"></textarea>
@@ -293,6 +364,15 @@ async function uploadTemplate() {
   fd.append('source_city', city);
   fd.append('notes', document.getElementById('uploadNotes').value.trim());
 
+  // Kontext-Fragen
+  const memeTypeEl = document.querySelector('input[name="memeType"]:checked');
+  const humorToneEl = document.querySelector('input[name="humorTone"]:checked');
+  const audienceEl = document.querySelector('input[name="targetAudience"]:checked');
+  if (memeTypeEl)  fd.append('meme_type', memeTypeEl.value);
+  if (humorToneEl) fd.append('humor_tone', humorToneEl.value);
+  if (audienceEl)  fd.append('target_audience', audienceEl.value);
+  fd.append('core_element', document.getElementById('uploadCoreElement').value.trim());
+
   try {
     const res = await fetch('/api/memes/template/upload', {method:'POST', body: fd});
     const data = await res.json();
@@ -309,6 +389,25 @@ async function uploadTemplate() {
     prog.style.display = 'none';
   }
 }
+
+// ── Radio-Chip Styling ────────────────────────────────────────
+document.addEventListener('change', function(e) {
+  if (e.target.type !== 'radio') return;
+  const name = e.target.name;
+  document.querySelectorAll(`input[name="${name}"]`).forEach(r => {
+    const lbl = r.closest('label');
+    if (!lbl) return;
+    if (r.checked) {
+      lbl.style.background = 'var(--accent)';
+      lbl.style.color = '#fff';
+      lbl.style.borderColor = 'var(--accent)';
+    } else {
+      lbl.style.background = 'var(--surface)';
+      lbl.style.color = 'var(--text)';
+      lbl.style.borderColor = 'var(--border)';
+    }
+  });
+});
 
 // ── Caption-Tool ─────────────────────────────────────────────
 function toggleCaptionTool() {
