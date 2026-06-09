@@ -3,145 +3,327 @@
 {% block page_title %}STADT-MEMES{% endblock %}
 
 {% block content %}
-<div style="max-width:1000px">
+<div style="max-width:1100px">
 
-  <!-- Header -->
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <!-- Toolbar -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap">
     <div style="font-size:13px;color:var(--muted)">
-      Meme-Caption für eine Stadt eingeben → Claude adaptiert sie automatisch für alle anderen Städte
+      Canva-Templates hochladen → Claude analysiert → Checkliste pro Stadt
     </div>
-    {% if not has_ai_key %}
-    <a href="{{ url_for('integrations') }}" class="btn btn-ghost" style="font-size:12px">
-      <i class="fa-solid fa-key"></i> API-Key eintragen
-    </a>
-    {% endif %}
+    <div style="display:flex;gap:10px;align-items:center">
+      {% if not has_ai_key %}
+      <a href="{{ url_for('integrations') }}" class="btn btn-ghost" style="font-size:12px">
+        <i class="fa-solid fa-key"></i> API-Key fehlt
+      </a>
+      {% endif %}
+      <button onclick="document.getElementById('uploadModal').style.display='flex'" class="btn btn-primary">
+        <i class="fa-solid fa-cloud-arrow-up"></i> Template hochladen
+      </button>
+    </div>
   </div>
 
-  <!-- Input Card -->
-  <div class="card" style="padding:24px;margin-bottom:24px">
-    <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:16px">
-      MEME-CAPTION EINGEBEN
+  <!-- Statistik-Leiste -->
+  {% if templates %}
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
+    {% set total_done = namespace(v=0) %}
+    {% set total_open = namespace(v=0) %}
+    {% for t in templates %}
+      {% set st = template_stats[t.id] %}
+      {% set total_done.v = total_done.v + st.done %}
+      {% set total_open.v = total_open.v + st.open %}
+    {% endfor %}
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:28px;font-weight:800">{{ templates|length }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Templates</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:28px;font-weight:800">{{ city_profiles|length }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Städte</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:#22c55e">{{ total_done.v }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Versionen fertig</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:var(--accent)">{{ total_open.v }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Noch offen</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Template-Galerie -->
+  {% if templates %}
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px">
+    {% for t in templates %}
+    {% set st = template_stats[t.id] %}
+    {% set pct = ((st.done / st.total * 100) | int) if st.total > 0 else 0 %}
+    <a href="{{ url_for('meme_detail', template_id=t.id) }}"
+       style="text-decoration:none;color:inherit;display:block">
+      <div class="card" style="overflow:hidden;transition:transform .15s;cursor:pointer"
+           onmouseover="this.style.transform='translateY(-2px)'"
+           onmouseout="this.style.transform='translateY(0)'">
+        <!-- Vorschau-Bild -->
+        <div style="width:100%;aspect-ratio:1;background:var(--surface2);overflow:hidden;position:relative">
+          {% if t.image_url %}
+          <img src="{{ t.image_url }}" alt="{{ t.title }}"
+               style="width:100%;height:100%;object-fit:cover">
+          {% else %}
+          <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:var(--muted)">
+            <i class="fa-solid fa-image" style="font-size:32px"></i>
+          </div>
+          {% endif %}
+          <!-- Quell-Stadt Badge -->
+          <div style="position:absolute;top:8px;left:8px;padding:3px 8px;background:rgba(0,0,0,.6);border-radius:6px;font-size:11px;color:#fff;font-weight:600;backdrop-filter:blur(4px)">
+            {{ city_profiles[t.source_city].emoji if t.source_city in city_profiles else '🏙️' }} {{ t.source_city }}
+          </div>
+          <!-- Status Badge -->
+          {% if st.open == 0 %}
+          <div style="position:absolute;top:8px;right:8px;padding:3px 8px;background:rgba(34,197,94,.85);border-radius:6px;font-size:10px;color:#fff;font-weight:600">✓ Fertig</div>
+          {% endif %}
+        </div>
+        <!-- Info -->
+        <div style="padding:12px">
+          <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:8px">
+            {{ t.title or 'Ohne Titel' }}
+          </div>
+          <!-- Fortschrittsbalken -->
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
+              <div style="height:100%;width:{{ pct }}%;background:{% if pct == 100 %}#22c55e{% elif pct > 50 %}var(--accent2){% else %}var(--accent){% endif %};transition:width .3s"></div>
+            </div>
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap">{{ st.done }}/{{ st.total }}</span>
+          </div>
+          <!-- City-Dots -->
+          <div style="display:flex;flex-wrap:wrap;gap:3px">
+            {% for city in city_profiles %}
+            {% if city != t.source_city %}
+              {% set v = t.variants.filter_by(city=city).first() %}
+              {% if v and v.status == 'done' %}
+                <span title="{{ city }}" style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block"></span>
+              {% elif v and v.status == 'skip' %}
+                <span title="{{ city }}" style="width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;opacity:.4"></span>
+              {% else %}
+                <span title="{{ city }}" style="width:8px;height:8px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:inline-block"></span>
+              {% endif %}
+            {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <!-- Leer-Zustand -->
+  <div style="text-align:center;padding:80px 20px">
+    <div style="font-size:64px;margin-bottom:16px">😂</div>
+    <div style="font-family:var(--font-display);font-size:20px;margin-bottom:8px">Noch keine Templates</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:24px">
+      Lade dein erstes Canva-Template hoch — dann analysiert Claude für welche Stadt was passt.
+    </div>
+    <button onclick="document.getElementById('uploadModal').style.display='flex'" class="btn btn-primary">
+      <i class="fa-solid fa-cloud-arrow-up"></i> Erstes Template hochladen
+    </button>
+  </div>
+  {% endif %}
+
+  <!-- Caption-Adapt-Tool (Akkordeon) -->
+  <div style="margin-top:32px;border:1px solid var(--border);border-radius:14px;overflow:hidden" id="captionTool">
+    <button onclick="toggleCaptionTool()"
+            style="width:100%;padding:16px 20px;background:var(--surface2);border:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;font-family:var(--font-display);font-size:13px;letter-spacing:.5px;color:var(--text)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent)"></i>
+        CAPTION-ADAPT-TOOL (ohne Bild)
+      </div>
+      <i class="fa-solid fa-chevron-down" id="captionToolChevron" style="transition:transform .2s;color:var(--muted)"></i>
+    </button>
+    <div id="captionToolBody" style="display:none;padding:20px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">
+        Gib eine fertige Caption für eine Stadt ein — Claude adaptiert sie für alle anderen Städte.
+      </div>
+      <div style="display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:start;margin-bottom:16px">
+        <div>
+          <label class="form-label">Quell-Stadt</label>
+          <select id="sourceCity" class="select-field" onchange="updateSourceCityCheckbox()">
+            {% for city, profile in city_profiles.items() %}
+            <option value="{{ city }}">{{ profile.emoji }} {{ city }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Caption</label>
+          <textarea id="sourceCaption" rows="4" class="input-field" style="resize:vertical"
+            placeholder="z.B. POV: Du stehst am Luisenplatz und weißt nicht ob du in Frankfurt oder Darmstadt bist 😅"></textarea>
+        </div>
+      </div>
+      <div style="margin-bottom:16px">
+        <label class="form-label">Für welche Städte adaptieren?</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px" id="cityCheckboxes">
+          {% for city, profile in city_profiles.items() %}
+          <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--surface2);border-radius:8px;cursor:pointer;font-size:13px;border:1px solid var(--border)" id="label_{{ city }}">
+            <input type="checkbox" class="city-cb" value="{{ city }}" checked style="accent-color:var(--accent)">
+            {{ profile.emoji }} {{ city }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button onclick="adaptMemes()" class="btn btn-primary" id="adaptBtn">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> Adaptieren
+        </button>
+        <div id="adaptStatus" style="font-size:12px;color:var(--muted)"></div>
+      </div>
+      <div id="captionResultsSection" style="display:none;margin-top:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div style="font-family:var(--font-display);font-size:13px">ERGEBNISSE</div>
+          <button onclick="createAllContent()" class="btn btn-primary" style="font-size:12px">
+            <i class="fa-solid fa-plus"></i> Als Content-Entwürfe speichern
+          </button>
+        </div>
+        <div id="captionResultsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Upload-Modal -->
+<div id="uploadModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(520px,95vw);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div style="font-family:var(--font-display);font-size:16px">TEMPLATE HOCHLADEN</div>
+      <button onclick="document.getElementById('uploadModal').style.display='none'"
+              style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:20px">×</button>
     </div>
 
-    <div style="display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:start">
-      <!-- Stadt wählen -->
+    <!-- Drag & Drop Zone -->
+    <div id="dropZone"
+         style="border:2px dashed var(--border);border-radius:12px;padding:40px;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:16px"
+         onclick="document.getElementById('imageInput').click()"
+         ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+         ondragleave="this.style.borderColor='var(--border)'"
+         ondrop="handleDrop(event)">
+      <div id="dropZoneContent">
+        <i class="fa-solid fa-cloud-arrow-up" style="font-size:32px;color:var(--muted);margin-bottom:12px"></i>
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Bild hier ablegen</div>
+        <div style="font-size:12px;color:var(--muted)">oder klicken zum Auswählen · JPG, PNG, WebP</div>
+      </div>
+    </div>
+    <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="previewImage(this)">
+
+    <div style="display:flex;flex-direction:column;gap:12px">
       <div>
-        <label class="form-label">Quell-Stadt</label>
-        <select id="sourceCity" class="select-field">
+        <label class="form-label">Titel (optional)</label>
+        <input type="text" id="uploadTitle" class="input-field" placeholder="z.B. Luisenplatz-Meme #1">
+      </div>
+      <div>
+        <label class="form-label">Für welche Stadt wurde dieses Template gemacht? *</label>
+        <select id="uploadSourceCity" class="select-field">
           {% for city, profile in city_profiles.items() %}
           <option value="{{ city }}">{{ profile.emoji }} {{ city }}</option>
           {% endfor %}
         </select>
-        <div style="font-size:11px;color:var(--muted);margin-top:6px">Die Stadt deines Beispiels</div>
       </div>
-
-      <!-- Caption -->
       <div>
-        <label class="form-label">Caption / Text des Memes</label>
-        <textarea id="sourceCaption" rows="4" class="input-field" style="resize:vertical"
-          placeholder="z.B. POV: Du bist in der Kleinmarkthalle und kannst dich nicht entscheiden was du willst 😭&#10;&#10;#Frankfurt #Kleinmarkthalle #FrankfurtMemes"></textarea>
-      </div>
-    </div>
-
-    <!-- Ziel-Städte auswählen -->
-    <div style="margin-top:16px">
-      <label class="form-label">Für welche Städte adaptieren?</label>
-      <div style="display:flex;flex-wrap:wrap;gap:8px" id="cityCheckboxes">
-        {% for city, profile in city_profiles.items() %}
-        <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--surface2);border-radius:8px;cursor:pointer;font-size:13px;border:1px solid var(--border);user-select:none" id="label_{{ city }}">
-          <input type="checkbox" class="city-cb" value="{{ city }}" checked
-                 style="accent-color:var(--accent)">
-          {{ profile.emoji }} {{ city }}
-        </label>
-        {% endfor %}
+        <label class="form-label">Notizen (optional)</label>
+        <textarea id="uploadNotes" rows="2" class="input-field" placeholder="z.B. für Sommer-Reihe, Folge 3"></textarea>
       </div>
     </div>
 
     <div style="display:flex;gap:10px;margin-top:20px;align-items:center">
-      <button onclick="adaptMemes()" class="btn btn-primary" id="adaptBtn">
-        <i class="fa-solid fa-wand-magic-sparkles"></i> Für alle Städte adaptieren
+      <button onclick="uploadTemplate()" class="btn btn-primary" id="uploadBtn" style="flex:1">
+        <i class="fa-solid fa-cloud-arrow-up"></i> Hochladen
       </button>
-      <button onclick="selectAll(true)" class="btn btn-ghost" style="font-size:12px">Alle</button>
-      <button onclick="selectAll(false)" class="btn btn-ghost" style="font-size:12px">Keine</button>
-      <div id="adaptStatus" style="font-size:12px;color:var(--muted)"></div>
+      <button onclick="document.getElementById('uploadModal').style.display='none'" class="btn btn-ghost">Abbrechen</button>
+    </div>
+    <div id="uploadProgress" style="display:none;margin-top:12px;font-size:12px;color:var(--muted);text-align:center">
+      <i class="fa-solid fa-spinner fa-spin"></i> Wird hochgeladen…
     </div>
   </div>
-
-  <!-- Ergebnisse -->
-  <div id="resultsSection" style="display:none">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">ERGEBNISSE</div>
-      <button onclick="createAllContent()" class="btn btn-primary" style="font-size:12px">
-        <i class="fa-solid fa-plus"></i> Alle als Content-Entwürfe speichern
-      </button>
-    </div>
-
-    <div id="resultsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px"></div>
-  </div>
-
-  <!-- Meme-Accounts Übersicht -->
-  {% if meme_accounts %}
-  <div style="margin-top:32px">
-    <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.5px;color:var(--muted);margin-bottom:12px">
-      DEINE MEME-ACCOUNTS
-    </div>
-    <div style="display:flex;flex-wrap:wrap;gap:10px">
-      {% for acc in meme_accounts %}
-      <a href="{{ url_for('account_detail', account_id=acc.id) }}"
-         style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surface2);border-radius:10px;text-decoration:none;color:var(--text);font-size:13px;border:1px solid var(--border)">
-        <i class="fa-brands fa-instagram" style="color:#e1306c"></i>
-        {{ acc.name }}
-        <span style="font-size:11px;color:var(--muted)">{{ acc.follower_count | fmt_followers }}</span>
-      </a>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- Letzte Meme-ContentItems -->
-  {% if recent_memes %}
-  <div style="margin-top:32px">
-    <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.5px;color:var(--muted);margin-bottom:12px">
-      LETZTE MEME-ENTWÜRFE
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      {% for item in recent_memes %}
-      <div style="padding:12px 16px;background:var(--surface2);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:12px">
-        <div style="font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-          {{ item.title }}
-        </div>
-        <span class="badge {% if item.status == 'ready' %}badge-green{% elif item.status == 'draft' %}badge-blue{% else %}badge-blue{% endif %}"
-              style="flex-shrink:0">{{ item.status }}</span>
-        <a href="{{ url_for('content_detail', item_id=item.id) }}" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;flex-shrink:0">
-          Öffnen →
-        </a>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-const memeAccounts = {{ meme_accounts | tojson(indent=0) if meme_accounts else '[]' }};
-// Vereinfachte Accounts-Map für das Dropdown
-const accountMap = {};
-{% for acc in meme_accounts %}
-accountMap['{{ acc.name }}'] = {{ acc.id }};
-{% endfor %}
+// ── Upload ────────────────────────────────────────────────────
+let _uploadFile = null;
 
-// Quell-Stadt wechselt → eigene Checkbox deaktivieren
-document.getElementById('sourceCity').addEventListener('change', updateSourceCityCheckbox);
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').style.borderColor = 'var(--border)';
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) {
+    _uploadFile = file;
+    showDropPreview(file);
+  }
+}
+
+function previewImage(input) {
+  _uploadFile = input.files[0];
+  if (_uploadFile) showDropPreview(_uploadFile);
+}
+
+function showDropPreview(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('dropZoneContent').innerHTML = `
+      <img src="${e.target.result}" style="max-height:150px;max-width:100%;border-radius:8px;object-fit:contain">
+      <div style="margin-top:8px;font-size:12px;color:var(--muted)">${file.name}</div>
+    `;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function uploadTemplate() {
+  if (!_uploadFile) { showToast('Bitte erst ein Bild auswählen.', 'warning'); return; }
+  const city = document.getElementById('uploadSourceCity').value;
+  if (!city) { showToast('Bitte eine Stadt auswählen.', 'warning'); return; }
+
+  const btn = document.getElementById('uploadBtn');
+  const prog = document.getElementById('uploadProgress');
+  btn.disabled = true;
+  prog.style.display = 'block';
+
+  const fd = new FormData();
+  fd.append('image', _uploadFile);
+  fd.append('title', document.getElementById('uploadTitle').value.trim());
+  fd.append('source_city', city);
+  fd.append('notes', document.getElementById('uploadNotes').value.trim());
+
+  try {
+    const res = await fetch('/api/memes/template/upload', {method:'POST', body: fd});
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✅ Template hochgeladen!', 'success');
+      setTimeout(() => window.location.href = `/memes/${data.template_id}`, 800);
+    } else {
+      showToast('Fehler: ' + data.error, 'error');
+    }
+  } catch(e) {
+    showToast('Netzwerkfehler: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    prog.style.display = 'none';
+  }
+}
+
+// ── Caption-Tool ─────────────────────────────────────────────
+function toggleCaptionTool() {
+  const body = document.getElementById('captionToolBody');
+  const chev = document.getElementById('captionToolChevron');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  chev.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
 function updateSourceCityCheckbox() {
   const src = document.getElementById('sourceCity').value;
   document.querySelectorAll('.city-cb').forEach(cb => {
     const lbl = document.getElementById('label_' + cb.value);
     if (cb.value === src) {
-      cb.checked = false;
-      cb.disabled = true;
+      cb.checked = false; cb.disabled = true;
       if (lbl) lbl.style.opacity = '0.4';
     } else {
       cb.disabled = false;
@@ -151,20 +333,13 @@ function updateSourceCityCheckbox() {
 }
 updateSourceCityCheckbox();
 
-function selectAll(val) {
-  const src = document.getElementById('sourceCity').value;
-  document.querySelectorAll('.city-cb').forEach(cb => {
-    if (cb.value !== src) cb.checked = val;
-  });
-}
-
 async function adaptMemes() {
   const caption = document.getElementById('sourceCaption').value.trim();
   const sourceCity = document.getElementById('sourceCity').value;
   const targetCities = [...document.querySelectorAll('.city-cb:checked:not(:disabled)')].map(cb => cb.value);
 
   if (!caption) { showToast('Bitte Caption eingeben.', 'warning'); return; }
-  if (targetCities.length === 0) { showToast('Bitte mindestens eine Ziel-Stadt wählen.', 'warning'); return; }
+  if (!targetCities.length) { showToast('Mindestens eine Ziel-Stadt wählen.', 'warning'); return; }
 
   const btn = document.getElementById('adaptBtn');
   const status = document.getElementById('adaptStatus');
@@ -174,137 +349,68 @@ async function adaptMemes() {
 
   try {
     const res = await fetch('/api/memes/adapt', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({source_city: sourceCity, caption, target_cities: targetCities})
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({source_city:sourceCity, caption, target_cities:targetCities})
     });
     const data = await res.json();
-
-    if (!data.ok) {
-      showToast('Fehler: ' + data.error, 'error');
-      return;
-    }
-
-    renderResults(data.results, sourceCity, caption);
-    status.textContent = `✅ ${Object.keys(data.results).length} Versionen generiert`;
-  } catch (e) {
+    if (!data.ok) { showToast('Fehler: ' + data.error, 'error'); return; }
+    renderCaptionResults(data.results, sourceCity, caption);
+    status.textContent = `✅ ${Object.keys(data.results).length} Versionen`;
+  } catch(e) {
     showToast('Netzwerkfehler: ' + e.message, 'error');
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Für alle Städte adaptieren';
+    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Adaptieren';
   }
 }
 
 const CITY_EMOJIS = {
-  'Frankfurt': '🏙️', 'Darmstadt': '🔬', 'Braunschweig': '🦁',
-  'Mainz': '🎭', 'Freiburg': '☀️', 'Hanau': '✨',
-  'Köln': '⛪', 'Hamburg': '⚓'
+  'Frankfurt':'🏙️','Darmstadt':'🔬','Braunschweig':'🦁',
+  'Mainz':'🎭','Freiburg':'☀️','Hanau':'✨','Köln':'⛪','Hamburg':'⚓'
 };
 
-function renderResults(results, sourceCity, originalCaption) {
-  const grid = document.getElementById('resultsGrid');
-  const section = document.getElementById('resultsSection');
+function renderCaptionResults(results, sourceCity, originalCaption) {
+  const grid = document.getElementById('captionResultsGrid');
+  const section = document.getElementById('captionResultsSection');
   grid.innerHTML = '';
-
-  // Quell-Stadt zuerst (als Referenz, nicht editierbar)
-  const allCities = [sourceCity, ...Object.keys(results).filter(c => c !== sourceCity)];
-
+  const allCities = [sourceCity, ...Object.keys(results).filter(c=>c!==sourceCity)];
   allCities.forEach(city => {
     const cap = city === sourceCity ? originalCaption : results[city];
     if (!cap) return;
-    const isSource = city === sourceCity;
-    const accId = findAccountForCity(city);
-    const emoji = CITY_EMOJIS[city] || '🏙️';
-
     const card = document.createElement('div');
     card.className = 'card';
-    card.style.cssText = 'padding:16px;position:relative';
+    card.style.cssText = 'padding:14px';
     card.dataset.city = city;
-    card.dataset.caption = cap;
-    card.dataset.accountId = accId || '';
-
     card.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:18px">${emoji}</span>
-          <span style="font-weight:700;font-size:14px">${city}</span>
-          ${isSource ? '<span style="font-size:10px;padding:2px 6px;background:var(--accent);color:#fff;border-radius:4px;font-weight:600">ORIGINAL</span>' : '<span style="font-size:10px;padding:2px 6px;background:rgba(34,197,94,.15);color:#22c55e;border-radius:4px">KI-GENERIERT</span>'}
-        </div>
-        <button onclick="copyCaption(this)" data-city="${city}"
-                style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px 8px"
-                title="Kopieren"><i class="fa-regular fa-copy"></i></button>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-weight:700;font-size:13px">${CITY_EMOJIS[city]||'🏙️'} ${city}</div>
+        <button onclick="navigator.clipboard.writeText(this.closest('.card').querySelector('textarea').value);showToast('Kopiert!','success')"
+                style="background:none;border:none;cursor:pointer;color:var(--muted)"><i class="fa-regular fa-copy"></i></button>
       </div>
-      <textarea class="input-field caption-field" rows="5" style="resize:vertical;font-size:12px;line-height:1.5"
-                data-city="${city}">${cap}</textarea>
-      ${accId ? `
-      <div style="margin-top:10px;font-size:11px;color:var(--muted)">
-        <i class="fa-brands fa-instagram" style="color:#e1306c;margin-right:4px"></i>
-        Wird gespeichert für: <strong style="color:var(--text)">${findAccountName(city)}</strong>
-      </div>` : `
-      <div style="margin-top:10px;font-size:11px;color:var(--muted)">
-        <i class="fa-solid fa-circle-info" style="margin-right:4px"></i>
-        Kein Meme-Account für ${city} verknüpft — wird als allgemeiner Entwurf gespeichert
-      </div>`}
+      <textarea class="input-field" rows="4" style="font-size:12px;resize:vertical">${cap}</textarea>
     `;
     grid.appendChild(card);
   });
-
   section.style.display = 'block';
-  section.scrollIntoView({behavior:'smooth', block:'start'});
-}
-
-function findAccountForCity(city) {
-  const cityLower = city.toLowerCase();
-  for (const [name, id] of Object.entries(accountMap)) {
-    if (name.toLowerCase().includes(cityLower)) return id;
-  }
-  return null;
-}
-
-function findAccountName(city) {
-  const cityLower = city.toLowerCase();
-  for (const name of Object.keys(accountMap)) {
-    if (name.toLowerCase().includes(cityLower)) return name;
-  }
-  return null;
-}
-
-function copyCaption(btn) {
-  const city = btn.dataset.city;
-  const ta = document.querySelector(`.caption-field[data-city="${city}"]`);
-  if (ta) {
-    navigator.clipboard.writeText(ta.value);
-    showToast('Caption kopiert!', 'success');
-  }
 }
 
 async function createAllContent() {
-  const cards = document.querySelectorAll('#resultsGrid .card');
-  const items = [];
+  const items = [...document.querySelectorAll('#captionResultsGrid .card')].map(card => ({
+    city: card.dataset.city,
+    caption: card.querySelector('textarea')?.value?.trim() || '',
+    account_id: null
+  })).filter(i => i.caption);
 
-  cards.forEach(card => {
-    const city = card.dataset.city;
-    const ta = card.querySelector('.caption-field');
-    const caption = ta ? ta.value.trim() : '';
-    const accId = parseInt(card.dataset.accountId) || null;
-    if (caption) items.push({city, caption, account_id: accId});
-  });
-
-  if (items.length === 0) { showToast('Keine Captions zum Speichern.', 'warning'); return; }
-
+  if (!items.length) return;
   const res = await fetch('/api/memes/create-content', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({items})
   });
   const data = await res.json();
-
   if (data.ok) {
-    showToast(`✅ ${data.created} Content-Entwürfe gespeichert!`, 'success');
-    setTimeout(() => window.location.href = '/content', 1500);
-  } else {
-    showToast('Fehler beim Speichern.', 'error');
-  }
+    showToast(`✅ ${data.created} Entwürfe gespeichert!`, 'success');
+    setTimeout(() => window.location.href='/content', 1500);
+  } else showToast('Fehler beim Speichern.', 'error');
 }
 </script>
 {% endblock %}

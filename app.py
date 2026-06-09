@@ -17,7 +17,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     AutomationRule, AutomationRunLog, SystemAlert, User, ActivityLog,
                     AccountGroup, ContentTemplate, ContentComment,
                     HashtagSet, NotificationSettings, AppNotification, RecurringPost,
-                    AccountAutomationProfile, AppSettings)
+                    AccountAutomationProfile, AppSettings,
+                    MemeTemplate, MemeVariant)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -5266,36 +5267,90 @@ Swap ONLY die stadtspezifischen Referenzen aus — Wahrzeichen, lokale Orte, Dia
 Der grundlegende Witz/das Meme-Format bleibt EXAKT gleich.
 Antworte NUR mit einem JSON-Objekt."""
 
+_MEME_IMAGE_ANALYSIS_PROMPT = """Du bist Experte für deutsche Stadt-Meme-Seiten auf Instagram.
+Du analysierst ein Meme-Template-Bild und recherchierst das perfekte lokale Äquivalent für andere Städte.
+
+Deine Aufgabe:
+1. Analysiere das Bild: Was zeigt es? Welcher Ort / welche Situation / welches Element ist der Kern des Memes?
+2. Für jede Ziel-Stadt: Was wäre das exakte lokale Äquivalent? Konkret und spezifisch.
+
+Format deiner Antwort — nur dieses JSON, kein anderer Text:
+{
+  "erkannt": "Kurze Beschreibung was du im Bild siehst und was der Kern-Witz/die Kern-Situation ist",
+  "quell_referenz": "Das stadtspezifische Element aus der Quell-Stadt (z.B. 'Luisenplatz, Darmstadt')",
+  "staedte": {
+    "Frankfurt": {
+      "ersatz": "Das lokale Äquivalent in Frankfurt (kurz, konkret)",
+      "begruendung": "Warum das der perfekte Tausch ist",
+      "canva_text": "Was du im Canva-Template statt dem Original eintragen solltest"
+    }
+  }
+}"""
+
 
 @app.route('/memes')
 @login_required
 def memes_dashboard():
-    """Stadt-Memes Werkzeug: Caption für eine Stadt → Claude adaptiert alle anderen."""
-    # Meme-Accounts (Kategorie enthält "meme" oder "beicht" oder Account-Name enthält "meme")
-    meme_accounts = Account.query.filter(
-        Account.status == 'active'
-    ).filter(
-        db.or_(
-            Account.name.ilike('%meme%'),
-            Account.name.ilike('%beicht%'),
-            Account.name.ilike('%humor%'),
-        )
-    ).order_by(Account.name).all()
+    """Stadt-Memes: Template-Galerie + Caption-Adapt-Tool."""
+    # Alle hochgeladenen Templates
+    templates = MemeTemplate.query.order_by(MemeTemplate.created_at.desc()).all()
 
-    # Letzte Meme-ContentItems
-    meme_cat = Category.query.filter(Category.name.ilike('%meme%')).first()
-    recent_memes = ContentItem.query.filter_by(
-        category_id=meme_cat.id if meme_cat else None
-    ).order_by(ContentItem.created_at.desc()).limit(20).all() if meme_cat else []
+    # Für jedes Template: wie viele Varianten schon fertig?
+    total_cities = len(CITY_PROFILES)
+    template_stats = {}
+    for t in templates:
+        done  = t.variants.filter_by(status='done').count()
+        skip  = t.variants.filter_by(status='skip').count()
+        total = total_cities - 1  # ohne Quell-Stadt
+        template_stats[t.id] = {'done': done, 'skip': skip, 'total': total,
+                                  'open': max(0, total - done - skip)}
+
+    # Meme-Accounts
+    meme_accounts = Account.query.filter(Account.status == 'active').filter(
+        db.or_(Account.name.ilike('%meme%'), Account.name.ilike('%beicht%'),
+               Account.name.ilike('%humor%'))
+    ).order_by(Account.name).all()
 
     has_ai_key = bool(os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key'))
 
     return render_template('memes.html',
         city_profiles=CITY_PROFILES,
+        templates=templates,
+        template_stats=template_stats,
         meme_accounts=meme_accounts,
-        recent_memes=recent_memes,
         has_ai_key=has_ai_key,
         cities=list(CITY_PROFILES.keys()),
+        active_page='memes')
+
+
+@app.route('/memes/<int:template_id>')
+@login_required
+def meme_detail(template_id):
+    """Detail-Ansicht eines Meme-Templates mit Städte-Checkliste."""
+    tmpl = MemeTemplate.query.get_or_404(template_id)
+    # Alle Varianten als Dict {city: MemeVariant}
+    variant_map = {v.city: v for v in tmpl.variants.all()}
+
+    # Für Städte ohne Variant noch leere Placeholder
+    all_cities = list(CITY_PROFILES.keys())
+    other_cities = [c for c in all_cities if c != tmpl.source_city]
+
+    # Statistik
+    done_count = sum(1 for v in variant_map.values() if v.status == 'done')
+    skip_count = sum(1 for v in variant_map.values() if v.status == 'skip')
+    open_count = max(0, len(other_cities) - done_count - skip_count)
+
+    has_ai_key = bool(os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key'))
+
+    return render_template('meme_detail.html',
+        tmpl=tmpl,
+        variant_map=variant_map,
+        other_cities=other_cities,
+        city_profiles=CITY_PROFILES,
+        done_count=done_count,
+        skip_count=skip_count,
+        open_count=open_count,
+        has_ai_key=has_ai_key,
         active_page='memes')
 
 
@@ -5436,6 +5491,229 @@ def anthropic_key_save():
     db.session.commit()
     flash('Anthropic API-Key gespeichert.', 'success')
     return redirect(url_for('integrations'))
+
+
+# ── Meme Template Upload ──────────────────────────────────────
+@app.route('/api/memes/template/upload', methods=['POST'])
+@login_required
+def meme_template_upload():
+    """Lädt ein Meme-Template-Bild hoch und speichert es als MemeTemplate."""
+    file = request.files.get('image')
+    title = request.form.get('title', '').strip()
+    source_city = request.form.get('source_city', '').strip()
+    notes = request.form.get('notes', '').strip()
+
+    if not file or not file.filename:
+        return jsonify({'ok': False, 'error': 'Kein Bild angegeben.'})
+    if source_city not in CITY_PROFILES:
+        return jsonify({'ok': False, 'error': f'Stadt "{source_city}" nicht bekannt.'})
+
+    # Auto-title aus Dateiname
+    if not title:
+        base = file.filename.rsplit('.', 1)[0].replace('_', ' ').replace('-', ' ')
+        title = base[:100]
+
+    # Cloudinary Upload
+    result = _cloudinary_upload(file, file.filename)
+    if not result:
+        return jsonify({'ok': False, 'error': 'Cloudinary Upload fehlgeschlagen. Ist CLOUDINARY_URL gesetzt?'})
+
+    tmpl = MemeTemplate(
+        title=title,
+        image_url=result.get('secure_url', ''),
+        cloudinary_public_id=result.get('public_id', ''),
+        source_city=source_city,
+        notes=notes,
+    )
+    db.session.add(tmpl)
+    db.session.commit()
+
+    # Quell-Stadt-Variante sofort als "done" anlegen
+    src_var = MemeVariant(
+        template_id=tmpl.id,
+        city=source_city,
+        status='done',
+        notes='Original-Vorlage',
+    )
+    db.session.add(src_var)
+    db.session.commit()
+
+    return jsonify({'ok': True, 'template_id': tmpl.id,
+                    'image_url': tmpl.image_url, 'title': tmpl.title})
+
+
+@app.route('/api/memes/template/<int:template_id>/delete', methods=['POST'])
+@login_required
+def meme_template_delete(template_id):
+    """Löscht ein Meme-Template inkl. Cloudinary-Bild und allen Varianten."""
+    tmpl = MemeTemplate.query.get_or_404(template_id)
+    if tmpl.cloudinary_public_id:
+        _cloudinary_delete(tmpl.cloudinary_public_id)
+    db.session.delete(tmpl)
+    db.session.commit()
+    flash('Template gelöscht.', 'info')
+    return redirect(url_for('memes_dashboard'))
+
+
+# ── Meme Template Analysis (Claude multimodal) ───────────────
+@app.route('/api/memes/<int:template_id>/analyse', methods=['POST'])
+@login_required
+def meme_template_analyse(template_id):
+    """Claude analysiert das Bild und schlägt für jede Stadt das Äquivalent vor."""
+    tmpl = MemeTemplate.query.get_or_404(template_id)
+    if not tmpl.image_url:
+        return jsonify({'ok': False, 'error': 'Kein Bild für dieses Template vorhanden.'})
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert.'})
+
+    source_city = tmpl.source_city or ''
+    other_cities = [c for c in CITY_PROFILES if c != source_city]
+
+    # Stadtprofile für den Prompt
+    profiles_text = ''
+    for city in other_cities:
+        p = CITY_PROFILES[city]
+        profiles_text += f"""
+{city} ({p['emoji']}):
+  Wahrzeichen: {', '.join(p['wahrzeichen'][:5])}
+  Hauptplatz: {p['hauptplatz']}
+  Markt: {p['markt']}
+  Stadtteile: {', '.join(p['stadtteile'][:3])}
+  Lokales Essen: {', '.join(p['local_food'][:3])}
+  Dialekt: {', '.join(p['dialekt'][:3])}
+  Verein: {p['verein']}
+  Humor: {p['humor']}
+  Typisch: {p['typisch']}
+"""
+
+    user_text = f"""Das ist ein Meme-Template für {source_city}.
+
+Quell-Stadt-Profil ({source_city}):
+  Wahrzeichen: {', '.join(CITY_PROFILES[source_city]['wahrzeichen'][:5]) if source_city in CITY_PROFILES else 'unbekannt'}
+  Hauptplatz: {CITY_PROFILES[source_city]['hauptplatz'] if source_city in CITY_PROFILES else ''}
+  Humor: {CITY_PROFILES[source_city]['humor'] if source_city in CITY_PROFILES else ''}
+
+Ziel-Städte und ihre Profile:
+{profiles_text}
+
+Analysiere das Bild und erstelle für jede dieser Städte einen konkreten Vorschlag:
+{json.dumps(other_cities)}
+
+Antworte NUR mit dem JSON-Objekt (kein Markdown, kein anderer Text)."""
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model='claude-opus-4-5',
+            max_tokens=6000,
+            system=_MEME_IMAGE_ANALYSIS_PROMPT,
+            messages=[{
+                'role': 'user',
+                'content': [
+                    {
+                        'type': 'image',
+                        'source': {
+                            'type': 'url',
+                            'url': tmpl.image_url,
+                        }
+                    },
+                    {'type': 'text', 'text': user_text}
+                ]
+            }]
+        )
+        raw = message.content[0].text.strip()
+
+        # JSON extrahieren
+        if '```' in raw:
+            import re
+            match = re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', raw)
+            raw = match.group(1) if match else raw
+
+        result = json.loads(raw)
+
+        # Varianten speichern / aktualisieren
+        staedte_data = result.get('staedte', {})
+        for city, data in staedte_data.items():
+            if city not in CITY_PROFILES:
+                continue
+            suggestion_text = (
+                f"**Ersatz:** {data.get('ersatz', '')}\n"
+                f"**Warum:** {data.get('begruendung', '')}\n"
+                f"**Canva-Text:** {data.get('canva_text', '')}"
+            )
+            existing = MemeVariant.query.filter_by(
+                template_id=template_id, city=city
+            ).first()
+            if existing:
+                existing.suggestion = suggestion_text
+                existing.updated_at = datetime.utcnow()
+            else:
+                db.session.add(MemeVariant(
+                    template_id=template_id,
+                    city=city,
+                    status='pending',
+                    suggestion=suggestion_text,
+                ))
+        db.session.commit()
+
+        return jsonify({
+            'ok': True,
+            'erkannt': result.get('erkannt', ''),
+            'quell_referenz': result.get('quell_referenz', ''),
+            'staedte': staedte_data,
+            'cities_updated': len(staedte_data),
+        })
+
+    except json.JSONDecodeError as e:
+        return jsonify({'ok': False, 'error': f'Claude JSON-Fehler: {e}', 'raw': raw[:500]})
+    except Exception as e:
+        app.logger.error('meme_analyse error: %s', e)
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+# ── Meme Variant Status Update ────────────────────────────────
+@app.route('/api/memes/<int:template_id>/variant/<city>/update', methods=['POST'])
+@login_required
+def meme_variant_update(template_id, city):
+    """Aktualisiert Status und/oder Notizen einer Meme-Variante."""
+    MemeTemplate.query.get_or_404(template_id)  # 404 if template missing
+    d = request.get_json() or {}
+    new_status = d.get('status')   # pending / done / skip
+    notes = d.get('notes')
+
+    variant = MemeVariant.query.filter_by(template_id=template_id, city=city).first()
+    if not variant:
+        variant = MemeVariant(template_id=template_id, city=city, status='pending')
+        db.session.add(variant)
+
+    if new_status in ('pending', 'done', 'skip'):
+        variant.status = new_status
+    if notes is not None:
+        variant.notes = notes
+    variant.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({'ok': True, 'status': variant.status})
+
+
+# ── Meme Variant Notes Save ───────────────────────────────────
+@app.route('/api/memes/<int:template_id>/variant/<city>/notes', methods=['POST'])
+@login_required
+def meme_variant_notes(template_id, city):
+    """Speichert nur die Notizen einer Variante."""
+    MemeTemplate.query.get_or_404(template_id)
+    notes = (request.get_json() or {}).get('notes', '')
+    variant = MemeVariant.query.filter_by(template_id=template_id, city=city).first()
+    if not variant:
+        variant = MemeVariant(template_id=template_id, city=city, status='pending')
+        db.session.add(variant)
+    variant.notes = notes
+    variant.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────

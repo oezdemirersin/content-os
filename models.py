@@ -559,3 +559,33 @@ class RecurringPost(db.Model):
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
     content_item    = db.relationship('ContentItem', backref='recurring_posts')
     account         = db.relationship('Account', backref='recurring_posts')
+
+
+# ── Meme Templates ───────────────────────────────────────────
+class MemeTemplate(db.Model):
+    """Ein hochgeladenes Meme-Template-Bild (Canva-Export)."""
+    __tablename__ = 'meme_template'
+    id                   = db.Column(db.Integer, primary_key=True)
+    title                = db.Column(db.String(200))
+    image_url            = db.Column(db.String(500))        # Cloudinary URL
+    cloudinary_public_id = db.Column(db.String(200))        # für späteres Löschen
+    source_city          = db.Column(db.String(100))        # z.B. "Darmstadt"
+    notes                = db.Column(db.Text)
+    created_at           = db.Column(db.DateTime, default=datetime.utcnow)
+    variants             = db.relationship('MemeVariant', backref='template',
+                                           lazy='dynamic', cascade='all,delete')
+
+
+class MemeVariant(db.Model):
+    """Status + Claude-Vorschlag für eine Stadt-Variante eines Templates."""
+    __tablename__ = 'meme_variant'
+    id              = db.Column(db.Integer, primary_key=True)
+    template_id     = db.Column(db.Integer, db.ForeignKey('meme_template.id'), nullable=False)
+    city            = db.Column(db.String(100), nullable=False)   # z.B. "Frankfurt"
+    status          = db.Column(db.String(20), default='pending')
+    # pending → noch offen | done → Canva-Version fertig | skip → überspringen
+    suggestion      = db.Column(db.Text)   # Claude-Vorschlag (Text/JSON)
+    notes           = db.Column(db.Text)   # eigene Notizen
+    content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at      = db.Column(db.DateTime, default=datetime.utcnow)
