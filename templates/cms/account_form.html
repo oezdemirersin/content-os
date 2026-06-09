@@ -26,7 +26,7 @@
         </div>
         <div>
           <label class="form-label">Profil-Link</label>
-          <input type="url" name="profile_url" value="{{ account.profile_url if account else '' }}"
+          <input type="text" name="profile_url" value="{{ account.profile_url if account else '' }}"
                  class="input-field" placeholder="https://instagram.com/username">
         </div>
         <div>
@@ -200,8 +200,8 @@
       </div>
       <div style="display:flex;flex-direction:column;gap:12px">
         <div>
-          <label class="form-label">Canva-Link (Ordner oder Template)</label>
-          <input type="url" name="canva_url" value="{{ account.canva_url if account else '' }}"
+          <label class="form-label">Canva-Link (Ordner oder Template) <span style="color:var(--muted);font-weight:400">— optional</span></label>
+          <input type="text" name="canva_url" value="{{ account.canva_url if account else '' }}"
                  class="input-field" placeholder="https://www.canva.com/design/...">
         </div>
         <div>

@@ -1289,7 +1289,7 @@ def account_new():
         interval = float(d.get('posting_interval_days') or 1.0)
         acc = Account(
             name=d['name'], handle=d.get('handle', ''),
-            profile_url=d.get('profile_url', ''),
+            profile_url=d.get('profile_url', '').strip() or None,
             platform_id=int(d['platform_id']),
             category_id=int(d['category_id']) if d.get('category_id') else None,
             follower_count=int(d.get('follower_count') or 0),
@@ -1301,6 +1301,10 @@ def account_new():
             target_feed_per_day=round(1.0 / interval, 3) if interval > 0 else 1.0,
             min_stock_days=int(d.get('min_stock_days') or 3),
             optimal_stock_days=int(d.get('optimal_stock_days') or 14),
+            telegram_chat_id=d.get('telegram_chat_id', '').strip() or None,
+            canva_url=d.get('canva_url', '').strip() or None,
+            layout_notes=d.get('layout_notes', '').strip() or None,
+            page_persona=d.get('page_persona', '').strip() or None,
         )
         db.session.add(acc)
         db.session.flush()
