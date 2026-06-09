@@ -95,12 +95,13 @@
           </div>
           <!-- City-Dots -->
           <div style="display:flex;flex-wrap:wrap;gap:3px">
+            {% set city_map = template_variants.get(t.id, {}) %}
             {% for city in city_profiles %}
             {% if city != t.source_city %}
-              {% set v = t.variants.filter_by(city=city).first() %}
-              {% if v and v.status == 'done' %}
+              {% set st = city_map.get(city, '') %}
+              {% if st == 'done' %}
                 <span title="{{ city }}" style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block"></span>
-              {% elif v and v.status == 'skip' %}
+              {% elif st == 'skip' %}
                 <span title="{{ city }}" style="width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;opacity:.4"></span>
               {% else %}
                 <span title="{{ city }}" style="width:8px;height:8px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:inline-block"></span>

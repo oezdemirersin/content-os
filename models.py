@@ -573,7 +573,7 @@ class MemeTemplate(db.Model):
     notes                = db.Column(db.Text)
     created_at           = db.Column(db.DateTime, default=datetime.utcnow)
     variants             = db.relationship('MemeVariant', backref='template',
-                                           lazy='dynamic', cascade='all,delete')
+                                           lazy='select', cascade='all,delete')
 
 
 class MemeVariant(db.Model):

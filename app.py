@@ -5296,14 +5296,18 @@ def memes_dashboard():
     templates = MemeTemplate.query.order_by(MemeTemplate.created_at.desc()).all()
 
     # Für jedes Template: wie viele Varianten schon fertig?
+    # + city→status Map für die Galerie-Dots
     total_cities = len(CITY_PROFILES)
     template_stats = {}
+    template_variants = {}   # {template_id: {city: status}}
     for t in templates:
-        done  = t.variants.filter_by(status='done').count()
-        skip  = t.variants.filter_by(status='skip').count()
+        vs = t.variants  # lazy='select' → bereits geladene Liste
+        done  = sum(1 for v in vs if v.status == 'done')
+        skip  = sum(1 for v in vs if v.status == 'skip')
         total = total_cities - 1  # ohne Quell-Stadt
-        template_stats[t.id] = {'done': done, 'skip': skip, 'total': total,
-                                  'open': max(0, total - done - skip)}
+        template_stats[t.id]   = {'done': done, 'skip': skip, 'total': total,
+                                   'open': max(0, total - done - skip)}
+        template_variants[t.id] = {v.city: v.status for v in vs}
 
     # Meme-Accounts
     meme_accounts = Account.query.filter(Account.status == 'active').filter(
@@ -5317,6 +5321,7 @@ def memes_dashboard():
         city_profiles=CITY_PROFILES,
         templates=templates,
         template_stats=template_stats,
+        template_variants=template_variants,
         meme_accounts=meme_accounts,
         has_ai_key=has_ai_key,
         cities=list(CITY_PROFILES.keys()),
@@ -5329,7 +5334,7 @@ def meme_detail(template_id):
     """Detail-Ansicht eines Meme-Templates mit Städte-Checkliste."""
     tmpl = MemeTemplate.query.get_or_404(template_id)
     # Alle Varianten als Dict {city: MemeVariant}
-    variant_map = {v.city: v for v in tmpl.variants.all()}
+    variant_map = {v.city: v for v in tmpl.variants}
 
     # Für Städte ohne Variant noch leere Placeholder
     all_cities = list(CITY_PROFILES.keys())
