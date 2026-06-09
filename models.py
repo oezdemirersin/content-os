@@ -595,3 +595,32 @@ class MemeVariant(db.Model):
     content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at      = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class InspirationSource(db.Model):
+    """Eine Instagram-Seite die wir beobachten (Inspiration-Quellen)."""
+    __tablename__ = 'inspiration_source'
+    id         = db.Column(db.Integer, primary_key=True)
+    username   = db.Column(db.String(100), nullable=False, unique=True)
+    notes      = db.Column(db.Text)
+    last_fetch = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    posts      = db.relationship('InspirationPost', backref='source',
+                                 lazy='select', cascade='all,delete')
+
+
+class InspirationPost(db.Model):
+    """Ein heruntergeladener Post von einer beobachteten Seite."""
+    __tablename__ = 'inspiration_post'
+    id              = db.Column(db.Integer, primary_key=True)
+    source_id       = db.Column(db.Integer, db.ForeignKey('inspiration_source.id'), nullable=False)
+    instagram_code  = db.Column(db.String(50), unique=True)   # Post-Shortcode
+    image_url       = db.Column(db.String(1000))              # Original Instagram CDN URL
+    thumbnail_url   = db.Column(db.String(1000))              # kleinere Version
+    caption         = db.Column(db.Text)
+    post_date       = db.Column(db.DateTime)
+    media_type      = db.Column(db.String(20), default='image')  # image | video | carousel
+    # Status: new=frisch | saved=will ich verwenden | ignored=nicht interessant | used=schon übernommen
+    status          = db.Column(db.String(20), default='new', index=True)
+    content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)

@@ -18,7 +18,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     AccountGroup, ContentTemplate, ContentComment,
                     HashtagSet, NotificationSettings, AppNotification, RecurringPost,
                     AccountAutomationProfile, AppSettings,
-                    MemeTemplate, MemeVariant)
+                    MemeTemplate, MemeVariant,
+                    InspirationSource, InspirationPost)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -5255,11 +5256,12 @@ def integrations():
     auto_sync       = gs('ig_auto_sync', '1') != '0'
     telegram_token  = gs('telegram_bot_token')
     anthropic_key   = gs('anthropic_api_key')
-    # Mask key for display: show only first 8 chars if set
-    if anthropic_key:
-        anthropic_key_display = anthropic_key[:8] + '…' if len(anthropic_key) > 8 else anthropic_key
-    else:
-        anthropic_key_display = ''
+    rapidapi_key    = gs('rapidapi_key')
+    # Mask keys for display
+    def mask(k): return (k[:8] + '…') if k and len(k) > 8 else k
+    anthropic_key_display = mask(anthropic_key)
+    rapidapi_key_display  = mask(rapidapi_key)
+
     ig_accounts_count = Account.query.filter(
         Account.handle != None, Account.handle != '', Account.status == 'active'
     ).count()
@@ -5270,6 +5272,7 @@ def integrations():
         ig_accounts_count=ig_accounts_count,
         telegram_token=telegram_token,
         anthropic_key=anthropic_key_display,
+        rapidapi_key=rapidapi_key_display,
         active_page='integrations')
 
 
@@ -5929,6 +5932,20 @@ def anthropic_key_save():
     return redirect(url_for('integrations'))
 
 
+@app.route('/settings/rapidapi-key', methods=['POST'])
+@login_required
+def rapidapi_key_save():
+    key = request.form.get('rapidapi_key', '').strip()
+    s = AppSettings.query.filter_by(key='rapidapi_key').first()
+    if not s:
+        s = AppSettings(key='rapidapi_key')
+        db.session.add(s)
+    s.value = key
+    db.session.commit()
+    flash('RapidAPI-Key gespeichert.', 'success')
+    return redirect(url_for('integrations'))
+
+
 # ── Meme Template Upload ──────────────────────────────────────
 @app.route('/api/memes/template/upload', methods=['POST'])
 @login_required
@@ -6165,6 +6182,248 @@ def meme_variant_notes(template_id, city):
     variant.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'ok': True})
+
+
+# ─────────────────────── INSPIRATIONEN ────────────────────────
+
+@app.route('/inspirationen')
+@login_required
+def inspirationen():
+    sources = InspirationSource.query.order_by(InspirationSource.username).all()
+    status_filter = request.args.get('status', 'new')
+    source_filter = request.args.get('source', type=int)
+
+    q = InspirationPost.query
+    if status_filter and status_filter != 'all':
+        q = q.filter_by(status=status_filter)
+    if source_filter:
+        q = q.filter_by(source_id=source_filter)
+    posts = q.order_by(InspirationPost.post_date.desc()).limit(200).all()
+
+    counts = {
+        'new':     InspirationPost.query.filter_by(status='new').count(),
+        'saved':   InspirationPost.query.filter_by(status='saved').count(),
+        'ignored': InspirationPost.query.filter_by(status='ignored').count(),
+        'used':    InspirationPost.query.filter_by(status='used').count(),
+    }
+
+    has_rapidapi_key = bool(get_setting('rapidapi_key'))
+    return render_template('inspirationen.html',
+        sources=sources, posts=posts, counts=counts,
+        status_filter=status_filter, source_filter=source_filter,
+        has_rapidapi_key=has_rapidapi_key,
+        active_page='inspirationen')
+
+
+@app.route('/api/inspirationen/sources', methods=['POST'])
+@login_required
+def inspiration_source_add():
+    """Neue Instagram-Quelle hinzufügen."""
+    d = request.get_json() or {}
+    username = (d.get('username') or '').strip().lstrip('@').lower()
+    if not username:
+        return jsonify({'ok': False, 'error': 'Username fehlt'})
+    if InspirationSource.query.filter_by(username=username).first():
+        return jsonify({'ok': False, 'error': f'@{username} wird bereits beobachtet.'})
+    src = InspirationSource(username=username, notes=d.get('notes', ''))
+    db.session.add(src)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': src.id, 'username': src.username})
+
+
+@app.route('/api/inspirationen/sources/<int:src_id>', methods=['DELETE'])
+@login_required
+def inspiration_source_delete(src_id):
+    src = InspirationSource.query.get_or_404(src_id)
+    db.session.delete(src)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/inspirationen/fetch/<int:src_id>', methods=['POST'])
+@login_required
+def inspiration_fetch(src_id):
+    """Holt die letzten Posts einer Quelle via RapidAPI Instagram Scraper."""
+    import requests as req_lib
+
+    src     = InspirationSource.query.get_or_404(src_id)
+    api_key = get_setting('rapidapi_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein RapidAPI-Key konfiguriert. Bitte in Einstellungen → Integrationen eintragen.'})
+
+    # RapidAPI: instagram-scraper-api2
+    url  = 'https://instagram-scraper-api2.p.rapidapi.com/v1/posts'
+    headers = {
+        'x-rapidapi-key':  api_key,
+        'x-rapidapi-host': 'instagram-scraper-api2.p.rapidapi.com',
+    }
+    try:
+        resp = req_lib.get(url, headers=headers,
+                           params={'username_or_id_or_url': src.username},
+                           timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'API-Fehler: {str(e)}'})
+
+    items = (data.get('data') or {}).get('items') or []
+    if not items:
+        # Fallback: manche APIs liefern direkt eine Liste
+        items = data if isinstance(data, list) else []
+
+    new_count = 0
+    for item in items[:30]:  # max 30 auf einmal
+        # Shortcode extrahieren
+        code = item.get('code') or item.get('shortcode') or item.get('id') or ''
+        if not code:
+            continue
+        code = str(code)
+
+        # Bereits vorhanden?
+        if InspirationPost.query.filter_by(instagram_code=code).first():
+            continue
+
+        # Bild-URL extrahieren (verschiedene API-Formate)
+        img_url = None
+        thumb_url = None
+
+        # Format 1: image_versions.items[0].url
+        iv = item.get('image_versions') or item.get('image_versions2') or {}
+        iv_items = iv.get('items') or []
+        if iv_items:
+            img_url   = iv_items[0].get('url')
+            thumb_url = iv_items[-1].get('url') if len(iv_items) > 1 else img_url
+
+        # Format 2: thumbnail_url / display_url
+        if not img_url:
+            img_url   = item.get('thumbnail_url') or item.get('display_url') or item.get('image_url')
+            thumb_url = img_url
+
+        # Format 3: carousel_media[0]
+        if not img_url and item.get('carousel_media'):
+            first = item['carousel_media'][0]
+            iv2 = first.get('image_versions2') or first.get('image_versions') or {}
+            iv2_items = iv2.get('items') or []
+            if iv2_items:
+                img_url   = iv2_items[0].get('url')
+                thumb_url = iv2_items[-1].get('url') if len(iv2_items) > 1 else img_url
+
+        if not img_url:
+            continue
+
+        # Caption
+        cap_obj = item.get('caption') or {}
+        caption = cap_obj.get('text') if isinstance(cap_obj, dict) else (cap_obj or '')
+
+        # Datum
+        taken_at = item.get('taken_at') or item.get('timestamp')
+        post_date = datetime.utcfromtimestamp(int(taken_at)) if taken_at else None
+
+        # Typ
+        mt = item.get('media_type', 1)
+        media_type = 'video' if mt == 2 else ('carousel' if mt == 8 else 'image')
+
+        post = InspirationPost(
+            source_id      = src.id,
+            instagram_code = code,
+            image_url      = img_url,
+            thumbnail_url  = thumb_url or img_url,
+            caption        = str(caption or ''),
+            post_date      = post_date,
+            media_type     = media_type,
+            status         = 'new',
+        )
+        db.session.add(post)
+        new_count += 1
+
+    src.last_fetch = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True, 'new': new_count,
+                    'message': f'{new_count} neue Posts von @{src.username} geladen.'})
+
+
+@app.route('/api/inspirationen/<int:post_id>/status', methods=['POST'])
+@login_required
+def inspiration_post_status(post_id):
+    """Status eines Inspirations-Posts ändern: new | saved | ignored | used."""
+    post   = InspirationPost.query.get_or_404(post_id)
+    status = (request.get_json() or {}).get('status', 'new')
+    if status not in ('new', 'saved', 'ignored', 'used'):
+        return jsonify({'ok': False, 'error': 'Ungültiger Status'})
+    post.status = status
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/inspirationen/<int:post_id>/use', methods=['POST'])
+@login_required
+def inspiration_post_use(post_id):
+    """
+    Lädt das Bild eines Inspiration-Posts zu Cloudinary hoch und erstellt
+    ein ContentItem daraus → landet dann in Hochladen & Einplanen.
+    """
+    import requests as req_lib
+
+    post = InspirationPost.query.get_or_404(post_id)
+
+    # Bild von Instagram CDN laden
+    try:
+        r = req_lib.get(post.image_url, timeout=15,
+                        headers={'User-Agent': 'Mozilla/5.0'})
+        r.raise_for_status()
+        img_bytes = r.content
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Bild konnte nicht geladen werden: {e}'})
+
+    # Zu Cloudinary hochladen
+    fname = f'insp_{post.instagram_code}.jpg'
+    cl = _cloudinary_upload(io.BytesIO(img_bytes), fname)
+
+    if cl:
+        media = MediaItem(
+            filename=cl['public_id'],
+            original_filename=fname,
+            file_type='image',
+            mime_type='image/jpeg',
+            file_size=cl.get('bytes', len(img_bytes)),
+            width=cl.get('width'),
+            height=cl.get('height'),
+            url=cl['secure_url'],
+            storage_source='cloudinary',
+        )
+    else:
+        unique_name = f"{uuid.uuid4().hex}.jpg"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+        with open(filepath, 'wb') as f:
+            f.write(img_bytes)
+        media = MediaItem(
+            filename=unique_name,
+            original_filename=fname,
+            file_type='image',
+            mime_type='image/jpeg',
+            file_size=len(img_bytes),
+            url=f'/media/file/{unique_name}',
+            storage_source='local',
+        )
+    db.session.add(media)
+    db.session.flush()
+
+    ci = ContentItem(
+        title=f'Inspiration @{post.source.username}' if post.source else 'Inspiration',
+        caption=post.caption or '',
+        status='ready',
+        content_type='feed',
+    )
+    db.session.add(ci)
+    db.session.flush()
+    media.content_item_id = ci.id
+    post.status          = 'used'
+    post.content_item_id = ci.id
+    db.session.commit()
+
+    return jsonify({'ok': True, 'content_item_id': ci.id,
+                    'thumb': media.url,
+                    'message': 'Bild übernommen — jetzt in Hochladen & Einplanen verfügbar.'})
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────

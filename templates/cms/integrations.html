@@ -216,6 +216,43 @@
     </form>
   </div>
 
+  <!-- ── RAPIDAPI (Instagram Scraper) ──────────────────────── -->
+  <div class="card" style="padding:28px;margin-top:20px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <div style="width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+                  background:linear-gradient(135deg,#0d6efd,#0a4fb5);flex-shrink:0">
+        <i class="fa-brands fa-instagram" style="color:#fff;font-size:20px"></i>
+      </div>
+      <div>
+        <div style="font-family:var(--font-display);font-size:17px;letter-spacing:.5px">RAPIDAPI — INSTAGRAM SCRAPER</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">
+          Für Inspirationen — lädt Posts von anderen Instagram-Seiten herunter
+        </div>
+      </div>
+      {% if rapidapi_key %}
+      <span class="badge badge-green" style="margin-left:auto">API-Key gesetzt</span>
+      {% else %}
+      <span class="badge" style="margin-left:auto;background:var(--surface2);color:var(--muted)">Nicht konfiguriert</span>
+      {% endif %}
+    </div>
+    <form method="POST" action="{{ url_for('rapidapi_key_save') }}">
+      <div style="margin-bottom:16px">
+        <label class="form-label">RapidAPI Key</label>
+        <input type="password" name="rapidapi_key"
+               value="{{ rapidapi_key or '' }}"
+               class="input-field" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+               style="font-family:monospace;font-size:13px">
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">
+          Key holen: <a href="https://rapidapi.com/hub" target="_blank" style="color:var(--accent)">rapidapi.com</a>
+          → Konto erstellen → API "Instagram Scraper API2" suchen → Kostenlos abonnieren → Key kopieren
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">
+        <i class="fa-solid fa-floppy-disk"></i> API-Key speichern
+      </button>
+    </form>
+  </div>
+
   <!-- ── TELEGRAM ──────────────────────────────────────────── -->
   <div class="card" style="padding:28px;margin-top:20px">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
