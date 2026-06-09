@@ -85,6 +85,28 @@
   </div>
 </div>
 
+<!-- ── VOLLAUTOMATISCH-BANNER ── -->
+{% if is_auto %}
+<div style="display:flex;align-items:center;gap:12px;padding:14px 18px;
+            background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);
+            border-radius:12px;margin-bottom:20px">
+  <div style="width:32px;height:32px;border-radius:8px;background:rgba(34,197,94,.15);
+              display:flex;align-items:center;justify-content:center;flex-shrink:0">
+    <i class="fa-solid fa-robot" style="color:#22c55e;font-size:14px"></i>
+  </div>
+  <div style="flex:1">
+    <div style="font-weight:700;font-size:13px;color:#22c55e">Vollautomatisch</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">
+      Diese Seite läuft automatisch über CityBot / externe Automation — kein manueller Vorrat nötig.
+      Vorrats-Warnungen sind deaktiviert.
+    </div>
+  </div>
+  <a href="{{ url_for('account_edit', account_id=account.id) }}" style="font-size:11px;color:var(--muted);text-decoration:none">
+    Einstellungen
+  </a>
+</div>
+{% endif %}
+
 <!-- Alerts -->
 {% if account_alerts %}
 <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
@@ -532,6 +554,127 @@
       </button>
       <button onclick="closeFollowerModal()" class="btn btn-ghost">Abbrechen</button>
     </div>
+  </div>
+</div>
+
+<!-- ══════ LAYOUT & CANVA ══════ -->
+<div class="card" style="padding:20px;margin-bottom:20px" x-data="{open:{{ 'true' if account.canva_url or account.layout_notes else 'false' }}}">
+  <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" @click="open=!open">
+    <div style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px;display:flex;align-items:center;gap:8px">
+      <i class="fa-brands fa-figma" style="color:#f24e1e"></i> LAYOUT & CANVA
+      {% if account.canva_url %}
+      <span style="padding:2px 8px;background:rgba(242,78,30,.12);border-radius:6px;font-size:10px;color:#f24e1e;font-weight:600">Link gesetzt</span>
+      {% endif %}
+    </div>
+    <i class="fa-solid fa-chevron-down" style="color:var(--muted);transition:transform .2s" :style="open?'transform:rotate(180deg)':''"></i>
+  </div>
+
+  <div x-show="open" x-transition style="margin-top:16px;display:flex;flex-direction:column;gap:12px">
+    <div>
+      <label class="form-label">Canva-Link (Ordner oder Template)</label>
+      <div style="display:flex;gap:8px">
+        <input type="url" id="canvaUrl" value="{{ account.canva_url or '' }}"
+               class="input-field" placeholder="https://www.canva.com/design/..."
+               style="flex:1">
+        {% if account.canva_url %}
+        <a href="{{ account.canva_url }}" target="_blank" class="btn btn-ghost" style="flex-shrink:0">
+          <i class="fa-solid fa-arrow-up-right-from-square"></i> Öffnen
+        </a>
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      <label class="form-label">Layout-Notizen (Farben, Schriften, Stil)</label>
+      <textarea id="layoutNotes" rows="3" class="input-field" style="resize:vertical"
+                placeholder="z.B. Hauptfarbe: #FF5500 · Schrift: Bebas Neue · Stil: Modern/Dunkel · Bildformat: 4:5">{{ account.layout_notes or '' }}</textarea>
+    </div>
+
+    <!-- Verknüpfte Templates -->
+    {% if linked_templates %}
+    <div>
+      <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:8px">VERKNÜPFTE TEMPLATES</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        {% for tmpl in linked_templates %}
+        <a href="{{ url_for('content_templates') }}" style="display:flex;align-items:center;gap:6px;padding:5px 10px;
+           background:var(--surface2);border-radius:8px;text-decoration:none;color:var(--text);font-size:12px;border:1px solid var(--border)">
+          <i class="fa-solid fa-rectangle-list" style="color:var(--accent);font-size:10px"></i>
+          {{ tmpl.name }}
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <button onclick="saveLayoutInfo({{ account.id }})" class="btn btn-primary" style="align-self:flex-start">
+      <i class="fa-solid fa-floppy-disk"></i> Speichern
+    </button>
+  </div>
+</div>
+
+<!-- ══════ INSPIRATION ══════ -->
+<div class="card" style="padding:20px;margin-bottom:20px" id="inspirationCard">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px;display:flex;align-items:center;gap:8px">
+      <i class="fa-solid fa-lightbulb" style="color:#f59e0b"></i> CONTENT-INSPIRATION
+      {% if not has_ai_key %}
+      <span style="font-size:10px;color:var(--danger)">
+        <a href="{{ url_for('integrations') }}" style="color:var(--danger)">API-Key fehlt</a>
+      </span>
+      {% endif %}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button onclick="document.getElementById('personaSection').style.display=document.getElementById('personaSection').style.display==='none'?'block':'none'"
+              class="btn btn-ghost" style="font-size:11px">
+        <i class="fa-solid fa-user-pen"></i> Seiten-Persönlichkeit
+      </button>
+    </div>
+  </div>
+
+  <!-- Seiten-Persönlichkeit (einklappbar) -->
+  <div id="personaSection" style="display:{% if account.page_persona %}block{% else %}none{% endif %};margin-bottom:16px">
+    <label class="form-label">Seiten-Persönlichkeit (beschreibe was diese Seite macht, für wen, in welchem Stil)</label>
+    <textarea id="personaText" rows="3" class="input-field" style="resize:vertical;margin-bottom:8px"
+              placeholder="z.B. Satirische Fake-News im Tagesschau-Stil. Wir veralbern aktuelle Ereignisse humoristisch. Zielgruppe: Deutsche 18-35, politikinteressiert aber nicht zu ernst. Ton: ironisch, bissig, aber nicht beleidigend.">{{ account.page_persona or '' }}</textarea>
+    <button onclick="savePersona({{ account.id }})" class="btn btn-ghost" style="font-size:11px">
+      <i class="fa-solid fa-floppy-disk"></i> Persönlichkeit speichern
+    </button>
+  </div>
+
+  <!-- Generator -->
+  <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;margin-bottom:12px">
+    <div>
+      <label class="form-label">Aktuelles Thema / Trending-Aufhänger (optional)</label>
+      <input type="text" id="inspireTopic" class="input-field"
+             placeholder="z.B. Bundestagswahl, Champions League Finale, Hitzewelle…">
+    </div>
+    <div>
+      <label class="form-label">Stil</label>
+      <select id="inspireStyle" class="select-field">
+        <option value="standard">Standard</option>
+        <option value="satirisch">Satirisch / Fake-News</option>
+        <option value="meme">Meme</option>
+        <option value="humor">Humor / Leicht</option>
+      </select>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+    <button onclick="generateInspiration({{ account.id }})" class="btn btn-primary" id="inspireBtn"
+            {% if not has_ai_key %}disabled{% endif %}>
+      <i class="fa-solid fa-wand-magic-sparkles"></i> Ideen generieren
+    </button>
+    <select id="inspireCount" class="select-field" style="width:auto">
+      <option value="5">5 Ideen</option>
+      <option value="10" selected>10 Ideen</option>
+      <option value="15">15 Ideen</option>
+    </select>
+    <div id="inspireStatus" style="font-size:12px;color:var(--muted)"></div>
+  </div>
+
+  <!-- Ergebnisse -->
+  <div id="inspireResults" style="display:none">
+    <div style="font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.5px;margin-bottom:10px">GENERIERTE IDEEN</div>
+    <div id="inspireList" style="display:flex;flex-direction:column;gap:8px"></div>
   </div>
 </div>
 
@@ -1118,6 +1261,118 @@ async function saveRecurring(accountId) {
   } else {
     showToast(res.error || 'Fehler', true);
   }
+}
+
+// ── Layout & Canva ────────────────────────────────────────────
+async function saveLayoutInfo(accountId) {
+  const canvaUrl    = document.getElementById('canvaUrl')?.value?.trim() || '';
+  const layoutNotes = document.getElementById('layoutNotes')?.value?.trim() || '';
+  const fd = new FormData();
+  fd.append('canva_url', canvaUrl);
+  fd.append('layout_notes', layoutNotes);
+  // Quicksave via dedicated API endpoint
+  const res = await fetch(`/api/accounts/${accountId}/layout`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({canva_url: canvaUrl, layout_notes: layoutNotes})
+  });
+  const d = await res.json();
+  if (d.ok) showToast('Layout-Info gespeichert ✓', 'success');
+  else showToast('Fehler beim Speichern', 'error');
+}
+
+// ── Inspiration ───────────────────────────────────────────────
+async function savePersona(accountId) {
+  const persona = document.getElementById('personaText')?.value?.trim() || '';
+  const res = await fetch(`/api/accounts/${accountId}/persona`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({persona})
+  });
+  const d = await res.json();
+  if (d.ok) showToast('Seiten-Persönlichkeit gespeichert ✓', 'success');
+}
+
+async function generateInspiration(accountId) {
+  const topic  = document.getElementById('inspireTopic')?.value?.trim() || '';
+  const style  = document.getElementById('inspireStyle')?.value || 'standard';
+  const count  = parseInt(document.getElementById('inspireCount')?.value || '10');
+  const btn    = document.getElementById('inspireBtn');
+  const status = document.getElementById('inspireStatus');
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Claude denkt…';
+  status.textContent = 'Generiere Ideen…';
+
+  try {
+    const res = await fetch(`/api/accounts/${accountId}/inspire`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({topic, style, count})
+    });
+    const data = await res.json();
+
+    if (!data.ok) { showToast('Fehler: ' + data.error, 'error'); return; }
+
+    renderIdeas(data.ideas, accountId);
+    status.textContent = `✅ ${data.count} Ideen generiert`;
+
+  } catch(e) {
+    showToast('Netzwerkfehler: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Ideen generieren';
+  }
+}
+
+const TYPE_ICONS = {feed:'📸', reel:'🎬', story:'⭕', carousel:'🎠'};
+
+function renderIdeas(ideas, accountId) {
+  const list    = document.getElementById('inspireList');
+  const section = document.getElementById('inspireResults');
+  list.innerHTML = '';
+
+  ideas.forEach((idea, i) => {
+    const el = document.createElement('div');
+    el.style.cssText = 'padding:14px 16px;background:var(--surface2);border-radius:12px;border:1px solid var(--border)';
+    el.innerHTML = `
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="width:28px;height:28px;border-radius:8px;background:rgba(99,102,241,.15);
+                    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+                    font-size:13px;font-weight:800;color:var(--accent2)">${i+1}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+            <span style="font-weight:700;font-size:14px">${idea.titel || 'Idee'}</span>
+            <span style="font-size:11px;padding:2px 8px;background:rgba(99,102,241,.1);
+                         border-radius:6px;color:var(--accent2)">${TYPE_ICONS[idea.typ]||'📸'} ${idea.typ||'feed'}</span>
+            ${idea.vorproduzierbar ? '<span style="font-size:10px;padding:2px 7px;background:rgba(34,197,94,.1);border-radius:6px;color:#22c55e">⚡ vorproduzierbar</span>' : ''}
+          </div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:6px">${idea.beschreibung||''}</div>
+          ${idea.hashtags ? `<div style="font-size:11px;color:var(--accent);opacity:.7">${idea.hashtags}</div>` : ''}
+        </div>
+        <button onclick="saveIdeaAsContent(${JSON.stringify(idea).replace(/"/g,'&quot;')}, ${accountId})"
+                class="btn btn-ghost" style="font-size:11px;flex-shrink:0;padding:5px 10px"
+                title="Als Content-Entwurf speichern">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+      </div>
+    `;
+    list.appendChild(el);
+  });
+
+  section.style.display = 'block';
+  section.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+async function saveIdeaAsContent(idea, accountId) {
+  const res = await fetch('/api/memes/create-content', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({items:[{
+      city: '',
+      caption: `${idea.titel}\n\n${idea.beschreibung}\n\n${idea.hashtags||''}`.trim(),
+      account_id: accountId,
+      title: idea.titel,
+    }]})
+  });
+  const d = await res.json();
+  if (d.ok) showToast('✅ Als Content-Entwurf gespeichert!', 'success');
 }
 </script>
 {% endblock %}

@@ -190,26 +190,34 @@
           </span>
         </td>
         <td style="text-align:center">
-          {% set p = acc.auto_profile %}
-          {% if p and p.disable_stock_amp %}
-            {# Automatisierter Account ohne Vorrats-Ampel #}
-            <a href="{{ url_for('content_automation') }}" title="Automatisiert — kein Vorrat nötig"
-               style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;
-                      color:#818cf8;font-size:11px;font-weight:700">
-              <i class="fa-solid fa-robot" style="font-size:10px"></i> Auto
-            </a>
+          {% if acc.automation_level >= 3 %}
+            {# Vollautomatischer Account — kein Vorrat nötig #}
+            <span title="Vollautomatisch — läuft via CityBot/Automation"
+                  style="display:inline-flex;align-items:center;gap:4px;
+                         padding:3px 8px;background:rgba(34,197,94,.12);color:#22c55e;
+                         border-radius:8px;font-size:10px;font-weight:700;border:1px solid rgba(34,197,94,.25)">
+              <i class="fa-solid fa-robot" style="font-size:9px"></i> AUTO
+            </span>
           {% else %}
-            <div>
-              <div style="font-size:14px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
-              <div style="height:3px;background:var(--surface2);border-radius:3px;margin-top:4px;width:60px;margin-inline:auto">
-                {% set pct = [acc.stock_days_display()|float / 14 * 100, 100]|min %}
-                <div style="height:100%;border-radius:3px;width:{{ pct }}%;
-                  background:{% if acc.stock_status()=='green' %}var(--success)
-                  {% elif acc.stock_status()=='yellow' %}var(--warning)
-                  {% elif acc.stock_status()=='orange' %}#f97316
-                  {% else %}var(--danger){% endif %}"></div>
+            {% set p = acc.auto_profile %}
+            {% if p and p.disable_stock_amp %}
+              <span style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;
+                           color:#818cf8;font-size:11px;font-weight:700">
+                <i class="fa-solid fa-robot" style="font-size:10px"></i> Auto
+              </span>
+            {% else %}
+              <div>
+                <div style="font-size:14px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
+                <div style="height:3px;background:var(--surface2);border-radius:3px;margin-top:4px;width:60px;margin-inline:auto">
+                  {% set pct = [acc.stock_days_display()|float / 14 * 100, 100]|min %}
+                  <div style="height:100%;border-radius:3px;width:{{ pct }}%;
+                    background:{% if acc.stock_status()=='green' %}var(--success)
+                    {% elif acc.stock_status()=='yellow' %}var(--warning)
+                    {% elif acc.stock_status()=='orange' %}#f97316
+                    {% else %}var(--danger){% endif %}"></div>
+                </div>
               </div>
-            </div>
+            {% endif %}
           {% endif %}
         </td>
         <td style="text-align:center">

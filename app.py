@@ -352,6 +352,10 @@ def init_db():
             safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS review_note TEXT')
             # ── account ── Telegram ──────────────────────────────────────
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100)')
+            # ── account ── Layout / Inspiration ──────────────────────────
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS canva_url VARCHAR(500)')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS layout_notes TEXT')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS page_persona TEXT')
             # ── scheduled_post ───────────────────────────────────────────
             safe_alter("ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS slot_type VARCHAR(20) DEFAULT 'fixed'")
             safe_alter("ALTER TABLE scheduled_post ADD COLUMN IF NOT EXISTS media_ids TEXT DEFAULT '[]'")
@@ -481,56 +485,62 @@ def generate_alerts():
     now = datetime.utcnow()
 
     for acc in accounts:
+        # Vollautomatische Accounts (level ≥ 3) brauchen keinen Vorrat —
+        # CityBot / externe Automation liefert den Content selbst.
+        is_auto = acc.automation_level >= 3
+
         days = acc.feed_stock_days()
 
-        if days == 0:
-            db.session.add(SystemAlert(
-                account_id=acc.id, alert_type='empty_stock', severity='critical',
-                message=f'"{acc.name}" hat NULL geplante Posts. Sofort Content hinzufügen!'
-            ))
-        elif days < acc.min_stock_days:
-            db.session.add(SystemAlert(
-                account_id=acc.id, alert_type='low_stock', severity='critical',
-                message=f'"{acc.name}" hat nur {round(days, 1)} Tage Vorrat (Minimum: {acc.min_stock_days}T)'
-            ))
-            _maybe_send_alert_email(acc.name, days)
-            _push_notification('low_stock',
-                f'⚠️ Kritischer Vorrat: {acc.name}',
-                f'Nur noch {round(days,1)} Tage Content-Vorrat!',
-                link=f'/accounts/{acc.id}', account_id=acc.id)
-        elif days < 7:
-            db.session.add(SystemAlert(
-                account_id=acc.id, alert_type='low_stock', severity='warning',
-                message=f'"{acc.name}" hat nur {round(days, 1)} Tage Vorrat'
-            ))
-            _maybe_send_alert_email(acc.name, days)
-            _push_notification('low_stock',
-                f'Low Stock: {acc.name}',
-                f'{round(days,1)} Tage Vorrat verbleibend.',
-                link=f'/accounts/{acc.id}', account_id=acc.id)
+        if not is_auto:
+            if days == 0:
+                db.session.add(SystemAlert(
+                    account_id=acc.id, alert_type='empty_stock', severity='critical',
+                    message=f'"{acc.name}" hat NULL geplante Posts. Sofort Content hinzufügen!'
+                ))
+            elif days < acc.min_stock_days:
+                db.session.add(SystemAlert(
+                    account_id=acc.id, alert_type='low_stock', severity='critical',
+                    message=f'"{acc.name}" hat nur {round(days, 1)} Tage Vorrat (Minimum: {acc.min_stock_days}T)'
+                ))
+                _maybe_send_alert_email(acc.name, days)
+                _push_notification('low_stock',
+                    f'⚠️ Kritischer Vorrat: {acc.name}',
+                    f'Nur noch {round(days,1)} Tage Content-Vorrat!',
+                    link=f'/accounts/{acc.id}', account_id=acc.id)
+            elif days < 7:
+                db.session.add(SystemAlert(
+                    account_id=acc.id, alert_type='low_stock', severity='warning',
+                    message=f'"{acc.name}" hat nur {round(days, 1)} Tage Vorrat'
+                ))
+                _maybe_send_alert_email(acc.name, days)
+                _push_notification('low_stock',
+                    f'Low Stock: {acc.name}',
+                    f'{round(days,1)} Tage Vorrat verbleibend.',
+                    link=f'/accounts/{acc.id}', account_id=acc.id)
 
-        # No posts scheduled at all
+        # No posts scheduled at all — nur für manuelle Accounts relevant
         upcoming = ScheduledPost.query.filter_by(account_id=acc.id, status='scheduled')\
             .filter(ScheduledPost.scheduled_at >= now).count()
-        if upcoming == 0 and acc.automation_level < 3:
+        if upcoming == 0 and not is_auto:
             db.session.add(SystemAlert(
                 account_id=acc.id, alert_type='no_posts', severity='warning',
                 message=f'"{acc.name}" hat keine geplanten Posts'
             ))
 
-        # Content-Gap-Alarm: kein Post in den nächsten 48h
-        in_48h = now + timedelta(hours=48)
-        gap_post = ScheduledPost.query.filter(
-            ScheduledPost.account_id == acc.id,
-            ScheduledPost.status == 'scheduled',
-            ScheduledPost.scheduled_at >= now,
-            ScheduledPost.scheduled_at <= in_48h,
-        ).first()
-        if not gap_post and upcoming > 0 and acc.automation_level < 3:
-            _push_notification('info',
-                f'⏰ Posting-Lücke: {acc.name}',
-                'Kein Post in den nächsten 48 Stunden geplant.',
-                link=f'/accounts/{acc.id}/planer', account_id=acc.id)
+        # Content-Gap-Alarm: kein Post in den nächsten 48h (nur manuelle Accounts)
+        if not is_auto:
+            in_48h = now + timedelta(hours=48)
+            gap_post = ScheduledPost.query.filter(
+                ScheduledPost.account_id == acc.id,
+                ScheduledPost.status == 'scheduled',
+                ScheduledPost.scheduled_at >= now,
+                ScheduledPost.scheduled_at <= in_48h,
+            ).first()
+            if not gap_post and upcoming > 0:
+                _push_notification('info',
+                    f'⏰ Posting-Lücke: {acc.name}',
+                    'Kein Post in den nächsten 48 Stunden geplant.',
+                    link=f'/accounts/{acc.id}/planer', account_id=acc.id)
 
     # Automation errors
     broken_rules = AutomationRule.query.filter(AutomationRule.error_count > 3, AutomationRule.active == True).all()
@@ -1327,12 +1337,22 @@ def account_detail(account_id):
         .filter(ContentItem.status.in_(['ready', 'in_progress', 'draft']))\
         .order_by(ContentItem.updated_at.desc()).limit(20).all()
 
+    # Verknüpfte Content-Templates
+    linked_templates = ContentTemplate.query.filter(
+        ContentTemplate.target_accounts.any(id=account_id)
+    ).order_by(ContentTemplate.name).all()
+
+    is_auto = account.automation_level >= 3
+
     return render_template('account_detail.html',
         account=account, upcoming=upcoming,
         chart_labels=json.dumps(chart_labels), chart_data=json.dumps(chart_data),
         feed_days=round(feed_days, 1), story_days=round(story_days, 1), reel_count=reel_count,
         account_alerts=account_alerts,
         stock_posts=stock_posts, ready_content=ready_content,
+        linked_templates=linked_templates,
+        is_auto=is_auto,
+        has_ai_key=bool(os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')),
         active_page='accounts')
 
 
@@ -1357,6 +1377,9 @@ def account_edit(account_id):
         account.min_stock_days = int(d.get('min_stock_days') or 3)
         account.optimal_stock_days = int(d.get('optimal_stock_days') or 14)
         account.telegram_chat_id = d.get('telegram_chat_id', '').strip() or None
+        account.canva_url    = d.get('canva_url', '').strip() or None
+        account.layout_notes = d.get('layout_notes', '').strip() or None
+        account.page_persona = d.get('page_persona', '').strip() or None
         db.session.commit()
         flash('Account aktualisiert.', 'success')
         return redirect(url_for('account_detail', account_id=account_id))
@@ -1367,6 +1390,114 @@ def account_edit(account_id):
     return render_template('account_form.html',
         account=account, categories=categories, platforms=platforms, labels=labels,
         active_page='accounts')
+
+
+# ── Inspiration Feature ──────────────────────────────────────────────────────
+@app.route('/api/accounts/<int:account_id>/inspire', methods=['POST'])
+@login_required
+def account_inspire(account_id):
+    """Claude generiert Content-Ideen für diese Seite."""
+    account = Account.query.get_or_404(account_id)
+    d = request.get_json() or {}
+    topic    = d.get('topic', '').strip()       # optional: aktuelles Trending-Thema
+    count    = max(5, min(20, int(d.get('count', 10))))
+    style    = d.get('style', 'standard')       # standard / satirisch / meme / humor
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert.'})
+
+    # Seiten-Beschreibung aus page_persona oder fallback auf notes/name
+    persona = account.page_persona or account.notes or ''
+    ai_cfg = account.ai_config
+    ai_persona = ai_cfg.persona if ai_cfg else ''
+    persona = persona or ai_persona or f'Instagram-Seite namens "{account.name}"'
+
+    style_hints = {
+        'standard':  'Erstelle abwechslungsreiche, authentische Post-Ideen.',
+        'satirisch': 'Erstelle satirische, humorvolle Fake-News im Tagesschau-Stil. Übertreibe aktuelle Ereignisse.',
+        'meme':      'Erstelle Meme-Ideen mit lokalem Bezug. Kurz, witzig, teilbar.',
+        'humor':     'Erstelle humorvolle, leichte Post-Ideen. Kein politischer Content.',
+    }
+
+    system = """Du bist ein kreativer Social-Media-Content-Stratege für deutsche Instagram-Seiten.
+Du kennst den deutschen Social-Media-Markt sehr gut — was viral geht, was Menschen teilen, was Emotionen weckt.
+Antworte immer auf Deutsch. Deine Ideen sind konkret, umsetzbar und plattformgerecht.
+Antworte NUR mit einem JSON-Array, kein anderer Text."""
+
+    topic_section = f'\n\nAktuelles Trending-Thema / Aufhänger: "{topic}"' if topic else ''
+
+    user_prompt = f"""Seite: {account.name}
+Plattform: Instagram
+Beschreibung / Persönlichkeit: {persona}{topic_section}
+
+{style_hints.get(style, style_hints['standard'])}
+
+Generiere {count} konkrete Content-Ideen für diese Seite.
+
+Format (JSON-Array):
+[
+  {{
+    "titel": "Kurzer Titel der Idee",
+    "beschreibung": "Was genau gepostet wird — Bild/Video-Beschreibung + Caption-Idee",
+    "typ": "feed|reel|story|carousel",
+    "hashtags": "#tag1 #tag2 #tag3",
+    "vorproduzierbar": true
+  }}
+]
+
+Nur das JSON-Array, keine Erklärungen drumherum."""
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model='claude-opus-4-5',
+            max_tokens=4000,
+            system=system,
+            messages=[{'role': 'user', 'content': user_prompt}]
+        )
+        raw = msg.content[0].text.strip()
+
+        if '```' in raw:
+            import re
+            match = re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', raw)
+            raw = match.group(1) if match else raw
+
+        ideas = json.loads(raw)
+        if not isinstance(ideas, list):
+            ideas = list(ideas.values()) if isinstance(ideas, dict) else [ideas]
+
+        return jsonify({'ok': True, 'ideas': ideas, 'count': len(ideas)})
+
+    except json.JSONDecodeError as e:
+        return jsonify({'ok': False, 'error': f'JSON-Fehler: {e}', 'raw': raw[:300]})
+    except Exception as e:
+        app.logger.error('account_inspire error: %s', e)
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+@app.route('/api/accounts/<int:account_id>/layout', methods=['POST'])
+@login_required
+def account_layout_save(account_id):
+    """Speichert Canva-URL und Layout-Notizen direkt (ohne Formular-Reload)."""
+    account = Account.query.get_or_404(account_id)
+    d = request.get_json() or {}
+    account.canva_url    = d.get('canva_url', '').strip() or None
+    account.layout_notes = d.get('layout_notes', '').strip() or None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/accounts/<int:account_id>/persona', methods=['POST'])
+@login_required
+def account_persona_save(account_id):
+    """Speichert die Seiten-Persönlichkeit für den Inspiration-Generator."""
+    account = Account.query.get_or_404(account_id)
+    d = request.get_json() or {}
+    account.page_persona = d.get('persona', '').strip() or None
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/accounts/<int:account_id>/delete', methods=['POST'])

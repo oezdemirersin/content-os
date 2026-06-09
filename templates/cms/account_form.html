@@ -192,6 +192,31 @@
       {% endif %}
     </div>
 
+    <!-- LAYOUT & CANVA -->
+    <div class="card" style="padding:20px">
+      <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.5px;margin-bottom:16px;
+                  display:flex;align-items:center;gap:8px">
+        <i class="fa-brands fa-figma" style="color:#f24e1e"></i> LAYOUT & CANVA
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <label class="form-label">Canva-Link (Ordner oder Template)</label>
+          <input type="url" name="canva_url" value="{{ account.canva_url if account else '' }}"
+                 class="input-field" placeholder="https://www.canva.com/design/...">
+        </div>
+        <div>
+          <label class="form-label">Layout-Notizen (Farben, Schriften, Stil)</label>
+          <textarea name="layout_notes" rows="2" class="input-field" style="resize:vertical"
+                    placeholder="z.B. Hauptfarbe: #FF5500 · Schrift: Bebas Neue · Dunkel-Theme">{{ account.layout_notes if account else '' }}</textarea>
+        </div>
+        <div>
+          <label class="form-label">Seiten-Persönlichkeit (für Content-Inspiration)</label>
+          <textarea name="page_persona" rows="3" class="input-field" style="resize:vertical"
+                    placeholder="z.B. Satirische Fake-News im Tagesschau-Stil. Zielgruppe: Deutsche 18-35. Ton: ironisch, humoristisch.">{{ account.page_persona if account else '' }}</textarea>
+        </div>
+      </div>
+    </div>
+
     <!-- NOTIZEN -->
     <div class="card" style="padding:20px">
       <label class="form-label">Notizen</label>

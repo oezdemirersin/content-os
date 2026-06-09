@@ -142,6 +142,11 @@ class Account(db.Model):
     # Telegram
     telegram_chat_id = db.Column(db.String(100))  # Channel-ID z.B. -1001234567890
 
+    # Layout / Canva
+    canva_url         = db.Column(db.String(500))  # Link zum Canva-Ordner / Template
+    layout_notes      = db.Column(db.Text)          # Layout-Hinweise (Farben, Schriften, Stil)
+    page_persona      = db.Column(db.Text)          # Seiten-Persönlichkeit für Inspiration-KI
+
     # Relationships
     scheduled_posts = db.relationship('ScheduledPost', backref='account', lazy=True, cascade='all,delete')
     analytics = db.relationship('AnalyticsSnapshot', backref='account', lazy=True, cascade='all,delete')
