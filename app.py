@@ -4375,6 +4375,114 @@ def api_bulk_import():
     return jsonify({'ok': True, 'created': created, 'count': len(created)})
 
 
+@app.route('/api/accounts/<int:account_id>/batch-schedule', methods=['POST'])
+@login_required
+def account_batch_schedule(account_id):
+    """Kombination aus fixen Terminen + automatischer Verteilung.
+
+    Erwartet JSON:
+      items:     [{content_item_id, scheduled_at: 'YYYY-MM-DD' | null, caption: '...'}]
+      post_time: '18:00'  (Uhrzeit für alle Posts, Default 18:00)
+    """
+    account = Account.query.get_or_404(account_id)
+    d = request.get_json() or {}
+    items     = d.get('items', [])
+    post_time = d.get('post_time', '18:00')
+    interval  = float(account.posting_interval_days or 1.0)
+
+    try:
+        h, m = map(int, post_time.split(':'))
+    except Exception:
+        h, m = 18, 0
+
+    # ── Feste Termine sofort parsen ────────────────────────────
+    fixed_items = []
+    auto_items  = []
+    for item in items:
+        cid = item.get('content_item_id')
+        if not cid:
+            continue
+        date_str = (item.get('scheduled_at') or '').strip()
+        if date_str:
+            try:
+                sched_at = datetime.strptime(f'{date_str} {h:02d}:{m:02d}', '%Y-%m-%d %H:%M')
+                fixed_items.append((item, sched_at))
+            except ValueError:
+                auto_items.append(item)
+        else:
+            auto_items.append(item)
+
+    # ── Startpunkt für Auto-Posts: nach letztem geplanten Post ─
+    last_post = (ScheduledPost.query
+                 .filter_by(account_id=account_id, status='scheduled')
+                 .order_by(ScheduledPost.scheduled_at.desc())
+                 .first())
+    if last_post:
+        auto_start = last_post.scheduled_at + timedelta(days=interval)
+        auto_start = auto_start.replace(hour=h, minute=m, second=0, microsecond=0)
+    else:
+        auto_start = datetime.utcnow().replace(hour=h, minute=m, second=0, microsecond=0)
+        if auto_start <= datetime.utcnow():
+            auto_start += timedelta(days=1)
+
+    # Feste Datum-Strings als "belegt" markieren
+    fixed_date_strings = {sched.strftime('%Y-%m-%d') for _, sched in fixed_items}
+
+    # Auto-Slots generieren (feste Termine überspringen)
+    auto_slots = []
+    candidate  = auto_start
+    while len(auto_slots) < len(auto_items):
+        if candidate.strftime('%Y-%m-%d') not in fixed_date_strings:
+            auto_slots.append(candidate)
+        candidate += timedelta(days=interval)
+
+    # ── Bulk-Load aller ContentItems ──────────────────────────
+    all_ids = [it.get('content_item_id') for it in items if it.get('content_item_id')]
+    ci_map  = {c.id: c for c in ContentItem.query.filter(ContentItem.id.in_(all_ids))
+                                .options(selectinload(ContentItem.media_items)).all()}
+
+    created = []
+
+    def _make_post(item, sched_at, is_fixed):
+        ci = ci_map.get(item.get('content_item_id'))
+        if not ci:
+            return
+        caption = (item.get('caption') or '').strip() or ci.caption or ci.title or ''
+        media   = ci.media_items[0] if ci.media_items else None
+        post = ScheduledPost(
+            account_id       = account_id,
+            content_item_id  = ci.id,
+            caption          = caption,
+            post_type        = ci.content_type or 'feed',
+            slot_type        = 'fixed',
+            status           = 'scheduled',
+            scheduled_at     = sched_at,
+            media_item_id    = media.id  if media else None,
+            media_ids        = json.dumps([m.id for m in ci.media_items]),
+        )
+        db.session.add(post)
+        ci.status = 'scheduled'
+        created.append({
+            'date':    sched_at.strftime('%d.%m.%Y'),
+            'weekday': ['Mo','Di','Mi','Do','Fr','Sa','So'][sched_at.weekday()],
+            'title':   ci.title or '',
+            'thumb':   media.url if media else None,
+            'fixed':   is_fixed,
+        })
+
+    for item, sched_at in fixed_items:
+        _make_post(item, sched_at, True)
+
+    for item, slot in zip(auto_items, auto_slots):
+        _make_post(item, slot, False)
+
+    db.session.commit()
+    log_activity('batch_scheduled',
+                 f'{len(created)} Posts für {account.name} eingeplant '
+                 f'({len(fixed_items)} fix, {len(auto_items)} auto)')
+    return jsonify({'ok': True, 'created': created, 'count': len(created)})
+
+
 # ═══════════════════════════════════════════════════════════════
 # ─────────────────── NOTIFICATION SETTINGS & ALERTS ────────────
 # ═══════════════════════════════════════════════════════════════

@@ -1,32 +1,53 @@
 {% extends "base.html" %}
-{% block title %}Bulk-Import — Content OS{% endblock %}
-{% block page_title %}BULK-IMPORT{% endblock %}
+{% block title %}Beiträge hochladen & einplanen — Content OS{% endblock %}
+{% block page_title %}HOCHLADEN & EINPLANEN{% endblock %}
 
 {% block content %}
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-  <div style="font-size:13px;color:var(--muted)">Mehrere Bilder/Videos auf einmal hochladen — je Datei wird ein fertiger Beitrag erstellt</div>
-  <a href="{{ url_for('content_hub') }}" class="btn btn-ghost" style="font-size:12px">← Content Hub</a>
+
+<!-- ── Phase-Indicator ── -->
+<div id="phaseBar" style="display:flex;align-items:center;gap:0;margin-bottom:28px">
+  <div id="phase1chip" style="display:flex;align-items:center;gap:8px;padding:8px 18px;
+       border-radius:20px 0 0 20px;font-size:12px;font-weight:700;
+       background:var(--accent);color:white">
+    <span style="width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.25);
+                 display:flex;align-items:center;justify-content:center;font-size:10px">1</span>
+    Hochladen
+  </div>
+  <div id="phase2chip" style="display:flex;align-items:center;gap:8px;padding:8px 18px;
+       border-radius:0 20px 20px 0;font-size:12px;font-weight:700;
+       background:var(--surface2);color:var(--muted);border:1px solid var(--border)">
+    <span style="width:18px;height:18px;border-radius:50%;background:var(--border);
+                 display:flex;align-items:center;justify-content:center;font-size:10px">2</span>
+    Einplanen
+  </div>
+  <div style="margin-left:16px;font-size:12px;color:var(--muted)" id="phaseHint">
+    Bilder hochladen, dann Termine zuweisen oder automatisch verteilen lassen
+  </div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start">
+<!-- ════════════════════════════════════════════════════
+     PHASE 1: UPLOAD
+═══════════════════════════════════════════════════════ -->
+<div id="phase1">
+<div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
 
   <!-- Upload Zone -->
   <div class="card" style="padding:0;overflow:hidden">
     <div id="dropZone"
-         style="min-height:300px;border:2px dashed var(--border);border-radius:12px;margin:16px;
+         style="min-height:280px;border:2px dashed var(--border);border-radius:12px;margin:16px;
                 display:flex;flex-direction:column;align-items:center;justify-content:center;
                 cursor:pointer;transition:all .2s;padding:30px;text-align:center"
-         ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(99,102,241,.06)'"
+         ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(59,130,246,.05)'"
          ondragleave="this.style.borderColor='var(--border)';this.style.background=''"
          ondrop="handleDrop(event)"
          onclick="document.getElementById('fileInput').click()">
-      <i class="fa-solid fa-cloud-arrow-up" style="font-size:48px;color:var(--muted);margin-bottom:16px"></i>
-      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px">Dateien hierher ziehen</div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:16px">oder klicken zum Auswählen</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
-        <span style="font-size:12px;padding:4px 12px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">JPG / PNG</span>
-        <span style="font-size:12px;padding:4px 12px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">MP4 / MOV</span>
-        <span style="font-size:12px;padding:4px 12px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">Beliebig viele</span>
+      <i class="fa-solid fa-images" style="font-size:48px;color:var(--muted);margin-bottom:16px"></i>
+      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px">Bilder hier reinziehen</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px">oder klicken · Mehrfachauswahl möglich</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+        <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">JPG / PNG / WebP</span>
+        <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">MP4 / MOV</span>
+        <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:var(--surface);border:1px solid var(--border);color:var(--muted)">Beliebig viele</span>
       </div>
       <input type="file" id="fileInput" multiple accept="image/*,video/*" style="display:none" onchange="handleFiles(this.files)">
     </div>
@@ -34,17 +55,18 @@
     <!-- Vorschau-Grid -->
     <div id="previewGrid" style="display:none;padding:0 16px 16px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div style="font-family:var(--font-display);font-size:13px" id="previewCount"></div>
+        <div style="font-size:13px;font-weight:600" id="previewCount"></div>
         <button onclick="clearFiles()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px">
           <i class="fa-solid fa-xmark"></i> Alle entfernen
         </button>
       </div>
-      <div id="thumbGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px"></div>
-      <!-- Bildgrößen-Warnungen -->
-      <div id="sizeWarnings" style="display:none;margin-top:12px;padding:12px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);border-radius:10px;color:var(--text);font-size:12px;line-height:1.6"></div>
+      <div id="thumbGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px"></div>
+      <div id="sizeWarnings" style="display:none;margin-top:12px;padding:12px 14px;
+           background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);
+           border-radius:10px;font-size:12px;line-height:1.6"></div>
     </div>
 
-    <!-- Progress -->
+    <!-- Upload-Fortschritt -->
     <div id="progressWrap" style="display:none;padding:16px">
       <div style="height:6px;background:var(--surface2);border-radius:6px;overflow:hidden;margin-bottom:8px">
         <div id="progressBar" style="height:100%;background:var(--accent);border-radius:6px;width:0;transition:width .3s"></div>
@@ -56,18 +78,28 @@
   <!-- Einstellungen -->
   <div style="display:flex;flex-direction:column;gap:14px">
     <div class="card" style="padding:18px">
-      <div style="font-family:var(--font-display);font-size:13px;margin-bottom:14px;letter-spacing:.3px">EINSTELLUNGEN</div>
-
+      <div style="font-family:var(--font-display);font-size:13px;margin-bottom:14px;letter-spacing:.3px">FÜR WELCHE SEITE?</div>
       <div style="display:flex;flex-direction:column;gap:12px">
+
         <div>
-          <label class="form-label">Kategorie</label>
-          <select id="catSelect" class="select-field">
-            <option value="">Keine Kategorie</option>
-            {% for c in categories %}
-            <option value="{{ c.id }}">{{ c.name }}</option>
+          <label class="form-label">Account <span style="color:var(--danger)">*</span></label>
+          <select id="accountSelect" class="select-field" onchange="updateAccountInfo()">
+            <option value="">— Account auswählen —</option>
+            {% for acc in accounts %}
+            {% if acc.automation_level < 3 %}
+            <option value="{{ acc.id }}"
+                    data-interval="{{ acc.posting_interval_days or 1 }}"
+                    data-name="{{ acc.name }}">
+              {{ acc.name }}{% if acc.handle %} (@{{ acc.handle }}){% endif %}
+            </option>
+            {% endif %}
             {% endfor %}
           </select>
+          <div id="accountInfoBadge" style="display:none;margin-top:6px;font-size:11px;
+               color:var(--accent2);padding:5px 10px;background:rgba(59,130,246,.08);
+               border-radius:6px;border:1px solid rgba(59,130,246,.15)"></div>
         </div>
+
         <div>
           <label class="form-label">Post-Typ</label>
           <select id="typeSelect" class="select-field" onchange="renderPreviews()">
@@ -77,78 +109,195 @@
             <option value="story">⭕ Story</option>
           </select>
         </div>
+
         <div>
-          <label class="form-label">Accounts verknüpfen</label>
-          <div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
-            {% for acc in accounts %}
-            <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer"
-                   onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-              <input type="checkbox" name="accounts" value="{{ acc.id }}" style="accent-color:var(--accent)">
-              <span style="font-size:13px;color:var(--text)">{{ acc.name }}</span>
-            </label>
+          <label class="form-label">Kategorie</label>
+          <select id="catSelect" class="select-field">
+            <option value="">Keine</option>
+            {% for c in categories %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
             {% endfor %}
-          </div>
-        </div>
-        <div>
-          <label class="form-label">Labels</label>
-          <div style="display:flex;flex-wrap:wrap;gap:6px" id="labelPicker">
-            {% for lbl in labels %}
-            <label style="display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;
-                          border:1px solid {{ lbl.color }}40;background:{{ lbl.color }}15;cursor:pointer;
-                          font-size:12px;color:{{ lbl.color }}">
-              <input type="checkbox" name="labels" value="{{ lbl.id }}" style="display:none">
-              {{ lbl.name }}
-            </label>
-            {% endfor %}
-          </div>
+          </select>
         </div>
       </div>
     </div>
 
-    <!-- Start-Button -->
-    <button id="uploadBtn" onclick="startUpload()" class="btn btn-primary" style="width:100%;padding:14px;font-size:15px" disabled>
-      <i class="fa-solid fa-upload"></i> <span id="uploadBtnText">Hochladen</span>
+    <button id="uploadBtn" onclick="startUpload()" class="btn btn-primary"
+            style="width:100%;padding:14px;font-size:15px" disabled>
+      <i class="fa-solid fa-cloud-arrow-up"></i> <span id="uploadBtnText">Hochladen</span>
     </button>
-
-    <!-- Ergebnis -->
-    <div id="resultBox" style="display:none" class="card" style="padding:16px"></div>
   </div>
+</div>
+</div>{# end phase1 #}
+
+
+<!-- ════════════════════════════════════════════════════
+     PHASE 2: EINPLANEN
+═══════════════════════════════════════════════════════ -->
+<div id="phase2" style="display:none">
+
+  <!-- Kopfzeile -->
+  <div style="display:flex;align-items:center;justify-content:space-between;
+              margin-bottom:20px;flex-wrap:wrap;gap:10px">
+    <div>
+      <div style="font-size:14px;font-weight:700;color:var(--text)" id="phase2Title"></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:3px">
+        Setze feste Termine für bestimmte Posts — der Rest wird automatisch nach der Posting-Frequenz verteilt.
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <label class="form-label" style="margin:0;white-space:nowrap">Uhrzeit</label>
+      <input type="time" id="postTime" value="18:00"
+             class="input-field" style="width:110px;font-size:13px;padding:6px 10px">
+    </div>
+  </div>
+
+  <!-- Legende -->
+  <div style="display:flex;gap:14px;margin-bottom:14px;font-size:12px;color:var(--muted)">
+    <span style="display:flex;align-items:center;gap:5px">
+      <i class="fa-solid fa-calendar-check" style="color:#22c55e"></i> Fester Termin
+    </span>
+    <span style="display:flex;align-items:center;gap:5px">
+      <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent2)"></i> Automatisch verteilen
+    </span>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:5px">
+      <span id="fixedCount" style="font-weight:700;color:#22c55e">0</span> fix ·
+      <span id="autoCount" style="font-weight:700;color:var(--accent2)">0</span> auto
+    </span>
+  </div>
+
+  <!-- Beitrags-Grid -->
+  <div id="scheduleGrid" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px"></div>
+
+  <!-- Auto-Vorschau -->
+  <div id="autoPreview" style="display:none;padding:14px 18px;background:rgba(59,130,246,.06);
+       border:1px solid rgba(59,130,246,.2);border-radius:12px;margin-bottom:20px">
+    <div style="font-size:12px;font-weight:700;color:var(--accent2);margin-bottom:8px">
+      <i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Verteilung Vorschau
+    </div>
+    <div id="autoPreviewList" style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px"></div>
+  </div>
+
+  <!-- Aktionen -->
+  <div style="display:flex;gap:10px">
+    <button onclick="submitSchedule()" class="btn btn-primary" id="scheduleBtn"
+            style="padding:13px 28px;font-size:14px">
+      <i class="fa-solid fa-calendar-plus"></i> Einplanen
+    </button>
+    <button onclick="previewAutoDistribution()" class="btn btn-ghost" style="font-size:13px">
+      <i class="fa-solid fa-eye"></i> Vorschau Auto-Verteilung
+    </button>
+    <button onclick="goToPhase1()" class="btn btn-ghost" style="font-size:13px;margin-left:auto">
+      ← Weitere hochladen
+    </button>
+  </div>
+
+  <!-- Ergebnis -->
+  <div id="scheduleResult" style="display:none;margin-top:20px"></div>
 </div>
 
 <style>
 .thumb-item { position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;background:var(--surface2) }
-.thumb-item img, .thumb-item video { width:100%;height:100%;object-fit:cover }
-.thumb-item .remove-btn { position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);border:none;color:white;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:10px;display:flex;align-items:center;justify-content:center }
-.thumb-item .fname { position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.6);font-size:9px;color:white;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+.thumb-item img,.thumb-item video { width:100%;height:100%;object-fit:cover }
+.thumb-item .remove-btn { position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);border:none;
+  color:white;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:10px;
+  display:flex;align-items:center;justify-content:center }
+.thumb-item .fname { position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.6);
+  font-size:9px;color:white;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
 
-input[type=checkbox]:checked + span, label:has(input:checked) {
-  background: rgba(99,102,241,.2) !important;
-  border-color: var(--accent) !important;
-  color: var(--accent2) !important;
-}
+.schedule-row { display:grid;grid-template-columns:56px 1fr auto;gap:12px;align-items:center;
+  padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  transition:border-color .15s }
+.schedule-row.is-fixed { border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.04) }
 </style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-let selectedFiles = [];
+// ── State ─────────────────────────────────────────────────────
+let selectedFiles   = [];
+let uploadedItems   = [];   // [{id, title, thumb}] aus API
 
+// ── Phase-Steuerung ───────────────────────────────────────────
+function goToPhase2() {
+  document.getElementById('phase1').style.display = 'none';
+  document.getElementById('phase2').style.display = 'block';
+  const p1 = document.getElementById('phase1chip');
+  const p2 = document.getElementById('phase2chip');
+  p1.style.background = 'rgba(34,197,94,.15)'; p1.style.color = '#22c55e';
+  p2.style.background = 'var(--accent)'; p2.style.color = 'white';
+  document.getElementById('phaseHint').textContent = `${uploadedItems.length} Beiträge bereit zum Einplanen`;
+}
+function goToPhase1() {
+  document.getElementById('phase1').style.display = 'block';
+  document.getElementById('phase2').style.display = 'none';
+  const p1 = document.getElementById('phase1chip');
+  const p2 = document.getElementById('phase2chip');
+  p1.style.background = 'var(--accent)'; p1.style.color = 'white';
+  p2.style.background = 'var(--surface2)'; p2.style.color = 'var(--muted)';
+}
+
+// ── Account-Info ──────────────────────────────────────────────
+function updateAccountInfo() {
+  const sel  = document.getElementById('accountSelect');
+  const opt  = sel.options[sel.selectedIndex];
+  const badge = document.getElementById('accountInfoBadge');
+  const btn  = document.getElementById('uploadBtn');
+  if (!sel.value) { badge.style.display='none'; btn.disabled=true; return; }
+  const interval = parseFloat(opt.dataset.interval || 1);
+  const postsPerMonth = Math.round(30 / interval);
+  let freqLabel;
+  if (interval <= 0.5) freqLabel = `${Math.round(1/interval)}× täglich`;
+  else if (interval === 1) freqLabel = 'täglich';
+  else if (interval < 7) freqLabel = `alle ${interval % 1 === 0 ? interval : interval.toFixed(1)} Tage`;
+  else freqLabel = `alle ${Math.round(interval/7)} Woche(n)`;
+  badge.style.display = 'block';
+  badge.innerHTML = `<i class="fa-solid fa-clock"></i> Frequenz: <b>${freqLabel}</b> · ca. ${postsPerMonth} Posts/Monat`;
+  if (selectedFiles.length > 0) btn.disabled = false;
+}
+
+// ── Datei-Handling ────────────────────────────────────────────
 function handleDrop(e) {
   e.preventDefault();
   e.currentTarget.style.borderColor = 'var(--border)';
-  e.currentTarget.style.background = '';
+  e.currentTarget.style.background  = '';
   handleFiles(e.dataTransfer.files);
 }
-
 function handleFiles(fileList) {
-  const allowed = ['image/jpeg','image/png','image/gif','image/webp','video/mp4','video/quicktime','video/mov'];
+  const allowed = /\.(jpg|jpeg|png|gif|webp|mp4|mov|avi|mkv)$/i;
   for (const f of fileList) {
-    if (!allowed.includes(f.type) && !f.name.match(/\.(jpg|jpeg|png|gif|webp|mp4|mov|avi)$/i)) continue;
-    if (!selectedFiles.find(x => x.name === f.name && x.size === f.size)) {
-      selectedFiles.push(f);
-    }
+    if (!allowed.test(f.name)) continue;
+    if (!selectedFiles.find(x => x.name === f.name && x.size === f.size)) selectedFiles.push(f);
   }
   renderPreviews();
+}
+function removeFile(i) { selectedFiles.splice(i,1); renderPreviews(); }
+function clearFiles()   { selectedFiles = []; renderPreviews(); }
+
+const IG_RULES = {
+  feed:     { minW:1080, minH:566,  ratioMin:.8,  ratioMax:1.91 },
+  reel:     { minW:1080, minH:1920, ratioMin:.5,  ratioMax:.57  },
+  story:    { minW:1080, minH:1920, ratioMin:.5,  ratioMax:.57  },
+  carousel: { minW:1080, minH:566,  ratioMin:.8,  ratioMax:1.91 },
+};
+function checkImageSize(file) {
+  if (!file.type.startsWith('image/')) return Promise.resolve(null);
+  return new Promise(resolve => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const w=img.naturalWidth, h=img.naturalHeight, ratio=w/h;
+      const rule = IG_RULES[document.getElementById('typeSelect').value] || IG_RULES.feed;
+      const issues = [];
+      if (w < rule.minW) issues.push(`Breite ${w}px < ${rule.minW}px`);
+      if (h < rule.minH) issues.push(`Höhe ${h}px < ${rule.minH}px`);
+      if (ratio < rule.ratioMin || ratio > rule.ratioMax)
+        issues.push(`Ratio ${ratio.toFixed(2)}`);
+      resolve(issues.length ? {name:file.name, msg:issues.join(', ')} : null);
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
 }
 
 async function renderPreviews() {
@@ -156,31 +305,27 @@ async function renderPreviews() {
   const wrap = document.getElementById('previewGrid');
   const btn  = document.getElementById('uploadBtn');
   document.getElementById('previewCount').textContent = `${selectedFiles.length} Datei${selectedFiles.length!==1?'en':''}`;
-
   if (!selectedFiles.length) { wrap.style.display='none'; btn.disabled=true; return; }
-  wrap.style.display='block'; btn.disabled=false;
+  wrap.style.display = 'block';
+  btn.disabled = !document.getElementById('accountSelect').value;
   document.getElementById('uploadBtnText').textContent = `${selectedFiles.length} Datei${selectedFiles.length!==1?'en':''} hochladen`;
 
-  // Bildgrößen prüfen
-  const checks = await Promise.all(selectedFiles.map((f, i) => checkImageSize(f, i)));
+  const checks = await Promise.all(selectedFiles.map(checkImageSize));
   const warnings = checks.filter(Boolean);
   const warnBox = document.getElementById('sizeWarnings');
   if (warnings.length) {
     warnBox.style.display = 'block';
-    warnBox.innerHTML = `<div style="font-weight:700;margin-bottom:6px;color:#f59e0b"><i class="fa-solid fa-triangle-exclamation" style="margin-right:6px"></i>${warnings.length} Bild${warnings.length!==1?'er haben':'hat'} mögliche Qualitätsprobleme:</div>`
-      + warnings.map(w => `<div style="font-size:11px;margin-bottom:3px">• <b>${w.name}</b>: ${w.msg}</div>`).join('');
-  } else {
-    warnBox.style.display = 'none';
-  }
+    warnBox.innerHTML = `<b style="color:#f59e0b"><i class="fa-solid fa-triangle-exclamation"></i> ${warnings.length} Qualitätsproblem${warnings.length>1?'e':''}:</b><br>`
+      + warnings.map(w=>`• <b>${w.name}</b>: ${w.msg}`).join('<br>');
+  } else { warnBox.style.display='none'; }
 
-  grid.innerHTML = selectedFiles.map((f, i) => {
-    const isVideo = f.type.startsWith('video/');
+  grid.innerHTML = selectedFiles.map((f,i) => {
     const src = URL.createObjectURL(f);
-    const media = isVideo
+    const warn = checks[i];
+    const media = f.type.startsWith('video/')
       ? `<video src="${src}" style="width:100%;height:100%;object-fit:cover"></video>`
       : `<img src="${src}">`;
-    const warn = checks[i];
-    return `<div class="thumb-item" title="${warn ? '⚠️ ' + warn.msg : '✓ OK'}">
+    return `<div class="thumb-item" title="${f.name}">
       ${media}
       ${warn ? '<div style="position:absolute;top:4px;left:4px;background:#f59e0b;border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;font-size:9px;color:white">!</div>' : ''}
       <button class="remove-btn" onclick="removeFile(${i})"><i class="fa-solid fa-xmark"></i></button>
@@ -189,63 +334,21 @@ async function renderPreviews() {
   }).join('');
 }
 
-// Bildgrößen-Check (Instagram-Richtwerte)
-const IG_RULES = {
-  feed:     { minW: 1080, minH: 566,  ratioMin: 0.8,  ratioMax: 1.91, label: 'Feed (min. 1080px, Ratio 4:5–1.91:1)' },
-  reel:     { minW: 1080, minH: 1920, ratioMin: 0.5,  ratioMax: 0.57, label: 'Reel (1080×1920, 9:16)' },
-  story:    { minW: 1080, minH: 1920, ratioMin: 0.5,  ratioMax: 0.57, label: 'Story (1080×1920, 9:16)' },
-  carousel: { minW: 1080, minH: 566,  ratioMin: 0.8,  ratioMax: 1.91, label: 'Carousel (min. 1080px)' },
-};
-
-function checkImageSize(file, idx) {
-  if (file.type.startsWith('video/')) return Promise.resolve(null);
-  return new Promise(resolve => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const w = img.naturalWidth, h = img.naturalHeight;
-      const ratio = w / h;
-      const type = document.getElementById('typeSelect').value || 'feed';
-      const rule = IG_RULES[type] || IG_RULES.feed;
-      const issues = [];
-      if (w < rule.minW) issues.push(`Breite ${w}px < ${rule.minW}px`);
-      if (h < rule.minH) issues.push(`Höhe ${h}px < ${rule.minH}px`);
-      if (ratio < rule.ratioMin || ratio > rule.ratioMax)
-        issues.push(`Seitenverhältnis ${(ratio).toFixed(2)} außerhalb ${rule.label}`);
-      resolve(issues.length ? { name: file.name, msg: issues.join(', ') } : null);
-    };
-    img.onerror = () => resolve(null);
-    img.src = url;
-  });
-}
-
-function removeFile(i) {
-  selectedFiles.splice(i, 1);
-  renderPreviews();
-}
-
-function clearFiles() {
-  selectedFiles = [];
-  renderPreviews();
-}
-
+// ── Upload (Phase 1) ──────────────────────────────────────────
 async function startUpload() {
   if (!selectedFiles.length) return;
+  const accountId = document.getElementById('accountSelect').value;
+  if (!accountId) { showToast('Bitte erst einen Account auswählen.', 'warning'); return; }
+
   const btn = document.getElementById('uploadBtn');
   btn.disabled = true;
   document.getElementById('progressWrap').style.display = 'block';
-  document.getElementById('previewGrid').style.display = 'none';
+  document.getElementById('previewGrid').style.display  = 'none';
 
-  // Einstellungen lesen
-  const category_id = document.getElementById('catSelect').value;
+  const category_id  = document.getElementById('catSelect').value;
   const content_type = document.getElementById('typeSelect').value;
-  const account_ids = [...document.querySelectorAll('input[name=accounts]:checked')].map(i=>i.value);
-  const label_ids   = [...document.querySelectorAll('input[name=labels]:checked')].map(i=>i.value);
-
-  // Chunk-weise hochladen (max 10 auf einmal)
-  const chunkSize = 10;
-  let totalCreated = [];
+  const chunkSize    = 10;
+  uploadedItems      = [];
 
   for (let i = 0; i < selectedFiles.length; i += chunkSize) {
     const chunk = selectedFiles.slice(i, i + chunkSize);
@@ -253,43 +356,254 @@ async function startUpload() {
     chunk.forEach(f => fd.append('files', f));
     if (category_id) fd.append('category_id', category_id);
     fd.append('content_type', content_type);
-    account_ids.forEach(a => fd.append('account_ids', a));
-    label_ids.forEach(l => fd.append('label_ids', l));
+    fd.append('account_ids', accountId);   // für ContentItem-Verknüpfung
 
-    const pct = Math.round((i / selectedFiles.length) * 100);
+    const pct = Math.round(i / selectedFiles.length * 100);
     document.getElementById('progressBar').style.width = pct + '%';
     document.getElementById('progressText').textContent = `${i + chunk.length} / ${selectedFiles.length} hochgeladen…`;
 
     const res = await fetch('/api/media/bulk-import', {method:'POST', body:fd}).then(r=>r.json());
-    if (res.ok) totalCreated = totalCreated.concat(res.created);
+    if (res.ok) uploadedItems = uploadedItems.concat(res.created);
   }
 
   document.getElementById('progressBar').style.width = '100%';
-  document.getElementById('progressText').textContent = 'Fertig!';
+  document.getElementById('progressText').textContent = `${uploadedItems.length} Bilder hochgeladen ✓`;
 
-  // Ergebnis
-  const box = document.getElementById('resultBox');
-  box.style.display = 'block';
-  box.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-      <i class="fa-solid fa-circle-check" style="font-size:24px;color:var(--success)"></i>
+  // Kurz warten, dann zu Phase 2
+  setTimeout(() => {
+    buildScheduleGrid(accountId);
+    goToPhase2();
+  }, 600);
+  btn.disabled = false;
+  selectedFiles = [];
+}
+
+// ── Phase 2: Schedule-Grid aufbauen ──────────────────────────
+function buildScheduleGrid(accountId) {
+  const sel = document.getElementById('accountSelect');
+  const opt = sel.options[sel.selectedIndex];
+  document.getElementById('phase2Title').textContent =
+    `${uploadedItems.length} Beiträge für "${opt.dataset.name}" einplanen`;
+
+  const grid = document.getElementById('scheduleGrid');
+  grid.innerHTML = uploadedItems.map((item, i) => `
+    <div class="schedule-row" id="srow-${i}" data-ci="${item.id}">
+      <!-- Thumbnail -->
+      <div style="width:56px;height:56px;border-radius:8px;overflow:hidden;
+                  background:var(--surface2);flex-shrink:0">
+        ${item.thumb
+          ? `<img src="${item.thumb}" style="width:100%;height:100%;object-fit:cover">`
+          : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-image" style="color:var(--muted)"></i></div>'}
+      </div>
+
+      <!-- Caption -->
       <div>
-        <div style="font-weight:700;color:var(--text)">${totalCreated.length} Beiträge erstellt</div>
-        <div style="font-size:12px;color:var(--muted)">Alle im Content Hub verfügbar</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">${item.title}</div>
+        <input type="text" placeholder="Caption (optional — kann später ergänzt werden)"
+               class="input-field" id="cap-${i}"
+               style="font-size:12px;padding:6px 10px;width:100%">
+      </div>
+
+      <!-- Datum-Toggle -->
+      <div style="text-align:right;flex-shrink:0;min-width:200px">
+        <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;margin-bottom:6px">
+          <button onclick="toggleFixed(${i}, false)"
+                  id="btnAuto-${i}"
+                  class="btn btn-ghost" style="font-size:11px;padding:5px 10px;
+                         background:rgba(59,130,246,.15);color:var(--accent2);
+                         border-color:rgba(59,130,246,.3)">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Auto
+          </button>
+          <button onclick="toggleFixed(${i}, true)"
+                  id="btnFixed-${i}"
+                  class="btn btn-ghost" style="font-size:11px;padding:5px 10px">
+            <i class="fa-solid fa-calendar-check"></i> Fester Termin
+          </button>
+        </div>
+        <input type="date" id="date-${i}"
+               class="input-field" style="display:none;font-size:12px;padding:6px 10px;width:160px"
+               oninput="onDateChange()">
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:6px;max-height:200px;overflow-y:auto">
-      ${totalCreated.map(c => c.thumb
-        ? `<img src="${c.thumb}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px" title="${c.title}">`
-        : `<div style="aspect-ratio:1;border-radius:6px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px">📄</div>`
-      ).join('')}
-    </div>
-    <a href="/content" class="btn btn-primary" style="width:100%;margin-top:12px;display:block;text-align:center">
-      → Im Content Hub ansehen
-    </a>`;
+  `).join('');
 
-  selectedFiles = [];
+  updateCounters();
+}
+
+function toggleFixed(i, isFixed) {
+  const row   = document.getElementById(`srow-${i}`);
+  const dateIn = document.getElementById(`date-${i}`);
+  const btnAuto  = document.getElementById(`btnAuto-${i}`);
+  const btnFixed = document.getElementById(`btnFixed-${i}`);
+
+  if (isFixed) {
+    dateIn.style.display = 'block';
+    row.classList.add('is-fixed');
+    btnFixed.style.background = 'rgba(34,197,94,.15)';
+    btnFixed.style.color      = '#22c55e';
+    btnFixed.style.borderColor = 'rgba(34,197,94,.3)';
+    btnAuto.style.background  = '';
+    btnAuto.style.color       = 'var(--muted)';
+    btnAuto.style.borderColor = '';
+  } else {
+    dateIn.style.display = 'none';
+    dateIn.value = '';
+    row.classList.remove('is-fixed');
+    btnAuto.style.background  = 'rgba(59,130,246,.15)';
+    btnAuto.style.color       = 'var(--accent2)';
+    btnAuto.style.borderColor = 'rgba(59,130,246,.3)';
+    btnFixed.style.background = '';
+    btnFixed.style.color      = 'var(--muted)';
+    btnFixed.style.borderColor = '';
+  }
+  updateCounters();
+}
+
+function onDateChange() { updateCounters(); }
+
+function updateCounters() {
+  let fixed = 0, auto = 0;
+  uploadedItems.forEach((_, i) => {
+    const dateIn = document.getElementById(`date-${i}`);
+    if (dateIn && dateIn.style.display !== 'none' && dateIn.value) fixed++;
+    else auto++;
+  });
+  document.getElementById('fixedCount').textContent = fixed;
+  document.getElementById('autoCount').textContent  = auto;
+}
+
+function previewAutoDistribution() {
+  const accountId = document.getElementById('accountSelect').value;
+  const sel = document.getElementById('accountSelect');
+  const opt = sel.options[sel.selectedIndex];
+  const interval = parseFloat(opt?.dataset?.interval || 1);
+
+  // Wie viele Auto-Posts?
+  let autoCount = 0;
+  uploadedItems.forEach((_, i) => {
+    const d = document.getElementById(`date-${i}`);
+    if (!d || d.style.display==='none' || !d.value) autoCount++;
+  });
+
+  if (!autoCount) {
+    document.getElementById('autoPreview').style.display = 'none';
+    showToast('Alle Posts haben feste Termine — keine Auto-Verteilung nötig.', 'success');
+    return;
+  }
+
+  // Fixed-Daten sammeln
+  const fixedDates = new Set();
+  uploadedItems.forEach((_, i) => {
+    const d = document.getElementById(`date-${i}`);
+    if (d && d.style.display !== 'none' && d.value) fixedDates.add(d.value);
+  });
+
+  // Simuliere ab heute
+  const postTime = document.getElementById('postTime').value || '18:00';
+  let candidate = new Date();
+  candidate.setHours(...postTime.split(':').map(Number), 0, 0);
+  if (candidate <= new Date()) candidate.setDate(candidate.getDate() + 1);
+
+  const slots = [];
+  while (slots.length < autoCount) {
+    const dateStr = candidate.toISOString().slice(0,10);
+    if (!fixedDates.has(dateStr)) {
+      slots.push(new Date(candidate));
+    }
+    candidate = new Date(candidate.getTime() + interval * 86400000);
+  }
+
+  const days = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+  const listEl = document.getElementById('autoPreviewList');
+  listEl.innerHTML = slots.map(d =>
+    `<div>📅 ${days[d.getDay()]} ${d.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric'})} · ${postTime} Uhr</div>`
+  ).join('');
+
+  document.getElementById('autoPreview').style.display = 'block';
+}
+
+// ── Einplanen (Phase 2) ───────────────────────────────────────
+async function submitSchedule() {
+  const accountId = document.getElementById('accountSelect').value;
+  if (!accountId) { showToast('Kein Account ausgewählt.', 'warning'); return; }
+
+  const postTime = document.getElementById('postTime').value || '18:00';
+
+  const items = uploadedItems.map((item, i) => {
+    const dateIn  = document.getElementById(`date-${i}`);
+    const capIn   = document.getElementById(`cap-${i}`);
+    const hasDate = dateIn && dateIn.style.display !== 'none' && dateIn.value;
+    return {
+      content_item_id: item.id,
+      scheduled_at:    hasDate ? dateIn.value : null,
+      caption:         capIn ? capIn.value.trim() : '',
+    };
+  });
+
+  const btn = document.getElementById('scheduleBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Wird eingeplant…';
+
+  const res = await fetch(`/api/accounts/${accountId}/batch-schedule`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({items, post_time: postTime})
+  }).then(r => r.json());
+
   btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-calendar-plus"></i> Einplanen';
+
+  if (!res.ok) { showToast('Fehler beim Einplanen.', 'error'); return; }
+
+  // Ergebnis anzeigen
+  const resultEl = document.getElementById('scheduleResult');
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = `
+    <div style="padding:20px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);border-radius:12px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <i class="fa-solid fa-circle-check" style="font-size:24px;color:#22c55e"></i>
+        <div>
+          <div style="font-weight:700;font-size:15px;color:var(--text)">${res.count} Posts eingeplant ✓</div>
+          <div style="font-size:12px;color:var(--muted)">
+            ${res.created.filter(c=>c.fixed).length} mit festem Termin ·
+            ${res.created.filter(c=>!c.fixed).length} automatisch verteilt
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto">
+        ${res.created.map(c => `
+          <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)">
+            ${c.fixed
+              ? '<i class="fa-solid fa-calendar-check" style="color:#22c55e;width:14px"></i>'
+              : '<i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent2);width:14px"></i>'}
+            <span style="color:var(--text);font-weight:600">${c.weekday} ${c.date}</span>
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.title}</span>
+          </div>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <a href="/accounts/${accountId}" class="btn btn-primary" style="font-size:13px">
+          Account ansehen
+        </a>
+        <button onclick="resetForNewBatch()" class="btn btn-ghost" style="font-size:13px">
+          Weitere hochladen
+        </button>
+      </div>
+    </div>`;
+
+  showToast(`${res.count} Posts erfolgreich eingeplant ✓`, 'success');
+}
+
+function resetForNewBatch() {
+  uploadedItems = [];
+  selectedFiles = [];
+  document.getElementById('scheduleResult').style.display = 'none';
+  document.getElementById('autoPreview').style.display    = 'none';
+  document.getElementById('progressWrap').style.display   = 'none';
+  document.getElementById('progressBar').style.width      = '0';
+  document.getElementById('thumbGrid').innerHTML          = '';
+  document.getElementById('previewGrid').style.display    = 'none';
+  document.getElementById('previewCount').textContent     = '';
+  goToPhase1();
 }
 </script>
 {% endblock %}
