@@ -1224,6 +1224,7 @@ def accounts():
     automation = request.args.get('automation', '')
     priority = request.args.get('priority', '')
     sort = request.args.get('sort', 'followers')
+    acc_type = request.args.get('type', '')   # schnell-Filter: auto | manual | memes
 
     query = Account.query
     if q:
@@ -1238,6 +1239,21 @@ def accounts():
         query = query.filter_by(automation_level=int(automation))
     if priority:
         query = query.filter_by(priority=priority)
+    # Schnell-Typ-Filter
+    if acc_type == 'auto':
+        query = query.filter(Account.automation_level >= 3)
+    elif acc_type == 'manual':
+        query = query.filter(Account.automation_level < 3)
+    elif acc_type == 'memes':
+        _meme_cat_ids = [c.id for c in Category.query.filter(
+            db.or_(Category.name.ilike('%meme%'), Category.name.ilike('%beicht%'),
+                   Category.name.ilike('%satir%'))
+        ).all()]
+        _cond = [Account.name.ilike('%meme%'), Account.name.ilike('%beicht%'),
+                 Account.name.ilike('%satir%')]
+        if _meme_cat_ids:
+            _cond.append(Account.category_id.in_(_meme_cat_ids))
+        query = query.filter(db.or_(*_cond))
 
     if sort == 'name':
         query = query.order_by(Account.name)
@@ -1262,6 +1278,7 @@ def accounts():
         accounts=pagination.items, pagination=pagination,
         categories=categories, platforms=platforms,
         active_page='accounts',
+        acc_type=acc_type,
         filters={k: v for k, v in _f.items() if v})
 
 
@@ -1872,6 +1889,95 @@ def telegram_test():
     result = _tg_send_message(token, chat_id, '✅ <b>Content OS</b> ist verbunden!\n\nDieser Channel empfängt ab sofort automatisch Posts wenn sie fällig sind.')
     return jsonify({'ok': result.get('ok', False),
                     'error': result.get('description') if not result.get('ok') else None})
+
+@app.route('/api/posts/<int:post_id>/mark-published', methods=['POST'])
+@login_required
+def post_mark_published(post_id):
+    """Markiert einen Post als manuell gepostet (z.B. nach Telegram-Weiterleitung)."""
+    post = ScheduledPost.query.get_or_404(post_id)
+    post.status = 'published'
+    post.published_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/telegram-queue')
+@login_required
+def telegram_queue():
+    """Zeigt Posts die per Telegram verschickt wurden, aber noch nicht als gepostet markiert sind."""
+    posts = (ScheduledPost.query
+             .filter(ScheduledPost.telegram_sent_at.isnot(None))
+             .filter(ScheduledPost.status != 'published')
+             .order_by(ScheduledPost.telegram_sent_at.desc())
+             .limit(200).all())
+    return render_template('telegram_queue.html', posts=posts, active_page='accounts')
+
+
+@app.route('/api/accounts/quick-bulk-create', methods=['POST'])
+@login_required
+def accounts_quick_bulk_create():
+    """Schnell mehrere Accounts anlegen — nur Name + Handle, Rest von Template-Account kopieren."""
+    d = request.get_json() or {}
+    template_id = d.get('template_id')
+    rows = d.get('rows', [])   # [{name, handle}, ...]
+
+    template_acc = None
+    if template_id:
+        template_acc = Account.query.get(template_id)
+
+    created = []
+    errors  = []
+    for row in rows:
+        name   = (row.get('name') or '').strip()
+        handle = (row.get('handle') or '').strip().lstrip('@')
+        if not name or not handle:
+            errors.append(f'Leer übersprungen: {row}')
+            continue
+        # Doppelt?
+        if Account.query.filter(
+            db.func.lower(Account.handle) == handle.lower()
+        ).first():
+            errors.append(f'Handle @{handle} existiert bereits.')
+            continue
+
+        profile_url = f'https://instagram.com/{handle}'
+
+        acc = Account(
+            name=name,
+            handle=handle,
+            profile_url=profile_url,
+        )
+        # Instagram-Plattform finden (oder erste verfügbare)
+        ig = Platform.query.filter(Platform.name.ilike('%instagram%')).first()
+        if ig:
+            acc.platform_id = ig.id
+
+        # Alle Einstellungen vom Template-Account kopieren
+        if template_acc:
+            acc.category_id          = template_acc.category_id
+            acc.automation_level     = template_acc.automation_level
+            acc.priority             = template_acc.priority
+            acc.posting_interval_days= template_acc.posting_interval_days
+            acc.min_stock_days       = template_acc.min_stock_days
+            acc.optimal_stock_days   = template_acc.optimal_stock_days
+            acc.canva_url            = template_acc.canva_url
+            acc.layout_notes         = template_acc.layout_notes
+            acc.page_persona         = template_acc.page_persona
+            acc.status               = template_acc.status
+        else:
+            acc.automation_level = 0
+            acc.priority = 'medium'
+            acc.posting_interval_days = 1.0
+            acc.min_stock_days = 3
+            acc.optimal_stock_days = 14
+            acc.status = 'active'
+
+        db.session.add(acc)
+        created.append({'name': name, 'handle': handle})
+
+    db.session.commit()
+    return jsonify({'ok': True, 'created': created, 'errors': errors})
+
 
 @app.route('/api/posts')
 def api_posts():

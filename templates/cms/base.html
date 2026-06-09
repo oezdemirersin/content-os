@@ -396,6 +396,11 @@
       <i class="fa-solid fa-face-laugh-squint"></i> Stadt-Memes
     </a>
 
+    <a href="{{ url_for('telegram_queue') }}" class="nav-item {% if active_page == 'tg_queue' %}active{% endif %}"
+       style="color:#29b6f6" title="Posts die per Telegram raus sind aber noch nicht als gepostet markiert">
+      <i class="fa-brands fa-telegram"></i> Telegram Queue
+    </a>
+
     <div class="nav-section">Verwaltung</div>
     <a href="{{ url_for('alerts_center') }}" class="nav-item {% if active_page == 'alerts' %}active{% endif %}">
       <i class="fa-solid fa-bell"></i> Alerts

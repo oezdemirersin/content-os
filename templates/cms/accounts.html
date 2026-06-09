@@ -4,11 +4,11 @@
 
 {% block content %}
 <!-- Header -->
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
   <div>
     <div style="font-size:13px;color:var(--muted)">{{ pagination.total }} Accounts gefunden</div>
   </div>
-  <div style="display:flex;gap:8px">
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
     <a href="{{ url_for('accounts_export_csv') }}" class="btn btn-ghost" title="Accounts exportieren">
       <i class="fa-solid fa-download"></i> Export
     </a>
@@ -18,9 +18,124 @@
     <button onclick="document.getElementById('csvImportModal').style.display='flex'" class="btn btn-ghost">
       <i class="fa-solid fa-file-csv"></i> Import
     </button>
+    <button onclick="document.getElementById('quickCreateModal').style.display='flex'"
+            class="btn btn-ghost" style="border-color:rgba(34,197,94,.4);color:#22c55e">
+      <i class="fa-solid fa-bolt"></i> Schnell erstellen
+    </button>
     <a href="{{ url_for('account_new') }}" class="btn btn-primary">
       <i class="fa-solid fa-plus"></i> Neuer Account
     </a>
+  </div>
+</div>
+
+<!-- Quick-Type-Tabs -->
+<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+  {% set tabs = [
+    ('', 'Alle', 'fa-layer-group'),
+    ('auto', 'Vollautomatisch', 'fa-robot'),
+    ('manual', 'Manuell', 'fa-hand'),
+    ('memes', 'Memes / Beicht', 'fa-face-laugh-squint'),
+  ] %}
+  {% for typ, label, icon in tabs %}
+  <a href="{{ url_for('accounts', type=typ, **filters) }}"
+     style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:20px;
+            font-size:12px;font-weight:{% if acc_type == typ %}700{% else %}600{% endif %};
+            text-decoration:none;transition:all .15s;
+            {% if acc_type == typ %}
+              background:var(--accent);color:white;
+            {% else %}
+              background:var(--surface);border:1px solid var(--border);color:var(--muted);
+            {% endif %}">
+    <i class="fa-solid {{ icon }}" style="font-size:10px"></i>
+    {{ label }}
+  </a>
+  {% endfor %}
+  {% if acc_type %}
+  <a href="{{ url_for('accounts') }}" style="padding:7px 10px;font-size:11px;color:var(--muted);text-decoration:none;align-self:center">
+    <i class="fa-solid fa-xmark"></i> Filter weg
+  </a>
+  {% endif %}
+</div>
+
+<!-- Quick-Bulk-Creator Modal -->
+<div id="quickCreateModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.65);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:620px;margin:16px;box-shadow:0 24px 80px rgba(0,0,0,.6)">
+    <div style="padding:20px 24px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">
+          <i class="fa-solid fa-bolt" style="color:#22c55e;margin-right:8px"></i>SCHNELL ERSTELLEN
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">
+          Nur Name + Handle — alle anderen Einstellungen vom Template-Account übernehmen
+        </div>
+      </div>
+      <button onclick="document.getElementById('quickCreateModal').style.display='none'"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px">
+
+      <!-- Template Account wählen -->
+      <div>
+        <label class="form-label">Einstellungen kopieren von</label>
+        <select id="qcTemplate" class="select-field">
+          <option value="">Keine Vorlage (Standard-Einstellungen)</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.name }} {% if acc.handle %}(@{{ acc.handle }}){% endif %}</option>
+          {% endfor %}
+        </select>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">
+          Kategorie, Automatisierungsstufe, Priorität, Posting-Frequenz, Layout-Notizen und Persona werden übernommen.
+          Telegram-ID wird <strong>nicht</strong> kopiert.
+        </div>
+      </div>
+
+      <!-- Account-Zeilen -->
+      <div>
+        <label class="form-label">Accounts</label>
+        <div id="qcRows" style="display:flex;flex-direction:column;gap:8px">
+          <!-- initial row -->
+          <div class="qc-row" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center">
+            <input type="text" placeholder="Name" class="input-field qc-name" style="font-size:13px">
+            <div style="position:relative">
+              <input type="text" placeholder="handle" class="input-field qc-handle" style="font-size:13px;padding-left:28px"
+                     oninput="updateQcPreview(this)">
+              <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px">@</span>
+            </div>
+            <button onclick="this.closest('.qc-row').remove()"
+                    style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:4px">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
+        <button type="button" onclick="addQcRow()"
+                style="margin-top:8px;background:none;border:1px dashed var(--border);color:var(--muted);
+                       cursor:pointer;font-size:12px;padding:8px 16px;border-radius:8px;width:100%;
+                       font-family:var(--font-body);transition:all .15s"
+                onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--accent2)'"
+                onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+          <i class="fa-solid fa-plus" style="margin-right:6px"></i>Weitere Zeile
+        </button>
+      </div>
+
+      <!-- Ergebnis -->
+      <div id="qcResult" style="display:none;padding:12px 16px;border-radius:10px;font-size:12px;line-height:1.8"></div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button type="button" onclick="document.getElementById('quickCreateModal').style.display='none'"
+                class="btn btn-ghost">Abbrechen</button>
+        <button type="button" onclick="submitQuickCreate()" id="qcSubmitBtn"
+                class="btn btn-primary">
+          <i class="fa-solid fa-bolt"></i> Accounts erstellen
+        </button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -372,6 +487,78 @@ async function accBulk(action, value) {
   });
   const d = await res.json();
   if (d.ok) { showToast(`${d.affected} Account(s) aktualisiert.`); setTimeout(()=>location.reload(), 800); }
+}
+
+// ── Quick-Bulk-Creator ──
+function addQcRow() {
+  const rows = document.getElementById('qcRows');
+  const div = document.createElement('div');
+  div.className = 'qc-row';
+  div.style.cssText = 'display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center';
+  div.innerHTML = `
+    <input type="text" placeholder="Name" class="input-field qc-name" style="font-size:13px">
+    <div style="position:relative">
+      <input type="text" placeholder="handle" class="input-field qc-handle" style="font-size:13px;padding-left:28px"
+             oninput="updateQcPreview(this)">
+      <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px">@</span>
+    </div>
+    <button onclick="this.closest('.qc-row').remove()"
+            style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:4px">
+      <i class="fa-solid fa-xmark"></i>
+    </button>`;
+  rows.appendChild(div);
+  div.querySelector('.qc-name').focus();
+}
+
+function updateQcPreview(input) {
+  input.value = input.value.replace(/\s+/g, '').toLowerCase();
+}
+
+async function submitQuickCreate() {
+  const rows = document.querySelectorAll('.qc-row');
+  const data = [];
+  let ok = true;
+  rows.forEach(row => {
+    const name   = row.querySelector('.qc-name').value.trim();
+    const handle = row.querySelector('.qc-handle').value.trim().replace(/^@/, '');
+    if (name || handle) {
+      if (!name || !handle) { ok = false; }
+      else data.push({name, handle});
+    }
+  });
+  if (!ok) { showToast('Bitte alle Zeilen vollständig ausfüllen (Name + Handle).', 'warning'); return; }
+  if (!data.length) { showToast('Bitte mindestens einen Account eingeben.', 'warning'); return; }
+
+  const templateId = document.getElementById('qcTemplate').value || null;
+  const btn = document.getElementById('qcSubmitBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Erstelle…';
+
+  const res = await fetch('/api/accounts/quick-bulk-create', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({template_id: templateId ? parseInt(templateId) : null, rows: data})
+  });
+  const d = await res.json();
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Accounts erstellen';
+
+  const resultBox = document.getElementById('qcResult');
+  resultBox.style.display = 'block';
+  if (d.ok) {
+    const lines = d.created.map(c => `✅ @${c.handle} — ${c.name}`);
+    if (d.errors?.length) d.errors.forEach(e => lines.push(`⚠️ ${e}`));
+    resultBox.style.background = 'rgba(34,197,94,.08)';
+    resultBox.style.border = '1px solid rgba(34,197,94,.25)';
+    resultBox.style.color = 'var(--text)';
+    resultBox.innerHTML = `<strong style="color:#22c55e">${d.created.length} Account(s) erstellt!</strong><br>${lines.join('<br>')}`;
+    showToast(`${d.created.length} Account(s) erstellt ✓`, 'success');
+    setTimeout(() => location.reload(), 1800);
+  } else {
+    resultBox.style.background = 'rgba(239,68,68,.08)';
+    resultBox.style.border = '1px solid rgba(239,68,68,.25)';
+    resultBox.style.color = 'var(--danger)';
+    resultBox.innerHTML = '❌ Fehler beim Erstellen.';
+  }
 }
 
 async function submitBulkFollowers() {

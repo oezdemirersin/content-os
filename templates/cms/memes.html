@@ -189,64 +189,83 @@
 
 </div>
 
-<!-- Upload-Modal -->
+<!-- Upload-Modal (Batch) -->
 <div id="uploadModal"
-     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)">
-  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(520px,95vw);max-height:90vh;overflow-y:auto">
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(600px,95vw);max-height:92vh;overflow-y:auto">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-      <div style="font-family:var(--font-display);font-size:16px">TEMPLATE HOCHLADEN</div>
+      <div>
+        <div style="font-family:var(--font-display);font-size:16px">TEMPLATES HOCHLADEN</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">Mehrere Bilder auf einmal möglich</div>
+      </div>
       <button onclick="document.getElementById('uploadModal').style.display='none'"
               style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:20px">×</button>
     </div>
 
     <!-- Drag & Drop Zone -->
     <div id="dropZone"
-         style="border:2px dashed var(--border);border-radius:12px;padding:40px;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:16px"
+         style="border:2px dashed var(--border);border-radius:12px;padding:32px;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:16px"
          onclick="document.getElementById('imageInput').click()"
-         ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
-         ondragleave="this.style.borderColor='var(--border)'"
+         ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(59,130,246,.05)'"
+         ondragleave="this.style.borderColor='var(--border)';this.style.background=''"
          ondrop="handleDrop(event)">
       <div id="dropZoneContent">
-        <i class="fa-solid fa-cloud-arrow-up" style="font-size:32px;color:var(--muted);margin-bottom:12px"></i>
-        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Bild hier ablegen</div>
-        <div style="font-size:12px;color:var(--muted)">oder klicken zum Auswählen · JPG, PNG, WebP</div>
+        <i class="fa-solid fa-images" style="font-size:32px;color:var(--muted);margin-bottom:12px"></i>
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">Bilder hier ablegen</div>
+        <div style="font-size:12px;color:var(--muted)">oder klicken · Mehrfachauswahl möglich · JPG, PNG, WebP</div>
       </div>
     </div>
-    <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="previewImage(this)">
+    <!-- multiple file input -->
+    <input type="file" id="imageInput" accept="image/*" multiple style="display:none" onchange="handleFileSelect(this)">
 
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <div>
-        <label class="form-label">Titel (optional)</label>
-        <input type="text" id="uploadTitle" class="input-field" placeholder="z.B. Luisenplatz-Meme #1">
-      </div>
-      <div>
-        <label class="form-label">Für welche Stadt wurde dieses Template gemacht? *</label>
-        <select id="uploadSourceCity" class="select-field">
-          {% for city, profile in city_profiles.items() %}
-          <option value="{{ city }}">{{ profile.emoji }} {{ city }}</option>
-          {% endfor %}
-        </select>
-      </div>
+    <!-- Batch-Preview-Liste -->
+    <div id="batchList" style="display:none;flex-direction:column;gap:10px;margin-bottom:16px"></div>
 
-      <div>
-        <label class="form-label">Was ist das stadtspezifische Element?</label>
-        <input type="text" id="uploadCoreElement" class="input-field"
-               placeholder="z.B. POV: Du bist in der Kleinmarkthalle und kannst dich nicht entscheiden">
+    <!-- Globale Einstellungen (für Einzel-Upload oder als Default) -->
+    <div id="singleUploadForm">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <label class="form-label">Für welche Stadt? *</label>
+          <select id="uploadSourceCity" class="select-field">
+            {% for city, profile in city_profiles.items() %}
+            <option value="{{ city }}">{{ profile.emoji }} {{ city }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div id="singleTitleWrap">
+          <label class="form-label">Titel (optional)</label>
+          <input type="text" id="uploadTitle" class="input-field" placeholder="z.B. Luisenplatz-Meme #1">
+        </div>
+        <div>
+          <label class="form-label">Stadtspezifisches Element</label>
+          <input type="text" id="uploadCoreElement" class="input-field"
+                 placeholder="z.B. POV: Du bist in der Kleinmarkthalle und kannst dich nicht entscheiden">
+        </div>
+        <div>
+          <label class="form-label">Notizen (optional)</label>
+          <textarea id="uploadNotes" rows="2" class="input-field" placeholder="z.B. für Sommer-Reihe, Folge 3"></textarea>
+        </div>
       </div>
-      <div>
-        <label class="form-label">Notizen (optional)</label>
-        <textarea id="uploadNotes" rows="2" class="input-field" placeholder="z.B. für Sommer-Reihe, Folge 3"></textarea>
+    </div>
+
+    <!-- Fortschrittsanzeige (Batch) -->
+    <div id="batchProgress" style="display:none;margin-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:12px;color:var(--muted)">
+        <span id="batchProgressLabel">Hochladen…</span>
+        <span id="batchProgressCount">0 / 0</span>
       </div>
+      <div style="height:6px;background:var(--surface2);border-radius:6px;overflow:hidden">
+        <div id="batchProgressBar" style="height:100%;background:var(--accent);border-radius:6px;transition:width .3s;width:0%"></div>
+      </div>
+      <div id="batchResultList" style="margin-top:10px;font-size:12px;display:flex;flex-direction:column;gap:4px"></div>
     </div>
 
     <div style="display:flex;gap:10px;margin-top:20px;align-items:center">
       <button onclick="uploadTemplate()" class="btn btn-primary" id="uploadBtn" style="flex:1">
-        <i class="fa-solid fa-cloud-arrow-up"></i> Hochladen
+        <i class="fa-solid fa-cloud-arrow-up"></i> <span id="uploadBtnLabel">Hochladen</span>
       </button>
       <button onclick="document.getElementById('uploadModal').style.display='none'" class="btn btn-ghost">Abbrechen</button>
-    </div>
-    <div id="uploadProgress" style="display:none;margin-top:12px;font-size:12px;color:var(--muted);text-align:center">
-      <i class="fa-solid fa-spinner fa-spin"></i> Wird hochgeladen…
     </div>
   </div>
 </div>
@@ -254,67 +273,131 @@
 
 {% block scripts %}
 <script>
-// ── Upload ────────────────────────────────────────────────────
-let _uploadFile = null;
+// ── Upload (Batch) ────────────────────────────────────────────
+let _uploadFiles = [];   // Array of File objects
 
 function handleDrop(e) {
   e.preventDefault();
   document.getElementById('dropZone').style.borderColor = 'var(--border)';
-  const file = e.dataTransfer.files[0];
-  if (file && file.type.startsWith('image/')) {
-    _uploadFile = file;
-    showDropPreview(file);
+  document.getElementById('dropZone').style.background = '';
+  const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+  if (files.length) setUploadFiles(files);
+}
+
+function handleFileSelect(input) {
+  const files = Array.from(input.files).filter(f => f.type.startsWith('image/'));
+  if (files.length) setUploadFiles(files);
+}
+
+function setUploadFiles(files) {
+  _uploadFiles = files;
+  const isBatch = files.length > 1;
+  document.getElementById('uploadBtnLabel').textContent = isBatch
+    ? `${files.length} Bilder hochladen` : 'Hochladen';
+
+  // Update dropzone preview
+  if (files.length === 1) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      document.getElementById('dropZoneContent').innerHTML = `
+        <img src="${e.target.result}" style="max-height:120px;max-width:100%;border-radius:8px;object-fit:contain">
+        <div style="margin-top:8px;font-size:12px;color:var(--muted)">${files[0].name}</div>`;
+    };
+    reader.readAsDataURL(files[0]);
+    document.getElementById('singleTitleWrap').style.display = '';
+  } else {
+    // Show thumbnail strip for batch
+    document.getElementById('dropZoneContent').innerHTML =
+      `<i class="fa-solid fa-images" style="font-size:24px;color:var(--accent);margin-bottom:8px"></i>
+       <div style="font-size:14px;font-weight:700;color:var(--accent)">${files.length} Bilder ausgewählt</div>
+       <div style="font-size:11px;color:var(--muted)">${files.map(f=>f.name).join(' · ')}</div>`;
+    document.getElementById('singleTitleWrap').style.display = 'none';
   }
 }
 
-function previewImage(input) {
-  _uploadFile = input.files[0];
-  if (_uploadFile) showDropPreview(_uploadFile);
-}
-
-function showDropPreview(file) {
-  const reader = new FileReader();
-  reader.onload = e => {
-    document.getElementById('dropZoneContent').innerHTML = `
-      <img src="${e.target.result}" style="max-height:150px;max-width:100%;border-radius:8px;object-fit:contain">
-      <div style="margin-top:8px;font-size:12px;color:var(--muted)">${file.name}</div>
-    `;
-  };
-  reader.readAsDataURL(file);
-}
-
 async function uploadTemplate() {
-  if (!_uploadFile) { showToast('Bitte erst ein Bild auswählen.', 'warning'); return; }
+  if (!_uploadFiles.length) { showToast('Bitte erst ein Bild auswählen.', 'warning'); return; }
   const city = document.getElementById('uploadSourceCity').value;
   if (!city) { showToast('Bitte eine Stadt auswählen.', 'warning'); return; }
 
   const btn = document.getElementById('uploadBtn');
-  const prog = document.getElementById('uploadProgress');
   btn.disabled = true;
-  prog.style.display = 'block';
 
-  const fd = new FormData();
-  fd.append('image', _uploadFile);
-  fd.append('title', document.getElementById('uploadTitle').value.trim());
-  fd.append('source_city', city);
-  fd.append('notes', document.getElementById('uploadNotes').value.trim());
-
-  fd.append('core_element', document.getElementById('uploadCoreElement').value.trim());
-
-  try {
-    const res = await fetch('/api/memes/template/upload', {method:'POST', body: fd});
-    const data = await res.json();
-    if (data.ok) {
-      showToast('✅ Template hochgeladen!', 'success');
-      setTimeout(() => window.location.href = `/memes/${data.template_id}`, 800);
-    } else {
-      showToast('Fehler: ' + data.error, 'error');
+  if (_uploadFiles.length === 1) {
+    // ── Einzel-Upload ──
+    const fd = new FormData();
+    fd.append('image', _uploadFiles[0]);
+    fd.append('title', document.getElementById('uploadTitle').value.trim());
+    fd.append('source_city', city);
+    fd.append('notes', document.getElementById('uploadNotes').value.trim());
+    fd.append('core_element', document.getElementById('uploadCoreElement').value.trim());
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Hochladen…';
+    try {
+      const res = await fetch('/api/memes/template/upload', {method:'POST', body: fd});
+      const data = await res.json();
+      if (data.ok) {
+        showToast('✅ Template hochgeladen!', 'success');
+        setTimeout(() => window.location.href = `/memes/${data.template_id}`, 800);
+      } else {
+        showToast('Fehler: ' + data.error, 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> <span id="uploadBtnLabel">Hochladen</span>';
+      }
+    } catch(e) {
+      showToast('Netzwerkfehler: ' + e.message, 'error');
+      btn.disabled = false;
     }
-  } catch(e) {
-    showToast('Netzwerkfehler: ' + e.message, 'error');
-  } finally {
+  } else {
+    // ── Batch-Upload ──
+    const total = _uploadFiles.length;
+    const progressWrap = document.getElementById('batchProgress');
+    const progressBar  = document.getElementById('batchProgressBar');
+    const progressLbl  = document.getElementById('batchProgressLabel');
+    const progressCnt  = document.getElementById('batchProgressCount');
+    const resultList   = document.getElementById('batchResultList');
+    progressWrap.style.display = 'block';
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Läuft…';
+    resultList.innerHTML = '';
+
+    let done = 0, errors = 0, lastId = null;
+    const notes    = document.getElementById('uploadNotes').value.trim();
+    const core     = document.getElementById('uploadCoreElement').value.trim();
+
+    for (const file of _uploadFiles) {
+      progressLbl.textContent = `Lade hoch: ${file.name}`;
+      progressCnt.textContent = `${done + 1} / ${total}`;
+      const fd = new FormData();
+      fd.append('image', file);
+      fd.append('title', file.name.replace(/\.[^.]+$/, ''));
+      fd.append('source_city', city);
+      fd.append('notes', notes);
+      fd.append('core_element', core);
+      try {
+        const res  = await fetch('/api/memes/template/upload', {method:'POST', body: fd});
+        const data = await res.json();
+        if (data.ok) {
+          done++;
+          lastId = data.template_id;
+          resultList.insertAdjacentHTML('beforeend',
+            `<div style="color:var(--success)"><i class="fa-solid fa-check"></i> ${file.name}</div>`);
+        } else {
+          errors++;
+          resultList.insertAdjacentHTML('beforeend',
+            `<div style="color:var(--danger)"><i class="fa-solid fa-xmark"></i> ${file.name}: ${data.error}</div>`);
+        }
+      } catch(e) {
+        errors++;
+        resultList.insertAdjacentHTML('beforeend',
+          `<div style="color:var(--danger)"><i class="fa-solid fa-xmark"></i> ${file.name}: Netzwerkfehler</div>`);
+      }
+      progressBar.style.width = `${Math.round((done + errors) / total * 100)}%`;
+    }
+    progressLbl.textContent = `Fertig! ${done} hochgeladen${errors ? ', ' + errors + ' Fehler' : ''}`;
+    progressCnt.textContent = `${total} / ${total}`;
     btn.disabled = false;
-    prog.style.display = 'none';
+    btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Seite neu laden';
+    btn.onclick = () => location.reload();
+    showToast(`${done} Templates hochgeladen ✓`, 'success');
   }
 }
 
