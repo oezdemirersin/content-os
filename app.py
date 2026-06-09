@@ -6243,7 +6243,9 @@ def inspiration_source_delete(src_id):
 @app.route('/api/inspirationen/fetch/<int:src_id>', methods=['POST'])
 @login_required
 def inspiration_fetch(src_id):
-    """Holt die letzten Posts einer Quelle via RapidAPI Instagram Scraper."""
+    """Holt die letzten Posts einer Quelle via RapidAPI Instagram Scraper.
+    Probiert mehrere bekannte API-Hosts als Fallback.
+    """
     import requests as req_lib
 
     src     = InspirationSource.query.get_or_404(src_id)
@@ -6251,84 +6253,112 @@ def inspiration_fetch(src_id):
     if not api_key:
         return jsonify({'ok': False, 'error': 'Kein RapidAPI-Key konfiguriert. Bitte in Einstellungen → Integrationen eintragen.'})
 
-    # RapidAPI: instagram-scraper-api2
-    url  = 'https://instagram-scraper-api2.p.rapidapi.com/v1/posts'
-    headers = {
-        'x-rapidapi-key':  api_key,
-        'x-rapidapi-host': 'instagram-scraper-api2.p.rapidapi.com',
-    }
-    try:
-        resp = req_lib.get(url, headers=headers,
-                           params={'username_or_id_or_url': src.username},
-                           timeout=20)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        return jsonify({'ok': False, 'error': f'API-Fehler: {str(e)}'})
+    # Versuche mehrere bekannte API-Hosts (erster der antwortet gewinnt)
+    _APIS = [
+        {
+            'host': 'instagram-scraper-api2.p.rapidapi.com',
+            'url':  'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
+            'params': {'username_or_id_or_url': src.username},
+        },
+        {
+            'host': 'instagram-looter2.p.rapidapi.com',
+            'url':  'https://instagram-looter2.p.rapidapi.com/feed-by-username',
+            'params': {'username': src.username, 'count': '30'},
+        },
+        {
+            'host': 'instagram47.p.rapidapi.com',
+            'url':  'https://instagram47.p.rapidapi.com/getMediaByUsername',
+            'params': {'username': src.username},
+        },
+    ]
 
-    items = (data.get('data') or {}).get('items') or []
-    if not items:
-        # Fallback: manche APIs liefern direkt eine Liste
-        items = data if isinstance(data, list) else []
+    data = None
+    last_err = ''
+    for api in _APIS:
+        try:
+            headers = {
+                'x-rapidapi-key':  api_key,
+                'x-rapidapi-host': api['host'],
+            }
+            resp = req_lib.get(api['url'], headers=headers,
+                               params=api['params'], timeout=20)
+            if resp.status_code == 200:
+                data = resp.json()
+                break
+            last_err = f"HTTP {resp.status_code} von {api['host']}"
+        except Exception as e:
+            last_err = str(e)
+            continue
+
+    if data is None:
+        return jsonify({'ok': False, 'error': f'Alle APIs fehlgeschlagen: {last_err}'})
+
+    # Posts aus verschiedenen Antwortformaten extrahieren
+    items = (
+        (data.get('data') or {}).get('items')
+        or data.get('items')
+        or data.get('posts')
+        or (data.get('data') if isinstance(data.get('data'), list) else None)
+        or (data if isinstance(data, list) else [])
+    )
+
+    def _extract_img(item):
+        """Gibt (full_url, thumb_url) aus verschiedenen API-Formaten zurück."""
+        # Format 1: image_versions / image_versions2
+        for key in ('image_versions2', 'image_versions'):
+            iv = item.get(key) or {}
+            iv_items = iv.get('items') or []
+            if iv_items:
+                return iv_items[0].get('url'), (iv_items[-1].get('url') if len(iv_items) > 1 else iv_items[0].get('url'))
+        # Format 2: direkte URL-Felder
+        for key in ('display_url', 'thumbnail_url', 'image_url', 'media_url', 'url'):
+            v = item.get(key)
+            if v:
+                return v, v
+        # Format 3: carousel_media[0]
+        cm = item.get('carousel_media') or []
+        if cm:
+            return _extract_img(cm[0])
+        return None, None
 
     new_count = 0
-    for item in items[:30]:  # max 30 auf einmal
-        # Shortcode extrahieren
-        code = item.get('code') or item.get('shortcode') or item.get('id') or ''
+    for item in items[:50]:
+        code = str(item.get('code') or item.get('shortcode') or item.get('id') or '')
         if not code:
             continue
-        code = str(code)
-
-        # Bereits vorhanden?
         if InspirationPost.query.filter_by(instagram_code=code).first():
             continue
 
-        # Bild-URL extrahieren (verschiedene API-Formate)
-        img_url = None
-        thumb_url = None
-
-        # Format 1: image_versions.items[0].url
-        iv = item.get('image_versions') or item.get('image_versions2') or {}
-        iv_items = iv.get('items') or []
-        if iv_items:
-            img_url   = iv_items[0].get('url')
-            thumb_url = iv_items[-1].get('url') if len(iv_items) > 1 else img_url
-
-        # Format 2: thumbnail_url / display_url
-        if not img_url:
-            img_url   = item.get('thumbnail_url') or item.get('display_url') or item.get('image_url')
-            thumb_url = img_url
-
-        # Format 3: carousel_media[0]
-        if not img_url and item.get('carousel_media'):
-            first = item['carousel_media'][0]
-            iv2 = first.get('image_versions2') or first.get('image_versions') or {}
-            iv2_items = iv2.get('items') or []
-            if iv2_items:
-                img_url   = iv2_items[0].get('url')
-                thumb_url = iv2_items[-1].get('url') if len(iv2_items) > 1 else img_url
-
+        img_url, thumb_url = _extract_img(item)
         if not img_url:
             continue
 
         # Caption
         cap_obj = item.get('caption') or {}
-        caption = cap_obj.get('text') if isinstance(cap_obj, dict) else (cap_obj or '')
+        caption = cap_obj.get('text') if isinstance(cap_obj, dict) else str(cap_obj or '')
 
         # Datum
-        taken_at = item.get('taken_at') or item.get('timestamp')
-        post_date = datetime.utcfromtimestamp(int(taken_at)) if taken_at else None
+        taken_at = item.get('taken_at') or item.get('timestamp') or item.get('taken_at_timestamp')
+        post_date = None
+        if taken_at:
+            try:
+                post_date = datetime.utcfromtimestamp(int(taken_at))
+            except Exception:
+                pass
+
+        # Bild-Count bei Carousel
+        carousel_count = len(item.get('carousel_media') or [])
 
         # Typ
         mt = item.get('media_type', 1)
-        media_type = 'video' if mt == 2 else ('carousel' if mt == 8 else 'image')
+        media_type = 'video' if mt == 2 else ('carousel' if (mt == 8 or carousel_count > 1) else 'image')
 
         post = InspirationPost(
             source_id      = src.id,
             instagram_code = code,
             image_url      = img_url,
             thumbnail_url  = thumb_url or img_url,
-            caption        = str(caption or ''),
+            caption        = caption,
             post_date      = post_date,
             media_type     = media_type,
             status         = 'new',
@@ -6360,11 +6390,19 @@ def inspiration_post_status(post_id):
 def inspiration_post_use(post_id):
     """
     Lädt das Bild eines Inspiration-Posts zu Cloudinary hoch und erstellt
-    ein ContentItem daraus → landet dann in Hochladen & Einplanen.
+    ein ContentItem daraus.
+    Body-Parameter:
+      account_id  – Ziel-Account (optional)
+      mode        – 'reserve' (Vorrat, draft) | 'ready' (bereit, sofort einplanbar)
+      caption     – ggf. umformulierte Caption
     """
     import requests as req_lib
 
     post = InspirationPost.query.get_or_404(post_id)
+    data = request.get_json() or {}
+    account_id = data.get('account_id') or None
+    mode       = data.get('mode', 'reserve')   # 'reserve' | 'ready'
+    caption    = data.get('caption') or post.caption or ''
 
     # Bild von Instagram CDN laden
     try:
@@ -6390,6 +6428,7 @@ def inspiration_post_use(post_id):
             height=cl.get('height'),
             url=cl['secure_url'],
             storage_source='cloudinary',
+            account_id=account_id,
         )
     else:
         unique_name = f"{uuid.uuid4().hex}.jpg"
@@ -6404,26 +6443,70 @@ def inspiration_post_use(post_id):
             file_size=len(img_bytes),
             url=f'/media/file/{unique_name}',
             storage_source='local',
+            account_id=account_id,
         )
     db.session.add(media)
     db.session.flush()
 
+    content_status = 'draft' if mode == 'reserve' else 'ready'
     ci = ContentItem(
-        title=f'Inspiration @{post.source.username}' if post.source else 'Inspiration',
-        caption=post.caption or '',
-        status='ready',
-        content_type='feed',
+        title      = caption[:80] if caption else (f'Inspiration @{post.source.username}' if post.source else 'Inspiration'),
+        caption    = caption,
+        status     = content_status,
+        content_type = 'feed',
+        account_id = account_id,
     )
     db.session.add(ci)
     db.session.flush()
     media.content_item_id = ci.id
-    post.status          = 'used'
-    post.content_item_id = ci.id
+    post.status           = 'used'
+    post.content_item_id  = ci.id
     db.session.commit()
 
+    mode_label = 'als Vorrat gespeichert' if mode == 'reserve' else 'als bereit markiert'
     return jsonify({'ok': True, 'content_item_id': ci.id,
                     'thumb': media.url,
-                    'message': 'Bild übernommen — jetzt in Hochladen & Einplanen verfügbar.'})
+                    'message': f'Bild übernommen und {mode_label} — jetzt in Content-Vorrat verfügbar.'})
+
+
+@app.route('/api/inspirationen/<int:post_id>/rewrite', methods=['POST'])
+@login_required
+def inspiration_rewrite(post_id):
+    """Formuliert eine Caption mit Claude komplett um, behält Stil + Kontext."""
+    post    = InspirationPost.query.get_or_404(post_id)
+    data    = request.get_json() or {}
+    caption = data.get('caption') or post.caption or ''
+    if not caption.strip():
+        return jsonify({'ok': False, 'error': 'Keine Caption vorhanden.'})
+
+    anthropic_key = get_setting('anthropic_api_key')
+    if not anthropic_key:
+        return jsonify({'ok': False, 'error': 'Anthropic API-Key fehlt (Einstellungen → Integrationen).'})
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=anthropic_key)
+        msg = client.messages.create(
+            model      = 'claude-opus-4-5',
+            max_tokens = 600,
+            messages   = [{
+                'role': 'user',
+                'content': (
+                    "Formuliere diese Instagram-Caption komplett um.\n"
+                    "Regeln:\n"
+                    "- Behalte exakt denselben Kontext, Humor, Tonalität und die Kernaussage\n"
+                    "- Kein Satz darf identisch zur Vorlage sein\n"
+                    "- Gleiche Sprache wie das Original (Deutsch wenn Original Deutsch ist)\n"
+                    "- Keine Meta-Kommentare, nur die fertige Caption\n"
+                    "- Hashtags dürfen weggelassen werden\n\n"
+                    f"Original:\n{caption}"
+                )
+            }]
+        )
+        rewritten = msg.content[0].text.strip()
+        return jsonify({'ok': True, 'rewritten': rewritten})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Claude-Fehler: {str(e)}'})
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────

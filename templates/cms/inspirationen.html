@@ -9,7 +9,6 @@
   <!-- ── Linke Spalte: Quellen ── -->
   <div style="display:flex;flex-direction:column;gap:14px;position:sticky;top:20px">
 
-    <!-- API-Key Warnung -->
     {% if not has_rapidapi_key %}
     <div style="padding:14px 16px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);
          border-radius:10px;font-size:12px;line-height:1.6">
@@ -17,13 +16,14 @@
         <i class="fa-solid fa-triangle-exclamation"></i> RapidAPI-Key fehlt
       </div>
       Für das Laden von Posts wird ein kostenloser RapidAPI-Key benötigt.
-      <a href="{{ url_for('integrations') }}" style="color:var(--accent);text-decoration:none;display:block;margin-top:6px;font-weight:600">
+      <a href="{{ url_for('integrations') }}"
+         style="color:var(--accent);text-decoration:none;display:block;margin-top:6px;font-weight:600">
         → Jetzt in Integrationen eintragen
       </a>
     </div>
     {% endif %}
 
-    <!-- Neue Quelle hinzufügen -->
+    <!-- Neue Quelle -->
     <div class="card" style="padding:16px">
       <div style="font-family:var(--font-display);font-size:12px;letter-spacing:.5px;margin-bottom:12px">
         SEITE BEOBACHTEN
@@ -61,13 +61,10 @@
           <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
              style="flex:1;min-width:0;text-decoration:none">
             <div style="font-size:13px;font-weight:600;color:var(--text)">@{{ src.username }}</div>
-            {% if src.last_fetch %}
             <div style="font-size:10px;color:var(--muted)">
-              Zuletzt: {{ src.last_fetch.strftime('%d.%m. %H:%M') }}
+              {% if src.last_fetch %}Zuletzt: {{ src.last_fetch.strftime('%d.%m. %H:%M') }}
+              {% else %}Noch nie geladen{% endif %}
             </div>
-            {% else %}
-            <div style="font-size:10px;color:var(--muted)">Noch nie geladen</div>
-            {% endif %}
           </a>
           <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
                   class="btn btn-ghost" style="font-size:11px;padding:4px 8px;flex-shrink:0"
@@ -85,7 +82,6 @@
       {% endif %}
     </div>
 
-    <!-- Alle laden Button -->
     {% if sources and has_rapidapi_key %}
     <button onclick="fetchAll()" class="btn btn-ghost" style="font-size:12px">
       <i class="fa-solid fa-rotate"></i> Alle Seiten aktualisieren
@@ -104,11 +100,8 @@
          style="display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:20px;
                 font-size:12px;font-weight:{% if status_filter == tab_status %}700{% else %}600{% endif %};
                 text-decoration:none;
-                {% if status_filter == tab_status %}
-                  background:var(--accent);color:white;
-                {% else %}
-                  background:var(--surface);border:1px solid var(--border);color:var(--muted);
-                {% endif %}">
+                {% if status_filter == tab_status %}background:var(--accent);color:white;
+                {% else %}background:var(--surface);border:1px solid var(--border);color:var(--muted);{% endif %}">
         {{ label }}
         {% if tab_status != 'all' and counts.get(tab_status) %}
         <span style="font-size:10px;padding:1px 6px;border-radius:10px;
@@ -135,12 +128,11 @@
       {% endif %}
     </div>
     {% else %}
-    <div id="postsGrid"
-         style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
+    <div id="postsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px">
       {% for post in posts %}
       <div id="pcard-{{ post.id }}"
            style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
-                  overflow:hidden;transition:opacity .3s">
+                  overflow:hidden;transition:opacity .3s,transform .3s">
 
         <!-- Bild -->
         <div style="aspect-ratio:1;overflow:hidden;background:var(--surface2);position:relative">
@@ -149,25 +141,29 @@
                style="width:100%;height:100%;object-fit:cover"
                onerror="this.style.display='none'">
           {% endif %}
+
+          <!-- Typ-Badge -->
           {% if post.media_type == 'video' %}
-          <div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.6);
-               border-radius:4px;padding:2px 6px;font-size:10px;color:white">
+          <div style="position:absolute;top:7px;right:7px;background:rgba(0,0,0,.7);
+               border-radius:5px;padding:2px 7px;font-size:10px;color:white">
             <i class="fa-solid fa-play"></i> Video
           </div>
           {% elif post.media_type == 'carousel' %}
-          <div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.6);
-               border-radius:4px;padding:2px 6px;font-size:10px;color:white">
-            <i class="fa-solid fa-images"></i>
+          <div style="position:absolute;top:7px;right:7px;background:rgba(0,0,0,.7);
+               border-radius:5px;padding:2px 7px;font-size:10px;color:white">
+            <i class="fa-solid fa-images"></i> Carousel
           </div>
           {% endif %}
+
+          <!-- Status-Badge -->
           {% if post.status == 'saved' %}
-          <div style="position:absolute;top:6px;left:6px;background:#22c55e;
-               border-radius:4px;padding:2px 6px;font-size:10px;color:white">
+          <div style="position:absolute;top:7px;left:7px;background:#22c55e;
+               border-radius:5px;padding:2px 7px;font-size:10px;color:white">
             <i class="fa-solid fa-bookmark"></i>
           </div>
           {% elif post.status == 'used' %}
-          <div style="position:absolute;top:6px;left:6px;background:var(--accent);
-               border-radius:4px;padding:2px 6px;font-size:10px;color:white">
+          <div style="position:absolute;top:7px;left:7px;background:var(--accent);
+               border-radius:5px;padding:2px 7px;font-size:10px;color:white">
             <i class="fa-solid fa-check"></i> Übernommen
           </div>
           {% endif %}
@@ -175,47 +171,65 @@
 
         <!-- Meta -->
         <div style="padding:10px 12px">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;display:flex;justify-content:space-between">
-            <span>@{{ post.source.username if post.source else '—' }}</span>
-            <span>{{ post.post_date.strftime('%d.%m.%y') if post.post_date else '—' }}</span>
+
+          <!-- Account + Datum -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+            <span style="font-size:11px;font-weight:600;color:var(--accent2)">
+              @{{ post.source.username if post.source else '—' }}
+            </span>
+            {% if post.post_date %}
+            <span style="font-size:11px;color:var(--muted);
+                         background:var(--surface2);padding:2px 7px;border-radius:10px">
+              {{ post.post_date.strftime('%d.%m.%Y') }}
+            </span>
+            {% endif %}
           </div>
+
+          <!-- Caption Preview -->
           {% if post.caption %}
           <div style="font-size:11px;color:var(--muted);
-                      overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-                      line-height:1.4;margin-bottom:8px">
-            {{ post.caption[:100] }}
+                      overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;
+                      -webkit-box-orient:vertical;line-height:1.5;margin-bottom:9px">
+            {{ post.caption[:120] }}
+          </div>
+          {% else %}
+          <div style="font-size:11px;color:var(--muted);margin-bottom:9px;font-style:italic">
+            Keine Caption
           </div>
           {% endif %}
 
           <!-- Aktionen -->
-          <div style="display:flex;gap:4px">
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
             {% if post.status != 'used' %}
-            <button onclick="usePost({{ post.id }}, this)"
+            <button onclick="openUseModal({{ post.id }}, {{ post.caption|tojson if post.caption else '\"\"' }})"
                     class="btn btn-primary"
-                    style="flex:1;font-size:11px;padding:6px 8px">
+                    style="flex:1;font-size:11px;padding:5px 8px;min-width:80px">
               <i class="fa-solid fa-arrow-right"></i> Verwenden
             </button>
             {% endif %}
+
             {% if post.status == 'new' %}
             <button onclick="setStatus({{ post.id }}, 'saved', this)"
-                    class="btn btn-ghost" style="font-size:11px;padding:6px 8px"
-                    title="Für später merken">
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
+                    title="Merken">
               <i class="fa-solid fa-bookmark"></i>
             </button>
             <button onclick="setStatus({{ post.id }}, 'ignored', this)"
-                    class="btn btn-ghost" style="font-size:11px;padding:6px 8px"
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
                     title="Ignorieren">
               <i class="fa-solid fa-xmark"></i>
             </button>
             {% elif post.status == 'saved' %}
             <button onclick="setStatus({{ post.id }}, 'new', this)"
-                    class="btn btn-ghost" style="font-size:11px;padding:6px 8px"
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
                     title="Zurücksetzen">
               <i class="fa-solid fa-rotate-left"></i>
             </button>
             {% endif %}
+
             <a href="https://instagram.com/p/{{ post.instagram_code }}/" target="_blank"
-               class="btn btn-ghost" style="font-size:11px;padding:6px 8px" title="Original öffnen">
+               class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
+               title="Original öffnen">
               <i class="fa-brands fa-instagram"></i>
             </a>
           </div>
@@ -228,28 +242,243 @@
   </div>
 </div>
 
+<!-- ── "Verwenden"-Modal ── -->
+<div id="useModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.65);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeUseModal()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:500px;margin:16px;box-shadow:0 24px 80px rgba(0,0,0,.6)">
+
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between">
+      <div style="font-family:var(--font-display);font-size:17px;letter-spacing:.5px">POST ÜBERNEHMEN</div>
+      <button onclick="closeUseModal()"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <div style="padding:20px 22px;display:flex;flex-direction:column;gap:16px">
+
+      <!-- Account -->
+      <div>
+        <label class="form-label">Für welche Seite?</label>
+        <select id="useAccountId" class="select-field">
+          <option value="">— Kein Account (nur in Medienbibliothek) —</option>
+        </select>
+      </div>
+
+      <!-- Modus -->
+      <div>
+        <label class="form-label">Was soll passieren?</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;
+                        border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s"
+                 id="modeReserveCard" onclick="selectMode('reserve')">
+            <input type="radio" name="useMode" value="reserve" checked
+                   style="margin-top:2px;accent-color:var(--accent)">
+            <div>
+              <div style="font-size:12px;font-weight:700;color:var(--text)">
+                <i class="fa-solid fa-box" style="color:var(--muted);margin-right:4px"></i> Vorrat
+              </div>
+              <div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4">
+                Als Entwurf speichern — Datum später festlegen
+              </div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;
+                        border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s"
+                 id="modeReadyCard" onclick="selectMode('ready')">
+            <input type="radio" name="useMode" value="ready"
+                   style="margin-top:2px;accent-color:var(--accent)">
+            <div>
+              <div style="font-size:12px;font-weight:700;color:var(--text)">
+                <i class="fa-solid fa-calendar-check" style="color:var(--muted);margin-right:4px"></i> Einplanen
+              </div>
+              <div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4">
+                Als bereit markieren — direkt in Content-Vorrat
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Caption -->
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label class="form-label" style="margin:0">Caption</label>
+          <button id="rewriteBtn" onclick="rewriteCaption()"
+                  class="btn btn-ghost" style="font-size:11px;padding:4px 10px;gap:5px">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Umformulieren
+          </button>
+        </div>
+        <textarea id="useCaptionText" class="input-field" rows="5"
+                  style="resize:vertical;font-size:12px;line-height:1.6"
+                  placeholder="Caption (optional — kann auch leer bleiben)"></textarea>
+        <div id="rewriteStatus" style="display:none;margin-top:6px;font-size:11px;color:var(--muted)"></div>
+      </div>
+
+      <!-- Buttons -->
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="closeUseModal()" class="btn btn-ghost">Abbrechen</button>
+        <button id="confirmUseBtn" onclick="confirmUse()" class="btn btn-primary">
+          <i class="fa-solid fa-arrow-right"></i> Übernehmen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Toast für Fetch-Status -->
-<div id="fetchStatus" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
-     background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 20px;
-     font-size:13px;font-weight:600;box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:1000;
-     display:flex;align-items:center;gap:10px"></div>
+<div id="fetchStatus"
+     style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+            background:var(--surface);border:1px solid var(--border);border-radius:12px;
+            padding:12px 20px;font-size:13px;font-weight:600;
+            box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:1000;align-items:center;gap:10px">
+</div>
 
 {% endblock %}
 
 {% block scripts %}
 <script>
-// ── Quelle hinzufügen ────────────────────────────────────────
+// ── State ────────────────────────────────────────────────────
+let _currentPostId   = null;
+let _accountsCache   = null;
+let _selectedMode    = 'reserve';
+
+// ── Accounts laden ────────────────────────────────────────────
+async function loadAccounts() {
+  if (_accountsCache) return _accountsCache;
+  const data = await fetch('/api/accounts').then(r => r.json()).catch(() => []);
+  _accountsCache = data;
+  return data;
+}
+
+// ── "Verwenden"-Modal öffnen ──────────────────────────────────
+async function openUseModal(postId, caption) {
+  _currentPostId = postId;
+  document.getElementById('useCaptionText').value = caption || '';
+  document.getElementById('rewriteStatus').style.display = 'none';
+  selectMode('reserve');
+
+  // Accounts laden
+  const sel = document.getElementById('useAccountId');
+  if (sel.options.length <= 1) {
+    const accounts = await loadAccounts();
+    accounts.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      opt.textContent = a.name + (a.handle ? ` · ${a.handle}` : '');
+      sel.appendChild(opt);
+    });
+  }
+
+  document.getElementById('useModal').style.display = 'flex';
+}
+
+function closeUseModal() {
+  document.getElementById('useModal').style.display = 'none';
+  _currentPostId = null;
+}
+
+function selectMode(mode) {
+  _selectedMode = mode;
+  document.querySelectorAll('[name="useMode"]').forEach(r => r.checked = r.value === mode);
+  document.getElementById('modeReserveCard').style.borderColor =
+    mode === 'reserve' ? 'var(--accent)' : 'var(--border)';
+  document.getElementById('modeReadyCard').style.borderColor =
+    mode === 'ready' ? 'var(--accent)' : 'var(--border)';
+}
+
+// ── Umformulieren ─────────────────────────────────────────────
+async function rewriteCaption() {
+  if (!_currentPostId) return;
+  const btn = document.getElementById('rewriteBtn');
+  const statusEl = document.getElementById('rewriteStatus');
+  const ta = document.getElementById('useCaptionText');
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Wird umformuliert…';
+  statusEl.style.display = 'block';
+  statusEl.textContent = 'Claude denkt nach…';
+
+  const r = await fetch(`/api/inspirationen/${_currentPostId}/rewrite`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({caption: ta.value})
+  }).then(r => r.json());
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Umformulieren';
+
+  if (r.ok) {
+    ta.value = r.rewritten;
+    statusEl.textContent = '✓ Caption wurde umformuliert';
+    statusEl.style.color = '#22c55e';
+  } else {
+    statusEl.textContent = '⚠ ' + (r.error || 'Fehler');
+    statusEl.style.color = 'var(--warning)';
+  }
+}
+
+// ── Übernehmen ────────────────────────────────────────────────
+async function confirmUse() {
+  if (!_currentPostId) return;
+  const btn = document.getElementById('confirmUseBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+  const account_id = parseInt(document.getElementById('useAccountId').value) || null;
+  const caption    = document.getElementById('useCaptionText').value;
+
+  const r = await fetch(`/api/inspirationen/${_currentPostId}/use`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({account_id, mode: _selectedMode, caption})
+  }).then(r => r.json());
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Übernehmen';
+
+  if (r.ok) {
+    showToast(r.message, 'success');
+    closeUseModal();
+    const card = document.getElementById(`pcard-${_currentPostId}`);
+    if (card) {
+      card.style.opacity = '0'; card.style.transform = 'scale(.95)';
+      setTimeout(() => card.remove(), 350);
+    }
+  } else {
+    showToast(r.error || 'Fehler.', 'error');
+  }
+}
+
+// ── Status ändern ─────────────────────────────────────────────
+async function setStatus(postId, status, btn) {
+  const r = await fetch(`/api/inspirationen/${postId}/status`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status})
+  }).then(r => r.json());
+  if (r.ok) {
+    const card = document.getElementById(`pcard-${postId}`);
+    card.style.opacity = '0'; card.style.transform = 'scale(.95)';
+    card.style.transition = 'opacity .3s,transform .3s';
+    setTimeout(() => card.remove(), 350);
+  }
+}
+
+// ── Quelle hinzufügen ─────────────────────────────────────────
 async function addSource() {
   const input = document.getElementById('newSourceInput');
   const username = input.value.trim().replace(/^@/, '').toLowerCase();
   if (!username) { showToast('Bitte einen Instagram-Handle eingeben.', 'warning'); return; }
-
   const r = await fetch('/api/inspirationen/sources', {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({username})
   }).then(r => r.json());
-
   if (r.ok) {
     showToast(`@${r.username} wird jetzt beobachtet ✓`, 'success');
     setTimeout(() => location.reload(), 800);
@@ -260,7 +489,7 @@ async function addSource() {
 
 // ── Quelle löschen ────────────────────────────────────────────
 async function deleteSource(id, name) {
-  if (!confirm(`${name} entfernen? Alle heruntergeladenen Posts dieser Seite werden gelöscht.`)) return;
+  if (!confirm(`${name} entfernen? Alle heruntergeladenen Posts werden gelöscht.`)) return;
   const r = await fetch(`/api/inspirationen/sources/${id}`, {method:'DELETE'}).then(r=>r.json());
   if (r.ok) { showToast(`${name} entfernt.`, 'success'); setTimeout(() => location.reload(), 800); }
 }
@@ -269,7 +498,7 @@ async function deleteSource(id, name) {
 async function fetchSource(id, name, btn) {
   btn.disabled = true;
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-  showFetchStatus(`<i class="fa-solid fa-spinner fa-spin" style="color:var(--accent)"></i> Posts von ${name} werden geladen…`);
+  showFetchStatus(`<i class="fa-solid fa-spinner fa-spin" style="color:var(--accent)"></i>&nbsp; Posts von ${name} werden geladen…`);
 
   const r = await fetch(`/api/inspirationen/fetch/${id}`, {method:'POST'}).then(r=>r.json());
   btn.disabled = false;
@@ -289,56 +518,10 @@ async function fetchAll() {
   for (const btn of btns) btn.click();
 }
 
-// ── Post-Status ändern ────────────────────────────────────────
-async function setStatus(postId, status, btn) {
-  const r = await fetch(`/api/inspirationen/${postId}/status`, {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({status})
-  }).then(r => r.json());
-
-  if (r.ok) {
-    const card = document.getElementById(`pcard-${postId}`);
-    card.style.opacity = '0'; card.style.transform = 'scale(.95)';
-    card.style.transition = 'opacity .3s, transform .3s';
-    setTimeout(() => card.remove(), 350);
-  }
-}
-
-// ── Post übernehmen ───────────────────────────────────────────
-async function usePost(postId, btn) {
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-
-  const r = await fetch(`/api/inspirationen/${postId}/use`, {
-    method: 'POST'
-  }).then(r => r.json());
-
-  btn.disabled = false;
-  btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Verwenden';
-
-  if (r.ok) {
-    showToast(r.message, 'success');
-    // Karte grün markieren
-    const card = document.getElementById(`pcard-${postId}`);
-    if (card) {
-      card.style.border = '1px solid rgba(34,197,94,.4)';
-      card.style.background = 'rgba(34,197,94,.05)';
-    }
-    // Nach 2s zur Upload-Seite
-    setTimeout(() => {
-      window.location.href = '/bulk-import';
-    }, 2000);
-  } else {
-    showToast(r.error || 'Fehler beim Übernehmen.', 'error');
-  }
-}
-
-// ── Helper ────────────────────────────────────────────────────
+// ── Toast / Status Helpers ────────────────────────────────────
 function showFetchStatus(html) {
   const el = document.getElementById('fetchStatus');
-  el.innerHTML = html;
-  el.style.display = 'flex';
+  el.innerHTML = html; el.style.display = 'flex';
 }
 function hideFetchStatus() {
   document.getElementById('fetchStatus').style.display = 'none';
