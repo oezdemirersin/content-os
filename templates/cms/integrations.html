@@ -179,6 +179,43 @@
     </form>
   </div>
 
+  <!-- ── ANTHROPIC / CLAUDE ──────────────────────────────────── -->
+  <div class="card" style="padding:28px;margin-top:20px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <div style="width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#d97706,#b45309);flex-shrink:0">
+        <i class="fa-solid fa-wand-magic-sparkles" style="color:#fff;font-size:18px"></i>
+      </div>
+      <div>
+        <div style="font-family:var(--font-display);font-size:17px;letter-spacing:.5px">ANTHROPIC / CLAUDE AI</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">
+          Für das Stadt-Memes Feature — Claude adaptiert deine Captions für jede Stadt
+        </div>
+      </div>
+      {% if anthropic_key %}
+      <span class="badge badge-green" style="margin-left:auto">API-Key gesetzt</span>
+      {% else %}
+      <span class="badge" style="margin-left:auto;background:var(--surface2);color:var(--muted)">Nicht konfiguriert</span>
+      {% endif %}
+    </div>
+
+    <form method="POST" action="{{ url_for('anthropic_key_save') }}">
+      <div style="margin-bottom:16px">
+        <label class="form-label">Anthropic API Key</label>
+        <input type="password" name="anthropic_api_key"
+               value="{{ anthropic_key or '' }}"
+               class="input-field" placeholder="sk-ant-..."
+               style="font-family:monospace;font-size:13px">
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">
+          Key holen: <a href="https://console.anthropic.com/api-keys" target="_blank" style="color:var(--accent)">console.anthropic.com</a>
+          → API Keys → Create Key
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">
+        <i class="fa-solid fa-floppy-disk"></i> API-Key speichern
+      </button>
+    </form>
+  </div>
+
   <!-- ── TELEGRAM ──────────────────────────────────────────── -->
   <div class="card" style="padding:28px;margin-top:20px">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">

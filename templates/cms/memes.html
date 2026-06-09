@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block title %}Stadt-Memes — Content OS{% endblock %}
+{% block page_title %}STADT-MEMES{% endblock %}
+
+{% block content %}
+<div style="max-width:1000px">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+    <div style="font-size:13px;color:var(--muted)">
+      Meme-Caption für eine Stadt eingeben → Claude adaptiert sie automatisch für alle anderen Städte
+    </div>
+    {% if not has_ai_key %}
+    <a href="{{ url_for('integrations') }}" class="btn btn-ghost" style="font-size:12px">
+      <i class="fa-solid fa-key"></i> API-Key eintragen
+    </a>
+    {% endif %}
+  </div>
+
+  <!-- Input Card -->
+  <div class="card" style="padding:24px;margin-bottom:24px">
+    <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:16px">
+      MEME-CAPTION EINGEBEN
+    </div>
+
+    <div style="display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:start">
+      <!-- Stadt wählen -->
+      <div>
+        <label class="form-label">Quell-Stadt</label>
+        <select id="sourceCity" class="select-field">
+          {% for city, profile in city_profiles.items() %}
+          <option value="{{ city }}">{{ profile.emoji }} {{ city }}</option>
+          {% endfor %}
+        </select>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">Die Stadt deines Beispiels</div>
+      </div>
+
+      <!-- Caption -->
+      <div>
+        <label class="form-label">Caption / Text des Memes</label>
+        <textarea id="sourceCaption" rows="4" class="input-field" style="resize:vertical"
+          placeholder="z.B. POV: Du bist in der Kleinmarkthalle und kannst dich nicht entscheiden was du willst 😭&#10;&#10;#Frankfurt #Kleinmarkthalle #FrankfurtMemes"></textarea>
+      </div>
+    </div>
+
+    <!-- Ziel-Städte auswählen -->
+    <div style="margin-top:16px">
+      <label class="form-label">Für welche Städte adaptieren?</label>
+      <div style="display:flex;flex-wrap:wrap;gap:8px" id="cityCheckboxes">
+        {% for city, profile in city_profiles.items() %}
+        <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--surface2);border-radius:8px;cursor:pointer;font-size:13px;border:1px solid var(--border);user-select:none" id="label_{{ city }}">
+          <input type="checkbox" class="city-cb" value="{{ city }}" checked
+                 style="accent-color:var(--accent)">
+          {{ profile.emoji }} {{ city }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:20px;align-items:center">
+      <button onclick="adaptMemes()" class="btn btn-primary" id="adaptBtn">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> Für alle Städte adaptieren
+      </button>
+      <button onclick="selectAll(true)" class="btn btn-ghost" style="font-size:12px">Alle</button>
+      <button onclick="selectAll(false)" class="btn btn-ghost" style="font-size:12px">Keine</button>
+      <div id="adaptStatus" style="font-size:12px;color:var(--muted)"></div>
+    </div>
+  </div>
+
+  <!-- Ergebnisse -->
+  <div id="resultsSection" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">ERGEBNISSE</div>
+      <button onclick="createAllContent()" class="btn btn-primary" style="font-size:12px">
+        <i class="fa-solid fa-plus"></i> Alle als Content-Entwürfe speichern
+      </button>
+    </div>
+
+    <div id="resultsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px"></div>
+  </div>
+
+  <!-- Meme-Accounts Übersicht -->
+  {% if meme_accounts %}
+  <div style="margin-top:32px">
+    <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.5px;color:var(--muted);margin-bottom:12px">
+      DEINE MEME-ACCOUNTS
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px">
+      {% for acc in meme_accounts %}
+      <a href="{{ url_for('account_detail', account_id=acc.id) }}"
+         style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surface2);border-radius:10px;text-decoration:none;color:var(--text);font-size:13px;border:1px solid var(--border)">
+        <i class="fa-brands fa-instagram" style="color:#e1306c"></i>
+        {{ acc.name }}
+        <span style="font-size:11px;color:var(--muted)">{{ acc.follower_count | fmt_followers }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Letzte Meme-ContentItems -->
+  {% if recent_memes %}
+  <div style="margin-top:32px">
+    <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.5px;color:var(--muted);margin-bottom:12px">
+      LETZTE MEME-ENTWÜRFE
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      {% for item in recent_memes %}
+      <div style="padding:12px 16px;background:var(--surface2);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <div style="font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          {{ item.title }}
+        </div>
+        <span class="badge {% if item.status == 'ready' %}badge-green{% elif item.status == 'draft' %}badge-blue{% else %}badge-blue{% endif %}"
+              style="flex-shrink:0">{{ item.status }}</span>
+        <a href="{{ url_for('content_detail', item_id=item.id) }}" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;flex-shrink:0">
+          Öffnen →
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const memeAccounts = {{ meme_accounts | tojson(indent=0) if meme_accounts else '[]' }};
+// Vereinfachte Accounts-Map für das Dropdown
+const accountMap = {};
+{% for acc in meme_accounts %}
+accountMap['{{ acc.name }}'] = {{ acc.id }};
+{% endfor %}
+
+// Quell-Stadt wechselt → eigene Checkbox deaktivieren
+document.getElementById('sourceCity').addEventListener('change', updateSourceCityCheckbox);
+function updateSourceCityCheckbox() {
+  const src = document.getElementById('sourceCity').value;
+  document.querySelectorAll('.city-cb').forEach(cb => {
+    const lbl = document.getElementById('label_' + cb.value);
+    if (cb.value === src) {
+      cb.checked = false;
+      cb.disabled = true;
+      if (lbl) lbl.style.opacity = '0.4';
+    } else {
+      cb.disabled = false;
+      if (lbl) lbl.style.opacity = '1';
+    }
+  });
+}
+updateSourceCityCheckbox();
+
+function selectAll(val) {
+  const src = document.getElementById('sourceCity').value;
+  document.querySelectorAll('.city-cb').forEach(cb => {
+    if (cb.value !== src) cb.checked = val;
+  });
+}
+
+async function adaptMemes() {
+  const caption = document.getElementById('sourceCaption').value.trim();
+  const sourceCity = document.getElementById('sourceCity').value;
+  const targetCities = [...document.querySelectorAll('.city-cb:checked:not(:disabled)')].map(cb => cb.value);
+
+  if (!caption) { showToast('Bitte Caption eingeben.', 'warning'); return; }
+  if (targetCities.length === 0) { showToast('Bitte mindestens eine Ziel-Stadt wählen.', 'warning'); return; }
+
+  const btn = document.getElementById('adaptBtn');
+  const status = document.getElementById('adaptStatus');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Claude arbeitet…';
+  status.textContent = `Adaptiere für ${targetCities.length} Städte…`;
+
+  try {
+    const res = await fetch('/api/memes/adapt', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({source_city: sourceCity, caption, target_cities: targetCities})
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      showToast('Fehler: ' + data.error, 'error');
+      return;
+    }
+
+    renderResults(data.results, sourceCity, caption);
+    status.textContent = `✅ ${Object.keys(data.results).length} Versionen generiert`;
+  } catch (e) {
+    showToast('Netzwerkfehler: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Für alle Städte adaptieren';
+  }
+}
+
+const CITY_EMOJIS = {
+  'Frankfurt': '🏙️', 'Darmstadt': '🔬', 'Braunschweig': '🦁',
+  'Mainz': '🎭', 'Freiburg': '☀️', 'Hanau': '✨',
+  'Köln': '⛪', 'Hamburg': '⚓'
+};
+
+function renderResults(results, sourceCity, originalCaption) {
+  const grid = document.getElementById('resultsGrid');
+  const section = document.getElementById('resultsSection');
+  grid.innerHTML = '';
+
+  // Quell-Stadt zuerst (als Referenz, nicht editierbar)
+  const allCities = [sourceCity, ...Object.keys(results).filter(c => c !== sourceCity)];
+
+  allCities.forEach(city => {
+    const cap = city === sourceCity ? originalCaption : results[city];
+    if (!cap) return;
+    const isSource = city === sourceCity;
+    const accId = findAccountForCity(city);
+    const emoji = CITY_EMOJIS[city] || '🏙️';
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.cssText = 'padding:16px;position:relative';
+    card.dataset.city = city;
+    card.dataset.caption = cap;
+    card.dataset.accountId = accId || '';
+
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:18px">${emoji}</span>
+          <span style="font-weight:700;font-size:14px">${city}</span>
+          ${isSource ? '<span style="font-size:10px;padding:2px 6px;background:var(--accent);color:#fff;border-radius:4px;font-weight:600">ORIGINAL</span>' : '<span style="font-size:10px;padding:2px 6px;background:rgba(34,197,94,.15);color:#22c55e;border-radius:4px">KI-GENERIERT</span>'}
+        </div>
+        <button onclick="copyCaption(this)" data-city="${city}"
+                style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px 8px"
+                title="Kopieren"><i class="fa-regular fa-copy"></i></button>
+      </div>
+      <textarea class="input-field caption-field" rows="5" style="resize:vertical;font-size:12px;line-height:1.5"
+                data-city="${city}">${cap}</textarea>
+      ${accId ? `
+      <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+        <i class="fa-brands fa-instagram" style="color:#e1306c;margin-right:4px"></i>
+        Wird gespeichert für: <strong style="color:var(--text)">${findAccountName(city)}</strong>
+      </div>` : `
+      <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+        <i class="fa-solid fa-circle-info" style="margin-right:4px"></i>
+        Kein Meme-Account für ${city} verknüpft — wird als allgemeiner Entwurf gespeichert
+      </div>`}
+    `;
+    grid.appendChild(card);
+  });
+
+  section.style.display = 'block';
+  section.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function findAccountForCity(city) {
+  const cityLower = city.toLowerCase();
+  for (const [name, id] of Object.entries(accountMap)) {
+    if (name.toLowerCase().includes(cityLower)) return id;
+  }
+  return null;
+}
+
+function findAccountName(city) {
+  const cityLower = city.toLowerCase();
+  for (const name of Object.keys(accountMap)) {
+    if (name.toLowerCase().includes(cityLower)) return name;
+  }
+  return null;
+}
+
+function copyCaption(btn) {
+  const city = btn.dataset.city;
+  const ta = document.querySelector(`.caption-field[data-city="${city}"]`);
+  if (ta) {
+    navigator.clipboard.writeText(ta.value);
+    showToast('Caption kopiert!', 'success');
+  }
+}
+
+async function createAllContent() {
+  const cards = document.querySelectorAll('#resultsGrid .card');
+  const items = [];
+
+  cards.forEach(card => {
+    const city = card.dataset.city;
+    const ta = card.querySelector('.caption-field');
+    const caption = ta ? ta.value.trim() : '';
+    const accId = parseInt(card.dataset.accountId) || null;
+    if (caption) items.push({city, caption, account_id: accId});
+  });
+
+  if (items.length === 0) { showToast('Keine Captions zum Speichern.', 'warning'); return; }
+
+  const res = await fetch('/api/memes/create-content', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({items})
+  });
+  const data = await res.json();
+
+  if (data.ok) {
+    showToast(`✅ ${data.created} Content-Entwürfe gespeichert!`, 'success');
+    setTimeout(() => window.location.href = '/content', 1500);
+  } else {
+    showToast('Fehler beim Speichern.', 'error');
+  }
+}
+</script>
+{% endblock %}

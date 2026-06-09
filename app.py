@@ -4838,6 +4838,12 @@ def integrations():
     ig_sync_method  = gs('ig_sync_method', 'apify' if gs('apify_token') else 'direct')
     auto_sync       = gs('ig_auto_sync', '1') != '0'
     telegram_token  = gs('telegram_bot_token')
+    anthropic_key   = gs('anthropic_api_key')
+    # Mask key for display: show only first 8 chars if set
+    if anthropic_key:
+        anthropic_key_display = anthropic_key[:8] + '…' if len(anthropic_key) > 8 else anthropic_key
+    else:
+        anthropic_key_display = ''
     ig_accounts_count = Account.query.filter(
         Account.handle != None, Account.handle != '', Account.status == 'active'
     ).count()
@@ -4847,6 +4853,7 @@ def integrations():
         auto_sync=auto_sync,
         ig_accounts_count=ig_accounts_count,
         telegram_token=telegram_token,
+        anthropic_key=anthropic_key_display,
         active_page='integrations')
 
 
@@ -5127,6 +5134,308 @@ def content_automation():
     hashtag_sets = HashtagSet.query.order_by(HashtagSet.name).all()
     return render_template('content_automation.html',
         accounts=accounts, hashtag_sets=hashtag_sets, active_page='content')
+
+
+# ═══════════════════════════════════════════════════════════════
+# ─────────────────── STADT-MEMES ───────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+
+# Stadtprofile — fest im Code, kein DB-Aufwand.
+# Claude bekommt diese Daten als Kontext um Memes akkurat zu adaptieren.
+CITY_PROFILES = {
+    'Frankfurt': {
+        'emoji': '🏙️',
+        'bundesland': 'Hessen',
+        'spitznamen': ['Mainhattan', 'Bankfurt', 'Krankfurt'],
+        'wahrzeichen': ['Römer', 'Frankfurter Dom', 'Skyline', 'EZB', 'Palmengarten', 'Alte Oper', 'Zeil'],
+        'hauptplatz': 'Römerberg',
+        'markt': 'Kleinmarkthalle',
+        'stadtteile': ['Sachsenhausen', 'Bornheim', 'Nordend', 'Westend', 'Bockenheim', 'Gallus', 'Fechenheim'],
+        'local_food': ['Grüne Soße', 'Handkäse mit Musik', 'Äpfelwein', 'Rippchen', 'Bembel'],
+        'dialekt': ['Äppler', 'Stöffche', 'ei gude wie', 'Grie Soß', 'Bembel'],
+        'verein': 'Eintracht Frankfurt (die Adler)',
+        'humor': 'Banker-Klischees, Äpfelwein-Kultur, Römer-Touristen, S-Bahn Chaos, B-Ebene',
+        'typisch': 'Jeder ist Banker oder kennt einen. Die Kleinmarkthalle ist heilig. S-Bahn immer zu spät.',
+    },
+    'Darmstadt': {
+        'emoji': '🔬',
+        'bundesland': 'Hessen',
+        'spitznamen': ['Wissenschaftsstadt', 'Da', 'Dabbse', 'Stadt der Informatiker'],
+        'wahrzeichen': ['Mathildenhöhe', 'Luisenplatz', 'Hessisches Landesmuseum', 'Waldspirale', 'Jagdschloss'],
+        'hauptplatz': 'Luisenplatz',
+        'markt': 'Wochenmarkt am Marktplatz',
+        'stadtteile': ['Bessungen', 'Eberstadt', 'Arheilgen', 'Kranichstein', 'Wixhausen', 'Griesheim'],
+        'local_food': ['Darmstädter Pils', 'Ebbelwoi aus dem Odenwald'],
+        'dialekt': ['Dabbse', 'gell', 'des', 'Dabbse Ditschi'],
+        'verein': 'SV Darmstadt 98 (die Lilien)',
+        'humor': 'TU-Studenten, IT-Nerds, ESOC/ESA, Jugendstil, Kleinstadt-Großstadt-Komplex gegenüber Frankfurt',
+        'typisch': 'Jeder studiert oder arbeitet an der TU. Die Lilien werden immer abgestiegen. Mathildenhöhe für Instagram.',
+    },
+    'Braunschweig': {
+        'emoji': '🦁',
+        'bundesland': 'Niedersachsen',
+        'spitznamen': ['Löwenstadt', 'BS', 'Braunschweig die Löwenstadt'],
+        'wahrzeichen': ['Braunschweiger Löwe', 'Burgplatz', 'Dom St. Blasii', 'Dankwarderode', 'Magniviertel'],
+        'hauptplatz': 'Burgplatz / Hagenmarkt',
+        'markt': 'Wochenmarkt am Kohlmarkt',
+        'stadtteile': ['Innenstadt', 'Weststadt', 'Lehndorf', 'Stöckheim', 'Rühme', 'Gliesmarode'],
+        'local_food': ['Mumme (Malzbier)', 'Braunschweiger Mettwurst', 'Leberwurst'],
+        'dialekt': ['moin', 'nee', 'wat', 'Lowenkopp'],
+        'verein': 'Eintracht Braunschweig',
+        'humor': 'Dauerchaos mit VW nebenan, Niedersachsen-Provinz-Gefühl, Löwe ist überall, Hannover-Rivalität',
+        'typisch': 'Der Löwe ist überall — auf Gebäuden, Autos, T-Shirts. TU Braunschweig Studenten. Hannover ist der Erzfeind.',
+    },
+    'Mainz': {
+        'emoji': '🎭',
+        'bundesland': 'Rheinland-Pfalz',
+        'spitznamen': ['Meenz', 'Fassenacht-Hauptstadt', 'Gutenberg-Stadt'],
+        'wahrzeichen': ['Mainzer Dom', 'Gutenberg-Museum', 'Schillerplatz', 'Zitadelle', 'Rheinufer'],
+        'hauptplatz': 'Schillerplatz / Marktplatz',
+        'markt': 'Wochenmarkt am Dom',
+        'stadtteile': ['Altstadt', 'Gonsenheim', 'Bretzenheim', 'Hechtsheim', 'Mombach', 'Neustadt'],
+        'local_food': ['Weck, Worscht un Woi', 'Mainzer Käse', 'Riesling', 'Fassenacht-Krapfen'],
+        'dialekt': ['Meenz', 'Fassenacht', 'Woi statt Wein', 'un welle mer se noch emol lewe'],
+        'verein': '1. FSV Mainz 05 (die Nullfünfer)',
+        'humor': 'Fassenacht ist Religion, ZDF-Klischees, Grenzstadt zu Hessen, Rheinland-Pfalz vergisst Mainz',
+        'typisch': 'Fassenacht > Weihnachten. Alle arbeiten beim ZDF oder der Unimedizin. Weck Worscht un Woi ist Lebensmotto.',
+    },
+    'Freiburg': {
+        'emoji': '☀️',
+        'bundesland': 'Baden-Württemberg',
+        'spitznamen': ['Breisgau-Metropole', 'sonnigste Stadt Deutschlands', 'Öko-Hauptstadt'],
+        'wahrzeichen': ['Freiburger Münster', 'Schlossberg', 'Martinstor', 'Schwarzwald', 'Bächle', 'Augustinerplatz'],
+        'hauptplatz': 'Münsterplatz / Rathausplatz',
+        'markt': 'Münstermarkt',
+        'stadtteile': ['Altstadt', 'Wiehre', 'Stühlinger', 'Vauban', 'Haslach', 'Zähringen'],
+        'local_food': ['Badischer Wein', 'Flammkuchen', 'Schwarzwälder Kirschtorte', 'Vesper'],
+        'dialekt': ['Schneckle', 'noi', 'jo', 'des isch', 'Gäll', 'Bächle'],
+        'verein': 'SC Freiburg (der Sportclub)',
+        'humor': 'Bächle-Rein treten bringt Unglück (Heiratslegende), Öko-Hipster, immer Sonne, Vauban-Klischees',
+        'typisch': 'Alle fahren Fahrrad. Wer ins Bächle tritt, heiratet einen Freiburger. SC Freiburg überperformt immer.',
+    },
+    'Hanau': {
+        'emoji': '✨',
+        'bundesland': 'Hessen',
+        'spitznamen': ['Gebrüder-Grimm-Stadt', 'Goldschmiedestadt', 'Brüder Grimm Geburtsort'],
+        'wahrzeichen': ['Brüder Grimm Nationaldenkmal', 'Schloss Philippsruhe', 'Freiheitsplatz', 'Goldschmiedehaus'],
+        'hauptplatz': 'Freiheitsplatz / Marktplatz',
+        'markt': 'Wochenmarkt Freiheitsplatz',
+        'stadtteile': ['Innenstadt', 'Kesselstadt', 'Lamboy', 'Wolfgang', 'Steinheim', 'Großauheim'],
+        'local_food': ['Apfelwein', 'Hessische Küche'],
+        'dialekt': ['ei gude wie', 'gell', 'des'],
+        'verein': 'KSV Hessen Kassel (regionale Verbindung)',
+        'humor': 'Grimm-Märchen-Klischees, Frankfurt-Schatten (immer neben Frankfurt), Goldschmied-Nische',
+        'typisch': 'Alle denken Hanau ist nur wegen Grimm bekannt. Frankfurt ist näher als München. Klein aber Hessen.',
+    },
+    'Köln': {
+        'emoji': '⛪',
+        'bundesland': 'Nordrhein-Westfalen',
+        'spitznamen': ['Domstadt', 'Kölsch-Stadt', 'Veedel-Stadt', 'Metropole am Rhein'],
+        'wahrzeichen': ['Kölner Dom', 'Hohenzollernbrücke', 'Rheinufer', '4711 Haus', 'KölnArena / Lanxess Arena'],
+        'hauptplatz': 'Domplatz / Alter Markt',
+        'markt': 'Kölner Wochenmarkt / Alter Markt',
+        'stadtteile': ['Ehrenfeld', 'Nippes', 'Sülz', 'Rodenkirchen', 'Schäl Sick', 'Klettenberg', 'Mülheim'],
+        'local_food': ['Kölsch (das Bier)', 'Halve Hahn', 'Kölscher Kaviar', 'Rheinischer Sauerbraten', 'Reibekuchen'],
+        'dialekt': ['Veedel', 'Köbes', 'Kölsch', 'Mädche', 'Jecken', 'Jeck', 'Mer losse d\'r Dom en Kölle'],
+        'verein': '1. FC Köln (der FC, die Geißböcke)',
+        'humor': 'Karneval ist alles, Kölsch-Dialekt, Schäl Sick (rechtsrheinisch), Dom-Touristen, FC vs. Fortuna',
+        'typisch': 'Kölsch trinkt man aus 0,2l Stangen. Jede Ecke ist ein Veedel. Karneval ist wichtiger als Silvester.',
+    },
+    'Hamburg': {
+        'emoji': '⚓',
+        'bundesland': 'Hamburg (Stadtstaat)',
+        'spitznamen': ['Tor zur Welt', 'Hansestadt', 'Elphi-Stadt', 'Moinstadt'],
+        'wahrzeichen': ['Elbphilharmonie', 'Speicherstadt', 'Hamburger Hafen', 'Michel (St. Michaelis)', 'Reeperbahn', 'Alster'],
+        'hauptplatz': 'Rathausmarkt / Jungfernstieg',
+        'markt': 'Fischmarkt (sonntags früh)',
+        'stadtteile': ['Altona', 'Eimsbüttel', 'Barmbek', 'Blankenese', 'Harburg', 'Wandsbek', 'Winterhude'],
+        'local_food': ['Fischbrötchen', 'Matjes', 'Labskaus', 'Franzbrötchen', 'Rote Grütze'],
+        'dialekt': ['Moin', 'schnacken', 'Deern', 'Pegel', 'Digga', 'Moin moin (nur Touristen sagen das zweimal)'],
+        'verein': 'HSV (Hamburger SV, der Dino) & FC St. Pauli (der Kiez)',
+        'humor': 'Hanseatische Zurückhaltung, Regen immer, Fischmarkt sonntags um 5 Uhr morgens, HSV-Schmerz',
+        'typisch': 'Hamburger sagen nur einmal Moin. HSV-Fan zu sein ist ein Lifestyle aus Schmerz. Franzbrötchen > Croissant.',
+    },
+}
+
+_MEME_SYSTEM_PROMPT = """Du bist Experte für deutsche Stadt-Meme-Seiten auf Instagram.
+Du kennst den typischen Humor jeder Stadt sehr genau: Lokale Witze, Klischees, Sehenswürdigkeiten, Dialekt.
+
+Deine Aufgabe: Du bekommst eine fertige Meme-Caption für eine Stadt.
+Adaptiere sie für jede andere Stadt so, dass sie sich wirklich lokal und authentisch anfühlt.
+Swap ONLY die stadtspezifischen Referenzen aus — Wahrzeichen, lokale Orte, Dialektwörter, lokale Klischees.
+Der grundlegende Witz/das Meme-Format bleibt EXAKT gleich.
+Antworte NUR mit einem JSON-Objekt."""
+
+
+@app.route('/memes')
+@login_required
+def memes_dashboard():
+    """Stadt-Memes Werkzeug: Caption für eine Stadt → Claude adaptiert alle anderen."""
+    # Meme-Accounts (Kategorie enthält "meme" oder "beicht" oder Account-Name enthält "meme")
+    meme_accounts = Account.query.filter(
+        Account.status == 'active'
+    ).filter(
+        db.or_(
+            Account.name.ilike('%meme%'),
+            Account.name.ilike('%beicht%'),
+            Account.name.ilike('%humor%'),
+        )
+    ).order_by(Account.name).all()
+
+    # Letzte Meme-ContentItems
+    meme_cat = Category.query.filter(Category.name.ilike('%meme%')).first()
+    recent_memes = ContentItem.query.filter_by(
+        category_id=meme_cat.id if meme_cat else None
+    ).order_by(ContentItem.created_at.desc()).limit(20).all() if meme_cat else []
+
+    has_ai_key = bool(os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key'))
+
+    return render_template('memes.html',
+        city_profiles=CITY_PROFILES,
+        meme_accounts=meme_accounts,
+        recent_memes=recent_memes,
+        has_ai_key=has_ai_key,
+        cities=list(CITY_PROFILES.keys()),
+        active_page='memes')
+
+
+@app.route('/api/memes/adapt', methods=['POST'])
+@login_required
+def memes_adapt():
+    """Claude adaptiert eine Meme-Caption für alle Städte."""
+    d = request.get_json() or {}
+    source_city   = d.get('source_city', '').strip()
+    source_caption = d.get('caption', '').strip()
+    target_cities  = d.get('target_cities', [c for c in CITY_PROFILES if c != source_city])
+
+    if not source_caption:
+        return jsonify({'ok': False, 'error': 'Keine Caption eingegeben.'})
+    if source_city not in CITY_PROFILES:
+        return jsonify({'ok': False, 'error': f'Stadt "{source_city}" nicht bekannt.'})
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert. Bitte in Integrationen eintragen.'})
+
+    # Stadtprofile für den Kontext aufbereiten
+    profiles_text = ''
+    for city in target_cities:
+        if city not in CITY_PROFILES:
+            continue
+        p = CITY_PROFILES[city]
+        profiles_text += f"""
+{city} ({p['emoji']}):
+  Spitznamen: {', '.join(p['spitznamen'])}
+  Wahrzeichen: {', '.join(p['wahrzeichen'][:4])}
+  Hauptplatz: {p['hauptplatz']}
+  Markt/Halle: {p['markt']}
+  Stadtteile: {', '.join(p['stadtteile'][:4])}
+  Lokales Essen: {', '.join(p['local_food'][:3])}
+  Dialekt-Wörter: {', '.join(p['dialekt'][:4])}
+  Verein: {p['verein']}
+  Typischer Humor: {p['humor']}
+  Besonderheiten: {p['typisch']}
+"""
+
+    user_prompt = f"""Quell-Stadt: {source_city}
+Original-Caption:
+\"\"\"{source_caption}\"\"\"
+
+Stadtprofil {source_city}:
+  Wahrzeichen: {', '.join(CITY_PROFILES[source_city]['wahrzeichen'][:4])}
+  Markt: {CITY_PROFILES[source_city]['markt']}
+  Humor: {CITY_PROFILES[source_city]['humor']}
+
+Ziel-Städte und ihre Profile:
+{profiles_text}
+
+Adaptiere die Caption für jede Ziel-Stadt. Antworte mit folgendem JSON:
+{{
+  "Frankfurt": "...",
+  "Darmstadt": "...",
+  usw.
+}}
+
+Nur die Städte in der Liste, kein extra Text, nur das JSON-Objekt."""
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model='claude-opus-4-5',
+            max_tokens=4096,
+            system=_MEME_SYSTEM_PROMPT,
+            messages=[{'role': 'user', 'content': user_prompt}]
+        )
+        raw = message.content[0].text.strip()
+
+        # JSON extrahieren (falls Claude Markdown-Blöcke drumherum schreibt)
+        if '```' in raw:
+            import re
+            match = re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', raw)
+            raw = match.group(1) if match else raw
+        result = json.loads(raw)
+
+        # Quell-Stadt auch im Ergebnis ergänzen
+        result[source_city] = source_caption
+
+        return jsonify({'ok': True, 'results': result, 'source_city': source_city})
+
+    except json.JSONDecodeError as e:
+        return jsonify({'ok': False, 'error': f'Claude hat kein gültiges JSON zurückgegeben: {e}', 'raw': raw})
+    except Exception as e:
+        app.logger.error('memes_adapt error: %s', e)
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+@app.route('/api/memes/create-content', methods=['POST'])
+@login_required
+def memes_create_content():
+    """Erstellt ContentItems aus adaptierten Meme-Captions."""
+    d = request.get_json() or {}
+    items_data = d.get('items', [])  # [{city, caption, account_id?}]
+    meme_cat = Category.query.filter(Category.name.ilike('%meme%')).first()
+    created = 0
+
+    for item in items_data:
+        city    = item.get('city', '').strip()
+        caption = item.get('caption', '').strip()
+        acc_id  = item.get('account_id')
+        if not caption:
+            continue
+        ci = ContentItem(
+            title=f'{city} Meme — {caption[:60]}{"…" if len(caption) > 60 else ""}',
+            caption=caption,
+            raw_text=caption,
+            category_id=meme_cat.id if meme_cat else None,
+            status='draft',
+            content_type='feed',
+            source_name=f'Meme-Generator ({city})',
+        )
+        db.session.add(ci)
+        db.session.flush()
+        if acc_id:
+            acc = Account.query.get(acc_id)
+            if acc:
+                ci.accounts.append(acc)
+        created += 1
+
+    db.session.commit()
+    return jsonify({'ok': True, 'created': created})
+
+
+@app.route('/settings/anthropic', methods=['POST'])
+@login_required
+def anthropic_key_save():
+    key = request.form.get('anthropic_api_key', '').strip()
+    s = AppSettings.query.filter_by(key='anthropic_api_key').first()
+    if not s:
+        s = AppSettings(key='anthropic_api_key')
+        db.session.add(s)
+    s.value = key
+    db.session.commit()
+    flash('Anthropic API-Key gespeichert.', 'success')
+    return redirect(url_for('integrations'))
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────
