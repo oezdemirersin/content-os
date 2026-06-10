@@ -200,10 +200,18 @@
 
     <form method="POST" action="{{ url_for('anthropic_key_save') }}">
       <div style="margin-bottom:16px">
-        <label class="form-label">Anthropic API Key</label>
+        <label class="form-label">
+          Anthropic API Key
+          {% if anthropic_key %}
+          <span style="font-size:11px;color:var(--success);font-weight:400;margin-left:8px">
+            ✓ gesetzt — nur ausfüllen um zu ändern
+          </span>
+          {% endif %}
+        </label>
         <input type="password" name="anthropic_api_key"
-               value="{{ anthropic_key or '' }}"
-               class="input-field" placeholder="sk-ant-..."
+               value=""
+               class="input-field"
+               placeholder="{{ '••••••••••••••••  (bereits gesetzt)' if anthropic_key else 'sk-ant-...' }}"
                style="font-family:monospace;font-size:13px">
         <div style="font-size:11px;color:var(--muted);margin-top:6px">
           Key holen: <a href="https://console.anthropic.com/api-keys" target="_blank" style="color:var(--accent)">console.anthropic.com</a>
@@ -237,14 +245,22 @@
     </div>
     <form method="POST" action="{{ url_for('rapidapi_key_save') }}">
       <div style="margin-bottom:16px">
-        <label class="form-label">RapidAPI Key</label>
+        <label class="form-label">
+          RapidAPI Key
+          {% if rapidapi_key %}
+          <span style="font-size:11px;color:var(--success);font-weight:400;margin-left:8px">
+            ✓ gesetzt — nur ausfüllen um zu ändern
+          </span>
+          {% endif %}
+        </label>
         <input type="password" name="rapidapi_key"
-               value="{{ rapidapi_key or '' }}"
-               class="input-field" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+               value=""
+               class="input-field"
+               placeholder="{{ '••••••••••••••••  (bereits gesetzt)' if rapidapi_key else 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' }}"
                style="font-family:monospace;font-size:13px">
         <div style="font-size:11px;color:var(--muted);margin-top:6px">
           Key holen: <a href="https://rapidapi.com/hub" target="_blank" style="color:var(--accent)">rapidapi.com</a>
-          → Konto erstellen → API "Instagram Scraper API2" suchen → Kostenlos abonnieren → Key kopieren
+          → API "Instagram Scraper API2" → Authorization → Key kopieren
         </div>
       </div>
       <button type="submit" class="btn btn-primary">

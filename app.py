@@ -5922,6 +5922,10 @@ def memes_create_content():
 @login_required
 def anthropic_key_save():
     key = request.form.get('anthropic_api_key', '').strip()
+    if not key:
+        # Leeres Feld → nichts überschreiben
+        flash('Kein neuer Key eingegeben — bestehender Key bleibt erhalten.', 'info')
+        return redirect(url_for('integrations'))
     s = AppSettings.query.filter_by(key='anthropic_api_key').first()
     if not s:
         s = AppSettings(key='anthropic_api_key')
@@ -5936,6 +5940,10 @@ def anthropic_key_save():
 @login_required
 def rapidapi_key_save():
     key = request.form.get('rapidapi_key', '').strip()
+    if not key:
+        # Leeres Feld → nichts überschreiben
+        flash('Kein neuer Key eingegeben — bestehender Key bleibt erhalten.', 'info')
+        return redirect(url_for('integrations'))
     s = AppSettings.query.filter_by(key='rapidapi_key').first()
     if not s:
         s = AppSettings(key='rapidapi_key')
