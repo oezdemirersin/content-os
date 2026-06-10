@@ -6243,87 +6243,106 @@ def inspiration_source_delete(src_id):
 @app.route('/api/inspirationen/fetch/<int:src_id>', methods=['POST'])
 @login_required
 def inspiration_fetch(src_id):
-    """Holt die letzten Posts einer Quelle via RapidAPI Instagram Scraper.
-    Probiert mehrere bekannte API-Hosts als Fallback.
+    """Holt Posts einer Quelle.
+    Priorität: 1) Apify (schon konfiguriert) → 2) RapidAPI Fallback
     """
-    import requests as req_lib
+    import requests as req_lib, json as _json
 
-    src     = InspirationSource.query.get_or_404(src_id)
-    api_key = get_setting('rapidapi_key')
-    if not api_key:
-        return jsonify({'ok': False, 'error': 'Kein RapidAPI-Key konfiguriert. Bitte in Einstellungen → Integrationen eintragen.'})
+    src         = InspirationSource.query.get_or_404(src_id)
+    apify_token = get_setting('apify_token')
+    rapidapi_key = get_setting('rapidapi_key')
 
-    # Versuche mehrere bekannte API-Hosts (erster der antwortet gewinnt)
-    _APIS = [
-        {
-            'host': 'instagram-scraper-api2.p.rapidapi.com',
-            'url':  'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
-            'params': {'username_or_id_or_url': src.username},
-        },
-        {
-            'host': 'instagram-looter2.p.rapidapi.com',
-            'url':  'https://instagram-looter2.p.rapidapi.com/feed-by-username',
-            'params': {'username': src.username, 'count': '30'},
-        },
-        {
-            'host': 'instagram47.p.rapidapi.com',
-            'url':  'https://instagram47.p.rapidapi.com/getMediaByUsername',
-            'params': {'username': src.username},
-        },
-    ]
+    if not apify_token and not rapidapi_key:
+        return jsonify({'ok': False,
+                        'error': 'Kein API-Key konfiguriert. '
+                                 'Apify-Token ist bereits vorhanden — '
+                                 'bitte in Einstellungen → Integrationen prüfen.'})
 
-    data = None
-    last_err = ''
-    for api in _APIS:
+    items = []
+
+    # ── 1. Apify (bevorzugt, bereits konfiguriert) ─────────────
+    if apify_token:
         try:
-            headers = {
-                'x-rapidapi-key':  api_key,
-                'x-rapidapi-host': api['host'],
-            }
-            resp = req_lib.get(api['url'], headers=headers,
-                               params=api['params'], timeout=20)
-            if resp.status_code == 200:
-                data = resp.json()
-                break
-            last_err = f"HTTP {resp.status_code} von {api['host']}"
+            payload = _json.dumps({
+                'directUrls':  [f'https://www.instagram.com/{src.username}/'],
+                'resultsType': 'posts',
+                'resultsLimit': 50,
+            }).encode()
+            url = (
+                'https://api.apify.com/v2/acts/apify~instagram-scraper'
+                f'/run-sync-get-dataset-items?token={apify_token}&timeout=120'
+            )
+            req_obj = _urllib_request.Request(
+                url, data=payload,
+                headers={'Content-Type': 'application/json'},
+                method='POST',
+            )
+            with _urllib_request.urlopen(req_obj, timeout=150) as r:
+                items = _json.loads(r.read())
+            if not isinstance(items, list):
+                items = []
         except Exception as e:
-            last_err = str(e)
-            continue
+            app.logger.warning(f'Apify Inspirationen-Fetch fehlgeschlagen: {e}')
+            items = []
 
-    if data is None:
-        return jsonify({'ok': False, 'error': f'Alle APIs fehlgeschlagen: {last_err}'})
+    # ── 2. RapidAPI Fallback ───────────────────────────────────
+    if not items and rapidapi_key:
+        _APIS = [
+            {'host': 'instagram-scraper-api2.p.rapidapi.com',
+             'url':  'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
+             'params': {'username_or_id_or_url': src.username}},
+            {'host': 'instagram-looter2.p.rapidapi.com',
+             'url':  'https://instagram-looter2.p.rapidapi.com/feed-by-username',
+             'params': {'username': src.username, 'count': '50'}},
+        ]
+        raw = None
+        for api in _APIS:
+            try:
+                headers = {'x-rapidapi-key': rapidapi_key,
+                           'x-rapidapi-host': api['host']}
+                resp = req_lib.get(api['url'], headers=headers,
+                                   params=api['params'], timeout=25)
+                if resp.status_code == 200:
+                    raw = resp.json()
+                    break
+            except Exception:
+                continue
+        if raw:
+            items = (
+                (raw.get('data') or {}).get('items')
+                or raw.get('items') or raw.get('posts')
+                or (raw.get('data') if isinstance(raw.get('data'), list) else None)
+                or (raw if isinstance(raw, list) else [])
+            ) or []
 
-    # Posts aus verschiedenen Antwortformaten extrahieren
-    items = (
-        (data.get('data') or {}).get('items')
-        or data.get('items')
-        or data.get('posts')
-        or (data.get('data') if isinstance(data.get('data'), list) else None)
-        or (data if isinstance(data, list) else [])
-    )
+    if not items:
+        return jsonify({'ok': False,
+                        'error': 'Keine Posts geladen — API hat nichts zurückgegeben.'})
 
+    # ── Hilfsfunktion: Bild-URL extrahieren ───────────────────
     def _extract_img(item):
-        """Gibt (full_url, thumb_url) aus verschiedenen API-Formaten zurück."""
-        # Format 1: image_versions / image_versions2
         for key in ('image_versions2', 'image_versions'):
-            iv = item.get(key) or {}
-            iv_items = iv.get('items') or []
+            iv_items = (item.get(key) or {}).get('items') or []
             if iv_items:
-                return iv_items[0].get('url'), (iv_items[-1].get('url') if len(iv_items) > 1 else iv_items[0].get('url'))
-        # Format 2: direkte URL-Felder
-        for key in ('display_url', 'thumbnail_url', 'image_url', 'media_url', 'url'):
+                return iv_items[0].get('url'), iv_items[-1].get('url', iv_items[0].get('url'))
+        for key in ('displayUrl', 'display_url', 'thumbnail_url', 'image_url', 'url'):
             v = item.get(key)
-            if v:
+            if v and v.startswith('http'):
                 return v, v
-        # Format 3: carousel_media[0]
-        cm = item.get('carousel_media') or []
+        cm = item.get('carousel_media') or item.get('images') or []
         if cm:
-            return _extract_img(cm[0])
+            first = cm[0] if isinstance(cm[0], dict) else None
+            if first:
+                return _extract_img(first)
+            if isinstance(cm[0], str):
+                return cm[0], cm[0]
         return None, None
 
+    # ── Posts verarbeiten ──────────────────────────────────────
     new_count = 0
     for item in items[:50]:
-        code = str(item.get('code') or item.get('shortcode') or item.get('id') or '')
+        code = str(item.get('shortCode') or item.get('code') or
+                   item.get('shortcode') or item.get('id') or '')
         if not code:
             continue
         if InspirationPost.query.filter_by(instagram_code=code).first():
@@ -6333,35 +6352,38 @@ def inspiration_fetch(src_id):
         if not img_url:
             continue
 
-        # Caption
-        cap_obj = item.get('caption') or {}
-        caption = cap_obj.get('text') if isinstance(cap_obj, dict) else str(cap_obj or '')
+        # Caption — Apify liefert 'caption' als String, RapidAPI als Dict
+        cap_raw = item.get('caption') or ''
+        caption = cap_raw.get('text') if isinstance(cap_raw, dict) else str(cap_raw)
 
-        # Datum
-        taken_at = item.get('taken_at') or item.get('timestamp') or item.get('taken_at_timestamp')
+        # Datum — Apify liefert ISO-String, RapidAPI Unix-Timestamp
         post_date = None
-        if taken_at:
+        ts = item.get('timestamp') or item.get('taken_at') or item.get('taken_at_timestamp')
+        if ts:
             try:
-                post_date = datetime.utcfromtimestamp(int(taken_at))
+                if isinstance(ts, str):
+                    post_date = datetime.fromisoformat(ts.replace('Z', '+00:00')).replace(tzinfo=None)
+                else:
+                    post_date = datetime.utcfromtimestamp(int(ts))
             except Exception:
                 pass
 
-        # Bild-Count bei Carousel
-        carousel_count = len(item.get('carousel_media') or [])
-
-        # Typ
+        # Typ — Apify: "Image"/"Video"/"Sidecar", RapidAPI: 1/2/8
+        type_str = str(item.get('type') or '').lower()
         mt = item.get('media_type', 1)
-        media_type = 'video' if mt == 2 else ('carousel' if (mt == 8 or carousel_count > 1) else 'image')
+        carousel_count = len(item.get('carousel_media') or item.get('images') or [])
+        if type_str == 'video' or mt == 2:
+            media_type = 'video'
+        elif type_str == 'sidecar' or mt == 8 or carousel_count > 1:
+            media_type = 'carousel'
+        else:
+            media_type = 'image'
 
         post = InspirationPost(
-            source_id      = src.id,
-            instagram_code = code,
-            image_url      = img_url,
-            thumbnail_url  = thumb_url or img_url,
-            caption        = caption,
-            post_date      = post_date,
-            media_type     = media_type,
-            status         = 'new',
+            source_id=src.id, instagram_code=code,
+            image_url=img_url, thumbnail_url=thumb_url or img_url,
+            caption=caption, post_date=post_date,
+            media_type=media_type, status='new',
         )
         db.session.add(post)
         new_count += 1
