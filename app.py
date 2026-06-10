@@ -6264,88 +6264,108 @@ def inspiration_fetch(src_id):
                         'error': 'Kein RapidAPI-Key konfiguriert. '
                                  'Bitte in Einstellungen → Integrationen eintragen.'})
 
-    HOST    = 'instagram-scraper-api2.p.rapidapi.com'
-    BASE_URL = 'https://instagram-scraper-api2.p.rapidapi.com/v1/posts'
-    headers  = {'x-rapidapi-key': rapidapi_key, 'x-rapidapi-host': HOST}
+    # ── Alle bekannten Instagram-Scraper-APIs auf RapidAPI ────────
+    # Der Key funktioniert automatisch für die APIs, die der User abonniert hat.
+    # Wir probieren alle durch bis einer antwortet (kein 403/404).
+    CANDIDATE_APIS = [
+        # Format: (host, url, params_builder, items_extractor)
+        ('instagram-scraper-api2.p.rapidapi.com',
+         'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
+         lambda u, c: {'username_or_id_or_url': u, **({'cursor': c} if c else {})}),
+        ('instagram-scraper-api2.p.rapidapi.com',
+         'https://instagram-scraper-api2.p.rapidapi.com/v1.2/posts',
+         lambda u, c: {'username_or_id_or_url': u, **({'cursor': c} if c else {})}),
+        ('instagram-looter2.p.rapidapi.com',
+         'https://instagram-looter2.p.rapidapi.com/feed-by-username',
+         lambda u, c: {'username': u, 'count': '50'}),
+        ('instagram47.p.rapidapi.com',
+         'https://instagram47.p.rapidapi.com/getMediaByUsername',
+         lambda u, c: {'username': u}),
+        ('instagram-data1.p.rapidapi.com',
+         'https://instagram-data1.p.rapidapi.com/user/posts',
+         lambda u, c: {'username': u, **({'cursor': c} if c else {})}),
+        ('instagram130.p.rapidapi.com',
+         'https://instagram130.p.rapidapi.com/v1/posts',
+         lambda u, c: {'username_or_id_or_url': u, **({'cursor': c} if c else {})}),
+        ('rocketapi-for-instagram.p.rapidapi.com',
+         'https://rocketapi-for-instagram.p.rapidapi.com/instagram/user/get_media',
+         lambda u, c: {'username': u, **({'cursor': c} if c else {})}),
+        ('instagram-bulk-profile-scrapper.p.rapidapi.com',
+         'https://instagram-bulk-profile-scrapper.p.rapidapi.com/clients/api/ig/feed',
+         lambda u, c: {'ig_username': u}),
+        ('instagram-scraper3.p.rapidapi.com',
+         'https://instagram-scraper3.p.rapidapi.com/user/posts',
+         lambda u, c: {'username': u}),
+        ('instagram-api-2022.p.rapidapi.com',
+         'https://instagram-api-2022.p.rapidapi.com/api/user/posts',
+         lambda u, c: {'username': u}),
+    ]
 
-    # ── Alle Seiten laden ──────────────────────────────────────
+    def _extract_items(raw):
+        data_block = raw.get('data') or {}
+        if isinstance(data_block, list) and data_block:
+            return data_block, None, False
+        page_items = (
+            data_block.get('items') or data_block.get('posts')
+            or data_block.get('edges')
+            or raw.get('items') or raw.get('posts') or raw.get('edges')
+            or (raw if isinstance(raw, list) else [])
+        ) or []
+        cursor = (
+            data_block.get('end_cursor') or data_block.get('next_cursor')
+            or data_block.get('pagination_token')
+            or raw.get('end_cursor') or raw.get('next_cursor')
+        )
+        has_next = bool(
+            data_block.get('has_next_page') or data_block.get('more_available')
+            or raw.get('has_next_page') or raw.get('more_available') or cursor
+        )
+        return page_items, cursor, has_next
+
     items     = []
-    cursor    = None
-    max_pages = 50          # Sicherheitslimit (~600 Posts bei 12/Seite)
     last_err  = ''
+    working_api = None
 
-    for page in range(max_pages):
-        params = {'username_or_id_or_url': src.username}
-        if cursor:
-            params['cursor'] = cursor
+    # Schritt 1: Welche API antwortet? (erste Seite)
+    for host, url, mk_params in CANDIDATE_APIS:
         try:
-            resp = req_lib.get(BASE_URL, headers=headers, params=params, timeout=30)
-            if resp.status_code != 200:
-                last_err = f'HTTP {resp.status_code}'
-                break
-            raw = resp.json()
+            hdrs = {'x-rapidapi-key': rapidapi_key, 'x-rapidapi-host': host}
+            resp = req_lib.get(url, headers=hdrs, params=mk_params(src.username, None), timeout=20)
+            if resp.status_code == 200:
+                raw = resp.json()
+                page_items, cursor, has_next = _extract_items(raw)
+                if page_items:
+                    items.extend(page_items)
+                    working_api = (host, url, mk_params, cursor, has_next)
+                    break
+            else:
+                last_err = f'HTTP {resp.status_code} ({host})'
         except Exception as e:
             last_err = str(e)
-            break
 
-        # Items dieser Seite extrahieren
-        data_block = raw.get('data') or {}
-        if isinstance(data_block, list):
-            page_items = data_block
-        else:
-            page_items = (
-                data_block.get('items')
-                or data_block.get('posts')
-                or raw.get('items') or raw.get('posts')
-                or (raw if isinstance(raw, list) else [])
-            ) or []
-
-        items.extend(page_items)
-
-        # Nächste Seite?
-        has_next = (
-            data_block.get('has_next_page')
-            or data_block.get('more_available')
-            or raw.get('has_next_page')
-        )
-        cursor = (
-            data_block.get('end_cursor')
-            or data_block.get('next_cursor')
-            or raw.get('end_cursor')
-            or raw.get('next_cursor')
-        )
-        if not has_next or not cursor:
-            break   # Fertig — kein weiterer Cursor
-
-    # Fallback auf ältere RapidAPI-Hosts falls Haupthost nichts liefert
-    if not items:
-        fallback_apis = [
-            {'host': 'instagram-looter2.p.rapidapi.com',
-             'url':  'https://instagram-looter2.p.rapidapi.com/feed-by-username',
-             'params': {'username': src.username, 'count': '50'}},
-        ]
-        for api in fallback_apis:
+    # Schritt 2: Weitere Seiten mit der funktionierenden API laden
+    if working_api:
+        host, url, mk_params, cursor, has_next = working_api
+        hdrs = {'x-rapidapi-key': rapidapi_key, 'x-rapidapi-host': host}
+        for _ in range(49):   # Max 50 Seiten gesamt
+            if not has_next or not cursor:
+                break
             try:
-                fb_headers = {'x-rapidapi-key': rapidapi_key,
-                              'x-rapidapi-host': api['host']}
-                r = req_lib.get(api['url'], headers=fb_headers,
-                                params=api['params'], timeout=25)
-                if r.status_code == 200:
-                    raw = r.json()
-                    items = (
-                        (raw.get('data') or {}).get('items')
-                        or raw.get('items') or raw.get('posts')
-                        or (raw if isinstance(raw, list) else [])
-                    ) or []
-                    if items:
-                        break
+                resp = req_lib.get(url, headers=hdrs, params=mk_params(src.username, cursor), timeout=20)
+                if resp.status_code != 200:
+                    break
+                raw = resp.json()
+                page_items, cursor, has_next = _extract_items(raw)
+                if not page_items:
+                    break
+                items.extend(page_items)
             except Exception:
-                pass
+                break
 
     if not items:
         return jsonify({'ok': False,
-                        'error': f'Keine Posts geladen — API hat nichts zurückgegeben. '
-                                 f'{last_err}'.strip()})
+                        'error': f'Keine Posts geladen. Bitte prüfe ob du auf RapidAPI '
+                                 f'einen Instagram-Scraper abonniert hast. ({last_err})'})
 
     # ── Hilfsfunktion: Bild-URL extrahieren ───────────────────
     def _extract_img(item):
