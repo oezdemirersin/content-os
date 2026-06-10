@@ -6243,77 +6243,58 @@ def inspiration_source_delete(src_id):
 @app.route('/api/inspirationen/fetch/<int:src_id>', methods=['POST'])
 @login_required
 def inspiration_fetch(src_id):
-    """Holt Posts einer Quelle.
-    Priorität: 1) Apify (schon konfiguriert) → 2) RapidAPI Fallback
+    """Holt Posts einer Quelle ausschließlich via RapidAPI.
+    Apify bleibt dem Follower-Sync vorbehalten (Free-Tier schonen).
     """
-    import requests as req_lib, json as _json
+    import requests as req_lib
 
-    src         = InspirationSource.query.get_or_404(src_id)
-    apify_token = get_setting('apify_token')
+    src          = InspirationSource.query.get_or_404(src_id)
     rapidapi_key = get_setting('rapidapi_key')
 
-    if not apify_token and not rapidapi_key:
+    if not rapidapi_key:
         return jsonify({'ok': False,
-                        'error': 'Kein API-Key konfiguriert. '
-                                 'Apify-Token ist bereits vorhanden — '
-                                 'bitte in Einstellungen → Integrationen prüfen.'})
+                        'error': 'Kein RapidAPI-Key konfiguriert. '
+                                 'Bitte in Einstellungen → Integrationen eintragen. '
+                                 '(Apify wird hier bewusst nicht genutzt — '
+                                 'der bleibt für den Follower-Sync reserviert.)'})
 
-    items = []
+    # RapidAPI — mehrere Hosts als Fallback
+    _APIS = [
+        {'host': 'instagram-scraper-api2.p.rapidapi.com',
+         'url':  'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
+         'params': {'username_or_id_or_url': src.username}},
+        {'host': 'instagram-looter2.p.rapidapi.com',
+         'url':  'https://instagram-looter2.p.rapidapi.com/feed-by-username',
+         'params': {'username': src.username, 'count': '50'}},
+        {'host': 'instagram47.p.rapidapi.com',
+         'url':  'https://instagram47.p.rapidapi.com/getMediaByUsername',
+         'params': {'username': src.username}},
+    ]
 
-    # ── 1. Apify (bevorzugt, bereits konfiguriert) ─────────────
-    if apify_token:
+    raw = None
+    last_err = ''
+    for api in _APIS:
         try:
-            payload = _json.dumps({
-                'directUrls':  [f'https://www.instagram.com/{src.username}/'],
-                'resultsType': 'posts',
-                'resultsLimit': 50,
-            }).encode()
-            url = (
-                'https://api.apify.com/v2/acts/apify~instagram-scraper'
-                f'/run-sync-get-dataset-items?token={apify_token}&timeout=120'
-            )
-            req_obj = _urllib_request.Request(
-                url, data=payload,
-                headers={'Content-Type': 'application/json'},
-                method='POST',
-            )
-            with _urllib_request.urlopen(req_obj, timeout=150) as r:
-                items = _json.loads(r.read())
-            if not isinstance(items, list):
-                items = []
+            headers = {'x-rapidapi-key': rapidapi_key,
+                       'x-rapidapi-host': api['host']}
+            resp = req_lib.get(api['url'], headers=headers,
+                               params=api['params'], timeout=25)
+            if resp.status_code == 200:
+                raw = resp.json()
+                break
+            last_err = f"HTTP {resp.status_code} ({api['host']})"
         except Exception as e:
-            app.logger.warning(f'Apify Inspirationen-Fetch fehlgeschlagen: {e}')
-            items = []
+            last_err = str(e)
 
-    # ── 2. RapidAPI Fallback ───────────────────────────────────
-    if not items and rapidapi_key:
-        _APIS = [
-            {'host': 'instagram-scraper-api2.p.rapidapi.com',
-             'url':  'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
-             'params': {'username_or_id_or_url': src.username}},
-            {'host': 'instagram-looter2.p.rapidapi.com',
-             'url':  'https://instagram-looter2.p.rapidapi.com/feed-by-username',
-             'params': {'username': src.username, 'count': '50'}},
-        ]
-        raw = None
-        for api in _APIS:
-            try:
-                headers = {'x-rapidapi-key': rapidapi_key,
-                           'x-rapidapi-host': api['host']}
-                resp = req_lib.get(api['url'], headers=headers,
-                                   params=api['params'], timeout=25)
-                if resp.status_code == 200:
-                    raw = resp.json()
-                    break
-            except Exception:
-                continue
-        if raw:
-            items = (
-                (raw.get('data') or {}).get('items')
-                or raw.get('items') or raw.get('posts')
-                or (raw.get('data') if isinstance(raw.get('data'), list) else None)
-                or (raw if isinstance(raw, list) else [])
-            ) or []
+    if not raw:
+        return jsonify({'ok': False, 'error': f'RapidAPI-Fehler: {last_err}'})
+
+    items = (
+        (raw.get('data') or {}).get('items')
+        or raw.get('items') or raw.get('posts')
+        or (raw.get('data') if isinstance(raw.get('data'), list) else None)
+        or (raw if isinstance(raw, list) else [])
+    ) or []
 
     if not items:
         return jsonify({'ok': False,
