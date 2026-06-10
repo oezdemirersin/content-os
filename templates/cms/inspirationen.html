@@ -67,9 +67,9 @@
             </div>
           </a>
           <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
-                  class="btn btn-ghost" style="font-size:11px;padding:4px 8px;flex-shrink:0"
+                  class="btn btn-primary" style="font-size:11px;padding:5px 10px;flex-shrink:0"
                   {% if not has_rapidapi_key %}disabled title="RapidAPI-Key fehlt"{% endif %}>
-            <i class="fa-solid fa-rotate"></i>
+            <i class="fa-solid fa-download"></i> Laden
           </button>
           <button onclick="deleteSource({{ src.id }}, '@{{ src.username }}')"
                   style="background:none;border:none;color:var(--muted);cursor:pointer;
