@@ -55,7 +55,7 @@ def inject_globals():
     # Vorrat-Gesamtzahl für Nav-Badge
     try:
         vorrat_total = db.session.query(func.count(ContentItem.id))\
-            .filter(ContentItem.status.in_(['draft', 'ready', 'in_progress']))\
+            .filter(ContentItem.status.in_(['draft', 'ready', 'in_progress', 'scheduled']))\
             .scalar() or 0
     except Exception:
         vorrat_total = 0
@@ -6755,7 +6755,7 @@ def kategorien():
     for f in folders:
         folder_counts[f.id] = ContentItem.query\
             .filter(ContentItem.folder_id == f.id,
-                    ContentItem.status.in_(['draft', 'ready', 'in_progress']))\
+                    ContentItem.status.in_(['draft', 'ready', 'in_progress', 'scheduled']))\
             .count()
 
     return render_template('kategorien.html',
