@@ -113,6 +113,7 @@ def _cloudinary_upload(file_obj, original_filename):
             resource_type=resource_type,
             use_filename=False,
             unique_filename=True,
+            timeout=45,
         )
         return result
     except Exception as e:
@@ -6521,13 +6522,28 @@ def inspiration_post_use(post_id):
             pass
 
     # Bild von Instagram CDN laden
+    img_bytes = None
     try:
-        r = req_lib.get(post.image_url, timeout=15,
-                        headers={'User-Agent': 'Mozilla/5.0'})
+        r = req_lib.get(post.image_url, timeout=(10, 20),
+                        headers={'User-Agent': 'Mozilla/5.0',
+                                 'Referer': 'https://www.instagram.com/'})
         r.raise_for_status()
         img_bytes = r.content
     except Exception as e:
-        return jsonify({'ok': False, 'error': f'Bild konnte nicht geladen werden: {e}'})
+        # CDN-URL abgelaufen? Thumbnail als Fallback versuchen
+        if post.thumbnail_url and post.thumbnail_url != post.image_url:
+            try:
+                r2 = req_lib.get(post.thumbnail_url, timeout=(10, 20),
+                                 headers={'User-Agent': 'Mozilla/5.0',
+                                          'Referer': 'https://www.instagram.com/'})
+                r2.raise_for_status()
+                img_bytes = r2.content
+            except Exception:
+                pass
+        if not img_bytes:
+            return jsonify({'ok': False,
+                            'error': f'Bild nicht mehr abrufbar (CDN-Link abgelaufen). '
+                                     f'Bitte die Quelle neu laden (↓ Laden). Fehler: {e}'})
 
     # Zu Cloudinary hochladen
     fname = f'insp_{post.instagram_code}.jpg'

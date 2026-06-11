@@ -505,25 +505,34 @@ async function confirmUse() {
     return;
   }
 
-  const r = await fetch(`/api/inspirationen/${_currentPostId}/use`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({account_id, mode: _selectedMode, caption, scheduled_at})
-  }).then(r => r.json());
-
-  btn.disabled = false;
-  btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Übernehmen';
-
-  if (r.ok) {
-    showToast(r.message, 'success');
-    closeUseModal();
-    const card = document.getElementById(`pcard-${_currentPostId}`);
-    if (card) {
-      card.style.opacity = '0'; card.style.transform = 'scale(.95)';
-      setTimeout(() => card.remove(), 350);
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 90000); // 90s max
+    const resp = await fetch(`/api/inspirationen/${_currentPostId}/use`, {
+      signal: controller.signal,
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({account_id, mode: _selectedMode, caption, scheduled_at})
+    });
+    clearTimeout(timer);
+    const r = await resp.json();
+    if (r.ok) {
+      showToast(r.message, 'success');
+      closeUseModal();
+      const card = document.getElementById(`pcard-${_currentPostId}`);
+      if (card) {
+        card.style.opacity = '0'; card.style.transform = 'scale(.95)';
+        setTimeout(() => card.remove(), 350);
+      }
+    } else {
+      showToast(r.error || 'Fehler beim Übernehmen.', 'error');
     }
-  } else {
-    showToast(r.error || 'Fehler.', 'error');
+  } catch (err) {
+    const msg = err.name === 'AbortError' ? 'Timeout — Server antwortet nicht.' : (err.message || 'Unbekannter Fehler');
+    showToast('Fehler: ' + msg, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Übernehmen';
   }
 }
 
