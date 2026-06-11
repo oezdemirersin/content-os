@@ -735,10 +735,11 @@
       <div>
         <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
           <span>In welchen Ordner?</span>
-          <a href="{{ url_for('kategorien') }}" target="_blank"
-             style="font-size:10px;color:var(--accent);text-decoration:none">
-            <i class="fa-solid fa-plus"></i> Ordner verwalten
-          </a>
+          <button onclick="toggleBulkNewFolder()" type="button"
+                  style="background:none;border:none;cursor:pointer;font-size:11px;
+                         color:var(--accent);padding:0;display:flex;align-items:center;gap:4px">
+            <i class="fa-solid fa-plus"></i> Neuer Ordner
+          </button>
         </label>
         <select id="bulkFolderId" class="select-field">
           <option value="">— Kein Ordner —</option>
@@ -746,6 +747,30 @@
           <option value="{{ f.id }}">{{ f.name }}</option>
           {% endfor %}
         </select>
+
+        <!-- Inline-Formular: Neuer Ordner (Bulk-Modal) -->
+        <div id="bulkInlineNewFolder" style="display:none;margin-top:8px;padding:10px 12px;
+             background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px">
+            NEUER ORDNER
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="text" id="bulkFolderName" placeholder="Ordnername"
+                   class="input-field" style="flex:1;font-size:12px;padding:5px 8px"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();createBulkFolder()}">
+            <input type="color" id="bulkFolderColor" value="#6366f1"
+                   style="width:36px;height:32px;border-radius:6px;border:1px solid var(--border);
+                          cursor:pointer;padding:2px;flex-shrink:0">
+            <button type="button" onclick="createBulkFolder()"
+                    class="btn btn-primary" style="font-size:11px;padding:5px 10px;flex-shrink:0">
+              <i class="fa-solid fa-check"></i>
+            </button>
+            <button type="button" onclick="toggleBulkNewFolder()"
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px;flex-shrink:0">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Fortschritt -->
@@ -1294,6 +1319,42 @@ async function createInlineFolder() {
   // Formular schließen + reset
   document.getElementById('inlineFolderName').value = '';
   document.getElementById('inlineNewFolder').style.display = 'none';
+  showToast(`Ordner „${r.name}" angelegt ✓`, 'success');
+}
+
+// ── Inline Ordner anlegen (Bulk-Modal) ───────────────────────
+function toggleBulkNewFolder() {
+  const el = document.getElementById('bulkInlineNewFolder');
+  const show = el.style.display === 'none';
+  el.style.display = show ? '' : 'none';
+  if (show) setTimeout(() => document.getElementById('bulkFolderName').focus(), 50);
+}
+
+async function createBulkFolder() {
+  const name  = (document.getElementById('bulkFolderName').value || '').trim();
+  const color = document.getElementById('bulkFolderColor').value;
+  if (!name) { showToast('Name eingeben.', 'warning'); return; }
+
+  const r = await fetch('/api/folders', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, color})
+  }).then(x => x.json());
+
+  if (!r.ok) { showToast(r.error || 'Fehler beim Anlegen', 'error'); return; }
+
+  // Beide Dropdowns (Einzel + Bulk) synchron updaten
+  for (const selId of ['useFolderId', 'bulkFolderId']) {
+    const sel = document.getElementById(selId);
+    if (!sel) continue;
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.name;
+    sel.appendChild(opt);
+  }
+  document.getElementById('bulkFolderId').value = r.id;
+  document.getElementById('bulkFolderName').value = '';
+  document.getElementById('bulkInlineNewFolder').style.display = 'none';
   showToast(`Ordner „${r.name}" angelegt ✓`, 'success');
 }
 
