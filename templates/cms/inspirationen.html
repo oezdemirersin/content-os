@@ -201,7 +201,7 @@
           <!-- Aktionen -->
           <div style="display:flex;gap:4px;flex-wrap:wrap">
             {% if post.status != 'used' %}
-            <button onclick="openUseModal({{ post.id }}, {{ post.caption|tojson if post.caption else '\"\"' }})"
+            <button onclick="openUseModal({{ post.id }}, {{ post.caption|tojson if post.caption else '\"\"' }}, {{ post.post_date.strftime('%m-%d') | tojson if post.post_date else 'null' }})"
                     class="btn btn-primary"
                     style="flex:1;font-size:11px;padding:5px 8px;min-width:80px">
               <i class="fa-solid fa-arrow-right"></i> Verwenden
@@ -289,18 +289,33 @@
           </label>
           <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;
                         border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s"
-                 id="modeReadyCard" onclick="selectMode('ready')">
-            <input type="radio" name="useMode" value="ready"
+                 id="modeScheduleCard" onclick="selectMode('schedule')">
+            <input type="radio" name="useMode" value="schedule"
                    style="margin-top:2px;accent-color:var(--accent)">
             <div>
               <div style="font-size:12px;font-weight:700;color:var(--text)">
-                <i class="fa-solid fa-calendar-check" style="color:var(--muted);margin-right:4px"></i> Einplanen
+                <i class="fa-solid fa-calendar-plus" style="color:var(--muted);margin-right:4px"></i> Datum wählen
               </div>
               <div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4">
-                Als bereit markieren — direkt in Content-Vorrat
+                Direkt auf ein Datum einplanen
               </div>
             </div>
           </label>
+        </div>
+
+        <!-- Datumswahl (nur bei "Datum wählen") -->
+        <div id="scheduleDateBlock" style="display:none;margin-top:10px">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="datetime-local" id="useScheduledAt"
+                   class="input-field" style="flex:1;font-size:12px">
+            <button id="sameYearBtn" onclick="setSameYearDate()"
+                    class="btn btn-ghost" style="font-size:11px;padding:6px 10px;white-space:nowrap;display:none">
+              <i class="fa-solid fa-calendar-day"></i> Gleicher Tag {{ now.year }}
+            </button>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:5px">
+            Tipp: "Gleicher Tag {{ now.year }}" übernimmt Monat+Tag des Originalpostings ins aktuelle Jahr.
+          </div>
         </div>
       </div>
 
@@ -346,6 +361,7 @@
 let _currentPostId   = null;
 let _accountsCache   = null;
 let _selectedMode    = 'reserve';
+let _postMonthDay    = null;   // "MM-DD" des Original-Posts
 
 // ── Accounts laden ────────────────────────────────────────────
 async function loadAccounts() {
@@ -356,10 +372,13 @@ async function loadAccounts() {
 }
 
 // ── "Verwenden"-Modal öffnen ──────────────────────────────────
-async function openUseModal(postId, caption) {
+async function openUseModal(postId, caption, monthDay) {
   _currentPostId = postId;
+  _postMonthDay  = monthDay || null;
   document.getElementById('useCaptionText').value = caption || '';
   document.getElementById('rewriteStatus').style.display = 'none';
+  // "Gleicher Tag"-Button nur zeigen wenn Datum bekannt
+  document.getElementById('sameYearBtn').style.display = monthDay ? 'inline-flex' : 'none';
   selectMode('reserve');
 
   // Accounts laden
@@ -387,8 +406,20 @@ function selectMode(mode) {
   document.querySelectorAll('[name="useMode"]').forEach(r => r.checked = r.value === mode);
   document.getElementById('modeReserveCard').style.borderColor =
     mode === 'reserve' ? 'var(--accent)' : 'var(--border)';
-  document.getElementById('modeReadyCard').style.borderColor =
-    mode === 'ready' ? 'var(--accent)' : 'var(--border)';
+  document.getElementById('modeScheduleCard').style.borderColor =
+    mode === 'schedule' ? 'var(--accent)' : 'var(--border)';
+  document.getElementById('scheduleDateBlock').style.display =
+    mode === 'schedule' ? 'block' : 'none';
+}
+
+function setSameYearDate() {
+  if (!_postMonthDay) return;
+  const year = new Date().getFullYear();
+  const [month, day] = _postMonthDay.split('-');
+  // Standardzeit: 10:00 Uhr
+  const dt = `${year}-${month}-${day}T10:00`;
+  document.getElementById('useScheduledAt').value = dt;
+  showToast(`Datum gesetzt: ${day}.${month}.${year} um 10:00 Uhr`, 'success');
 }
 
 // ── Umformulieren ─────────────────────────────────────────────
@@ -429,13 +460,23 @@ async function confirmUse() {
   btn.disabled = true;
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
 
-  const account_id = parseInt(document.getElementById('useAccountId').value) || null;
-  const caption    = document.getElementById('useCaptionText').value;
+  const account_id   = parseInt(document.getElementById('useAccountId').value) || null;
+  const caption      = document.getElementById('useCaptionText').value;
+  const scheduled_at = _selectedMode === 'schedule'
+    ? document.getElementById('useScheduledAt').value || null
+    : null;
+
+  if (_selectedMode === 'schedule' && !scheduled_at) {
+    showToast('Bitte ein Datum auswählen.', 'warning');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Übernehmen';
+    return;
+  }
 
   const r = await fetch(`/api/inspirationen/${_currentPostId}/use`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({account_id, mode: _selectedMode, caption})
+    body: JSON.stringify({account_id, mode: _selectedMode, caption, scheduled_at})
   }).then(r => r.json());
 
   btn.disabled = false;

@@ -6220,6 +6220,7 @@ def inspirationen():
         sources=sources, posts=posts, counts=counts,
         status_filter=status_filter, source_filter=source_filter,
         has_rapidapi_key=has_rapidapi_key,
+        now=datetime.utcnow(),
         active_page='inspirationen')
 
 
@@ -6487,9 +6488,17 @@ def inspiration_post_use(post_id):
 
     post = InspirationPost.query.get_or_404(post_id)
     data = request.get_json() or {}
-    account_id = data.get('account_id') or None
-    mode       = data.get('mode', 'reserve')   # 'reserve' | 'ready'
-    caption    = data.get('caption') or post.caption or ''
+    account_id   = data.get('account_id') or None
+    mode         = data.get('mode', 'reserve')   # 'reserve' | 'ready' | 'schedule'
+    caption      = data.get('caption') or post.caption or ''
+    scheduled_at_raw = data.get('scheduled_at')  # ISO datetime string oder None
+
+    scheduled_at = None
+    if scheduled_at_raw:
+        try:
+            scheduled_at = datetime.fromisoformat(scheduled_at_raw)
+        except Exception:
+            pass
 
     # Bild von Instagram CDN laden
     try:
@@ -6535,25 +6544,46 @@ def inspiration_post_use(post_id):
     db.session.add(media)
     db.session.flush()
 
-    content_status = 'draft' if mode == 'reserve' else 'ready'
+    content_status = 'draft' if mode == 'reserve' else 'scheduled' if (mode == 'schedule' and scheduled_at) else 'ready'
     ci = ContentItem(
-        title      = caption[:80] if caption else (f'Inspiration @{post.source.username}' if post.source else 'Inspiration'),
-        caption    = caption,
-        status     = content_status,
+        title        = caption[:80] if caption else (f'Inspiration @{post.source.username}' if post.source else 'Inspiration'),
+        caption      = caption,
+        status       = content_status,
         content_type = 'feed',
-        account_id = account_id,
+        account_id   = account_id,
     )
     db.session.add(ci)
     db.session.flush()
     media.content_item_id = ci.id
     post.status           = 'used'
     post.content_item_id  = ci.id
+
+    # Direkt einplanen wenn Datum gewählt
+    sched_post = None
+    if mode == 'schedule' and scheduled_at and account_id:
+        sched_post = ScheduledPost(
+            account_id      = account_id,
+            content_item_id = ci.id,
+            media_item_id   = media.id,
+            caption         = caption,
+            scheduled_at    = scheduled_at,
+            status          = 'pending',
+            post_type       = 'feed',
+        )
+        db.session.add(sched_post)
+
     db.session.commit()
 
-    mode_label = 'als Vorrat gespeichert' if mode == 'reserve' else 'als bereit markiert'
+    if mode == 'reserve':
+        mode_label = 'als Vorrat gespeichert'
+    elif mode == 'schedule' and scheduled_at:
+        mode_label = f'für {scheduled_at.strftime("%d.%m.%Y um %H:%M")} eingeplant'
+    else:
+        mode_label = 'als bereit markiert'
+
     return jsonify({'ok': True, 'content_item_id': ci.id,
                     'thumb': media.url,
-                    'message': f'Bild übernommen und {mode_label} — jetzt in Content-Vorrat verfügbar.'})
+                    'message': f'Bild übernommen und {mode_label} ✓'})
 
 
 @app.route('/api/inspirationen/<int:post_id>/rewrite', methods=['POST'])
