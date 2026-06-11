@@ -258,6 +258,7 @@
                     data-caption="{{ (post.caption or '') | e }}"
                     data-md="{{ post.post_date.strftime('%m-%d') if post.post_date else '' }}"
                     data-account="{{ post.source.account_id or '' }}"
+                    data-img="{{ post.image_url or post.thumbnail_url or '' }}"
                     style="flex:1;font-size:11px;padding:5px 8px;min-width:80px">
               <i class="fa-solid fa-arrow-right"></i> Verwenden
             </button>
@@ -395,10 +396,17 @@
       <div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
           <label class="form-label" style="margin:0">Caption</label>
-          <button id="rewriteBtn" onclick="rewriteCaption()"
-                  class="btn btn-ghost" style="font-size:11px;padding:4px 10px;gap:5px">
-            <i class="fa-solid fa-wand-magic-sparkles"></i> Umformulieren
-          </button>
+          <div style="display:flex;gap:6px">
+            <button id="aiCaptionBtn" onclick="generateAiCaption()"
+                    class="btn btn-ghost" style="font-size:11px;padding:4px 10px;gap:5px;
+                                                  border-color:var(--accent);color:var(--accent)">
+              <i class="fa-solid fa-robot"></i> KI-Caption
+            </button>
+            <button id="rewriteBtn" onclick="rewriteCaption()"
+                    class="btn btn-ghost" style="font-size:11px;padding:4px 10px;gap:5px">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Umformulieren
+            </button>
+          </div>
         </div>
         <textarea id="useCaptionText" class="input-field" rows="5"
                   style="resize:vertical;font-size:12px;line-height:1.6"
@@ -522,9 +530,10 @@ function getAllAccountOptions() {
 }
 
 // ── "Verwenden"-Modal öffnen ──────────────────────────────────
-function openUseModal(postId, caption, monthDay, defaultAccountId) {
-  _currentPostId = postId;
-  _postMonthDay  = monthDay || null;
+function openUseModal(postId, caption, monthDay, defaultAccountId, imageUrl) {
+  _currentPostId  = postId;
+  _postMonthDay   = monthDay || null;
+  _currentImageUrl = imageUrl || null;
   document.getElementById('useCaptionText').value = caption || '';
   document.getElementById('rewriteStatus').style.display = 'none';
   document.getElementById('sameYearBtn').style.display = monthDay ? 'inline-flex' : 'none';
@@ -573,6 +582,48 @@ function setSameYearDate() {
   showToast(`Datum gesetzt: ${day}.${month}.${year} um 10:00 Uhr`, 'success');
 }
 
+// ── KI-Caption generieren ─────────────────────────────────────
+let _currentImageUrl = null;
+
+async function generateAiCaption() {
+  if (!_currentPostId || !_currentImageUrl) return;
+  const btn      = document.getElementById('aiCaptionBtn');
+  const statusEl = document.getElementById('rewriteStatus');
+  const ta       = document.getElementById('useCaptionText');
+  const accountId = parseInt(document.getElementById('useAccountId').value) || null;
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  statusEl.style.display = 'block';
+  statusEl.style.color   = 'var(--muted)';
+  statusEl.textContent   = '🤖 Claude analysiert das Bild…';
+
+  try {
+    const r = await fetch('/api/caption/generate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({image_url: _currentImageUrl, account_id: accountId})
+    }).then(r => r.json());
+
+    if (r.ok) {
+      ta.value = r.caption + (r.hashtags ? '\n\n' + r.hashtags : '');
+      statusEl.textContent = r.is_football
+        ? '✓ Caption generiert · Fußball erkannt → Sporthashtag ergänzt'
+        : '✓ Caption generiert';
+      statusEl.style.color = 'var(--success, #22c55e)';
+    } else {
+      statusEl.textContent = '⚠ ' + (r.error || 'Fehler');
+      statusEl.style.color = 'var(--warning)';
+    }
+  } catch(e) {
+    statusEl.textContent = '⚠ Verbindungsfehler';
+    statusEl.style.color = 'var(--warning)';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-robot"></i> KI-Caption';
+  }
+}
+
 // ── Umformulieren ─────────────────────────────────────────────
 async function rewriteCaption() {
   if (!_currentPostId) return;
@@ -605,6 +656,8 @@ async function rewriteCaption() {
 }
 
 // ── Übernehmen ────────────────────────────────────────────────
+let _dupConfirmed = false;   // wird true wenn User Duplikat-Warnung bestätigt
+
 async function confirmUse() {
   if (!_currentPostId) return;
   const btn = document.getElementById('confirmUseBtn');
@@ -627,32 +680,49 @@ async function confirmUse() {
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 90000); // 90s max
+    const timer = setTimeout(() => controller.abort(), 90000);
     const resp = await fetch(`/api/inspirationen/${_currentPostId}/use`, {
       signal: controller.signal,
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({account_id, folder_id, mode: _selectedMode, caption, scheduled_at})
+      body: JSON.stringify({
+        account_id, folder_id, mode: _selectedMode, caption, scheduled_at,
+        force_duplicate: _dupConfirmed   // beim 2. Klick überspringen wir den Duplikat-Check
+      })
     });
     clearTimeout(timer);
     const r = await resp.json();
     if (r.ok) {
       showToast(r.message, 'success');
+      _dupConfirmed = false;
       closeUseModal();
       const card = document.getElementById(`pcard-${_currentPostId}`);
       if (card) {
         card.style.opacity = '0'; card.style.transform = 'scale(.95)';
         setTimeout(() => card.remove(), 350);
       }
+    } else if (r.duplicate && !_dupConfirmed) {
+      // Duplikat-Warnung: Button umbenennen, beim nächsten Klick trotzdem übernehmen
+      _dupConfirmed = true;
+      const statusEl = document.getElementById('rewriteStatus');
+      statusEl.style.display = 'block';
+      statusEl.style.color   = 'var(--warning)';
+      statusEl.textContent   = '⚠ ' + r.error;
+      btn.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Trotzdem übernehmen';
+      btn.disabled  = false;
     } else {
       showToast(r.error || 'Fehler beim Übernehmen.', 'error');
+      _dupConfirmed = false;
     }
   } catch (err) {
     const msg = err.name === 'AbortError' ? 'Timeout — Server antwortet nicht.' : (err.message || 'Unbekannter Fehler');
     showToast('Fehler: ' + msg, 'error');
+    _dupConfirmed = false;
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Übernehmen';
+    if (!_dupConfirmed) {
+      btn.disabled  = false;
+      btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Übernehmen';
+    }
   }
 }
 
@@ -876,7 +946,8 @@ document.addEventListener('click', function(e) {
     btn.dataset.id,
     btn.dataset.caption,
     btn.dataset.md || null,
-    btn.dataset.account || null
+    btn.dataset.account || null,
+    btn.dataset.img || null
   );
 });
 

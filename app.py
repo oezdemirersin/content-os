@@ -417,6 +417,12 @@ def init_db():
                 created_at TIMESTAMP DEFAULT NOW()
             )''')
             safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS folder_id INTEGER REFERENCES content_folder(id)')
+            # ── account: KI-Caption Felder ───────────────────────────────
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS default_hashtags TEXT')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS sports_hashtag VARCHAR(200)')
+            # ── media_item: Duplikat-Hash ────────────────────────────────
+            safe_alter('ALTER TABLE media_item ADD COLUMN IF NOT EXISTS image_hash VARCHAR(64)')
+            safe_alter('CREATE INDEX IF NOT EXISTS ix_media_item_image_hash ON media_item(image_hash)')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -452,6 +458,15 @@ def init_db():
             ci_cols2 = [c['name'] for c in inspector.get_columns('content_item')]
             if 'folder_id' not in ci_cols2:
                 safe_alter('ALTER TABLE content_item ADD COLUMN folder_id INTEGER REFERENCES content_folder(id)')
+            # account: KI-Caption Felder
+            if 'default_hashtags' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN default_hashtags TEXT')
+            if 'sports_hashtag' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN sports_hashtag VARCHAR(200)')
+            # media_item: Duplikat-Hash
+            mi_cols = [c['name'] for c in inspector.get_columns('media_item')]
+            if 'image_hash' not in mi_cols:
+                safe_alter('ALTER TABLE media_item ADD COLUMN image_hash VARCHAR(64)')
 
             try:
                 ct_cols = [c['name'] for c in inspector.get_columns('content_template')]
@@ -1507,9 +1522,11 @@ def account_edit(account_id):
         account.min_stock_days = int(d.get('min_stock_days') or 3)
         account.optimal_stock_days = int(d.get('optimal_stock_days') or 14)
         account.telegram_chat_id = d.get('telegram_chat_id', '').strip() or None
-        account.canva_url    = d.get('canva_url', '').strip() or None
-        account.layout_notes = d.get('layout_notes', '').strip() or None
-        account.page_persona = d.get('page_persona', '').strip() or None
+        account.canva_url         = d.get('canva_url', '').strip() or None
+        account.layout_notes      = d.get('layout_notes', '').strip() or None
+        account.page_persona      = d.get('page_persona', '').strip() or None
+        account.default_hashtags  = d.get('default_hashtags', '').strip() or None
+        account.sports_hashtag    = d.get('sports_hashtag', '').strip() or None
         db.session.commit()
         flash('Account aktualisiert.', 'success')
         return redirect(url_for('account_detail', account_id=account_id))
@@ -2419,6 +2436,20 @@ def media_upload():
 
             # Datei in Bytes lesen (für Cloudinary + Fallback)
             file_bytes = file.read()
+
+            # Duplikat-Prüfung (nur Bilder)
+            file_hash = _compute_image_hash(file_bytes) if ftype == 'image' else None
+            if file_hash:
+                dup, _ = _find_duplicate(file_hash)
+                if dup:
+                    flash(
+                        f'⚠️ Duplikat übersprungen: "{original}" existiert bereits '
+                        f'als "{dup.original_filename or dup.filename}" '
+                        f'(vom {dup.created_at.strftime("%d.%m.%Y") if dup.created_at else "?"}).',
+                        'warning'
+                    )
+                    continue  # diese Datei überspringen
+
             cl = _cloudinary_upload(io.BytesIO(file_bytes), original)
 
             if cl:
@@ -2433,6 +2464,7 @@ def media_upload():
                     url=cl['secure_url'],
                     storage_source='cloudinary',
                     category_id=category_id,
+                    image_hash=file_hash,
                 )
             else:
                 # Fallback: lokaler Speicher
@@ -2449,6 +2481,7 @@ def media_upload():
                     url=f'/media/file/{unique_name}',
                     storage_source='local',
                     category_id=category_id,
+                    image_hash=file_hash,
                 )
             db.session.add(media)
             uploaded += 1
@@ -6612,6 +6645,22 @@ def inspiration_post_use(post_id):
                             'error': f'Bild nicht mehr abrufbar (CDN-Link abgelaufen). '
                                      f'Bitte die Quelle neu laden (↓ Laden). Fehler: {e}'})
 
+    # ── Duplikat-Prüfung ─────────────────────────────────────────
+    force_dup  = bool(data.get('force_duplicate'))
+    img_hash = _compute_image_hash(img_bytes)
+    if img_hash and not force_dup:
+        dup, diff = _find_duplicate(img_hash)
+        if dup:
+            dup_info = f'"{dup.original_filename or dup.filename}" (vom {dup.created_at.strftime("%d.%m.%Y") if dup.created_at else "?"})'
+            return jsonify({
+                'ok': False,
+                'duplicate': True,
+                'error': f'⚠️ Dieses Bild existiert bereits in deiner Medienbibliothek: {dup_info}. '
+                         f'Trotzdem übernehmen? Dann erneut klicken.',
+                'dup_media_id': dup.id,
+                'dup_info': dup_info,
+            })
+
     # Zu Cloudinary hochladen
     fname = f'insp_{post.instagram_code}.jpg'
     cl = _cloudinary_upload(io.BytesIO(img_bytes), fname)
@@ -6627,6 +6676,7 @@ def inspiration_post_use(post_id):
             height=cl.get('height'),
             url=cl['secure_url'],
             storage_source='cloudinary',
+            image_hash=img_hash,
         )
     else:
         unique_name = f"{uuid.uuid4().hex}.jpg"
@@ -6641,6 +6691,7 @@ def inspiration_post_use(post_id):
             file_size=len(img_bytes),
             url=f'/media/file/{unique_name}',
             storage_source='local',
+            image_hash=img_hash,
         )
     db.session.add(media)
     db.session.flush()
@@ -6855,8 +6906,13 @@ def autoplan():
     posts_per_week = int(d.get('posts_per_week', 7) or 7)
     day_mode       = d.get('day_mode', 'fixed')
     post_days      = [int(x) for x in (d.get('post_days') or [0,1,2,3,4,5,6])]
-    days_per_week  = max(1, min(7, int(d.get('days_per_week', 5) or 5)))
     min_gap_days   = max(0, int(d.get('min_gap_days', 0) or 0))
+    # days_per_week wird automatisch aus posts_per_week abgeleitet (kein separates UI-Feld)
+    # Frontend schickt es vorsichtshalber mit, Fallback: ppw / posts_per_day
+    _ppd_hint = max(1, int(d.get('posts_per_day', 1) or 1)) if d.get('time_mode') == 'random' \
+                else max(1, len(d.get('post_times') or ['18:00']))
+    days_per_week  = max(1, min(7, int(d.get('days_per_week') or 0) or
+                                   -(-posts_per_week // _ppd_hint)))  # ceil ohne math
     folder_rules   = {int(k): int(v) for k, v in (d.get('folder_rules') or {}).items() if int(v) > 0}
     time_mode      = d.get('time_mode', 'fixed')
 
@@ -7018,6 +7074,144 @@ def autoplan():
         'ok': True,
         'created': created,
         'message': f'{created} Posts wurden automatisch eingeplant ✓'
+    })
+
+
+# ─────────────── KI-CAPTION + DUPLIKAT-ERKENNUNG ──────────────
+
+def _compute_image_hash(img_bytes):
+    """Perceptual Hash für Duplikat-Erkennung (imagehash pHash)."""
+    try:
+        import imagehash
+        from PIL import Image
+        import io as _io
+        img = Image.open(_io.BytesIO(img_bytes)).convert('RGB')
+        return str(imagehash.phash(img))
+    except Exception:
+        return None
+
+
+def _find_duplicate(hash_str, tolerance=8):
+    """Sucht ein ähnliches Bild in der Medienbibliothek.
+    Gibt (MediaItem, diff) zurück oder (None, None)."""
+    if not hash_str:
+        return None, None
+    try:
+        import imagehash
+        new_h = imagehash.hex_to_hash(hash_str)
+        existing = (MediaItem.query
+                    .filter(MediaItem.image_hash.isnot(None))
+                    .order_by(MediaItem.created_at.desc())
+                    .limit(1000).all())
+        best, best_diff = None, tolerance + 1
+        for m in existing:
+            try:
+                diff = abs(new_h - imagehash.hex_to_hash(m.image_hash))
+                if diff <= tolerance and diff < best_diff:
+                    best, best_diff = m, diff
+            except Exception:
+                continue
+        return (best, best_diff) if best else (None, None)
+    except Exception:
+        return None, None
+
+
+@app.route('/api/caption/generate', methods=['POST'])
+@login_required
+def caption_generate():
+    """KI-Caption aus Bild via Claude Vision.
+    Body: { image_url, account_id (optional) }
+    Gibt caption + hashtags (aus Account-Einstellungen) zurück.
+    """
+    import base64 as _b64
+    import requests as _req
+    import anthropic as _ant
+
+    d = request.get_json() or {}
+    image_url  = (d.get('image_url') or '').strip()
+    account_id = d.get('account_id')
+
+    if not image_url:
+        return jsonify({'ok': False, 'error': 'Kein Bild-URL angegeben.'})
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert.'})
+
+    # Bild laden
+    try:
+        r = _req.get(image_url, timeout=(10, 25),
+                     headers={'User-Agent': 'Mozilla/5.0',
+                               'Referer': 'https://www.instagram.com/'})
+        r.raise_for_status()
+        img_bytes   = r.content
+        media_type  = r.headers.get('content-type', 'image/jpeg').split(';')[0].strip()
+        if media_type not in ('image/jpeg', 'image/png', 'image/gif', 'image/webp'):
+            media_type = 'image/jpeg'
+        img_b64 = _b64.standard_b64encode(img_bytes).decode()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Bild nicht abrufbar: {e}'})
+
+    # Account-Hashtags laden
+    default_hashtags = ''
+    sports_hashtag   = ''
+    acc_persona      = ''
+    if account_id:
+        acc = db.session.get(Account, int(account_id))
+        if acc:
+            default_hashtags = (acc.default_hashtags or '').strip()
+            sports_hashtag   = (acc.sports_hashtag   or '').strip()
+            acc_persona      = (acc.page_persona      or '').strip()
+
+    persona_hint = f'\nSeitencharakter: {acc_persona}' if acc_persona else ''
+
+    prompt = f"""Analysiere dieses Bild und erstelle eine Instagram-Caption auf Deutsch.{persona_hint}
+
+Regeln:
+- 2–4 Sätze, ansprechend und zum Bild passend
+- Keine Hashtags in der Caption selbst
+- Zuletzt: Ist Fußball das Hauptthema? (nur wenn eindeutig erkennbar)
+
+Antworte exakt in diesem Format:
+CAPTION: [deine Caption]
+FUSSBALL: [Ja / Nein]"""
+
+    try:
+        client = _ant.Anthropic(api_key=api_key)
+        resp   = client.messages.create(
+            model='claude-opus-4-5',
+            max_tokens=500,
+            system='Du bist ein Social-Media-Manager für deutschsprachige Instagram-Seiten.',
+            messages=[{'role': 'user', 'content': [
+                {'type': 'image', 'source': {'type': 'base64',
+                                              'media_type': media_type,
+                                              'data': img_b64}},
+                {'type': 'text', 'text': prompt}
+            ]}]
+        )
+        text = resp.content[0].text.strip()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Claude-Fehler: {e}'})
+
+    # Parsen
+    caption     = ''
+    is_football = False
+    for line in text.splitlines():
+        if line.startswith('CAPTION:'):
+            caption = line[8:].strip()
+        elif line.startswith('FUSSBALL:'):
+            is_football = 'ja' in line.lower()
+
+    # Hashtags zusammenbauen
+    hashtags = default_hashtags
+    if is_football and sports_hashtag:
+        hashtags = (hashtags + ' ' + sports_hashtag).strip() if hashtags else sports_hashtag
+
+    return jsonify({
+        'ok':          True,
+        'caption':     caption,
+        'hashtags':    hashtags,
+        'is_football': is_football,
     })
 
 

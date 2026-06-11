@@ -147,6 +147,10 @@ class Account(db.Model):
     layout_notes      = db.Column(db.Text)          # Layout-Hinweise (Farben, Schriften, Stil)
     page_persona      = db.Column(db.Text)          # Seiten-Persönlichkeit für Inspiration-KI
 
+    # KI-Caption & Hashtags
+    default_hashtags  = db.Column(db.Text)           # z.B. "#Frankfurt #Frankfurtmemes" (leer = keine)
+    sports_hashtag    = db.Column(db.String(200))    # z.B. "#EintrachtFrankfurt" (leer = kein Sporterkennnung)
+
     # Relationships
     scheduled_posts = db.relationship('ScheduledPost', backref='account', lazy=True, cascade='all,delete')
     analytics = db.relationship('AnalyticsSnapshot', backref='account', lazy=True, cascade='all,delete')
@@ -296,6 +300,7 @@ class MediaItem(db.Model):
 
     tags = db.Column(db.Text, default='[]')
     usage_count = db.Column(db.Integer, default=0)
+    image_hash  = db.Column(db.String(64), nullable=True, index=True)  # perceptual hash für Duplikat-Erkennung
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def get_tags(self):
