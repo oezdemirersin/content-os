@@ -442,6 +442,26 @@
             {% endif %}
           </div>
 
+          <!-- Karussel-Vorschau: alle gespeicherten Bilder -->
+          {% if post.media_type == 'carousel' and post.carousel_urls %}
+          {% set curl = post.carousel_urls | from_json %}
+          {% if curl and curl|length > 1 %}
+          <div style="display:flex;gap:2px;margin-bottom:7px;border-radius:6px;overflow:hidden">
+            {% for u in curl[:4] %}
+            <img src="{{ u }}" alt="" style="flex:1;height:52px;object-fit:cover;min-width:0"
+                 onerror="this.style.display='none'">
+            {% endfor %}
+            {% if curl|length > 4 %}
+            <div style="width:40px;height:52px;background:var(--surface2);display:flex;
+                        align-items:center;justify-content:center;flex-shrink:0;
+                        font-size:10px;color:var(--muted);font-weight:700">
+              +{{ curl|length - 4 }}
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
+          {% endif %}
+
           <!-- Likes & Kommentare -->
           {% if post.like_count is not none %}
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
@@ -560,10 +580,11 @@
       <div>
         <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
           <span>In welchen Ordner?</span>
-          <a href="{{ url_for('kategorien') }}" target="_blank"
-             style="font-size:10px;color:var(--accent);text-decoration:none">
-            <i class="fa-solid fa-plus"></i> Ordner verwalten
-          </a>
+          <button onclick="toggleInlineNewFolder()" type="button"
+                  style="background:none;border:none;cursor:pointer;font-size:11px;
+                         color:var(--accent);padding:0;display:flex;align-items:center;gap:4px">
+            <i class="fa-solid fa-plus"></i> Neuer Ordner
+          </button>
         </label>
         <select id="useFolderId" class="select-field">
           <option value="">— Kein Ordner —</option>
@@ -571,6 +592,30 @@
           <option value="{{ f.id }}" data-color="{{ f.color }}">{{ f.name }}</option>
           {% endfor %}
         </select>
+
+        <!-- Inline-Formular: Neuer Ordner -->
+        <div id="inlineNewFolder" style="display:none;margin-top:8px;padding:10px 12px;
+             background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px">
+            NEUER ORDNER
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="text" id="inlineFolderName" placeholder="Ordnername"
+                   class="input-field" style="flex:1;font-size:12px;padding:5px 8px"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();createInlineFolder()}">
+            <input type="color" id="inlineFolderColor" value="#6366f1"
+                   style="width:36px;height:32px;border-radius:6px;border:1px solid var(--border);
+                          cursor:pointer;padding:2px;flex-shrink:0">
+            <button type="button" onclick="createInlineFolder()"
+                    class="btn btn-primary" style="font-size:11px;padding:5px 10px;flex-shrink:0">
+              <i class="fa-solid fa-check"></i>
+            </button>
+            <button type="button" onclick="toggleInlineNewFolder()"
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px;flex-shrink:0">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Modus -->
@@ -1215,6 +1260,42 @@ document.addEventListener('change', function(e) {
     else showToast(d.error || 'Fehler', 'error');
   });
 });
+
+// ── Inline Ordner anlegen (im Verwenden-Modal) ───────────────
+function toggleInlineNewFolder() {
+  const el = document.getElementById('inlineNewFolder');
+  const show = el.style.display === 'none';
+  el.style.display = show ? '' : 'none';
+  if (show) setTimeout(() => document.getElementById('inlineFolderName').focus(), 50);
+}
+
+async function createInlineFolder() {
+  const name  = (document.getElementById('inlineFolderName').value || '').trim();
+  const color = document.getElementById('inlineFolderColor').value;
+  if (!name) { showToast('Name eingeben.', 'warning'); return; }
+
+  const r = await fetch('/api/folders', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, color})
+  }).then(x => x.json());
+
+  if (!r.ok) { showToast(r.error || 'Fehler', 'error'); return; }
+
+  // Dropdown updaten + neuen Ordner auswählen
+  const sel = document.getElementById('useFolderId');
+  const opt = document.createElement('option');
+  opt.value = r.id;
+  opt.textContent = r.name;
+  opt.dataset.color = r.color;
+  sel.appendChild(opt);
+  sel.value = r.id;
+
+  // Formular schließen + reset
+  document.getElementById('inlineFolderName').value = '';
+  document.getElementById('inlineNewFolder').style.display = 'none';
+  showToast(`Ordner „${r.name}" angelegt ✓`, 'success');
+}
 
 // ── Inspo-Bookmark toggle ─────────────────────────────────────
 async function toggleSave(postId, btn) {

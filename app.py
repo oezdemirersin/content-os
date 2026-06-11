@@ -65,6 +65,15 @@ def inject_globals():
         'vorrat_total': vorrat_total,
     }
 
+@app.template_filter('from_json')
+def from_json_filter(s):
+    """Jinja2-Filter: JSON-String → Python-Objekt."""
+    try:
+        return json.loads(s) if s else []
+    except Exception:
+        return []
+
+
 @app.template_filter('fmt_followers')
 def fmt_followers(n):
     """Zeigt Follower-Zahlen exakt mit Punkt-Trennung, ab 1M abgekürzt."""
@@ -421,6 +430,7 @@ def init_db():
             safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS like_count INTEGER')
             safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS comment_count INTEGER')
             safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS is_saved BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS carousel_urls TEXT')
             # Bestehende status='saved' Posts migrieren → is_saved=True
             safe_alter("UPDATE inspiration_post SET is_saved=TRUE WHERE status='saved'")
             # ── account: KI-Caption Felder ───────────────────────────────
@@ -472,8 +482,9 @@ def init_db():
                 safe_alter('ALTER TABLE inspiration_post ADD COLUMN comment_count INTEGER')
             if 'is_saved' not in ip_cols:
                 safe_alter('ALTER TABLE inspiration_post ADD COLUMN is_saved BOOLEAN DEFAULT 0')
-                # Bestehende status='saved' Posts migrieren
                 safe_alter("UPDATE inspiration_post SET is_saved=1 WHERE status='saved'")
+            if 'carousel_urls' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN carousel_urls TEXT')
             # account: KI-Caption Felder
             if 'default_hashtags' not in account_cols:
                 safe_alter('ALTER TABLE account ADD COLUMN default_hashtags TEXT')
@@ -6625,6 +6636,21 @@ def inspiration_fetch(src_id):
         if not img_url:
             continue
 
+        # Karussel: alle Bild-URLs sammeln
+        carousel_urls_json = None
+        if media_type == 'carousel':
+            cm = item.get('carousel_media') or item.get('images') or []
+            all_urls = []
+            for slide in cm:
+                if isinstance(slide, str) and slide.startswith('http'):
+                    all_urls.append(slide)
+                elif isinstance(slide, dict):
+                    u, _ = _extract_img(slide)
+                    if u:
+                        all_urls.append(u)
+            if all_urls:
+                carousel_urls_json = json.dumps(all_urls)
+
         # Caption wird bewusst NICHT gespeichert (nur eigene Texte verwenden)
         caption = ''
 
@@ -6657,6 +6683,7 @@ def inspiration_fetch(src_id):
             image_url=img_url, thumbnail_url=thumb_url or img_url,
             caption=caption, post_date=post_date,
             media_type=media_type, status='new',
+            carousel_urls=carousel_urls_json,
             like_count=like_val,
             comment_count=comment_val,
         )
@@ -6726,80 +6753,90 @@ def inspiration_post_use(post_id):
         except Exception:
             pass
 
-    # Bild von Instagram CDN laden
-    img_bytes = None
-    try:
-        r = req_lib.get(post.image_url, timeout=(10, 20),
-                        headers={'User-Agent': 'Mozilla/5.0',
-                                 'Referer': 'https://www.instagram.com/'})
-        r.raise_for_status()
-        img_bytes = r.content
-    except Exception as e:
-        # CDN-URL abgelaufen? Thumbnail als Fallback versuchen
-        if post.thumbnail_url and post.thumbnail_url != post.image_url:
-            try:
-                r2 = req_lib.get(post.thumbnail_url, timeout=(10, 20),
-                                 headers={'User-Agent': 'Mozilla/5.0',
-                                          'Referer': 'https://www.instagram.com/'})
-                r2.raise_for_status()
-                img_bytes = r2.content
-            except Exception:
-                pass
-        if not img_bytes:
-            return jsonify({'ok': False,
-                            'error': f'Bild nicht mehr abrufbar (CDN-Link abgelaufen). '
-                                     f'Bitte die Quelle neu laden (↓ Laden). Fehler: {e}'})
+    # ── Bild-URLs sammeln (Einzel- oder Karussel) ────────────────
+    def _fetch_img_bytes(url):
+        try:
+            resp = req_lib.get(url, timeout=(10, 20),
+                               headers={'User-Agent': 'Mozilla/5.0',
+                                        'Referer': 'https://www.instagram.com/'})
+            resp.raise_for_status()
+            return resp.content
+        except Exception:
+            return None
 
-    # ── Duplikat-Prüfung ─────────────────────────────────────────
-    force_dup  = bool(data.get('force_duplicate'))
-    img_hash = _compute_image_hash(img_bytes)
+    # Karussel: alle gespeicherten URLs nutzen; sonst nur das Hauptbild
+    carousel_urls_list = []
+    if post.media_type == 'carousel' and post.carousel_urls:
+        try:
+            carousel_urls_list = json.loads(post.carousel_urls)
+        except Exception:
+            pass
+    if not carousel_urls_list:
+        carousel_urls_list = [post.image_url]
+
+    img_bytes_first = _fetch_img_bytes(carousel_urls_list[0])
+    if not img_bytes_first:
+        # Fallback: Thumbnail
+        if post.thumbnail_url and post.thumbnail_url != carousel_urls_list[0]:
+            img_bytes_first = _fetch_img_bytes(post.thumbnail_url)
+    if not img_bytes_first:
+        return jsonify({'ok': False,
+                        'error': 'Bild nicht mehr abrufbar (CDN-Link abgelaufen). '
+                                 'Bitte die Quelle neu laden (↓ Laden).'})
+
+    # ── Duplikat-Prüfung (nur erstes Bild) ───────────────────────
+    force_dup = bool(data.get('force_duplicate'))
+    img_hash  = _compute_image_hash(img_bytes_first)
     if img_hash and not force_dup:
         dup, diff = _find_duplicate(img_hash)
         if dup:
             dup_info = f'"{dup.original_filename or dup.filename}" (vom {dup.created_at.strftime("%d.%m.%Y") if dup.created_at else "?"})'
             return jsonify({
-                'ok': False,
-                'duplicate': True,
+                'ok': False, 'duplicate': True,
                 'error': f'⚠️ Dieses Bild existiert bereits in deiner Medienbibliothek: {dup_info}. '
                          f'Trotzdem übernehmen? Dann erneut klicken.',
-                'dup_media_id': dup.id,
-                'dup_info': dup_info,
+                'dup_media_id': dup.id, 'dup_info': dup_info,
             })
 
-    # Zu Cloudinary hochladen
-    fname = f'insp_{post.instagram_code}.jpg'
-    cl = _cloudinary_upload(io.BytesIO(img_bytes), fname)
+    # ── Alle Bilder hochladen (Karussel = mehrere MediaItems) ────
+    def _upload_one(img_bytes, idx):
+        fname = f'insp_{post.instagram_code}_{idx}.jpg'
+        h     = _compute_image_hash(img_bytes) if idx > 0 else img_hash
+        cl    = _cloudinary_upload(io.BytesIO(img_bytes), fname)
+        if cl:
+            return MediaItem(
+                filename=cl['public_id'], original_filename=fname,
+                file_type='image', mime_type='image/jpeg',
+                file_size=cl.get('bytes', len(img_bytes)),
+                width=cl.get('width'), height=cl.get('height'),
+                url=cl['secure_url'], storage_source='cloudinary', image_hash=h,
+            )
+        else:
+            uname = f"{uuid.uuid4().hex}.jpg"
+            with open(os.path.join(app.config['UPLOAD_FOLDER'], uname), 'wb') as _f:
+                _f.write(img_bytes)
+            return MediaItem(
+                filename=uname, original_filename=fname,
+                file_type='image', mime_type='image/jpeg',
+                file_size=len(img_bytes), url=f'/media/file/{uname}',
+                storage_source='local', image_hash=h,
+            )
 
-    if cl:
-        media = MediaItem(
-            filename=cl['public_id'],
-            original_filename=fname,
-            file_type='image',
-            mime_type='image/jpeg',
-            file_size=cl.get('bytes', len(img_bytes)),
-            width=cl.get('width'),
-            height=cl.get('height'),
-            url=cl['secure_url'],
-            storage_source='cloudinary',
-            image_hash=img_hash,
-        )
-    else:
-        unique_name = f"{uuid.uuid4().hex}.jpg"
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-        with open(filepath, 'wb') as f:
-            f.write(img_bytes)
-        media = MediaItem(
-            filename=unique_name,
-            original_filename=fname,
-            file_type='image',
-            mime_type='image/jpeg',
-            file_size=len(img_bytes),
-            url=f'/media/file/{unique_name}',
-            storage_source='local',
-            image_hash=img_hash,
-        )
-    db.session.add(media)
+    media_items = []
+    all_bytes   = [img_bytes_first]
+    # Restliche Karussel-Bilder laden
+    for url in carousel_urls_list[1:]:
+        b = _fetch_img_bytes(url)
+        if b:
+            all_bytes.append(b)
+
+    for idx, byt in enumerate(all_bytes):
+        m = _upload_one(byt, idx)
+        db.session.add(m)
+        media_items.append(m)
     db.session.flush()
+
+    media = media_items[0]  # erstes Bild = Haupt-MediaItem
 
     content_status = 'draft' if mode == 'reserve' else 'scheduled' if (mode == 'schedule' and scheduled_at) else 'ready'
     ci = ContentItem(
@@ -6816,9 +6853,11 @@ def inspiration_post_use(post_id):
         acc = db.session.get(Account, account_id)
         if acc:
             ci.accounts.append(acc)
-    media.content_item_id = ci.id
-    post.status           = 'used'
-    post.content_item_id  = ci.id
+    # Alle Karussel-Bilder mit ContentItem verknüpfen
+    for m in media_items:
+        m.content_item_id = ci.id
+    post.status          = 'used'
+    post.content_item_id = ci.id
 
     # Direkt einplanen wenn Datum gewählt
     sched_post = None
@@ -6945,18 +6984,23 @@ def folder_create():
     if not name:
         return jsonify({'ok': False, 'error': 'Name darf nicht leer sein.'})
     account_id = d.get('account_id') or None
-    f = ContentFolder(
-        name           = name,
-        color          = d.get('color', '#6366f1'),
-        icon           = d.get('icon', 'fa-folder'),
-        account_id     = account_id,
-        sort_order     = d.get('sort_order', 0),
-        posts_per_week = int(d.get('posts_per_week', 0) or 0),
-        notes          = d.get('notes', ''),
-    )
-    db.session.add(f)
-    db.session.commit()
-    return jsonify({'ok': True, 'id': f.id, 'name': f.name})
+    try:
+        f = ContentFolder(
+            name           = name,
+            color          = d.get('color', '#6366f1'),
+            icon           = d.get('icon', 'fa-folder'),
+            account_id     = account_id,
+            sort_order     = int(d.get('sort_order', 0) or 0),
+            posts_per_week = int(d.get('posts_per_week', 0) or 0),
+            notes          = d.get('notes', '') or '',
+        )
+        db.session.add(f)
+        db.session.commit()
+        return jsonify({'ok': True, 'id': f.id, 'name': f.name, 'color': f.color, 'icon': f.icon})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'folder_create error: {e}')
+        return jsonify({'ok': False, 'error': f'Datenbankfehler: {str(e)}'})
 
 
 @app.route('/api/folders/<int:fid>', methods=['PUT'])
