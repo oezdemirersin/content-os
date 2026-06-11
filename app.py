@@ -7057,6 +7057,41 @@ def kategorien():
         active_page='kategorien')
 
 
+@app.route('/debug/vorrat')
+@login_required
+def debug_vorrat():
+    """Temporärer Debug-Endpunkt: zeigt ALLE ContentItems mit Ordner-Zuordnung."""
+    rows = db.session.execute(db.text("""
+        SELECT ci.id, ci.title, ci.status, ci.folder_id,
+               cf.name as folder_name,
+               ci.created_at
+        FROM content_item ci
+        LEFT JOIN content_folder cf ON cf.id = ci.folder_id
+        ORDER BY ci.id DESC
+        LIMIT 200
+    """)).fetchall()
+    folders = db.session.execute(db.text("""
+        SELECT cf.id, cf.name, cf.account_id, a.name as account_name,
+               COUNT(ci.id) as total,
+               SUM(CASE WHEN ci.status IN ('draft','ready','scheduled','in_progress') THEN 1 ELSE 0 END) as active
+        FROM content_folder cf
+        LEFT JOIN account a ON a.id = cf.account_id
+        LEFT JOIN content_item ci ON ci.folder_id = cf.id
+        GROUP BY cf.id, cf.name, cf.account_id, a.name
+        ORDER BY cf.id DESC
+    """)).fetchall()
+    html = '<style>body{font-family:monospace;padding:20px;background:#111;color:#eee} table{border-collapse:collapse;width:100%;margin-bottom:30px} th,td{border:1px solid #333;padding:6px 10px;text-align:left} th{background:#222} tr:hover{background:#1a1a1a}</style>'
+    html += '<h2>Ordner</h2><table><tr><th>ID</th><th>Name</th><th>Account</th><th>Total Items</th><th>Aktiv (draft/ready/scheduled)</th></tr>'
+    for r in folders:
+        html += f'<tr><td>{r.id}</td><td>{r.name}</td><td>{r.account_name or "Global"}</td><td>{r.total}</td><td style="color:{"#4ade80" if r.active>0 else "#f87171"}">{r.active}</td></tr>'
+    html += '</table>'
+    html += '<h2>Content Items (letzte 200)</h2><table><tr><th>ID</th><th>Titel</th><th>Status</th><th>Ordner-ID</th><th>Ordner-Name</th><th>Erstellt</th></tr>'
+    for r in rows:
+        html += f'<tr><td>{r.id}</td><td>{r.title or "—"}</td><td>{r.status}</td><td>{r.folder_id or "—"}</td><td>{r.folder_name or "kein Ordner"}</td><td>{r.created_at}</td></tr>'
+    html += '</table>'
+    return html
+
+
 @app.route('/api/folders', methods=['GET'])
 @login_required
 def folders_list():
