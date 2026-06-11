@@ -19,7 +19,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     HashtagSet, NotificationSettings, AppNotification, RecurringPost,
                     AccountAutomationProfile, AppSettings,
                     MemeTemplate, MemeVariant,
-                    InspirationSource, InspirationPost)
+                    InspirationSource, InspirationPost,
+                    WeatherCache, WeatherTriggerLog)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -440,6 +441,23 @@ def init_db():
             # ── account: KI-Caption Felder ───────────────────────────────
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS default_hashtags TEXT')
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS sports_hashtag VARCHAR(200)')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS weather_city VARCHAR(100)')
+            # ── Wetter-System ────────────────────────────────────────────
+            safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS trigger_condition VARCHAR(50)')
+            safe_alter('''CREATE TABLE IF NOT EXISTS weather_cache (
+                id SERIAL PRIMARY KEY,
+                account_id INTEGER NOT NULL UNIQUE REFERENCES account(id),
+                city_name VARCHAR(100), temperature FLOAT, weather_code INTEGER,
+                wind_speed FLOAT, description VARCHAR(200), forecast_json TEXT,
+                checked_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS weather_trigger_log (
+                id SERIAL PRIMARY KEY,
+                account_id INTEGER NOT NULL REFERENCES account(id),
+                trigger_type VARCHAR(50) NOT NULL,
+                fired_at TIMESTAMP DEFAULT NOW(),
+                post_id INTEGER REFERENCES scheduled_post(id),
+                city_name VARCHAR(100), temperature FLOAT)''')
+            safe_alter('CREATE INDEX IF NOT EXISTS ix_weather_trigger_log_acc ON weather_trigger_log(account_id, trigger_type, fired_at DESC)')
             # ── media_item: Duplikat-Hash ────────────────────────────────
             safe_alter('ALTER TABLE media_item ADD COLUMN IF NOT EXISTS image_hash VARCHAR(64)')
             safe_alter('CREATE INDEX IF NOT EXISTS ix_media_item_image_hash ON media_item(image_hash)')
@@ -503,6 +521,25 @@ def init_db():
                 safe_alter('ALTER TABLE account ADD COLUMN default_hashtags TEXT')
             if 'sports_hashtag' not in account_cols:
                 safe_alter('ALTER TABLE account ADD COLUMN sports_hashtag VARCHAR(200)')
+            if 'weather_city' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN weather_city VARCHAR(100)')
+            # content_folder: Wetter-Trigger
+            if 'trigger_condition' not in cf_cols:
+                safe_alter('ALTER TABLE content_folder ADD COLUMN trigger_condition VARCHAR(50)')
+            # weather tables (SQLite: CREATE IF NOT EXISTS)
+            safe_alter('''CREATE TABLE IF NOT EXISTS weather_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL UNIQUE REFERENCES account(id),
+                city_name VARCHAR(100), temperature FLOAT, weather_code INTEGER,
+                wind_speed FLOAT, description VARCHAR(200), forecast_json TEXT,
+                checked_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS weather_trigger_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL REFERENCES account(id),
+                trigger_type VARCHAR(50) NOT NULL,
+                fired_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                post_id INTEGER REFERENCES scheduled_post(id),
+                city_name VARCHAR(100), temperature FLOAT)''')
             # media_item: Duplikat-Hash
             mi_cols = [c['name'] for c in inspector.get_columns('media_item')]
             if 'image_hash' not in mi_cols:
@@ -1081,6 +1118,226 @@ def _send_due_telegram_posts():
             except: pass
 
 
+# ─────────────────── WETTER-SYSTEM ────────────────────────────
+
+# Trigger-Konfiguration: Cooldown-Tage + Beschreibung
+WEATHER_TRIGGERS = {
+    'weather_hot':    {'cooldown': 14, 'label': '🌡️ Hitzewelle (>33°C)'},
+    'weather_storm':  {'cooldown':  7, 'label': '🌩️ Unwetter'},
+    'weather_snow':   {'cooldown': 30, 'label': '❄️ Erster Schnee'},
+    'weather_spring': {'cooldown': 21, 'label': '🌸 Frühlings-Opening'},
+    'weather_frost':  {'cooldown': 14, 'label': '🌫️ Extremfrost (<-10°C)'},
+}
+
+# Maximale Wetter-Posts pro Woche (globale Sperre)
+WEATHER_MAX_PER_WEEK = 1
+
+
+def _get_weather_city(account):
+    """Gibt den Stadtnamen für die Wetter-API zurück."""
+    if account.weather_city:
+        return account.weather_city.strip()
+    # Fallback: erstes Wort des Account-Namens
+    name = (account.name or '').strip()
+    if name:
+        return name.split()[0]
+    return None
+
+
+def _check_all_weather():
+    """Hauptfunktion: prüft Wetter für alle aktiven Accounts — wird 4× täglich aufgerufen."""
+    import requests as _req
+
+    api_key = os.environ.get('OPENWEATHERMAP_API_KEY', '')
+    if not api_key:
+        return
+
+    with app.app_context():
+        accounts = Account.query.filter_by(status='active').all()
+        # Nur Stadt-Meme Accounts (weather_city gesetzt ODER Name enthält erkennbare Stadt)
+        for acc in accounts:
+            city = _get_weather_city(acc)
+            if not city:
+                continue
+            try:
+                _process_weather_account(acc, city, api_key)
+            except Exception as e:
+                app.logger.debug(f'[Weather] Fehler für {acc.name}: {e}')
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+
+def _process_weather_account(account, city, api_key):
+    """Wetter für einen Account holen und Trigger auslösen."""
+    import requests as _req, json as _js
+
+    now = datetime.utcnow()
+
+    # ── Cache prüfen: kein neuer Call wenn < 6h alt ──────────────
+    cache = WeatherCache.query.filter_by(account_id=account.id).first()
+    if cache and (now - cache.checked_at).total_seconds() < 6 * 3600:
+        try:
+            forecast = _js.loads(cache.forecast_json or '{}')
+        except Exception:
+            forecast = {}
+    else:
+        # ── API-Call: 5-Tage-Forecast (1 Call) ───────────────────
+        url = (f'https://api.openweathermap.org/data/2.5/forecast'
+               f'?q={city},DE&appid={api_key}&units=metric&lang=de&cnt=16')
+        try:
+            resp = _req.get(url, timeout=10)
+        except Exception as e:
+            app.logger.debug(f'[Weather] API-Timeout für {city}: {e}')
+            return
+        if resp.status_code != 200:
+            app.logger.debug(f'[Weather] API-Fehler {resp.status_code} für {city}')
+            return
+        forecast = resp.json()
+
+        if 'list' not in forecast or not forecast['list']:
+            return
+
+        cur = forecast['list'][0]
+        if not cache:
+            cache = WeatherCache(account_id=account.id)
+            db.session.add(cache)
+        cache.city_name    = city
+        cache.temperature  = cur['main']['temp']
+        cache.weather_code = cur['weather'][0]['id']
+        cache.wind_speed   = cur['wind']['speed']
+        cache.description  = cur['weather'][0]['description']
+        cache.forecast_json = _js.dumps(forecast)
+        cache.checked_at   = now
+        db.session.flush()
+
+    if 'list' not in forecast:
+        return
+
+    cur   = forecast['list'][0]
+    temp  = cur['main']['temp']
+    code  = cur['weather'][0]['id']
+    month = now.month
+
+    # ── Globale Wochenbremse: max. 1 Wetter-Post/Woche ───────────
+    week_start = now - timedelta(days=now.weekday())
+    week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    weather_this_week = WeatherTriggerLog.query.filter(
+        WeatherTriggerLog.account_id == account.id,
+        WeatherTriggerLog.fired_at   >= week_start,
+    ).count()
+    if weather_this_week >= WEATHER_MAX_PER_WEEK:
+        return  # Diese Woche wurde schon gepostet
+
+    # ── Aktive Trigger bestimmen ──────────────────────────────────
+    active = []
+    if temp >= 33:
+        active.append('weather_hot')
+    if 200 <= code <= 232:          # Gewitter
+        active.append('weather_storm')
+    if 600 <= code <= 622:          # Schnee
+        active.append('weather_snow')
+    if month in [2, 3, 4] and temp >= 18:   # Frühling
+        active.append('weather_spring')
+    if temp <= -10:                 # Extremfrost
+        active.append('weather_frost')
+
+    # Priorität: storm > snow > frost > hot > spring
+    priority_order = ['weather_storm', 'weather_snow', 'weather_frost',
+                      'weather_hot', 'weather_spring']
+    active = [t for t in priority_order if t in active]
+
+    for trigger in active:
+        fired = _maybe_fire_weather(account, trigger, temp, city)
+        if fired:
+            break  # Pro Prüfung nur 1 Trigger feuern
+
+
+def _maybe_fire_weather(account, trigger, temp, city):
+    """Prüft Cooldown, sucht Content und plant Post ein. Gibt True zurück wenn gefeuert."""
+    now          = datetime.utcnow()
+    cooldown_days = WEATHER_TRIGGERS[trigger]['cooldown']
+
+    # ── Cooldown-Prüfung ─────────────────────────────────────────
+    last = WeatherTriggerLog.query.filter_by(
+        account_id=account.id, trigger_type=trigger
+    ).order_by(WeatherTriggerLog.fired_at.desc()).first()
+
+    if last and (now - last.fired_at).days < cooldown_days:
+        return False
+
+    # ── Ordner mit diesem Trigger suchen ─────────────────────────
+    folder = ContentFolder.query.filter_by(
+        trigger_condition=trigger, account_id=account.id
+    ).first()
+    if not folder:
+        # Globaler Fallback-Ordner
+        folder = ContentFolder.query.filter_by(
+            trigger_condition=trigger, account_id=None
+        ).first()
+    if not folder:
+        return False  # Kein Ordner konfiguriert → nichts zu tun
+
+    # ── Zufälligen Content aus dem Ordner holen ──────────────────
+    item = ContentItem.query.filter(
+        ContentItem.folder_id == folder.id,
+        ContentItem.status.in_(['draft', 'ready']),
+        ContentItem.accounts.any(id=account.id)
+    ).order_by(db.func.random()).first()
+
+    if not item:
+        app.logger.info(f'[Weather] Kein Content für {trigger} / {account.name}')
+        return False
+
+    # ── Nächsten freien Slot finden (18:00 Uhr, heute oder morgen) ─
+    post_time = now.replace(hour=18, minute=0, second=0, microsecond=0)
+    if post_time <= now:
+        post_time += timedelta(days=1)
+    # Slot belegt? → +1 Tag
+    if ScheduledPost.query.filter_by(
+        account_id=account.id, scheduled_at=post_time
+    ).filter(ScheduledPost.status.in_(['pending', 'scheduled'])).first():
+        post_time += timedelta(days=1)
+
+    # ── Scheduled Post anlegen ────────────────────────────────────
+    media = item.media_items[0] if item.media_items else None
+    sp = ScheduledPost(
+        account_id      = account.id,
+        content_item_id = item.id,
+        media_item_id   = media.id if media else None,
+        caption         = item.caption or '',
+        scheduled_at    = post_time,
+        status          = 'pending',
+        post_type       = 'feed',
+    )
+    db.session.add(sp)
+    item.status = 'scheduled'
+    db.session.flush()
+
+    # ── Trigger-Log ───────────────────────────────────────────────
+    db.session.add(WeatherTriggerLog(
+        account_id   = account.id,
+        trigger_type = trigger,
+        fired_at     = now,
+        post_id      = sp.id,
+        city_name    = city,
+        temperature  = temp,
+    ))
+
+    label = WEATHER_TRIGGERS[trigger]['label']
+    app.logger.info(f'[Weather] ✓ {label} → {account.name} → Post {post_time:%d.%m %H:%M}')
+
+    # SystemAlert für Dashboard
+    db.session.add(SystemAlert(
+        account_id = account.id,
+        alert_type = 'weather_post',
+        severity   = 'info',
+        message    = f'{label} erkannt für „{account.name}" — Wetter-Post {post_time:%d.%m.%Y} eingeplant',
+    ))
+    return True
+
+
 def schedule_automations():
     """Background thread that runs automation rules and housekeeping."""
     tick = 0
@@ -1119,6 +1376,9 @@ def schedule_automations():
             # Housekeeping every 60 ticks (~1 hour)
             if tick % 60 == 0:
                 auto_archive_old_content()
+            # Wetter-Check 4× täglich (alle 360 Ticks = 6 Stunden)
+            if tick % 360 == 0:
+                threading.Thread(target=_check_all_weather, daemon=True).start()
 
         except Exception:
             pass
@@ -1494,6 +1754,9 @@ def account_new():
             canva_url=d.get('canva_url', '').strip() or None,
             layout_notes=d.get('layout_notes', '').strip() or None,
             page_persona=d.get('page_persona', '').strip() or None,
+            default_hashtags=d.get('default_hashtags', '').strip() or None,
+            sports_hashtag=d.get('sports_hashtag', '').strip() or None,
+            weather_city=d.get('weather_city', '').strip() or None,
         )
         db.session.add(acc)
         db.session.flush()
@@ -1592,6 +1855,7 @@ def account_edit(account_id):
         account.page_persona      = d.get('page_persona', '').strip() or None
         account.default_hashtags  = d.get('default_hashtags', '').strip() or None
         account.sports_hashtag    = d.get('sports_hashtag', '').strip() or None
+        account.weather_city      = d.get('weather_city', '').strip() or None
         db.session.commit()
         flash('Account aktualisiert.', 'success')
         return redirect(url_for('account_detail', account_id=account_id))
@@ -7057,39 +7321,50 @@ def kategorien():
         active_page='kategorien')
 
 
-@app.route('/debug/vorrat')
+@app.route('/api/weather/check-now', methods=['POST'])
 @login_required
-def debug_vorrat():
-    """Temporärer Debug-Endpunkt: zeigt ALLE ContentItems mit Ordner-Zuordnung."""
-    rows = db.session.execute(db.text("""
-        SELECT ci.id, ci.title, ci.status, ci.folder_id,
-               cf.name as folder_name,
-               ci.created_at
-        FROM content_item ci
-        LEFT JOIN content_folder cf ON cf.id = ci.folder_id
-        ORDER BY ci.id DESC
-        LIMIT 200
-    """)).fetchall()
-    folders = db.session.execute(db.text("""
-        SELECT cf.id, cf.name, cf.account_id, a.name as account_name,
-               COUNT(ci.id) as total,
-               SUM(CASE WHEN ci.status IN ('draft','ready','scheduled','in_progress') THEN 1 ELSE 0 END) as active
-        FROM content_folder cf
-        LEFT JOIN account a ON a.id = cf.account_id
-        LEFT JOIN content_item ci ON ci.folder_id = cf.id
-        GROUP BY cf.id, cf.name, cf.account_id, a.name
-        ORDER BY cf.id DESC
-    """)).fetchall()
-    html = '<style>body{font-family:monospace;padding:20px;background:#111;color:#eee} table{border-collapse:collapse;width:100%;margin-bottom:30px} th,td{border:1px solid #333;padding:6px 10px;text-align:left} th{background:#222} tr:hover{background:#1a1a1a}</style>'
-    html += '<h2>Ordner</h2><table><tr><th>ID</th><th>Name</th><th>Account</th><th>Total Items</th><th>Aktiv (draft/ready/scheduled)</th></tr>'
-    for r in folders:
-        html += f'<tr><td>{r.id}</td><td>{r.name}</td><td>{r.account_name or "Global"}</td><td>{r.total}</td><td style="color:{"#4ade80" if r.active>0 else "#f87171"}">{r.active}</td></tr>'
-    html += '</table>'
-    html += '<h2>Content Items (letzte 200)</h2><table><tr><th>ID</th><th>Titel</th><th>Status</th><th>Ordner-ID</th><th>Ordner-Name</th><th>Erstellt</th></tr>'
-    for r in rows:
-        html += f'<tr><td>{r.id}</td><td>{r.title or "—"}</td><td>{r.status}</td><td>{r.folder_id or "—"}</td><td>{r.folder_name or "kein Ordner"}</td><td>{r.created_at}</td></tr>'
-    html += '</table>'
-    return html
+def weather_check_now():
+    """Manueller Wetter-Check — für Tests und sofortiges Auslösen."""
+    threading.Thread(target=_check_all_weather, daemon=True).start()
+    return jsonify({'ok': True, 'message': 'Wetter-Check gestartet'})
+
+
+@app.route('/api/weather/status')
+@login_required
+def weather_status():
+    """Übersicht: letzter Check, letzte Trigger, Cooldown-Status."""
+    accounts = Account.query.filter_by(status='active').all()
+    result = []
+    now = datetime.utcnow()
+    for acc in accounts:
+        city = _get_weather_city(acc)
+        if not city:
+            continue
+        cache = WeatherCache.query.filter_by(account_id=acc.id).first()
+        triggers_info = {}
+        for tkey, tconf in WEATHER_TRIGGERS.items():
+            last = WeatherTriggerLog.query.filter_by(
+                account_id=acc.id, trigger_type=tkey
+            ).order_by(WeatherTriggerLog.fired_at.desc()).first()
+            if last:
+                days_ago  = (now - last.fired_at).days
+                remaining = max(0, tconf['cooldown'] - days_ago)
+                triggers_info[tkey] = {
+                    'last_fired': last.fired_at.strftime('%d.%m.%Y'),
+                    'cooldown_remaining': remaining,
+                    'on_cooldown': remaining > 0,
+                }
+            else:
+                triggers_info[tkey] = {'last_fired': None, 'cooldown_remaining': 0, 'on_cooldown': False}
+        result.append({
+            'account': acc.name,
+            'city': city,
+            'last_check': cache.checked_at.strftime('%d.%m.%Y %H:%M') if cache else None,
+            'temperature': cache.temperature if cache else None,
+            'description': cache.description if cache else None,
+            'triggers': triggers_info,
+        })
+    return jsonify(result)
 
 
 @app.route('/api/folders', methods=['GET'])
@@ -7129,9 +7404,10 @@ def folder_create():
             sort_order       = int(d.get('sort_order', 0) or 0),
             posts_per_week   = int(d.get('posts_per_week', 0) or 0),
             notes            = d.get('notes', '') or '',
-            valid_from       = _parse_date(d.get('valid_from')),
-            valid_until      = _parse_date(d.get('valid_until')),
-            recurring_yearly = bool(d.get('recurring_yearly', False)),
+            valid_from        = _parse_date(d.get('valid_from')),
+            valid_until       = _parse_date(d.get('valid_until')),
+            recurring_yearly  = bool(d.get('recurring_yearly', False)),
+            trigger_condition = d.get('trigger_condition') or None,
         )
         db.session.add(f)
         db.session.commit()
@@ -7159,7 +7435,8 @@ def folder_update(fid):
     if 'notes'            in d: f.notes             = d['notes']
     if 'valid_from'       in d: f.valid_from        = _pd(d['valid_from'])
     if 'valid_until'      in d: f.valid_until       = _pd(d['valid_until'])
-    if 'recurring_yearly' in d: f.recurring_yearly  = bool(d['recurring_yearly'])
+    if 'recurring_yearly'  in d: f.recurring_yearly  = bool(d['recurring_yearly'])
+    if 'trigger_condition' in d: f.trigger_condition = d['trigger_condition'] or None
     db.session.commit()
     return jsonify({'ok': True})
 

@@ -107,6 +107,15 @@
                    background:rgba(99,102,241,.12);color:#818cf8">Global</span>
       {% endif %}
 
+      {# Wetter-Trigger-Badge #}
+      {% if f.trigger_condition %}
+      {% set _wlabels = {'weather_hot':'🌡️ Hitze','weather_storm':'🌩️ Unwetter','weather_snow':'❄️ Schnee','weather_spring':'🌸 Frühling','weather_frost':'🌫️ Frost'} %}
+      <span style="font-size:10px;padding:2px 9px;border-radius:10px;
+                   background:rgba(59,130,246,.12);color:#3b82f6;font-weight:600">
+        {{ _wlabels.get(f.trigger_condition, f.trigger_condition) }}
+      </span>
+      {% endif %}
+
       {# Zeitfenster-Badge #}
       {% if f.valid_from and f.valid_until %}
         {% if f.recurring_yearly %}
@@ -180,7 +189,7 @@
 
   <!-- Aktionen -->
   <div style="display:flex;gap:6px;flex-shrink:0">
-    <button onclick="openEditModal({{ f.id }}, {{ f.name|tojson }}, {{ f.color|tojson }}, {{ f.icon|tojson }}, {{ f.account_id or 'null' }}, {{ f.posts_per_week }}, {{ (f.notes or '')|tojson }}, {{ (f.valid_from.strftime('%Y-%m-%d') if f.valid_from else '')|tojson }}, {{ (f.valid_until.strftime('%Y-%m-%d') if f.valid_until else '')|tojson }}, {{ f.recurring_yearly|tojson }})"
+    <button onclick="openEditModal({{ f.id }}, {{ f.name|tojson }}, {{ f.color|tojson }}, {{ f.icon|tojson }}, {{ f.account_id or 'null' }}, {{ f.posts_per_week }}, {{ (f.notes or '')|tojson }}, {{ (f.valid_from.strftime('%Y-%m-%d') if f.valid_from else '')|tojson }}, {{ (f.valid_until.strftime('%Y-%m-%d') if f.valid_until else '')|tojson }}, {{ f.recurring_yearly|tojson }}, {{ (f.trigger_condition or '')|tojson }})"
             class="btn btn-ghost" style="font-size:12px;padding:5px 10px" title="Bearbeiten">
       <i class="fa-solid fa-pen"></i>
     </button>
@@ -501,6 +510,27 @@
           </div>
         </div>
       </div>
+
+      <!-- ── Wetter-Trigger ─────────────────────────────────── -->
+      <div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.2);
+                  border-radius:10px;padding:14px">
+        <label style="font-size:11px;font-weight:700;color:var(--text);display:block;margin-bottom:8px">
+          <i class="fa-solid fa-cloud-bolt" style="color:#3b82f6;margin-right:5px"></i>
+          WETTER-TRIGGER (optional)
+        </label>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.5">
+          Der Ordner wird automatisch gepostet wenn diese Wetterbedingung erkannt wird.
+          Nur für Stadt-Meme Accounts. Max. 1× pro Woche.
+        </div>
+        <select id="fTrigger" class="select-field" style="width:100%">
+          <option value="">— Kein Wetter-Trigger —</option>
+          <option value="weather_hot">🌡️ Hitzewelle (&gt;33°C) — Cooldown: 14 Tage</option>
+          <option value="weather_storm">🌩️ Unwetter (Gewitter) — Cooldown: 7 Tage</option>
+          <option value="weather_snow">❄️ Erster Schnee der Saison — Cooldown: 30 Tage</option>
+          <option value="weather_spring">🌸 Frühlings-Opening (&gt;18°C, Feb–Apr) — Cooldown: 21 Tage</option>
+          <option value="weather_frost">🌫️ Extremfrost (&lt;-10°C) — Cooldown: 14 Tage</option>
+        </select>
+      </div>
     </div>
 
     <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
@@ -528,11 +558,12 @@ function openNewModal() {
   document.getElementById('fValidFrom').value  = '';
   document.getElementById('fValidUntil').value = '';
   document.getElementById('fRecurring').checked = false;
+  document.getElementById('fTrigger').value    = '';
   document.getElementById('folderModal').style.display = 'flex';
   setTimeout(() => document.getElementById('fName').focus(), 50);
 }
 
-function openEditModal(id, name, color, icon, accountId, ppw, notes, validFrom, validUntil, recurring) {
+function openEditModal(id, name, color, icon, accountId, ppw, notes, validFrom, validUntil, recurring, trigger) {
   _editFolderId = id;
   document.getElementById('modalTitle').textContent = 'ORDNER BEARBEITEN';
   document.getElementById('fName').value      = name;
@@ -544,6 +575,7 @@ function openEditModal(id, name, color, icon, accountId, ppw, notes, validFrom, 
   document.getElementById('fValidFrom').value  = validFrom || '';
   document.getElementById('fValidUntil').value = validUntil || '';
   document.getElementById('fRecurring').checked = !!recurring;
+  document.getElementById('fTrigger').value    = trigger || '';
   document.getElementById('folderModal').style.display = 'flex';
   setTimeout(() => document.getElementById('fName').focus(), 50);
 }
@@ -568,9 +600,10 @@ async function saveFolder() {
     account_id:       parseInt(document.getElementById('fAccount').value) || null,
     posts_per_week:   parseInt(document.getElementById('fPpw').value) || 0,
     notes:            document.getElementById('fNotes').value.trim(),
-    valid_from:       document.getElementById('fValidFrom').value  || null,
-    valid_until:      document.getElementById('fValidUntil').value || null,
-    recurring_yearly: document.getElementById('fRecurring').checked,
+    valid_from:        document.getElementById('fValidFrom').value  || null,
+    valid_until:       document.getElementById('fValidUntil').value || null,
+    recurring_yearly:  document.getElementById('fRecurring').checked,
+    trigger_condition: document.getElementById('fTrigger').value   || null,
   };
 
   const url    = _editFolderId ? `/api/folders/${_editFolderId}` : '/api/folders';

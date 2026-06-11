@@ -151,6 +151,9 @@ class Account(db.Model):
     default_hashtags  = db.Column(db.Text)           # z.B. "#Frankfurt #Frankfurtmemes" (leer = keine)
     sports_hashtag    = db.Column(db.String(200))    # z.B. "#EintrachtFrankfurt" (leer = kein Sporterkennnung)
 
+    # Wetter-System: Stadt für OpenWeatherMap (z.B. "Frankfurt")
+    weather_city      = db.Column(db.String(100), nullable=True)
+
     # Relationships
     scheduled_posts = db.relationship('ScheduledPost', backref='account', lazy=True, cascade='all,delete')
     analytics = db.relationship('AnalyticsSnapshot', backref='account', lazy=True, cascade='all,delete')
@@ -234,6 +237,9 @@ class ContentFolder(db.Model):
     valid_from       = db.Column(db.Date, nullable=True)   # Startdatum des aktiven Fensters
     valid_until      = db.Column(db.Date, nullable=True)   # Enddatum
     recurring_yearly = db.Column(db.Boolean, default=False) # True = jedes Jahr wiederholen (nur MM-TT zählt)
+    # Wetter-Trigger: Ordner wird automatisch gepostet wenn Wetterbedingung aktiv
+    # Werte: weather_hot | weather_storm | weather_snow | weather_spring | weather_frost | NULL
+    trigger_condition = db.Column(db.String(50), nullable=True)
     created_at     = db.Column(db.DateTime, default=datetime.utcnow)
     content_items  = db.relationship('ContentItem', backref='folder', lazy='select',
                                      foreign_keys='ContentItem.folder_id')
@@ -658,3 +664,31 @@ class InspirationPost(db.Model):
     comment_count   = db.Column(db.Integer, nullable=True)     # Kommentare zum Zeitpunkt des Downloads
     content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class WeatherCache(db.Model):
+    """Gecachte Wetterdaten pro Account — verhindert unnötige API-Calls."""
+    __tablename__ = 'weather_cache'
+    id            = db.Column(db.Integer, primary_key=True)
+    account_id    = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False, unique=True)
+    city_name     = db.Column(db.String(100))
+    temperature   = db.Column(db.Float)
+    weather_code  = db.Column(db.Integer)
+    wind_speed    = db.Column(db.Float)
+    description   = db.Column(db.String(200))
+    forecast_json = db.Column(db.Text)
+    checked_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    account       = db.relationship('Account', backref=db.backref('weather_cache', uselist=False))
+
+
+class WeatherTriggerLog(db.Model):
+    """Wann welcher Wetter-Trigger für welchen Account gefeuert hat (Cooldown-Basis)."""
+    __tablename__ = 'weather_trigger_log'
+    id            = db.Column(db.Integer, primary_key=True)
+    account_id    = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
+    trigger_type  = db.Column(db.String(50), nullable=False)
+    fired_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    post_id       = db.Column(db.Integer, db.ForeignKey('scheduled_post.id'), nullable=True)
+    city_name     = db.Column(db.String(100))
+    temperature   = db.Column(db.Float)
+    account       = db.relationship('Account', backref='weather_trigger_logs')

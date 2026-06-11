@@ -249,6 +249,18 @@
             Wird nur angehängt wenn Claude Fußball im Bild erkennt.
           </div>
         </div>
+        <div>
+          <label class="form-label">
+            Wetter-Stadt <span style="color:var(--muted);font-weight:400">— für Wetter-Trigger</span>
+          </label>
+          <input type="text" name="weather_city"
+                 value="{{ account.weather_city if account else '' }}"
+                 class="input-field"
+                 placeholder="Frankfurt">
+          <div style="font-size:10px;color:var(--muted);margin-top:4px">
+            Stadt für OpenWeatherMap — z.B. „Frankfurt", „Darmstadt", „Mainz". Leer = Wetter-Trigger deaktiviert.
+          </div>
+        </div>
       </div>
     </div>
 
