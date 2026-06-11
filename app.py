@@ -6724,7 +6724,7 @@ def kategorien():
                     ContentItem.status.in_(['draft', 'ready', 'in_progress']))\
             .count()
 
-    return render_template('cms/kategorien.html',
+    return render_template('kategorien.html',
         folders=folders, accounts=accounts,
         folder_counts=folder_counts,
         sel_account=account_id,
