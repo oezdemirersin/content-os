@@ -6560,7 +6560,6 @@ def inspiration_post_use(post_id):
             height=cl.get('height'),
             url=cl['secure_url'],
             storage_source='cloudinary',
-            account_id=account_id,
         )
     else:
         unique_name = f"{uuid.uuid4().hex}.jpg"
@@ -6575,7 +6574,6 @@ def inspiration_post_use(post_id):
             file_size=len(img_bytes),
             url=f'/media/file/{unique_name}',
             storage_source='local',
-            account_id=account_id,
         )
     db.session.add(media)
     db.session.flush()
