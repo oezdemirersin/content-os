@@ -1,0 +1,661 @@
+{% extends "base.html" %}
+{% block title %}Vorrat-Ordner — Content OS{% endblock %}
+{% block page_title %}VORRAT-ORDNER{% endblock %}
+
+{% block content %}
+<div style="max-width:900px">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+    <div>
+      <div style="font-size:13px;color:var(--muted);margin-top:2px">
+        Ordne deinen Vorrat in Kategorien — stelle ein, wie viele Posts pro Woche aus jedem Ordner eingeplant werden sollen.
+      </div>
+    </div>
+    <button onclick="openNewModal()" class="btn btn-primary">
+      <i class="fa-solid fa-plus"></i> Neuer Ordner
+    </button>
+  </div>
+
+  <!-- Gesamt-Übersicht -->
+  {% set total_posts = folder_counts.values() | sum %}
+  {% if folders %}
+  <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
+                padding:12px 20px;display:flex;align-items:center;gap:10px">
+      <i class="fa-solid fa-box" style="color:var(--accent);font-size:16px"></i>
+      <div>
+        <div style="font-size:20px;font-weight:800;color:var(--accent)">{{ total_posts }}</div>
+        <div style="font-size:10px;color:var(--muted)">Beiträge gesamt im Vorrat</div>
+      </div>
+    </div>
+    {% set total_ppw = folders | sum(attribute='posts_per_week') %}
+    {% if total_ppw > 0 %}
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
+                padding:12px 20px;display:flex;align-items:center;gap:10px">
+      <i class="fa-solid fa-clock" style="color:#22c55e;font-size:16px"></i>
+      <div>
+        <div style="font-size:20px;font-weight:800;color:#22c55e">
+          {{ (total_posts / total_ppw) | round(1) }}
+        </div>
+        <div style="font-size:10px;color:var(--muted)">Wochen Reichweite gesamt</div>
+      </div>
+    </div>
+    {% endif %}
+    {% set empty_folders = folders | selectattr('id') | list | selectattr('id') | list %}
+    {% set low_folders = [] %}
+    {% for f in folders %}
+      {% if f.posts_per_week > 0 and folder_counts.get(f.id, 0) < f.posts_per_week %}
+        {% set _ = low_folders.append(f) %}
+      {% endif %}
+    {% endfor %}
+    {% if low_folders %}
+    <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;
+                padding:12px 20px;display:flex;align-items:center;gap:10px">
+      <i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;font-size:16px"></i>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#ef4444">Vorrat fast leer</div>
+        <div style="font-size:10px;color:var(--muted)">
+          {{ low_folders | map(attribute='name') | join(', ') }}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Account-Filter -->
+  <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+    <a href="{{ url_for('kategorien') }}"
+       style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;text-decoration:none;
+              {% if not sel_account %}background:var(--accent);color:white;{% else %}background:var(--surface);border:1px solid var(--border);color:var(--muted);{% endif %}">
+      Alle
+    </a>
+    {% for acc in accounts %}
+    <a href="{{ url_for('kategorien', account=acc.id) }}"
+       style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;text-decoration:none;
+              {% if sel_account == acc.id %}background:var(--accent);color:white;{% else %}background:var(--surface);border:1px solid var(--border);color:var(--muted);{% endif %}">
+      {{ acc.name }}
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- Ordner-Liste -->
+  {% if not folders %}
+  <div style="text-align:center;padding:60px 20px;color:var(--muted)">
+    <i class="fa-solid fa-folder-open" style="font-size:48px;opacity:.2;display:block;margin-bottom:16px"></i>
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">Noch keine Ordner</div>
+    <div style="font-size:13px">Klicke auf „Neuer Ordner" um loszulegen.</div>
+  </div>
+  {% else %}
+
+  <!-- Globale Ordner -->
+  {% set global_folders = folders | selectattr('account_id', 'none') | list %}
+  {% set account_folders = folders | rejectattr('account_id', 'none') | list %}
+
+  {% if global_folders %}
+  <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:8px;margin-top:4px">
+    GLOBALE ORDNER (alle Accounts)
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
+    {% for f in global_folders %}
+    {{ folder_card(f) }}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if account_folders %}
+  <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:8px">
+    ACCOUNT-SPEZIFISCHE ORDNER
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    {% for f in account_folders %}
+    {{ folder_card(f) }}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% endif %}
+
+</div>
+
+{# ── Makro: eine Ordner-Karte ── #}
+{% macro folder_card(f) %}
+<div id="fcard-{{ f.id }}"
+     style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
+            padding:14px 18px;display:flex;align-items:center;gap:14px;transition:opacity .3s">
+
+  <!-- Farb-Icon -->
+  <div style="width:42px;height:42px;border-radius:10px;background:{{ f.color }}22;
+              display:flex;align-items:center;justify-content:center;flex-shrink:0">
+    <i class="fa-solid {{ f.icon }}" style="color:{{ f.color }};font-size:18px"></i>
+  </div>
+
+  <!-- Info -->
+  <div style="flex:1;min-width:0">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-weight:700;font-size:14px">{{ f.name }}</span>
+      {% if f.account_id %}
+      {% set acc = accounts | selectattr('id', 'equalto', f.account_id) | first %}
+      {% if acc %}
+      <span style="font-size:10px;padding:2px 8px;border-radius:10px;
+                   background:var(--surface2);color:var(--muted)">{{ acc.name }}</span>
+      {% endif %}
+      {% else %}
+      <span style="font-size:10px;padding:2px 8px;border-radius:10px;
+                   background:rgba(99,102,241,.12);color:#818cf8">Global</span>
+      {% endif %}
+    </div>
+    {% if f.notes %}
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">{{ f.notes }}</div>
+    {% endif %}
+  </div>
+
+  <!-- Stats -->
+  {% set count = folder_counts.get(f.id, 0) %}
+  {% if f.posts_per_week > 0 %}
+    {% set weeks = (count / f.posts_per_week) | round(1) %}
+  {% else %}
+    {% set weeks = none %}
+  {% endif %}
+  <div style="display:flex;align-items:center;gap:16px;flex-shrink:0">
+    <!-- Vorrat-Zahl -->
+    <div style="text-align:center;min-width:54px">
+      <div style="font-size:22px;font-weight:800;
+                  color:{% if count == 0 %}#ef4444{% elif count < 5 %}#f59e0b{% else %}var(--accent){% endif %}">
+        {{ count }}
+      </div>
+      <div style="font-size:10px;color:var(--muted)">Beiträge</div>
+    </div>
+    <!-- Reichweite -->
+    <div style="text-align:center;min-width:54px">
+      {% if weeks is not none %}
+      <div style="font-size:22px;font-weight:800;
+                  color:{% if weeks < 1 %}#ef4444{% elif weeks < 2 %}#f59e0b{% else %}#22c55e{% endif %}">
+        {{ weeks }}
+      </div>
+      <div style="font-size:10px;color:var(--muted)">Wochen</div>
+      {% else %}
+      <div style="font-size:22px;font-weight:800;color:var(--muted)">—</div>
+      <div style="font-size:10px;color:var(--muted)">Wochen</div>
+      {% endif %}
+    </div>
+    <!-- Posts/Woche -->
+    <div style="text-align:center;min-width:40px">
+      <div style="font-size:14px;font-weight:700;color:var(--muted)">
+        {{ f.posts_per_week if f.posts_per_week > 0 else '—' }}
+      </div>
+      <div style="font-size:10px;color:var(--muted)">/Woche</div>
+    </div>
+  </div>
+
+  <!-- Aktionen -->
+  <div style="display:flex;gap:6px;flex-shrink:0">
+    <button onclick="openEditModal({{ f.id }}, {{ f.name|tojson }}, {{ f.color|tojson }}, {{ f.icon|tojson }}, {{ f.account_id or 'null' }}, {{ f.posts_per_week }}, {{ (f.notes or '')|tojson }})"
+            class="btn btn-ghost" style="font-size:12px;padding:5px 10px" title="Bearbeiten">
+      <i class="fa-solid fa-pen"></i>
+    </button>
+    <button onclick="deleteFolder({{ f.id }}, {{ f.name|tojson }})"
+            class="btn btn-ghost" style="font-size:12px;padding:5px 10px;color:#ef4444" title="Löschen">
+      <i class="fa-solid fa-trash"></i>
+    </button>
+  </div>
+
+</div>
+{% endmacro %}
+
+
+<!-- ── Auto-Planer ─────────────────────────────────────────── -->
+<div style="margin-top:32px;background:var(--surface);border:1px solid var(--border);
+            border-radius:14px;padding:22px 24px">
+  <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.5px;margin-bottom:16px">
+    <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent)"></i>
+    AUTO-PLANER — Vorrat automatisch verteilen
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div>
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Account</label>
+      <select id="ap_account" class="select-field" style="width:100%">
+        <option value="">— Account wählen —</option>
+        {% for acc in accounts %}
+        <option value="{{ acc.id }}">{{ acc.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Posts pro Woche</label>
+      <input type="number" id="ap_ppw" value="7" min="1" max="21" class="input-field" style="width:100%">
+    </div>
+    <div>
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">
+        Mindestabstand zwischen Posts
+      </label>
+      <select id="ap_min_gap" class="select-field" style="width:100%">
+        <option value="0">Kein Mindestabstand</option>
+        <option value="1" selected>Mindestens 1 Tag Pause</option>
+        <option value="2">Mindestens 2 Tage Pause</option>
+        <option value="3">Mindestens 3 Tage Pause</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Von</label>
+      <input type="date" id="ap_from" class="input-field" style="width:100%">
+    </div>
+    <div>
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Bis</label>
+      <input type="date" id="ap_to" class="input-field" style="width:100%">
+    </div>
+    <div style="grid-column:1/-1">
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:8px">Uhrzeit-Modus</label>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;
+                      padding:8px 14px;border-radius:8px;border:1px solid var(--border);flex:1;
+                      background:var(--surface2)" id="modeFixedCard" onclick="setTimeMode('fixed')">
+          <input type="radio" name="timeMode" value="fixed" checked style="accent-color:var(--accent)">
+          <div>
+            <div style="font-weight:600">Feste Uhrzeiten</div>
+            <div style="font-size:10px;color:var(--muted)">z.B. immer 18:00 Uhr</div>
+          </div>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;
+                      padding:8px 14px;border-radius:8px;border:1px solid var(--border);flex:1;
+                      background:var(--surface2)" id="modeRandomCard" onclick="setTimeMode('random')">
+          <input type="radio" name="timeMode" value="random" style="accent-color:var(--accent)">
+          <div>
+            <div style="font-weight:600">Zufällige Uhrzeit</div>
+            <div style="font-size:10px;color:var(--muted)">random zwischen zwei Zeiten</div>
+          </div>
+        </label>
+      </div>
+      <!-- Feste Zeiten -->
+      <div id="fixedTimesBlock">
+        <input type="text" id="ap_times" value="18:00" placeholder="18:00, 12:00"
+               class="input-field" style="width:100%">
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">Mehrere Zeiten kommagetrennt → mehrere Posts pro Tag</div>
+      </div>
+      <!-- Random-Zeitraum -->
+      <div id="randomTimesBlock" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="flex:1">
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Frühestens</label>
+            <input type="time" id="ap_time_from" value="11:00" class="input-field" style="width:100%">
+          </div>
+          <div style="color:var(--muted);padding-top:14px">—</div>
+          <div style="flex:1">
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Spätestens</label>
+            <input type="time" id="ap_time_to" value="18:00" class="input-field" style="width:100%">
+          </div>
+          <div style="flex:1">
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Posts pro Tag</label>
+            <input type="number" id="ap_posts_per_day" value="1" min="1" max="5" class="input-field" style="width:100%">
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">
+          Für jeden Posting-Tag wird eine zufällige Uhrzeit im Fenster gewählt (mind. 90 Min. Abstand bei mehreren Posts).
+        </div>
+      </div>
+    </div>
+    <div style="grid-column:1/-1">
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:8px">Tage-Modus</label>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;
+                      padding:8px 14px;border-radius:8px;border:1px solid var(--accent);flex:1;
+                      background:var(--surface2)" id="modeDaysFixedCard" onclick="setDayMode('fixed')">
+          <input type="radio" name="dayMode" value="fixed" checked style="accent-color:var(--accent)">
+          <div>
+            <div style="font-weight:600">Feste Wochentage</div>
+            <div style="font-size:10px;color:var(--muted)">z.B. immer Mo, Mi, Fr</div>
+          </div>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;
+                      padding:8px 14px;border-radius:8px;border:1px solid var(--border);flex:1;
+                      background:var(--surface2)" id="modeDaysRandomCard" onclick="setDayMode('random')">
+          <input type="radio" name="dayMode" value="random" style="accent-color:var(--accent)">
+          <div>
+            <div style="font-weight:600">Zufällige Tage</div>
+            <div style="font-size:10px;color:var(--muted)">X beliebige Tage pro Woche</div>
+          </div>
+        </label>
+      </div>
+      <!-- Feste Tage -->
+      <div id="fixedDaysBlock">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          {% for i, tag in [(0,'Mo'),(1,'Di'),(2,'Mi'),(3,'Do'),(4,'Fr'),(5,'Sa'),(6,'So')] %}
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;
+                        padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2)">
+            <input type="checkbox" class="ap-day" value="{{ i }}" {% if i < 5 %}checked{% endif %}
+                   style="accent-color:var(--accent)"> {{ tag }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      <!-- Random Tage -->
+      <div id="randomDaysBlock" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="flex:1">
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Tage pro Woche</label>
+            <input type="number" id="ap_days_per_week" value="5" min="1" max="7"
+                   class="input-field" style="width:100%">
+          </div>
+          <div style="flex:2;font-size:11px;color:var(--muted);padding-top:12px">
+            Das System wählt für jede Woche zufällig die angegebene Anzahl Tage (Mo–So).
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ordner-Regeln -->
+  <div style="margin-top:16px">
+    <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px">
+      ORDNER-REGELN (optional — wie viele pro Woche aus welchem Ordner)
+    </div>
+    <div id="ap_folder_rules" style="display:flex;flex-direction:column;gap:6px">
+      <!-- Ohne Ordner: alle Posts -->
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;
+                  background:var(--surface2);border-radius:8px">
+        <div style="width:10px;height:10px;border-radius:50%;background:var(--muted);flex-shrink:0"></div>
+        <span style="flex:1;font-size:12px;color:var(--muted)">Alle Posts (kein Ordner)</span>
+        <input type="number" min="0" max="21" value="0"
+               data-folder-id=""
+               class="input-field ap-folder-input" style="width:70px;text-align:center"
+               placeholder="0">
+        <span style="font-size:11px;color:var(--muted)">/ Woche</span>
+      </div>
+      {% for f in folders %}
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:10px;height:10px;border-radius:50%;background:{{ f.color }};flex-shrink:0"></div>
+        <span style="flex:1;font-size:12px">{{ f.name }}</span>
+        <input type="number" min="0" max="21" value="{{ f.posts_per_week }}"
+               data-folder-id="{{ f.id }}"
+               class="input-field ap-folder-input" style="width:70px;text-align:center"
+               placeholder="0">
+        <span style="font-size:11px;color:var(--muted)">/ Woche</span>
+      </div>
+      {% endfor %}
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">
+        Alle auf 0 lassen → System nimmt aus dem gesamten Vorrat (alle Ordner gemischt).
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:16px;display:flex;align-items:center;gap:12px">
+    <button onclick="runAutoplan()" class="btn btn-primary">
+      <i class="fa-solid fa-wand-magic-sparkles"></i> Jetzt automatisch einplanen
+    </button>
+    <span id="ap_result" style="font-size:12px;color:var(--muted)"></span>
+  </div>
+</div>
+
+
+<!-- ── Modal: Neuer / Bearbeiten Ordner ── -->
+<div id="folderModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);
+     z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:440px;max-width:95vw">
+    <div style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px;margin-bottom:20px"
+         id="modalTitle">NEUER ORDNER</div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Name *</label>
+        <input type="text" id="fName" class="input-field" style="width:100%" placeholder="z.B. Ort Memes">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Farbe</label>
+          <input type="color" id="fColor" value="#6366f1"
+                 style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);cursor:pointer;padding:2px">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Icon (Font Awesome)</label>
+          <select id="fIcon" class="select-field" style="width:100%">
+            <option value="fa-folder">📁 Ordner</option>
+            <option value="fa-images">🖼 Bilder</option>
+            <option value="fa-face-laugh">😂 Memes</option>
+            <option value="fa-location-dot">📍 Ort</option>
+            <option value="fa-star">⭐ Highlights</option>
+            <option value="fa-fire">🔥 Trending</option>
+            <option value="fa-heart">❤️ Lifestyle</option>
+            <option value="fa-briefcase">💼 Business</option>
+            <option value="fa-users">👥 Community</option>
+            <option value="fa-calendar">📅 Events</option>
+            <option value="fa-lightbulb">💡 Tipps</option>
+            <option value="fa-quote-left">💬 Zitate</option>
+            <option value="fa-chart-line">📈 Stats</option>
+            <option value="fa-shuffle">🔀 Random</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Account (leer = global)</label>
+        <select id="fAccount" class="select-field" style="width:100%">
+          <option value="">— Alle Accounts (global) —</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">
+          Posts pro Woche <span style="color:var(--muted);font-weight:400">(0 = kein Limit)</span>
+        </label>
+        <input type="number" id="fPpw" value="0" min="0" max="21" class="input-field" style="width:100%">
+      </div>
+
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Notiz</label>
+        <textarea id="fNotes" class="input-field" rows="2" style="width:100%;resize:none"
+                  placeholder="z.B. Immer mit Stadtname im Caption"></textarea>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+      <button onclick="closeFolderModal()" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="saveFolder()" id="saveFolderBtn" class="btn btn-primary">
+        <i class="fa-solid fa-check"></i> Speichern
+      </button>
+    </div>
+  </div>
+</div>
+
+{% block scripts %}
+<script>
+let _editFolderId = null;
+
+function openNewModal() {
+  _editFolderId = null;
+  document.getElementById('modalTitle').textContent = 'NEUER ORDNER';
+  document.getElementById('fName').value    = '';
+  document.getElementById('fColor').value  = '#6366f1';
+  document.getElementById('fIcon').value   = 'fa-folder';
+  document.getElementById('fAccount').value = '';
+  document.getElementById('fPpw').value    = '0';
+  document.getElementById('fNotes').value  = '';
+  document.getElementById('folderModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('fName').focus(), 50);
+}
+
+function openEditModal(id, name, color, icon, accountId, ppw, notes) {
+  _editFolderId = id;
+  document.getElementById('modalTitle').textContent = 'ORDNER BEARBEITEN';
+  document.getElementById('fName').value    = name;
+  document.getElementById('fColor').value  = color;
+  document.getElementById('fIcon').value   = icon;
+  document.getElementById('fAccount').value = accountId || '';
+  document.getElementById('fPpw').value    = ppw;
+  document.getElementById('fNotes').value  = notes || '';
+  document.getElementById('folderModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('fName').focus(), 50);
+}
+
+function closeFolderModal() {
+  document.getElementById('folderModal').style.display = 'none';
+  _editFolderId = null;
+}
+
+async function saveFolder() {
+  const btn  = document.getElementById('saveFolderBtn');
+  const name = document.getElementById('fName').value.trim();
+  if (!name) { showToast('Name eingeben.', 'warning'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+  const payload = {
+    name:           name,
+    color:          document.getElementById('fColor').value,
+    icon:           document.getElementById('fIcon').value,
+    account_id:     parseInt(document.getElementById('fAccount').value) || null,
+    posts_per_week: parseInt(document.getElementById('fPpw').value) || 0,
+    notes:          document.getElementById('fNotes').value.trim(),
+  };
+
+  const url    = _editFolderId ? `/api/folders/${_editFolderId}` : '/api/folders';
+  const method = _editFolderId ? 'PUT' : 'POST';
+
+  try {
+    const r = await fetch(url, {
+      method, headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+    if (r.ok) {
+      showToast(_editFolderId ? 'Ordner aktualisiert ✓' : 'Ordner angelegt ✓', 'success');
+      closeFolderModal();
+      setTimeout(() => location.reload(), 600);
+    } else {
+      showToast(r.error || 'Fehler', 'error');
+    }
+  } catch (e) {
+    showToast('Fehler: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Speichern';
+  }
+}
+
+async function deleteFolder(id, name) {
+  if (!confirm(`Ordner „${name}" löschen?\nDie enthaltenen Posts werden nicht gelöscht, nur aus dem Ordner herausgelöst.`)) return;
+  const r = await fetch(`/api/folders/${id}`, {method:'DELETE'}).then(r => r.json());
+  if (r.ok) {
+    showToast(`„${name}" gelöscht.`, 'success');
+    const card = document.getElementById(`fcard-${id}`);
+    if (card) { card.style.opacity = '0'; setTimeout(() => card.remove(), 300); }
+  } else {
+    showToast(r.error || 'Fehler', 'error');
+  }
+}
+
+// ── Auto-Planer ───────────────────────────────────────────────
+(function() {
+  const today = new Date();
+  const plus30 = new Date(); plus30.setDate(plus30.getDate() + 30);
+  const fmt = d => d.toISOString().slice(0,10);
+  document.getElementById('ap_from').value = fmt(today);
+  document.getElementById('ap_to').value   = fmt(plus30);
+})();
+
+function setTimeMode(mode) {
+  document.getElementById('fixedTimesBlock').style.display  = mode === 'fixed'  ? 'block' : 'none';
+  document.getElementById('randomTimesBlock').style.display = mode === 'random' ? 'block' : 'none';
+  document.getElementById('modeFixedCard').style.borderColor  = mode === 'fixed'  ? 'var(--accent)' : 'var(--border)';
+  document.getElementById('modeRandomCard').style.borderColor = mode === 'random' ? 'var(--accent)' : 'var(--border)';
+}
+
+function setDayMode(mode) {
+  document.getElementById('fixedDaysBlock').style.display      = mode === 'fixed'  ? 'block' : 'none';
+  document.getElementById('randomDaysBlock').style.display     = mode === 'random' ? 'block' : 'none';
+  document.getElementById('modeDaysFixedCard').style.borderColor  = mode === 'fixed'  ? 'var(--accent)' : 'var(--border)';
+  document.getElementById('modeDaysRandomCard').style.borderColor = mode === 'random' ? 'var(--accent)' : 'var(--border)';
+}
+
+async function runAutoplan() {
+  const accountId = parseInt(document.getElementById('ap_account').value);
+  if (!accountId) { showToast('Bitte einen Account auswählen.', 'warning'); return; }
+
+  const dateFrom = document.getElementById('ap_from').value;
+  const dateTo   = document.getElementById('ap_to').value;
+  if (!dateFrom || !dateTo) { showToast('Bitte Zeitraum wählen.', 'warning'); return; }
+
+  const ppw     = parseInt(document.getElementById('ap_ppw').value) || 7;
+  const dayMode = document.querySelector('[name="dayMode"]:checked').value;
+  const days    = dayMode === 'random'
+    ? []
+    : [...document.querySelectorAll('.ap-day:checked')].map(cb => parseInt(cb.value));
+  const daysPerWeek = dayMode === 'random'
+    ? (parseInt(document.getElementById('ap_days_per_week').value) || 5)
+    : null;
+
+  const isRandom = document.querySelector('[name="timeMode"]:checked').value === 'random';
+  let timePayload = {};
+  if (isRandom) {
+    timePayload = {
+      time_mode:      'random',
+      time_from:      document.getElementById('ap_time_from').value,
+      time_to:        document.getElementById('ap_time_to').value,
+      posts_per_day:  parseInt(document.getElementById('ap_posts_per_day').value) || 1,
+    };
+  } else {
+    timePayload = {
+      time_mode:  'fixed',
+      post_times: document.getElementById('ap_times').value
+                    .split(',').map(t => t.trim()).filter(Boolean),
+    };
+  }
+
+  const folderRules = {};
+  document.querySelectorAll('.ap-folder-input').forEach(inp => {
+    const v = parseInt(inp.value) || 0;
+    if (v > 0) folderRules[inp.dataset.folderId] = v;
+  });
+
+  const btn = document.querySelector('[onclick="runAutoplan()"]');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Plane ein…';
+  document.getElementById('ap_result').textContent = '';
+
+  try {
+    const r = await fetch('/api/autoplan', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        account_id:     accountId,
+        date_from:      dateFrom + 'T00:00:00',
+        date_to:        dateTo   + 'T23:59:59',
+        posts_per_week: ppw,
+        day_mode:       dayMode,
+        post_days:      days,
+        days_per_week:  daysPerWeek,
+        min_gap_days:   parseInt(document.getElementById('ap_min_gap').value) || 0,
+        folder_rules:   folderRules,
+        ...timePayload,
+      })
+    }).then(r => r.json());
+
+    if (r.ok) {
+      showToast(r.message, 'success');
+      document.getElementById('ap_result').textContent = r.message;
+      document.getElementById('ap_result').style.color = 'var(--success)';
+    } else {
+      showToast(r.error || 'Fehler', 'error');
+      document.getElementById('ap_result').textContent = r.error || 'Fehler';
+      document.getElementById('ap_result').style.color = '#ef4444';
+    }
+  } catch (e) {
+    showToast('Fehler: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Jetzt automatisch einplanen';
+  }
+}
+
+// Enter im Modal → Speichern
+document.getElementById('fName').addEventListener('keydown', e => {
+  if (e.key === 'Enter') saveFolder();
+});
+</script>
+{% endblock %}
+{% endblock %}
