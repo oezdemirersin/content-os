@@ -581,6 +581,32 @@ def init_db():
 
         seed_data()
 
+        # ── Auto-Wetter-Stadt aus Account-Namen befüllen ─────────────
+        # Alle deutschen Städte die im CityBot-Netzwerk vorkommen
+        _KNOWN_CITIES = [
+            'Frankfurt', 'Darmstadt', 'Mainz', 'Wiesbaden', 'Mannheim',
+            'Heidelberg', 'Offenbach', 'Hanau', 'Braunschweig', 'Kaiserslautern',
+            'Halle', 'Leipzig', 'Berlin', 'Hamburg', 'München', 'Köln',
+            'Düsseldorf', 'Stuttgart', 'Nürnberg', 'Bremen', 'Hannover',
+            'Freiburg', 'Augsburg', 'Karlsruhe', 'Bonn', 'Münster',
+            'Wuppertal', 'Bielefeld', 'Bochum', 'Dortmund', 'Essen',
+            'Duisburg', 'Aachen', 'Kiel', 'Lübeck', 'Erfurt', 'Rostock',
+            'Kassel', 'Magdeburg', 'Saarbrücken', 'Würzburg', 'Ulm',
+        ]
+        try:
+            _accounts_no_city = Account.query.filter(
+                Account.weather_city.is_(None)
+            ).all()
+            for _acc in _accounts_no_city:
+                _name = (_acc.name or '').lower()
+                for _city in _KNOWN_CITIES:
+                    if _city.lower() in _name:
+                        _acc.weather_city = _city
+                        break
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
         # Memes-Kategorie anlegen falls nicht vorhanden
         if not Category.query.filter_by(name='Memes').first():
             db.session.add(Category(name='Memes', color='#f59e0b', icon='face-laugh'))
@@ -1133,15 +1159,31 @@ WEATHER_TRIGGERS = {
 WEATHER_MAX_PER_WEEK = 1
 
 
+_KNOWN_CITIES_WEATHER = [
+    'Frankfurt', 'Darmstadt', 'Mainz', 'Wiesbaden', 'Mannheim',
+    'Heidelberg', 'Offenbach', 'Hanau', 'Braunschweig', 'Kaiserslautern',
+    'Halle', 'Leipzig', 'Berlin', 'Hamburg', 'München', 'Köln',
+    'Düsseldorf', 'Stuttgart', 'Nürnberg', 'Bremen', 'Hannover',
+    'Freiburg', 'Augsburg', 'Karlsruhe', 'Bonn', 'Münster',
+    'Wuppertal', 'Bielefeld', 'Bochum', 'Dortmund', 'Essen',
+    'Duisburg', 'Aachen', 'Kiel', 'Lübeck', 'Erfurt', 'Rostock',
+    'Kassel', 'Magdeburg', 'Saarbrücken', 'Würzburg', 'Ulm',
+]
+
+
 def _get_weather_city(account):
-    """Gibt den Stadtnamen für die Wetter-API zurück."""
+    """Gibt den Stadtnamen für die Wetter-API zurück.
+    Reihenfolge: gesetztes Feld → Stadtname im Account-Namen → erstes Wort."""
     if account.weather_city:
         return account.weather_city.strip()
-    # Fallback: erstes Wort des Account-Namens
-    name = (account.name or '').strip()
-    if name:
-        return name.split()[0]
-    return None
+    name = (account.name or '').lower()
+    # Bekannte Stadt im Namen suchen
+    for city in _KNOWN_CITIES_WEATHER:
+        if city.lower() in name:
+            return city
+    # Letzter Fallback: erstes Wort
+    parts = (account.name or '').strip().split()
+    return parts[0] if parts else None
 
 
 def _check_all_weather():
