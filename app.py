@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 from functools import wraps
 from flask import session
 from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig,
-                    ContentItem, MediaItem, ScheduledPost, AnalyticsSnapshot,
+                    ContentItem, ContentFolder, MediaItem, ScheduledPost, AnalyticsSnapshot,
                     AutomationRule, AutomationRunLog, SystemAlert, User, ActivityLog,
                     AccountGroup, ContentTemplate, ContentComment,
                     HashtagSet, NotificationSettings, AppNotification, RecurringPost,
@@ -393,6 +393,19 @@ def init_db():
             # ── meme_template ────────────────────────────────────────────
             safe_alter('ALTER TABLE meme_template ADD COLUMN IF NOT EXISTS meme_context TEXT')
             safe_alter('ALTER TABLE inspiration_source ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES account(id)')
+            # ── content_folder ────────────────────────────────────────────
+            safe_alter('''CREATE TABLE IF NOT EXISTS content_folder (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                color VARCHAR(20) DEFAULT \'#6366f1\',
+                icon VARCHAR(50) DEFAULT \'fa-folder\',
+                account_id INTEGER REFERENCES account(id),
+                sort_order INTEGER DEFAULT 0,
+                posts_per_week INTEGER DEFAULT 0,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )''')
+            safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS folder_id INTEGER REFERENCES content_folder(id)')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -410,6 +423,24 @@ def init_db():
             sp_cols = [c['name'] for c in inspector.get_columns('scheduled_post')]
             if 'slot_type' not in sp_cols: safe_alter("ALTER TABLE scheduled_post ADD COLUMN slot_type VARCHAR(20) DEFAULT 'fixed'")
             if 'media_ids' not in sp_cols: safe_alter("ALTER TABLE scheduled_post ADD COLUMN media_ids TEXT DEFAULT '[]'")
+
+            # ── content_folder (SQLite) ───────────────────────────────
+            existing_tables = inspector.get_table_names()
+            if 'content_folder' not in existing_tables:
+                safe_alter('''CREATE TABLE content_folder (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name VARCHAR(100) NOT NULL,
+                    color VARCHAR(20) DEFAULT \'#6366f1\',
+                    icon VARCHAR(50) DEFAULT \'fa-folder\',
+                    account_id INTEGER REFERENCES account(id),
+                    sort_order INTEGER DEFAULT 0,
+                    posts_per_week INTEGER DEFAULT 0,
+                    notes TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )''')
+            ci_cols2 = [c['name'] for c in inspector.get_columns('content_item')]
+            if 'folder_id' not in ci_cols2:
+                safe_alter('ALTER TABLE content_item ADD COLUMN folder_id INTEGER REFERENCES content_folder(id)')
 
             try:
                 ct_cols = [c['name'] for c in inspector.get_columns('content_template')]
@@ -6218,13 +6249,14 @@ def inspirationen():
     }
 
     has_rapidapi_key = bool(get_setting('rapidapi_key'))
-    # Alle Accounts (auch inaktive) für die Zuweisung
     all_accounts = Account.query.order_by(Account.name).all()
+    all_folders  = ContentFolder.query.order_by(ContentFolder.sort_order, ContentFolder.name).all()
     return render_template('inspirationen.html',
         sources=sources, posts=posts, counts=counts,
         status_filter=status_filter, source_filter=source_filter,
         has_rapidapi_key=has_rapidapi_key,
         all_accounts=all_accounts,
+        all_folders=all_folders,
         now=datetime.utcnow(),
         active_page='inspirationen')
 
@@ -6510,6 +6542,7 @@ def inspiration_post_use(post_id):
     post = InspirationPost.query.get_or_404(post_id)
     data = request.get_json() or {}
     account_id   = data.get('account_id') or None
+    folder_id    = data.get('folder_id') or None
     mode         = data.get('mode', 'reserve')   # 'reserve' | 'ready' | 'schedule'
     caption      = data.get('caption') or post.caption or ''
     scheduled_at_raw = data.get('scheduled_at')  # ISO datetime string oder None
@@ -6584,12 +6617,13 @@ def inspiration_post_use(post_id):
         caption      = caption,
         status       = content_status,
         content_type = 'feed',
+        folder_id    = int(folder_id) if folder_id else None,
     )
     db.session.add(ci)
     db.session.flush()
     # Account via Many-to-Many verknüpfen
     if account_id:
-        acc = Account.query.get(account_id)
+        acc = db.session.get(Account, account_id)
         if acc:
             ci.accounts.append(acc)
     media.content_item_id = ci.id
@@ -6662,6 +6696,224 @@ def inspiration_rewrite(post_id):
         return jsonify({'ok': True, 'rewritten': rewritten})
     except Exception as e:
         return jsonify({'ok': False, 'error': f'Claude-Fehler: {str(e)}'})
+
+
+# ─────────────────────── CONTENT-ORDNER (Kategorien) ───────────────────────
+
+@app.route('/kategorien')
+@login_required
+def kategorien():
+    """Verwaltung der Vorrat-Ordner (Kategorien) pro Account."""
+    account_id = request.args.get('account', type=int)
+    accounts   = Account.query.order_by(Account.name).all()
+
+    q = ContentFolder.query
+    if account_id:
+        q = q.filter(
+            db.or_(ContentFolder.account_id == account_id,
+                   ContentFolder.account_id.is_(None))
+        )
+    folders = q.order_by(ContentFolder.account_id.nullslast(),
+                         ContentFolder.sort_order, ContentFolder.name).all()
+
+    # Anzahl Posts pro Ordner im Vorrat (draft/ready)
+    folder_counts = {}
+    for f in folders:
+        folder_counts[f.id] = ContentItem.query\
+            .filter(ContentItem.folder_id == f.id,
+                    ContentItem.status.in_(['draft', 'ready', 'in_progress']))\
+            .count()
+
+    return render_template('cms/kategorien.html',
+        folders=folders, accounts=accounts,
+        folder_counts=folder_counts,
+        sel_account=account_id,
+        active_page='kategorien')
+
+
+@app.route('/api/folders', methods=['GET'])
+@login_required
+def folders_list():
+    account_id = request.args.get('account', type=int)
+    q = ContentFolder.query
+    if account_id:
+        q = q.filter(db.or_(ContentFolder.account_id == account_id,
+                             ContentFolder.account_id.is_(None)))
+    folders = q.order_by(ContentFolder.sort_order, ContentFolder.name).all()
+    return jsonify([{
+        'id': f.id, 'name': f.name, 'color': f.color, 'icon': f.icon,
+        'account_id': f.account_id, 'posts_per_week': f.posts_per_week,
+        'sort_order': f.sort_order, 'notes': f.notes or ''
+    } for f in folders])
+
+
+@app.route('/api/folders', methods=['POST'])
+@login_required
+def folder_create():
+    d          = request.get_json() or {}
+    name       = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'ok': False, 'error': 'Name darf nicht leer sein.'})
+    account_id = d.get('account_id') or None
+    f = ContentFolder(
+        name           = name,
+        color          = d.get('color', '#6366f1'),
+        icon           = d.get('icon', 'fa-folder'),
+        account_id     = account_id,
+        sort_order     = d.get('sort_order', 0),
+        posts_per_week = int(d.get('posts_per_week', 0) or 0),
+        notes          = d.get('notes', ''),
+    )
+    db.session.add(f)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': f.id, 'name': f.name})
+
+
+@app.route('/api/folders/<int:fid>', methods=['PUT'])
+@login_required
+def folder_update(fid):
+    f = ContentFolder.query.get_or_404(fid)
+    d = request.get_json() or {}
+    if 'name'           in d: f.name           = (d['name'] or '').strip() or f.name
+    if 'color'          in d: f.color          = d['color']
+    if 'icon'           in d: f.icon           = d['icon']
+    if 'account_id'     in d: f.account_id     = d['account_id'] or None
+    if 'sort_order'     in d: f.sort_order      = int(d['sort_order'] or 0)
+    if 'posts_per_week' in d: f.posts_per_week  = int(d['posts_per_week'] or 0)
+    if 'notes'          in d: f.notes           = d['notes']
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/folders/<int:fid>', methods=['DELETE'])
+@login_required
+def folder_delete(fid):
+    f = ContentFolder.query.get_or_404(fid)
+    # Posts aus dem Ordner herauslösen (nicht löschen)
+    ContentItem.query.filter_by(folder_id=fid).update({'folder_id': None})
+    db.session.delete(f)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/autoplan', methods=['POST'])
+@login_required
+def autoplan():
+    """
+    Verteilt Posts aus dem Vorrat automatisch auf den Kalender.
+    Body: { account_id, date_from, date_to, posts_per_week,
+            post_times: ["18:00","12:00"],
+            post_days: [1,2,3,4,5],        # 0=Mo … 6=So
+            folder_rules: {folder_id: posts_per_week, ...} }
+    """
+    d            = request.get_json() or {}
+    account_id   = d.get('account_id')
+    if not account_id:
+        return jsonify({'ok': False, 'error': 'account_id fehlt.'})
+
+    try:
+        date_from = datetime.fromisoformat(d['date_from'])
+        date_to   = datetime.fromisoformat(d['date_to'])
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Ungültiges Datum.'})
+
+    posts_per_week = int(d.get('posts_per_week', 7) or 7)
+    post_times     = d.get('post_times') or ['18:00']
+    post_days      = [int(x) for x in (d.get('post_days') or [0,1,2,3,4,5,6])]
+    folder_rules   = {int(k): int(v) for k, v in (d.get('folder_rules') or {}).items() if int(v) > 0}
+
+    # Alle Slots im Zeitraum berechnen
+    slots = []
+    cur = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+    while cur <= date_to:
+        if cur.weekday() in post_days:
+            for t in post_times:
+                try:
+                    h, m = map(int, t.split(':'))
+                    slots.append(cur.replace(hour=h, minute=m))
+                except Exception:
+                    pass
+        cur += timedelta(days=1)
+
+    if not slots:
+        return jsonify({'ok': False, 'error': 'Keine Posting-Slots im gewählten Zeitraum.'})
+
+    # Vorhandene Belegung prüfen → nur freie Slots verwenden
+    existing = {sp.scheduled_at for sp in ScheduledPost.query.filter(
+        ScheduledPost.account_id == account_id,
+        ScheduledPost.scheduled_at >= date_from,
+        ScheduledPost.scheduled_at <= date_to,
+        ScheduledPost.status.in_(['pending', 'scheduled'])
+    ).all()}
+    free_slots = [s for s in slots if s not in existing]
+
+    if not free_slots:
+        return jsonify({'ok': False, 'error': 'Alle Slots im Zeitraum sind bereits belegt.'})
+
+    # Posts aus Vorrat holen — nach Ordner-Regeln aufteilen
+    def _get_pool(folder_id=None):
+        q = ContentItem.query.filter(
+            ContentItem.status.in_(['draft', 'ready']),
+            ContentItem.accounts.any(id=account_id)
+        )
+        if folder_id:
+            q = q.filter(ContentItem.folder_id == folder_id)
+        else:
+            q = q.filter(ContentItem.folder_id.is_(None))
+        return q.order_by(db.func.random()).all()
+
+    # Slot-Budget pro Ordner berechnen
+    total_slots = len(free_slots)
+    slot_idx    = 0
+    created     = 0
+    used_item_ids = set()
+
+    # Folder-Anteile: proportional zu posts_per_week
+    assignments = []  # [(folder_id_or_None, n_slots)]
+    if folder_rules:
+        total_ppw = sum(folder_rules.values())
+        for fid, ppw in folder_rules.items():
+            n = max(1, round(total_slots * ppw / total_ppw))
+            assignments.append((fid, n))
+        # Rest → kein Ordner
+        assigned = sum(n for _, n in assignments)
+        if assigned < total_slots:
+            assignments.append((None, total_slots - assigned))
+    else:
+        assignments = [(None, total_slots)]
+
+    import random
+    for folder_id, n_slots in assignments:
+        pool = _get_pool(folder_id)
+        pool = [p for p in pool if p.id not in used_item_ids]
+        random.shuffle(pool)
+        for i in range(min(n_slots, len(pool))):
+            if slot_idx >= len(free_slots):
+                break
+            item     = pool[i]
+            slot     = free_slots[slot_idx]
+            media    = item.media_items[0] if item.media_items else None
+            sp = ScheduledPost(
+                account_id      = account_id,
+                content_item_id = item.id,
+                media_item_id   = media.id if media else None,
+                caption         = item.caption or item.title or '',
+                scheduled_at    = slot,
+                status          = 'pending',
+                post_type       = item.content_type or 'feed',
+            )
+            db.session.add(sp)
+            item.status = 'scheduled'
+            used_item_ids.add(item.id)
+            slot_idx += 1
+            created  += 1
+
+    db.session.commit()
+    return jsonify({
+        'ok': True,
+        'created': created,
+        'message': f'{created} Posts wurden automatisch eingeplant ✓'
+    })
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────

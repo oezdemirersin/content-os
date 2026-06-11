@@ -215,6 +215,22 @@ class AIConfig(db.Model):
         return json.loads(self.posting_times or '["09:00","18:00"]')
 
 
+class ContentFolder(db.Model):
+    """Vorrat-Ordner: benutzerdefinierte Kategorien für Content-Planung pro Account."""
+    __tablename__ = 'content_folder'
+    id             = db.Column(db.Integer, primary_key=True)
+    name           = db.Column(db.String(100), nullable=False)
+    color          = db.Column(db.String(20), default='#6366f1')
+    icon           = db.Column(db.String(50), default='fa-folder')
+    account_id     = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)  # NULL = global
+    sort_order     = db.Column(db.Integer, default=0)
+    posts_per_week = db.Column(db.Integer, default=0)   # 0 = kein Limit
+    notes          = db.Column(db.Text)
+    created_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    content_items  = db.relationship('ContentItem', backref='folder', lazy='select',
+                                     foreign_keys='ContentItem.folder_id')
+
+
 class ContentItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(500), nullable=False)
@@ -223,6 +239,7 @@ class ContentItem(db.Model):
     source_url = db.Column(db.String(1000))
     source_name = db.Column(db.String(200))
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'))
+    folder_id   = db.Column(db.Integer, db.ForeignKey('content_folder.id'), nullable=True)
     labels = db.relationship('Label', secondary=content_labels, backref='content_items')
     accounts = db.relationship('Account', secondary=content_accounts, backref='content_items')
 

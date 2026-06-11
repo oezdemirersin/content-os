@@ -292,6 +292,23 @@
         </select>
       </div>
 
+      <!-- Ordner -->
+      <div>
+        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+          <span>In welchen Ordner?</span>
+          <a href="{{ url_for('kategorien') }}" target="_blank"
+             style="font-size:10px;color:var(--accent);text-decoration:none">
+            <i class="fa-solid fa-plus"></i> Ordner verwalten
+          </a>
+        </label>
+        <select id="useFolderId" class="select-field">
+          <option value="">— Kein Ordner —</option>
+          {% for f in all_folders %}
+          <option value="{{ f.id }}" data-color="{{ f.color }}">{{ f.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
       <!-- Modus -->
       <div>
         <label class="form-label">Was soll passieren?</label>
@@ -493,6 +510,7 @@ async function confirmUse() {
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
 
   const account_id   = parseInt(document.getElementById('useAccountId').value) || null;
+  const folder_id    = parseInt(document.getElementById('useFolderId').value) || null;
   const caption      = document.getElementById('useCaptionText').value;
   const scheduled_at = _selectedMode === 'schedule'
     ? document.getElementById('useScheduledAt').value || null
@@ -512,7 +530,7 @@ async function confirmUse() {
       signal: controller.signal,
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({account_id, mode: _selectedMode, caption, scheduled_at})
+      body: JSON.stringify({account_id, folder_id, mode: _selectedMode, caption, scheduled_at})
     });
     clearTimeout(timer);
     const r = await resp.json();

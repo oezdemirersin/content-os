@@ -388,6 +388,9 @@
     <a href="{{ url_for('inspirationen') }}" class="nav-item {% if active_page == 'inspirationen' %}active{% endif %}">
       <i class="fa-brands fa-instagram"></i> Inspirationen
     </a>
+    <a href="{{ url_for('kategorien') }}" class="nav-sub {% if active_page == 'kategorien' %}active{% endif %}">
+      <i class="fa-solid fa-folder-open"></i> Vorrat-Ordner
+    </a>
 
     <div class="nav-section">System</div>
     <a href="{{ url_for('alerts_center') }}" class="nav-item {% if active_page == 'alerts' %}active{% endif %}">
