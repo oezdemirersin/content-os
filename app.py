@@ -6584,10 +6584,14 @@ def inspiration_post_use(post_id):
         caption      = caption,
         status       = content_status,
         content_type = 'feed',
-        account_id   = account_id,
     )
     db.session.add(ci)
     db.session.flush()
+    # Account via Many-to-Many verknüpfen
+    if account_id:
+        acc = Account.query.get(account_id)
+        if acc:
+            ci.accounts.append(acc)
     media.content_item_id = ci.id
     post.status           = 'used'
     post.content_item_id  = ci.id
