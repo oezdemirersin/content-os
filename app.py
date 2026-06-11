@@ -6268,7 +6268,12 @@ def inspiration_fetch(src_id):
     # Der Key funktioniert automatisch für die APIs, die der User abonniert hat.
     # Wir probieren alle durch bis einer antwortet (kein 403/404).
     CANDIDATE_APIS = [
-        # Format: (host, url, params_builder, items_extractor)
+        # ── Abonnierte API (instagram-scraper21) — zuerst ─────────
+        ('instagram-scraper21.p.rapidapi.com',
+         'https://instagram-scraper21.p.rapidapi.com/api/v1/posts',
+         lambda u, c: {'username': u, 'limit': '100', 'include_captions': 'true',
+                       **({'cursor': c} if c else {})}),
+        # ── Fallbacks ─────────────────────────────────────────────
         ('instagram-scraper-api2.p.rapidapi.com',
          'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
          lambda u, c: {'username_or_id_or_url': u, **({'cursor': c} if c else {})}),
@@ -6290,9 +6295,6 @@ def inspiration_fetch(src_id):
         ('rocketapi-for-instagram.p.rapidapi.com',
          'https://rocketapi-for-instagram.p.rapidapi.com/instagram/user/get_media',
          lambda u, c: {'username': u, **({'cursor': c} if c else {})}),
-        ('instagram-bulk-profile-scrapper.p.rapidapi.com',
-         'https://instagram-bulk-profile-scrapper.p.rapidapi.com/clients/api/ig/feed',
-         lambda u, c: {'ig_username': u}),
         ('instagram-scraper3.p.rapidapi.com',
          'https://instagram-scraper3.p.rapidapi.com/user/posts',
          lambda u, c: {'username': u}),
