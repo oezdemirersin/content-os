@@ -6949,15 +6949,20 @@ def autoplan():
         return jsonify({'ok': False, 'error': 'Alle Slots im Zeitraum sind bereits belegt.'})
 
     # Posts aus Vorrat holen — nach Ordner-Regeln aufteilen
+    # Sentinel: folder_id=-1 bedeutet "alle Posts egal welcher Ordner"
+    ALL_FOLDERS = -1
+
     def _get_pool(folder_id=None):
         q = ContentItem.query.filter(
             ContentItem.status.in_(['draft', 'ready']),
             ContentItem.accounts.any(id=account_id)
         )
-        if folder_id:
+        if folder_id and folder_id != ALL_FOLDERS:
             q = q.filter(ContentItem.folder_id == folder_id)
-        else:
+        elif folder_id is None:
+            # Nur Posts ohne Ordner
             q = q.filter(ContentItem.folder_id.is_(None))
+        # folder_id == ALL_FOLDERS → kein Filter → alle Posts
         return q.order_by(db.func.random()).all()
 
     # Slot-Budget pro Ordner berechnen
@@ -6967,18 +6972,20 @@ def autoplan():
     used_item_ids = set()
 
     # Folder-Anteile: proportional zu posts_per_week
-    assignments = []  # [(folder_id_or_None, n_slots)]
+    # folder_rules kann folder_id='' (leer = kein Ordner) oder echte IDs enthalten
+    assignments = []  # [(folder_id_or_sentinel, n_slots)]
     if folder_rules:
         total_ppw = sum(folder_rules.values())
         for fid, ppw in folder_rules.items():
             n = max(1, round(total_slots * ppw / total_ppw))
-            assignments.append((fid, n))
-        # Rest → kein Ordner
+            # fid=0 oder leer → Posts ohne Ordner
+            assignments.append((fid if fid else None, n))
         assigned = sum(n for _, n in assignments)
         if assigned < total_slots:
-            assignments.append((None, total_slots - assigned))
+            assignments.append((ALL_FOLDERS, total_slots - assigned))
     else:
-        assignments = [(None, total_slots)]
+        # Keine Regeln → alle Posts aus dem gesamten Vorrat mischen
+        assignments = [(ALL_FOLDERS, total_slots)]
 
     import random
     for folder_id, n_slots in assignments:

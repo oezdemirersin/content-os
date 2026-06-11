@@ -352,6 +352,17 @@
       ORDNER-REGELN (optional — wie viele pro Woche aus welchem Ordner)
     </div>
     <div id="ap_folder_rules" style="display:flex;flex-direction:column;gap:6px">
+      <!-- Ohne Ordner: alle Posts -->
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;
+                  background:var(--surface2);border-radius:8px">
+        <div style="width:10px;height:10px;border-radius:50%;background:var(--muted);flex-shrink:0"></div>
+        <span style="flex:1;font-size:12px;color:var(--muted)">Alle Posts (kein Ordner)</span>
+        <input type="number" min="0" max="21" value="0"
+               data-folder-id=""
+               class="input-field ap-folder-input" style="width:70px;text-align:center"
+               placeholder="0">
+        <span style="font-size:11px;color:var(--muted)">/ Woche</span>
+      </div>
       {% for f in folders %}
       <div style="display:flex;align-items:center;gap:10px">
         <div style="width:10px;height:10px;border-radius:50%;background:{{ f.color }};flex-shrink:0"></div>
@@ -363,11 +374,9 @@
         <span style="font-size:11px;color:var(--muted)">/ Woche</span>
       </div>
       {% endfor %}
-      {% if not folders %}
-      <div style="font-size:12px;color:var(--muted);font-style:italic">
-        Lege zuerst Ordner an um Regeln zu definieren.
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">
+        Alle auf 0 lassen → System nimmt aus dem gesamten Vorrat (alle Ordner gemischt).
       </div>
-      {% endif %}
     </div>
   </div>
 
