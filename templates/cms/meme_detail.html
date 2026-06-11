@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+{% block title %}{{ tmpl.title or 'Meme-Template' }} — Content OS{% endblock %}
+{% block page_title %}MEME DETAIL{% endblock %}
+
+{% block content %}
+<div style="max-width:1100px">
+
+  <!-- Breadcrumb -->
+  <div style="margin-bottom:20px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)">
+    <a href="{{ url_for('memes_dashboard') }}" style="color:var(--muted);text-decoration:none">
+      <i class="fa-solid fa-face-laugh-squint"></i> Stadt-Memes
+    </a>
+    <span>/</span>
+    <span style="color:var(--text)">{{ tmpl.title or 'Ohne Titel' }}</span>
+  </div>
+
+  <div style="display:grid;grid-template-columns:340px 1fr;gap:24px;align-items:start">
+
+    <!-- LINKE SPALTE: Bild + Meta -->
+    <div>
+      <!-- Bild -->
+      <div class="card" style="overflow:hidden;margin-bottom:16px">
+        {% if tmpl.image_url %}
+        <img src="{{ tmpl.image_url }}" alt="{{ tmpl.title }}"
+             style="width:100%;display:block;max-height:420px;object-fit:contain;background:var(--surface2)">
+        {% else %}
+        <div style="aspect-ratio:1;background:var(--surface2);display:flex;align-items:center;justify-content:center;color:var(--muted)">
+          <i class="fa-solid fa-image" style="font-size:48px"></i>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Meta-Karte -->
+      <div class="card" style="padding:18px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:12px">INFO</div>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+          <div style="display:flex;justify-content:space-between">
+            <span style="color:var(--muted)">Titel</span>
+            <span style="font-weight:600">{{ tmpl.title or '—' }}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between">
+            <span style="color:var(--muted)">Quell-Stadt</span>
+            <span style="font-weight:600">
+              {{ city_profiles[tmpl.source_city].emoji if tmpl.source_city in city_profiles else '🏙️' }}
+              {{ tmpl.source_city or '—' }}
+            </span>
+          </div>
+          <div style="display:flex;justify-content:space-between">
+            <span style="color:var(--muted)">Hochgeladen</span>
+            <span>{{ tmpl.created_at.strftime('%d.%m.%Y') }}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between">
+            <span style="color:var(--muted)">Fortschritt</span>
+            <span>
+              <b style="color:#22c55e">{{ done_count }}</b> /
+              <span style="color:var(--muted)">{{ other_cities|length }}</span> Städte
+            </span>
+          </div>
+        </div>
+        {% if tmpl.notes %}
+        <div style="margin-top:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted)">
+          {{ tmpl.notes }}
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Fortschrittsbalken -->
+      {% set total = other_cities|length %}
+      {% set pct = ((done_count / total * 100) | int) if total > 0 else 0 %}
+      <div class="card" style="padding:18px;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px">
+          <span style="color:var(--muted)">Gesamtfortschritt</span>
+          <span style="font-weight:700">{{ pct }}%</span>
+        </div>
+        <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:{{ pct }}%;background:{% if pct==100 %}#22c55e{% elif pct>60 %}var(--accent2){% else %}var(--accent){% endif %};transition:width .5s;border-radius:4px"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--muted)">
+          <span>✅ {{ done_count }} fertig</span>
+          {% if skip_count %}<span>⏭ {{ skip_count }} übersprungen</span>{% endif %}
+          {% if open_count %}<span>⏳ {{ open_count }} offen</span>{% endif %}
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button onclick="analyseTemplate()" class="btn btn-primary" id="analyseBtn"
+                {% if not has_ai_key %}disabled title="API-Key fehlt"{% endif %}>
+          <i class="fa-solid fa-magnifying-glass-chart"></i> Claude analysiert dieses Meme
+        </button>
+        <form method="POST" action="{{ url_for('meme_template_delete', template_id=tmpl.id) }}"
+              onsubmit="return confirm('Template und alle Varianten löschen?')">
+          <button type="submit" class="btn btn-ghost" style="width:100%;color:var(--danger)">
+            <i class="fa-solid fa-trash"></i> Template löschen
+          </button>
+        </form>
+      </div>
+
+      {% if not has_ai_key %}
+      <div style="margin-top:12px;padding:10px 14px;background:rgba(239,68,68,.08);border-radius:8px;font-size:11px;color:var(--danger);border:1px solid rgba(239,68,68,.2)">
+        <i class="fa-solid fa-circle-exclamation" style="margin-right:6px"></i>
+        <a href="{{ url_for('integrations') }}" style="color:var(--danger)">Anthropic API-Key</a> fehlt — Analyse nicht möglich
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- RECHTE SPALTE: Städte-Checkliste -->
+    <div>
+      <!-- Claude-Analyse-Info-Banner -->
+      <div id="analysisBanner" style="display:none;padding:14px 18px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.3);border-radius:12px;margin-bottom:16px;font-size:13px">
+        <div style="font-weight:600;color:var(--accent);margin-bottom:4px">
+          <i class="fa-solid fa-magnifying-glass-chart"></i> Analyse-Ergebnis
+        </div>
+        <div id="analysisSummary" style="color:var(--text);line-height:1.5"></div>
+      </div>
+
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.5px">
+          STÄDTE-CHECKLISTE
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="setAllStatus('done')" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">✅ Alle fertig</button>
+          <button onclick="setAllStatus('pending')" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">⏳ Alle offen</button>
+        </div>
+      </div>
+
+      <!-- Quell-Stadt (immer done) -->
+      <div style="padding:14px 16px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:12px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:20px">{{ city_profiles[tmpl.source_city].emoji if tmpl.source_city in city_profiles else '🏙️' }}</span>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:14px">{{ tmpl.source_city }}</div>
+          <div style="font-size:11px;color:var(--muted)">Quell-Stadt — Original-Template</div>
+        </div>
+        <span style="padding:4px 10px;background:rgba(34,197,94,.2);color:#22c55e;border-radius:8px;font-size:11px;font-weight:700">
+          ✓ ORIGINAL
+        </span>
+      </div>
+
+      <!-- Andere Städte -->
+      {% for city in other_cities %}
+      {% set v = variant_map.get(city) %}
+      {% set status = v.status if v else 'pending' %}
+      {% set p = city_profiles[city] %}
+      <div class="variant-card" id="card_{{ city }}"
+           data-city="{{ city }}" data-status="{{ status }}"
+           style="padding:14px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;margin-bottom:8px;transition:border-color .15s">
+
+        <div style="display:flex;align-items:center;gap:12px">
+          <!-- Emoji -->
+          <span style="font-size:20px;flex-shrink:0">{{ p.emoji }}</span>
+
+          <!-- Stadt + Suggestion -->
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span style="font-weight:700;font-size:14px">{{ city }}</span>
+              <span style="font-size:11px;color:var(--muted)">{{ p.hauptplatz }}</span>
+            </div>
+            <!-- Claude-Vorschlag -->
+            {% if v and v.suggestion %}
+            <div class="suggestion-box" id="sug_{{ city }}"
+                 style="font-size:11px;color:var(--muted);line-height:1.5;background:var(--surface);padding:8px 10px;border-radius:8px;margin-top:6px;border-left:3px solid var(--accent)">
+              {{ v.suggestion | replace('\n', '<br>') | safe }}
+            </div>
+            {% else %}
+            <div class="suggestion-box" id="sug_{{ city }}"
+                 style="font-size:11px;color:var(--muted);display:none"></div>
+            {% endif %}
+            <!-- Notizen -->
+            <div id="notesSection_{{ city }}" style="margin-top:6px;display:{% if v and v.notes %}block{% else %}none{% endif %}">
+              <textarea class="input-field notes-field" data-city="{{ city }}"
+                        rows="2" style="font-size:11px;resize:vertical"
+                        placeholder="Eigene Notizen…"
+                        onblur="saveNotes('{{ city }}', this.value)">{{ v.notes if v and v.notes else '' }}</textarea>
+            </div>
+          </div>
+
+          <!-- Status-Buttons -->
+          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+            <button onclick="setStatus('{{ city }}', 'done')"
+                    class="status-btn status-done-btn"
+                    style="padding:5px 10px;border-radius:8px;border:1px solid;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s;
+                    {% if status == 'done' %}background:rgba(34,197,94,.2);border-color:#22c55e;color:#22c55e{% else %}background:transparent;border-color:var(--border);color:var(--muted){% endif %}">
+              ✅ Fertig
+            </button>
+            <button onclick="setStatus('{{ city }}', 'pending')"
+                    class="status-btn status-pending-btn"
+                    style="padding:5px 10px;border-radius:8px;border:1px solid;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s;
+                    {% if status == 'pending' %}background:rgba(99,102,241,.2);border-color:var(--accent);color:var(--accent){% else %}background:transparent;border-color:var(--border);color:var(--muted){% endif %}">
+              ⏳ Offen
+            </button>
+            <button onclick="setStatus('{{ city }}', 'skip')"
+                    class="status-btn status-skip-btn"
+                    style="padding:5px 10px;border-radius:8px;border:1px solid;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s;
+                    {% if status == 'skip' %}background:rgba(107,114,128,.2);border-color:var(--muted);color:var(--muted){% else %}background:transparent;border-color:var(--border);color:var(--muted){% endif %}">
+              ⏭ Skip
+            </button>
+          </div>
+
+          <!-- Notizen-Toggle -->
+          <button onclick="toggleNotes('{{ city }}')"
+                  style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:4px;flex-shrink:0"
+                  title="Notizen">
+            <i class="fa-regular fa-note-sticky"></i>
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TEMPLATE_ID = {{ tmpl.id }};
+
+// Karten-Status visuell aktualisieren
+function applyCardStyle(city, status) {
+  const card = document.getElementById('card_' + city);
+  if (!card) return;
+  card.dataset.status = status;
+
+  // Border-Color
+  card.style.borderColor = status === 'done' ? '#22c55e'
+                         : status === 'skip' ? 'var(--muted)'
+                         : 'var(--border)';
+  card.style.background  = status === 'done' ? 'rgba(34,197,94,.04)'
+                         : status === 'skip' ? 'rgba(107,114,128,.04)'
+                         : 'var(--surface2)';
+
+  // Buttons updaten
+  const btnDone    = card.querySelector('.status-done-btn');
+  const btnPending = card.querySelector('.status-pending-btn');
+  const btnSkip    = card.querySelector('.status-skip-btn');
+
+  [btnDone, btnPending, btnSkip].forEach(b => {
+    b.style.background   = 'transparent';
+    b.style.borderColor  = 'var(--border)';
+    b.style.color        = 'var(--muted)';
+  });
+
+  if (status === 'done') {
+    btnDone.style.background  = 'rgba(34,197,94,.2)';
+    btnDone.style.borderColor = '#22c55e';
+    btnDone.style.color       = '#22c55e';
+  } else if (status === 'pending') {
+    btnPending.style.background  = 'rgba(99,102,241,.2)';
+    btnPending.style.borderColor = 'var(--accent)';
+    btnPending.style.color       = 'var(--accent)';
+  } else {
+    btnSkip.style.background  = 'rgba(107,114,128,.2)';
+    btnSkip.style.borderColor = 'var(--muted)';
+    btnSkip.style.color       = 'var(--muted)';
+  }
+}
+
+async function setStatus(city, status) {
+  const res = await fetch(`/api/memes/${TEMPLATE_ID}/variant/${encodeURIComponent(city)}/update`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({status})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    applyCardStyle(city, status);
+    updateStats();
+  } else {
+    showToast('Fehler beim Speichern.', 'error');
+  }
+}
+
+async function setAllStatus(status) {
+  const cities = [...document.querySelectorAll('.variant-card')].map(c => c.dataset.city);
+  for (const city of cities) {
+    await setStatus(city, status);
+  }
+}
+
+function updateStats() {
+  const cards = [...document.querySelectorAll('.variant-card')];
+  const done  = cards.filter(c => c.dataset.status === 'done').length;
+  const skip  = cards.filter(c => c.dataset.status === 'skip').length;
+  const open  = cards.length - done - skip;
+  const pct   = cards.length > 0 ? Math.round(done / cards.length * 100) : 0;
+
+  // Balken
+  const bar = document.querySelector('[style*="width:{{ pct }}%"]');
+  if (bar) {
+    bar.style.width = pct + '%';
+    bar.style.background = pct === 100 ? '#22c55e' : pct > 60 ? 'var(--accent2)' : 'var(--accent)';
+  }
+}
+
+function toggleNotes(city) {
+  const section = document.getElementById('notesSection_' + city);
+  if (section) {
+    section.style.display = section.style.display === 'none' ? 'block' : 'none';
+  }
+}
+
+async function saveNotes(city, notes) {
+  await fetch(`/api/memes/${TEMPLATE_ID}/variant/${encodeURIComponent(city)}/notes`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({notes})
+  });
+}
+
+// ── Claude Analyse ────────────────────────────────────────────
+async function analyseTemplate() {
+  const btn = document.getElementById('analyseBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Claude analysiert Bild…';
+
+  try {
+    const res = await fetch(`/api/memes/${TEMPLATE_ID}/analyse`, {method:'POST'});
+    const data = await res.json();
+
+    if (!data.ok) {
+      showToast('Fehler: ' + data.error, 'error');
+      return;
+    }
+
+    // Banner anzeigen
+    const banner = document.getElementById('analysisBanner');
+    const summary = document.getElementById('analysisSummary');
+    summary.innerHTML = `<b>Claude erkennt:</b> ${data.erkannt}<br><b>Quell-Referenz:</b> ${data.quell_referenz}`;
+    banner.style.display = 'block';
+
+    // Vorschläge in die Karten schreiben
+    for (const [city, cityData] of Object.entries(data.staedte || {})) {
+      const sugBox = document.getElementById('sug_' + city);
+      if (sugBox) {
+        const suggestion = `<b>Ersatz:</b> ${cityData.ersatz || ''}<br><b>Warum:</b> ${cityData.begruendung || ''}<br><b>Canva-Text:</b> <span style="color:var(--accent2)">${cityData.canva_text || ''}</span>`;
+        sugBox.innerHTML = suggestion;
+        sugBox.style.display = 'block';
+      }
+    }
+
+    showToast(`✅ ${data.cities_updated} Städte analysiert!`, 'success');
+
+  } catch(e) {
+    showToast('Netzwerkfehler: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-magnifying-glass-chart"></i> Claude analysiert dieses Meme';
+  }
+}
+</script>
+{% endblock %}

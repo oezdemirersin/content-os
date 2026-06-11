@@ -1,0 +1,656 @@
+{% extends "base.html" %}
+{% block title %}Inspirationen — Content OS{% endblock %}
+{% block page_title %}INSPIRATIONEN{% endblock %}
+
+{% block content %}
+
+<div style="display:grid;grid-template-columns:260px 1fr;gap:20px;align-items:start">
+
+  <!-- ── Linke Spalte: Quellen ── -->
+  <div style="display:flex;flex-direction:column;gap:14px;position:sticky;top:20px">
+
+    {% if not has_rapidapi_key %}
+    <div style="padding:14px 16px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);
+         border-radius:10px;font-size:12px;line-height:1.6">
+      <div style="font-weight:700;color:var(--warning);margin-bottom:4px">
+        <i class="fa-solid fa-triangle-exclamation"></i> RapidAPI-Key fehlt
+      </div>
+      Für das Laden von Posts wird ein kostenloser RapidAPI-Key benötigt.
+      <a href="{{ url_for('integrations') }}"
+         style="color:var(--accent);text-decoration:none;display:block;margin-top:6px;font-weight:600">
+        → Jetzt in Integrationen eintragen
+      </a>
+    </div>
+    {% endif %}
+
+    <!-- Neue Quelle -->
+    <div class="card" style="padding:16px">
+      <div style="font-family:var(--font-display);font-size:12px;letter-spacing:.5px;margin-bottom:12px">
+        SEITE BEOBACHTEN
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="position:relative">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);
+                       color:var(--muted);font-size:13px">@</span>
+          <input type="text" id="newSourceInput" placeholder="username"
+                 class="input-field" style="padding-left:26px;font-size:13px"
+                 onkeydown="if(event.key==='Enter')addSource()">
+        </div>
+        <button onclick="addSource()" class="btn btn-primary" style="font-size:12px">
+          <i class="fa-solid fa-plus"></i> Hinzufügen
+        </button>
+      </div>
+    </div>
+
+    <!-- Quellen-Liste -->
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);
+                  font-family:var(--font-display);font-size:12px;letter-spacing:.5px;color:var(--muted)">
+        BEOBACHTETE SEITEN ({{ sources|length }})
+      </div>
+      {% if not sources %}
+      <div style="padding:20px;text-align:center;font-size:12px;color:var(--muted)">
+        Noch keine Seiten hinzugefügt.
+      </div>
+      {% else %}
+      <div>
+        {% for src in sources %}
+        <div style="border-bottom:1px solid var(--border);
+                    {% if source_filter == src.id %}background:rgba(59,130,246,.08){% endif %}">
+
+          <!-- Zeile 1: Name + Buttons -->
+          <div style="display:flex;align-items:center;gap:8px;padding:10px 14px 4px">
+            <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
+               style="flex:1;min-width:0;text-decoration:none">
+              <div style="font-size:13px;font-weight:600;color:var(--text)">@{{ src.username }}</div>
+              <div style="font-size:10px;color:var(--muted)">
+                {% if src.last_fetch %}Zuletzt: {{ src.last_fetch.strftime('%d.%m. %H:%M') }}
+                {% else %}Noch nie geladen{% endif %}
+              </div>
+            </a>
+            <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
+                    class="btn btn-primary" style="font-size:11px;padding:5px 10px;flex-shrink:0"
+                    {% if not has_rapidapi_key %}disabled title="RapidAPI-Key fehlt"{% endif %}>
+              <i class="fa-solid fa-download"></i> Laden
+            </button>
+            <button onclick="deleteSource({{ src.id }}, '@{{ src.username }}')"
+                    style="background:none;border:none;color:var(--muted);cursor:pointer;
+                           font-size:13px;padding:4px;flex-shrink:0">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+
+          <!-- Zeile 2: Standard-Account Dropdown -->
+          <div style="padding:4px 14px 10px;display:flex;align-items:center;gap:6px">
+            <i class="fa-solid fa-arrow-right" style="font-size:10px;color:var(--muted);flex-shrink:0"></i>
+            <select class="select-field src-account-select"
+                    data-src-id="{{ src.id }}"
+                    style="font-size:11px;padding:3px 8px;flex:1;height:auto">
+              <option value="">— Kein Standard-Account —</option>
+              {% for acc in all_accounts %}
+              <option value="{{ acc.id }}"
+                {% if src.account_id == acc.id %}selected{% endif %}>
+                {{ acc.name }}{% if acc.status != 'active' %} ({{ acc.status }}){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    {% if sources and has_rapidapi_key %}
+    <button onclick="fetchAll()" class="btn btn-ghost" style="font-size:12px">
+      <i class="fa-solid fa-rotate"></i> Alle Seiten aktualisieren
+    </button>
+    {% endif %}
+
+  </div>
+
+  <!-- ── Rechte Spalte: Posts ── -->
+  <div>
+
+    <!-- Status-Tabs -->
+    <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+      {% for tab_status, label in [('new','Neu'), ('saved','Gespeichert'), ('ignored','Ignoriert'), ('used','Übernommen'), ('all','Alle')] %}
+      <a href="{{ url_for('inspirationen', status=tab_status, source=source_filter or '') }}"
+         style="display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:20px;
+                font-size:12px;font-weight:{% if status_filter == tab_status %}700{% else %}600{% endif %};
+                text-decoration:none;
+                {% if status_filter == tab_status %}background:var(--accent);color:white;
+                {% else %}background:var(--surface);border:1px solid var(--border);color:var(--muted);{% endif %}">
+        {{ label }}
+        {% if tab_status != 'all' and counts.get(tab_status) %}
+        <span style="font-size:10px;padding:1px 6px;border-radius:10px;
+              background:{% if status_filter==tab_status %}rgba(255,255,255,.2){% else %}var(--surface2){% endif %}">
+          {{ counts.get(tab_status, 0) }}
+        </span>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+
+    <!-- Posts-Grid -->
+    {% if not posts %}
+    <div style="text-align:center;padding:60px 20px;color:var(--muted)">
+      <i class="fa-brands fa-instagram" style="font-size:48px;opacity:.2;display:block;margin-bottom:16px"></i>
+      {% if not sources %}
+      <div style="font-size:15px;font-weight:600;margin-bottom:8px">Noch keine Quellen</div>
+      <div style="font-size:13px">Füge links eine Instagram-Seite hinzu und klicke auf <i class="fa-solid fa-rotate"></i></div>
+      {% elif status_filter == 'new' %}
+      <div style="font-size:15px;font-weight:600;margin-bottom:8px">Keine neuen Posts</div>
+      <div style="font-size:13px">Klicke auf <i class="fa-solid fa-rotate"></i> neben einer Quelle um Posts zu laden.</div>
+      {% else %}
+      <div style="font-size:14px">Keine Posts mit diesem Status.</div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div id="postsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px">
+      {% for post in posts %}
+      <div id="pcard-{{ post.id }}"
+           style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
+                  overflow:hidden;transition:opacity .3s,transform .3s">
+
+        <!-- Bild -->
+        <div style="aspect-ratio:1;overflow:hidden;background:var(--surface2);position:relative">
+          {% if post.thumbnail_url %}
+          <img src="{{ post.thumbnail_url }}" alt=""
+               style="width:100%;height:100%;object-fit:cover"
+               onerror="this.style.display='none'">
+          {% endif %}
+
+          <!-- Typ-Badge -->
+          {% if post.media_type == 'video' %}
+          <div style="position:absolute;top:7px;right:7px;background:rgba(0,0,0,.7);
+               border-radius:5px;padding:2px 7px;font-size:10px;color:white">
+            <i class="fa-solid fa-play"></i> Video
+          </div>
+          {% elif post.media_type == 'carousel' %}
+          <div style="position:absolute;top:7px;right:7px;background:rgba(0,0,0,.7);
+               border-radius:5px;padding:2px 7px;font-size:10px;color:white">
+            <i class="fa-solid fa-images"></i> Carousel
+          </div>
+          {% endif %}
+
+          <!-- Status-Badge -->
+          {% if post.status == 'saved' %}
+          <div style="position:absolute;top:7px;left:7px;background:#22c55e;
+               border-radius:5px;padding:2px 7px;font-size:10px;color:white">
+            <i class="fa-solid fa-bookmark"></i>
+          </div>
+          {% elif post.status == 'used' %}
+          <div style="position:absolute;top:7px;left:7px;background:var(--accent);
+               border-radius:5px;padding:2px 7px;font-size:10px;color:white">
+            <i class="fa-solid fa-check"></i> Übernommen
+          </div>
+          {% endif %}
+        </div>
+
+        <!-- Meta -->
+        <div style="padding:10px 12px">
+
+          <!-- Account + Datum -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+            <span style="font-size:11px;font-weight:600;color:var(--accent2)">
+              @{{ post.source.username if post.source else '—' }}
+            </span>
+            {% if post.post_date %}
+            <span style="font-size:11px;color:var(--muted);
+                         background:var(--surface2);padding:2px 7px;border-radius:10px">
+              {{ post.post_date.strftime('%d.%m.%Y') }}
+            </span>
+            {% endif %}
+          </div>
+
+          <!-- Caption Preview -->
+          {% if post.caption %}
+          <div style="font-size:11px;color:var(--muted);
+                      overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;
+                      -webkit-box-orient:vertical;line-height:1.5;margin-bottom:9px">
+            {{ post.caption[:120] }}
+          </div>
+          {% else %}
+          <div style="font-size:11px;color:var(--muted);margin-bottom:9px;font-style:italic">
+            Keine Caption
+          </div>
+          {% endif %}
+
+          <!-- Aktionen -->
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            {% if post.status != 'used' %}
+            <button class="btn btn-primary use-btn"
+                    data-id="{{ post.id }}"
+                    data-caption="{{ (post.caption or '') | e }}"
+                    data-md="{{ post.post_date.strftime('%m-%d') if post.post_date else '' }}"
+                    data-account="{{ post.source.account_id or '' }}"
+                    style="flex:1;font-size:11px;padding:5px 8px;min-width:80px">
+              <i class="fa-solid fa-arrow-right"></i> Verwenden
+            </button>
+            {% endif %}
+
+            {% if post.status == 'new' %}
+            <button onclick="setStatus({{ post.id }}, 'saved', this)"
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
+                    title="Merken">
+              <i class="fa-solid fa-bookmark"></i>
+            </button>
+            <button onclick="setStatus({{ post.id }}, 'ignored', this)"
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
+                    title="Ignorieren">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+            {% elif post.status == 'saved' %}
+            <button onclick="setStatus({{ post.id }}, 'new', this)"
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
+                    title="Zurücksetzen">
+              <i class="fa-solid fa-rotate-left"></i>
+            </button>
+            {% endif %}
+
+            <a href="https://instagram.com/p/{{ post.instagram_code }}/" target="_blank"
+               class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
+               title="Original öffnen">
+              <i class="fa-brands fa-instagram"></i>
+            </a>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- ── "Verwenden"-Modal ── -->
+<div id="useModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.65);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeUseModal()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:500px;margin:16px;box-shadow:0 24px 80px rgba(0,0,0,.6)">
+
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between">
+      <div style="font-family:var(--font-display);font-size:17px;letter-spacing:.5px">POST ÜBERNEHMEN</div>
+      <button onclick="closeUseModal()"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <div style="padding:20px 22px;display:flex;flex-direction:column;gap:16px">
+
+      <!-- Account -->
+      <div>
+        <label class="form-label">Für welche Seite?</label>
+        <select id="useAccountId" class="select-field">
+          <option value="">— Kein Account (nur in Medienbibliothek) —</option>
+        </select>
+      </div>
+
+      <!-- Ordner -->
+      <div>
+        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+          <span>In welchen Ordner?</span>
+          <a href="{{ url_for('kategorien') }}" target="_blank"
+             style="font-size:10px;color:var(--accent);text-decoration:none">
+            <i class="fa-solid fa-plus"></i> Ordner verwalten
+          </a>
+        </label>
+        <select id="useFolderId" class="select-field">
+          <option value="">— Kein Ordner —</option>
+          {% for f in all_folders %}
+          <option value="{{ f.id }}" data-color="{{ f.color }}">{{ f.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Modus -->
+      <div>
+        <label class="form-label">Was soll passieren?</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;
+                        border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s"
+                 id="modeReserveCard" onclick="selectMode('reserve')">
+            <input type="radio" name="useMode" value="reserve" checked
+                   style="margin-top:2px;accent-color:var(--accent)">
+            <div>
+              <div style="font-size:12px;font-weight:700;color:var(--text)">
+                <i class="fa-solid fa-box" style="color:var(--muted);margin-right:4px"></i> Vorrat
+              </div>
+              <div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4">
+                Als Entwurf speichern — Datum später festlegen
+              </div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;
+                        border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s"
+                 id="modeScheduleCard" onclick="selectMode('schedule')">
+            <input type="radio" name="useMode" value="schedule"
+                   style="margin-top:2px;accent-color:var(--accent)">
+            <div>
+              <div style="font-size:12px;font-weight:700;color:var(--text)">
+                <i class="fa-solid fa-calendar-plus" style="color:var(--muted);margin-right:4px"></i> Datum wählen
+              </div>
+              <div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4">
+                Direkt auf ein Datum einplanen
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <!-- Datumswahl (nur bei "Datum wählen") -->
+        <div id="scheduleDateBlock" style="display:none;margin-top:10px">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="datetime-local" id="useScheduledAt"
+                   class="input-field" style="flex:1;font-size:12px">
+            <button id="sameYearBtn" onclick="setSameYearDate()"
+                    class="btn btn-ghost" style="font-size:11px;padding:6px 10px;white-space:nowrap;display:none">
+              <i class="fa-solid fa-calendar-day"></i> Gleicher Tag {{ now.year }}
+            </button>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:5px">
+            Tipp: "Gleicher Tag {{ now.year }}" übernimmt Monat+Tag des Originalpostings ins aktuelle Jahr.
+          </div>
+        </div>
+      </div>
+
+      <!-- Caption -->
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label class="form-label" style="margin:0">Caption</label>
+          <button id="rewriteBtn" onclick="rewriteCaption()"
+                  class="btn btn-ghost" style="font-size:11px;padding:4px 10px;gap:5px">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Umformulieren
+          </button>
+        </div>
+        <textarea id="useCaptionText" class="input-field" rows="5"
+                  style="resize:vertical;font-size:12px;line-height:1.6"
+                  placeholder="Caption (optional — kann auch leer bleiben)"></textarea>
+        <div id="rewriteStatus" style="display:none;margin-top:6px;font-size:11px;color:var(--muted)"></div>
+      </div>
+
+      <!-- Buttons -->
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="closeUseModal()" class="btn btn-ghost">Abbrechen</button>
+        <button id="confirmUseBtn" onclick="confirmUse()" class="btn btn-primary">
+          <i class="fa-solid fa-arrow-right"></i> Übernehmen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast für Fetch-Status -->
+<div id="fetchStatus"
+     style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+            background:var(--surface);border:1px solid var(--border);border-radius:12px;
+            padding:12px 20px;font-size:13px;font-weight:600;
+            box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:1000;align-items:center;gap:10px">
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── State ────────────────────────────────────────────────────
+let _currentPostId   = null;
+let _accountsCache   = null;
+let _selectedMode    = 'reserve';
+let _postMonthDay    = null;   // "MM-DD" des Original-Posts
+
+// ── Alle Accounts (inkl. inaktive) aus Server-Template ────────
+// Werden einmalig aus dem Dropdown der Quellen-Liste gelesen
+function getAllAccountOptions() {
+  if (_accountsCache) return _accountsCache;
+  const seen = new Set();
+  const opts = [];
+  document.querySelectorAll('.src-account-select option').forEach(o => {
+    if (o.value && !seen.has(o.value)) {
+      seen.add(o.value);
+      opts.push({id: o.value, name: o.textContent.trim()});
+    }
+  });
+  _accountsCache = opts;
+  return opts;
+}
+
+// ── "Verwenden"-Modal öffnen ──────────────────────────────────
+function openUseModal(postId, caption, monthDay, defaultAccountId) {
+  _currentPostId = postId;
+  _postMonthDay  = monthDay || null;
+  document.getElementById('useCaptionText').value = caption || '';
+  document.getElementById('rewriteStatus').style.display = 'none';
+  document.getElementById('sameYearBtn').style.display = monthDay ? 'inline-flex' : 'none';
+  selectMode('reserve');
+
+  // Account-Dropdown füllen (einmalig)
+  const sel = document.getElementById('useAccountId');
+  if (sel.options.length <= 1) {
+    getAllAccountOptions().forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      opt.textContent = a.name;
+      sel.appendChild(opt);
+    });
+  }
+
+  // Standard-Account vorauswählen
+  sel.value = defaultAccountId || '';
+
+  document.getElementById('useModal').style.display = 'flex';
+}
+
+function closeUseModal() {
+  document.getElementById('useModal').style.display = 'none';
+  _currentPostId = null;
+}
+
+function selectMode(mode) {
+  _selectedMode = mode;
+  document.querySelectorAll('[name="useMode"]').forEach(r => r.checked = r.value === mode);
+  document.getElementById('modeReserveCard').style.borderColor =
+    mode === 'reserve' ? 'var(--accent)' : 'var(--border)';
+  document.getElementById('modeScheduleCard').style.borderColor =
+    mode === 'schedule' ? 'var(--accent)' : 'var(--border)';
+  document.getElementById('scheduleDateBlock').style.display =
+    mode === 'schedule' ? 'block' : 'none';
+}
+
+function setSameYearDate() {
+  if (!_postMonthDay) return;
+  const year = new Date().getFullYear();
+  const [month, day] = _postMonthDay.split('-');
+  // Standardzeit: 10:00 Uhr
+  const dt = `${year}-${month}-${day}T10:00`;
+  document.getElementById('useScheduledAt').value = dt;
+  showToast(`Datum gesetzt: ${day}.${month}.${year} um 10:00 Uhr`, 'success');
+}
+
+// ── Umformulieren ─────────────────────────────────────────────
+async function rewriteCaption() {
+  if (!_currentPostId) return;
+  const btn = document.getElementById('rewriteBtn');
+  const statusEl = document.getElementById('rewriteStatus');
+  const ta = document.getElementById('useCaptionText');
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Wird umformuliert…';
+  statusEl.style.display = 'block';
+  statusEl.textContent = 'Claude denkt nach…';
+
+  const r = await fetch(`/api/inspirationen/${_currentPostId}/rewrite`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({caption: ta.value})
+  }).then(r => r.json());
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Umformulieren';
+
+  if (r.ok) {
+    ta.value = r.rewritten;
+    statusEl.textContent = '✓ Caption wurde umformuliert';
+    statusEl.style.color = '#22c55e';
+  } else {
+    statusEl.textContent = '⚠ ' + (r.error || 'Fehler');
+    statusEl.style.color = 'var(--warning)';
+  }
+}
+
+// ── Übernehmen ────────────────────────────────────────────────
+async function confirmUse() {
+  if (!_currentPostId) return;
+  const btn = document.getElementById('confirmUseBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+  const account_id   = parseInt(document.getElementById('useAccountId').value) || null;
+  const folder_id    = parseInt(document.getElementById('useFolderId').value) || null;
+  const caption      = document.getElementById('useCaptionText').value;
+  const scheduled_at = _selectedMode === 'schedule'
+    ? document.getElementById('useScheduledAt').value || null
+    : null;
+
+  if (_selectedMode === 'schedule' && !scheduled_at) {
+    showToast('Bitte ein Datum auswählen.', 'warning');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Übernehmen';
+    return;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 90000); // 90s max
+    const resp = await fetch(`/api/inspirationen/${_currentPostId}/use`, {
+      signal: controller.signal,
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({account_id, folder_id, mode: _selectedMode, caption, scheduled_at})
+    });
+    clearTimeout(timer);
+    const r = await resp.json();
+    if (r.ok) {
+      showToast(r.message, 'success');
+      closeUseModal();
+      const card = document.getElementById(`pcard-${_currentPostId}`);
+      if (card) {
+        card.style.opacity = '0'; card.style.transform = 'scale(.95)';
+        setTimeout(() => card.remove(), 350);
+      }
+    } else {
+      showToast(r.error || 'Fehler beim Übernehmen.', 'error');
+    }
+  } catch (err) {
+    const msg = err.name === 'AbortError' ? 'Timeout — Server antwortet nicht.' : (err.message || 'Unbekannter Fehler');
+    showToast('Fehler: ' + msg, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Übernehmen';
+  }
+}
+
+// ── Status ändern ─────────────────────────────────────────────
+async function setStatus(postId, status, btn) {
+  const r = await fetch(`/api/inspirationen/${postId}/status`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status})
+  }).then(r => r.json());
+  if (r.ok) {
+    const card = document.getElementById(`pcard-${postId}`);
+    card.style.opacity = '0'; card.style.transform = 'scale(.95)';
+    card.style.transition = 'opacity .3s,transform .3s';
+    setTimeout(() => card.remove(), 350);
+  }
+}
+
+// ── Quelle hinzufügen ─────────────────────────────────────────
+async function addSource() {
+  const input = document.getElementById('newSourceInput');
+  const username = input.value.trim().replace(/^@/, '').toLowerCase();
+  if (!username) { showToast('Bitte einen Instagram-Handle eingeben.', 'warning'); return; }
+  const r = await fetch('/api/inspirationen/sources', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username})
+  }).then(r => r.json());
+  if (r.ok) {
+    showToast(`@${r.username} wird jetzt beobachtet ✓`, 'success');
+    setTimeout(() => location.reload(), 800);
+  } else {
+    showToast(r.error || 'Fehler.', 'error');
+  }
+}
+
+// ── Quelle löschen ────────────────────────────────────────────
+async function deleteSource(id, name) {
+  if (!confirm(`${name} entfernen? Alle heruntergeladenen Posts werden gelöscht.`)) return;
+  const r = await fetch(`/api/inspirationen/sources/${id}`, {method:'DELETE'}).then(r=>r.json());
+  if (r.ok) { showToast(`${name} entfernt.`, 'success'); setTimeout(() => location.reload(), 800); }
+}
+
+// ── Posts laden ───────────────────────────────────────────────
+async function fetchSource(id, name, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  showFetchStatus(`<i class="fa-solid fa-spinner fa-spin" style="color:var(--accent)"></i>&nbsp; Posts von ${name} werden geladen…`);
+
+  const r = await fetch(`/api/inspirationen/fetch/${id}`, {method:'POST'}).then(r=>r.json());
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-rotate"></i>';
+  hideFetchStatus();
+
+  if (r.ok) {
+    showToast(r.message, 'success');
+    if (r.new > 0) setTimeout(() => location.reload(), 1000);
+  } else {
+    showToast(r.error || 'Fehler beim Laden.', 'error');
+  }
+}
+
+async function fetchAll() {
+  const btns = document.querySelectorAll('[onclick*="fetchSource"]');
+  for (const btn of btns) btn.click();
+}
+
+// ── Toast / Status Helpers ────────────────────────────────────
+function showFetchStatus(html) {
+  const el = document.getElementById('fetchStatus');
+  el.innerHTML = html; el.style.display = 'flex';
+}
+function hideFetchStatus() {
+  document.getElementById('fetchStatus').style.display = 'none';
+}
+
+// ── "Verwenden"-Buttons via Event-Delegation ──────────────────
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.use-btn');
+  if (!btn) return;
+  openUseModal(
+    btn.dataset.id,
+    btn.dataset.caption,
+    btn.dataset.md || null,
+    btn.dataset.account || null
+  );
+});
+
+// ── Standard-Account einer Quelle speichern ───────────────────
+document.addEventListener('change', function(e) {
+  const sel = e.target.closest('.src-account-select');
+  if (!sel) return;
+  fetch(`/api/inspirationen/sources/${sel.dataset.srcId}/account`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({account_id: sel.value ? parseInt(sel.value) : null})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) showToast('Standard-Account gespeichert ✓', 'success');
+    else showToast(d.error || 'Fehler', 'error');
+  });
+});
+</script>
+{% endblock %}

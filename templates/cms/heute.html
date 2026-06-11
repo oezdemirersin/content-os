@@ -1,0 +1,387 @@
+{% extends "base.html" %}
+{% block title %}Heute — Content OS{% endblock %}
+{% block page_title %}HEUTE{% endblock %}
+
+{% block content %}
+{# ── Schnell-Übersicht (Zahlen-Chips oben) ── #}
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:28px">
+
+  {% set tg_n = tg_queue|length %}
+  <a href="#tg-queue"
+     style="display:flex;align-items:center;gap:10px;padding:14px 20px;
+            border-radius:14px;text-decoration:none;flex:1;min-width:160px;
+            background:{% if tg_n %}rgba(41,182,246,.1);border:1px solid rgba(41,182,246,.3)
+            {% else %}var(--surface);border:1px solid var(--border){% endif %}">
+    <i class="fa-brands fa-telegram" style="font-size:22px;color:{% if tg_n %}#29b6f6{% else %}var(--muted){% endif %}"></i>
+    <div>
+      <div style="font-family:var(--font-display);font-size:26px;line-height:1;
+                  color:{% if tg_n %}#29b6f6{% else %}var(--muted){% endif %}">{{ tg_n }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">Telegram Queue</div>
+    </div>
+  </a>
+
+  {% set no_n = no_stock|length %}
+  <a href="#no-stock"
+     style="display:flex;align-items:center;gap:10px;padding:14px 20px;
+            border-radius:14px;text-decoration:none;flex:1;min-width:160px;
+            background:{% if no_n %}rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3)
+            {% else %}var(--surface);border:1px solid var(--border){% endif %}">
+    <i class="fa-solid fa-circle-xmark" style="font-size:22px;color:{% if no_n %}var(--danger){% else %}var(--muted){% endif %}"></i>
+    <div>
+      <div style="font-family:var(--font-display);font-size:26px;line-height:1;
+                  color:{% if no_n %}var(--danger){% else %}var(--muted){% endif %}">{{ no_n }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">Kein Vorrat</div>
+    </div>
+  </a>
+
+  {% set cr_n = critical_stock|length %}
+  <a href="#critical-stock"
+     style="display:flex;align-items:center;gap:10px;padding:14px 20px;
+            border-radius:14px;text-decoration:none;flex:1;min-width:160px;
+            background:{% if cr_n %}rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.3)
+            {% else %}var(--surface);border:1px solid var(--border){% endif %}">
+    <i class="fa-solid fa-triangle-exclamation" style="font-size:22px;color:{% if cr_n %}#f97316{% else %}var(--muted){% endif %}"></i>
+    <div>
+      <div style="font-family:var(--font-display);font-size:26px;line-height:1;
+                  color:{% if cr_n %}#f97316{% else %}var(--muted){% endif %}">{{ cr_n }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">Kritischer Vorrat</div>
+    </div>
+  </a>
+
+  {% set lo_n = low_stock|length %}
+  <a href="#low-stock"
+     style="display:flex;align-items:center;gap:10px;padding:14px 20px;
+            border-radius:14px;text-decoration:none;flex:1;min-width:160px;
+            background:{% if lo_n %}rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25)
+            {% else %}var(--surface);border:1px solid var(--border){% endif %}">
+    <i class="fa-solid fa-battery-half" style="font-size:22px;color:{% if lo_n %}var(--warning){% else %}var(--muted){% endif %}"></i>
+    <div>
+      <div style="font-family:var(--font-display);font-size:26px;line-height:1;
+                  color:{% if lo_n %}var(--warning){% else %}var(--muted){% endif %}">{{ lo_n }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">Niedriger Vorrat</div>
+    </div>
+  </a>
+
+  <a href="#posts-today"
+     style="display:flex;align-items:center;gap:10px;padding:14px 20px;
+            border-radius:14px;text-decoration:none;flex:1;min-width:160px;
+            background:var(--surface);border:1px solid var(--border)">
+    <i class="fa-solid fa-calendar-day" style="font-size:22px;color:var(--accent2)"></i>
+    <div>
+      <div style="font-family:var(--font-display);font-size:26px;line-height:1;color:var(--accent2)">{{ posts_today|length }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">Posts heute</div>
+    </div>
+  </a>
+
+</div>
+
+{# ── Kein Vorrat ── #}
+{% if no_stock %}
+<div id="no-stock" style="margin-bottom:24px">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <div style="width:8px;height:8px;border-radius:50%;background:var(--danger);flex-shrink:0"></div>
+    <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">KEIN VORRAT</span>
+    <span style="font-size:12px;color:var(--muted)">({{ no_stock|length }} Seiten)</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">
+    {% for acc in no_stock %}
+    <a href="{{ url_for('account_detail', account_id=acc.id) }}"
+       style="display:flex;align-items:center;gap:10px;padding:12px 14px;
+              background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);
+              border-radius:10px;text-decoration:none;transition:background .15s"
+       onmouseover="this.style.background='rgba(239,68,68,.12)'"
+       onmouseout="this.style.background='rgba(239,68,68,.06)'">
+      <div style="width:32px;height:32px;border-radius:8px;background:rgba(239,68,68,.15);
+                  display:flex;align-items:center;justify-content:center;
+                  font-family:var(--font-display);font-size:16px;color:var(--danger);flex-shrink:0">
+        {{ acc.name[0] }}
+      </div>
+      <div style="min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--text);
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ acc.name }}</div>
+        <div style="font-size:11px;color:var(--danger)">0 Tage Vorrat</div>
+      </div>
+      <i class="fa-solid fa-chevron-right" style="font-size:10px;color:var(--muted);margin-left:auto;flex-shrink:0"></i>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ── Kritischer Vorrat ── #}
+{% if critical_stock %}
+<div id="critical-stock" style="margin-bottom:24px">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <div style="width:8px;height:8px;border-radius:50%;background:#f97316;flex-shrink:0"></div>
+    <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">KRITISCHER VORRAT</span>
+    <span style="font-size:12px;color:var(--muted)">({{ critical_stock|length }} Seiten — unter Mindestgrenze)</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">
+    {% for acc in critical_stock %}
+    {% set days = days_map.get(acc.id, 0) %}
+    <a href="{{ url_for('account_detail', account_id=acc.id) }}"
+       style="display:flex;align-items:center;gap:10px;padding:12px 14px;
+              background:rgba(249,115,22,.06);border:1px solid rgba(249,115,22,.2);
+              border-radius:10px;text-decoration:none;transition:background .15s"
+       onmouseover="this.style.background='rgba(249,115,22,.12)'"
+       onmouseout="this.style.background='rgba(249,115,22,.06)'">
+      <div style="width:32px;height:32px;border-radius:8px;background:rgba(249,115,22,.15);
+                  display:flex;align-items:center;justify-content:center;
+                  font-family:var(--font-display);font-size:16px;color:#f97316;flex-shrink:0">
+        {{ acc.name[0] }}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--text);
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ acc.name }}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+          <div style="flex:1;height:3px;background:var(--surface2);border-radius:3px">
+            <div style="height:100%;border-radius:3px;background:#f97316;
+                        width:{{ [days / (acc.min_stock_days or 3) * 100, 100]|min|int }}%"></div>
+          </div>
+          <span style="font-size:11px;color:#f97316;flex-shrink:0">{{ days|int }}T</span>
+        </div>
+      </div>
+      <i class="fa-solid fa-chevron-right" style="font-size:10px;color:var(--muted);flex-shrink:0"></i>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ── Niedriger Vorrat ── #}
+{% if low_stock %}
+<div id="low-stock" style="margin-bottom:24px">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <div style="width:8px;height:8px;border-radius:50%;background:var(--warning);flex-shrink:0"></div>
+    <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">NIEDRIGER VORRAT</span>
+    <span style="font-size:12px;color:var(--muted)">({{ low_stock|length }} Seiten — unter 7 Tage)</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">
+    {% for acc in low_stock %}
+    {% set days = days_map.get(acc.id, 0) %}
+    <a href="{{ url_for('account_detail', account_id=acc.id) }}"
+       style="display:flex;align-items:center;gap:10px;padding:12px 14px;
+              background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.2);
+              border-radius:10px;text-decoration:none;transition:background .15s"
+       onmouseover="this.style.background='rgba(245,158,11,.1)'"
+       onmouseout="this.style.background='rgba(245,158,11,.05)'">
+      <div style="width:32px;height:32px;border-radius:8px;background:rgba(245,158,11,.12);
+                  display:flex;align-items:center;justify-content:center;
+                  font-family:var(--font-display);font-size:16px;color:var(--warning);flex-shrink:0">
+        {{ acc.name[0] }}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--text);
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ acc.name }}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+          <div style="flex:1;height:3px;background:var(--surface2);border-radius:3px">
+            <div style="height:100%;border-radius:3px;background:var(--warning);
+                        width:{{ [days / 14 * 100, 100]|min|int }}%"></div>
+          </div>
+          <span style="font-size:11px;color:var(--warning);flex-shrink:0">{{ days|int }}T</span>
+        </div>
+      </div>
+      <i class="fa-solid fa-chevron-right" style="font-size:10px;color:var(--muted);flex-shrink:0"></i>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ── Alles ok ── #}
+{% if not no_stock and not critical_stock and not low_stock %}
+<div style="display:flex;align-items:center;gap:12px;padding:16px 20px;margin-bottom:24px;
+     background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.2);border-radius:12px">
+  <i class="fa-solid fa-circle-check" style="font-size:22px;color:#22c55e"></i>
+  <div>
+    <div style="font-size:14px;font-weight:600;color:#22c55e">Alle Seiten haben ausreichend Vorrat</div>
+    <div style="font-size:12px;color:var(--muted)">Keine manuellen Seiten mit Vorrat-Problem.</div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Telegram Queue ── #}
+<div id="tg-queue" style="margin-bottom:24px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <i class="fa-brands fa-telegram" style="color:#29b6f6"></i>
+      <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">TELEGRAM QUEUE</span>
+      {% if tg_queue %}
+      <span style="font-size:12px;color:var(--muted)">({{ tg_queue|length }} warten)</span>
+      {% endif %}
+    </div>
+    {% if tg_queue %}
+    <button onclick="markAllTg()" class="btn btn-ghost" style="font-size:12px">
+      <i class="fa-solid fa-check-double"></i> Alle als gepostet
+    </button>
+    {% endif %}
+  </div>
+
+  {% if not tg_queue %}
+  <div style="padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:12px;
+       text-align:center;color:var(--muted);font-size:13px">
+    <i class="fa-brands fa-telegram" style="font-size:24px;opacity:.3;display:block;margin-bottom:8px"></i>
+    Queue leer — nichts zu erledigen
+  </div>
+  {% else %}
+  <div id="tgQueueList" style="display:flex;flex-direction:column;gap:8px">
+    {% for post in tg_queue %}
+    <div id="tqrow-{{ post.id }}"
+         style="display:flex;align-items:center;gap:12px;padding:12px 16px;
+                background:var(--surface);border:1px solid var(--border);border-radius:10px;
+                transition:opacity .3s,transform .3s">
+      {% if post.image_url %}
+      <img src="{{ post.image_url }}" alt=""
+           style="width:42px;height:42px;object-fit:cover;border-radius:6px;
+                  border:1px solid var(--border);flex-shrink:0">
+      {% else %}
+      <div style="width:42px;height:42px;border-radius:6px;background:var(--surface2);
+           flex-shrink:0;display:flex;align-items:center;justify-content:center">
+        <i class="fa-solid fa-image" style="color:var(--muted);font-size:14px"></i>
+      </div>
+      {% endif %}
+
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:700;color:var(--accent2);margin-bottom:2px">
+          {{ post.account.name if post.account else '—' }}
+        </div>
+        <div style="font-size:12px;color:var(--text);
+                    overflow:hidden;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical">
+          {{ post.caption or post.title or '(kein Text)' }}
+        </div>
+      </div>
+
+      <div style="font-size:11px;color:var(--muted);text-align:right;flex-shrink:0;min-width:80px">
+        <i class="fa-brands fa-telegram" style="color:#29b6f6"></i>
+        {{ post.telegram_sent_at.strftime('%H:%M') if post.telegram_sent_at else '—' }}
+      </div>
+
+      <button onclick="markTgPosted({{ post.id }}, this)"
+              class="btn btn-primary" style="font-size:11px;padding:6px 12px;white-space:nowrap;flex-shrink:0">
+        <i class="fa-solid fa-check"></i> Gepostet
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+{# ── Heute geplant ── #}
+<div id="posts-today" style="margin-bottom:24px">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <i class="fa-solid fa-calendar-day" style="color:var(--accent2)"></i>
+    <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">HEUTE GEPLANT</span>
+    <span style="font-size:12px;color:var(--muted)">({{ posts_today|length }})</span>
+  </div>
+
+  {% if not posts_today %}
+  <div style="padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:12px;
+       text-align:center;color:var(--muted);font-size:13px">
+    Keine Posts für heute geplant.
+  </div>
+  {% else %}
+  <div class="card" style="overflow:hidden">
+    <table class="table" style="font-size:12px">
+      <thead>
+        <tr>
+          <th>Uhrzeit</th>
+          <th>Account</th>
+          <th>Vorschau</th>
+          <th style="text-align:center">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for post in posts_today %}
+        <tr>
+          <td style="color:var(--accent2);font-family:var(--font-display);font-size:14px;white-space:nowrap">
+            {{ post.scheduled_at.strftime('%H:%M') }}
+          </td>
+          <td style="font-weight:600">
+            <a href="{{ url_for('account_detail', account_id=post.account_id) }}"
+               style="color:var(--text);text-decoration:none">
+              {{ post.account.name if post.account else '—' }}
+            </a>
+          </td>
+          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">
+            {{ post.caption or post.title or '—' }}
+          </td>
+          <td style="text-align:center">
+            {% if post.status == 'published' %}
+            <span class="badge badge-green">Gepostet</span>
+            {% elif post.status == 'scheduled' %}
+            <span class="badge badge-gray">Geplant</span>
+            {% else %}
+            <span class="badge">{{ post.status }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Offene Alerts ── #}
+{% if open_alerts %}
+<div style="margin-bottom:24px">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <i class="fa-solid fa-bell" style="color:var(--warning)"></i>
+    <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">OFFENE ALERTS</span>
+    <span style="font-size:12px;color:var(--muted)">({{ open_alerts|length }})</span>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:6px">
+    {% for alert in open_alerts %}
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;
+         background:var(--surface);border:1px solid var(--border);border-radius:10px">
+      <i class="fa-solid fa-circle-exclamation"
+         style="font-size:14px;color:{% if alert.severity == 'critical' %}var(--danger)
+                {% elif alert.severity == 'warning' %}var(--warning){% else %}var(--muted){% endif %}"></i>
+      <span style="font-size:13px;color:var(--text);flex:1">{{ alert.message }}</span>
+      <a href="{{ url_for('alerts_center') }}" style="font-size:11px;color:var(--muted);text-decoration:none">
+        Details <i class="fa-solid fa-arrow-right" style="font-size:9px"></i>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function markTgPosted(postId, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  const r = await fetch(`/api/posts/${postId}/mark-published`, {method:'POST'});
+  const d = await r.json();
+  if (d.ok) {
+    const row = document.getElementById(`tqrow-${postId}`);
+    row.style.opacity = '0'; row.style.transform = 'translateX(40px)';
+    setTimeout(() => { row.remove(); updateChip('tg'); }, 350);
+    showToast('Als gepostet markiert ✓', 'success');
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Gepostet';
+  }
+}
+
+async function markAllTg() {
+  const rows = document.querySelectorAll('[id^="tqrow-"]');
+  if (!rows.length || !confirm(`Alle ${rows.length} Posts als gepostet markieren?`)) return;
+  for (const row of rows) {
+    const postId = row.id.replace('tqrow-', '');
+    const r = await fetch(`/api/posts/${postId}/mark-published`, {method:'POST'});
+    const d = await r.json();
+    if (d.ok) { row.style.opacity='0'; setTimeout(() => row.remove(), 300); }
+  }
+  showToast(`${rows.length} Posts als gepostet markiert ✓`, 'success');
+}
+
+function updateChip(type) {
+  // Update the chip counter in top summary - simple page reload after 1s
+  setTimeout(() => location.reload(), 1200);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Telegram-Warteschlange — Content OS{% endblock %}
+{% block page_title %}TELEGRAM-WARTESCHLANGE{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+  <p style="color:var(--muted);font-size:13px;margin:0">
+    Posts die per Telegram verschickt wurden und noch nicht als
+    <strong style="color:var(--text)">gepostet</strong> markiert sind.
+  </p>
+  <div style="display:flex;align-items:center;gap:8px">
+    <span id="pendingBadge" style="background:rgba(251,191,36,.15);color:#fbbf24;font-size:12px;font-weight:700;
+          padding:4px 10px;border-radius:20px;border:1px solid rgba(251,191,36,.3)">
+      {{ posts|length }} ausstehend
+    </span>
+    <button onclick="markAllVisible()" class="btn btn-ghost" style="font-size:12px">
+      <i class="fa-solid fa-check-double"></i> Alle markieren
+    </button>
+  </div>
+</div>
+
+{% if not posts %}
+<div style="text-align:center;padding:80px 20px;color:var(--muted)">
+  <i class="fa-brands fa-telegram" style="font-size:48px;opacity:.3;display:block;margin-bottom:16px"></i>
+  <div style="font-size:16px;font-weight:600;margin-bottom:8px">Alles erledigt!</div>
+  <div style="font-size:13px">Keine Posts in der Telegram-Warteschlange.</div>
+</div>
+{% else %}
+<div id="queueList" style="display:flex;flex-direction:column;gap:10px">
+  {% for post in posts %}
+  <div id="row-{{ post.id }}" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
+       padding:16px 20px;display:flex;align-items:center;gap:16px;transition:opacity .3s">
+
+    <!-- Account -->
+    <div style="flex-shrink:0;min-width:160px">
+      {% if post.account %}
+      <a href="{{ url_for('account_detail', account_id=post.account.id) }}"
+         style="font-weight:700;font-size:13px;color:var(--text);text-decoration:none">
+        {{ post.account.name }}
+      </a>
+      {% if post.account.handle %}
+      <div style="font-size:11px;color:var(--muted)">@{{ post.account.handle }}</div>
+      {% endif %}
+      {% else %}
+      <span style="color:var(--muted);font-size:12px">—</span>
+      {% endif %}
+    </div>
+
+    <!-- Post-Vorschau -->
+    <div style="flex:1;min-width:0">
+      {% if post.image_url %}
+      <img src="{{ post.image_url }}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:6px;
+           float:left;margin-right:10px;border:1px solid var(--border)">
+      {% endif %}
+      <div style="font-size:13px;color:var(--text);
+                  overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">
+        {{ post.caption or post.title or '(kein Text)' }}
+      </div>
+    </div>
+
+    <!-- Zeitstempel -->
+    <div style="flex-shrink:0;text-align:right;font-size:11px;color:var(--muted);min-width:120px">
+      <div style="margin-bottom:4px">
+        <i class="fa-brands fa-telegram" style="color:#29b6f6"></i>
+        {{ post.telegram_sent_at.strftime('%d.%m. %H:%M') if post.telegram_sent_at else '—' }}
+      </div>
+      <div style="background:rgba(251,191,36,.15);color:#fbbf24;font-size:10px;font-weight:700;
+           padding:2px 8px;border-radius:10px;display:inline-block">
+        {{ post.status }}
+      </div>
+    </div>
+
+    <!-- Aktionen -->
+    <div style="flex-shrink:0;display:flex;gap:8px">
+      <a href="{{ url_for('account_detail', account_id=post.account_id) }}"
+         class="btn btn-ghost" style="font-size:11px;padding:6px 10px"
+         title="Account öffnen">
+        <i class="fa-solid fa-arrow-up-right-from-square"></i>
+      </a>
+      <button onclick="markPosted({{ post.id }}, this)"
+              class="btn btn-primary" style="font-size:12px;padding:7px 14px;white-space:nowrap">
+        <i class="fa-solid fa-check"></i> Gepostet
+      </button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function markPosted(postId, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  const r = await fetch(`/api/posts/${postId}/mark-published`, {method:'POST'});
+  const d = await r.json();
+  if (d.ok) {
+    const row = document.getElementById(`row-${postId}`);
+    row.style.opacity = '0';
+    row.style.transform = 'translateX(40px)';
+    row.style.transition = 'opacity .35s, transform .35s';
+    setTimeout(() => row.remove(), 360);
+    updateBadge(-1);
+    showToast('Als gepostet markiert ✓', 'success');
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Gepostet';
+    showToast('Fehler beim Speichern.', 'error');
+  }
+}
+
+async function markAllVisible() {
+  const rows = document.querySelectorAll('[id^="row-"]');
+  if (!rows.length) return;
+  if (!confirm(`Alle ${rows.length} Posts als gepostet markieren?`)) return;
+  for (const row of rows) {
+    const postId = row.id.replace('row-', '');
+    const r = await fetch(`/api/posts/${postId}/mark-published`, {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      row.style.opacity = '0';
+      setTimeout(() => row.remove(), 300);
+    }
+  }
+  updateBadge(-rows.length);
+  showToast(`${rows.length} Posts als gepostet markiert ✓`, 'success');
+}
+
+function updateBadge(delta) {
+  const badge = document.getElementById('pendingBadge');
+  if (!badge) return;
+  const cur = parseInt(badge.textContent) || 0;
+  const next = Math.max(0, cur + delta);
+  badge.textContent = `${next} ausstehend`;
+}
+</script>
+{% endblock %}
