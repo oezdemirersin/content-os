@@ -133,6 +133,24 @@
       {% endfor %}
     </div>
 
+    <!-- Bulk-Auswahl-Leiste -->
+    {% if posts %}
+    <div id="selectionBar"
+         style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:12px;
+                background:var(--surface);border:1px solid var(--border);border-radius:10px;flex-wrap:wrap">
+      <span style="font-size:12px;font-weight:600;color:var(--muted)" id="selCount">0 ausgewählt</span>
+      <button onclick="selectAllPosts()" class="btn btn-ghost"
+              style="font-size:11px;padding:4px 10px">Alle</button>
+      <button onclick="selectNonePosts()" class="btn btn-ghost"
+              style="font-size:11px;padding:4px 10px">Keine</button>
+      <div style="flex:1"></div>
+      <button onclick="openBulkModal()" id="bulkUseBtn" class="btn btn-primary"
+              style="font-size:12px;opacity:.4;pointer-events:none" disabled>
+        <i class="fa-solid fa-layer-group"></i> Ausgewählte in Vorrat
+      </button>
+    </div>
+    {% endif %}
+
     <!-- Posts-Grid -->
     {% if not posts %}
     <div style="text-align:center;padding:60px 20px;color:var(--muted)">
@@ -155,11 +173,25 @@
                   overflow:hidden;transition:opacity .3s,transform .3s">
 
         <!-- Bild -->
-        <div style="aspect-ratio:1;overflow:hidden;background:var(--surface2);position:relative">
+        <div style="aspect-ratio:1;overflow:hidden;background:var(--surface2);position:relative;
+                    {% if post.status != 'used' %}cursor:pointer{% endif %}"
+             {% if post.status != 'used' %}onclick="toggleSelect({{ post.id }})"{% endif %}>
           {% if post.thumbnail_url %}
           <img src="{{ post.thumbnail_url }}" alt=""
-               style="width:100%;height:100%;object-fit:cover"
+               style="width:100%;height:100%;object-fit:cover;pointer-events:none"
                onerror="this.style.display='none'">
+          {% endif %}
+
+          <!-- Auswahl-Checkbox (nur für auswählbare Posts) -->
+          {% if post.status != 'used' %}
+          <div id="sel-{{ post.id }}"
+               style="position:absolute;top:7px;left:7px;width:22px;height:22px;border-radius:50%;
+                      border:2px solid rgba(255,255,255,.85);background:rgba(0,0,0,.35);
+                      display:flex;align-items:center;justify-content:center;
+                      transition:background .15s,border-color .15s;z-index:10">
+            <i class="fa-solid fa-check" id="selcheck-{{ post.id }}"
+               style="font-size:10px;color:white;opacity:0;transition:opacity .15s"></i>
+          </div>
           {% endif %}
 
           <!-- Typ-Badge -->
@@ -177,7 +209,7 @@
 
           <!-- Status-Badge -->
           {% if post.status == 'saved' %}
-          <div style="position:absolute;top:7px;left:7px;background:#22c55e;
+          <div style="position:absolute;bottom:7px;left:7px;background:#22c55e;
                border-radius:5px;padding:2px 7px;font-size:10px;color:white">
             <i class="fa-solid fa-bookmark"></i>
           </div>
@@ -379,6 +411,76 @@
         <button onclick="closeUseModal()" class="btn btn-ghost">Abbrechen</button>
         <button id="confirmUseBtn" onclick="confirmUse()" class="btn btn-primary">
           <i class="fa-solid fa-arrow-right"></i> Übernehmen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Bulk-Verwenden-Modal ── -->
+<div id="bulkModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.65);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeBulkModal()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:440px;margin:16px;box-shadow:0 24px 80px rgba(0,0,0,.6)">
+
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-family:var(--font-display);font-size:17px;letter-spacing:.5px">
+          MEHRERE ÜBERNEHMEN
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px" id="bulkSubtitle"></div>
+      </div>
+      <button onclick="closeBulkModal()"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <div style="padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+
+      <div>
+        <label class="form-label">Für welche Seite?</label>
+        <select id="bulkAccountId" class="select-field">
+          <option value="">— Kein Account (nur in Medienbibliothek) —</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+          <span>In welchen Ordner?</span>
+          <a href="{{ url_for('kategorien') }}" target="_blank"
+             style="font-size:10px;color:var(--accent);text-decoration:none">
+            <i class="fa-solid fa-plus"></i> Ordner verwalten
+          </a>
+        </label>
+        <select id="bulkFolderId" class="select-field">
+          <option value="">— Kein Ordner —</option>
+          {% for f in all_folders %}
+          <option value="{{ f.id }}">{{ f.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Fortschritt -->
+      <div id="bulkProgress" style="display:none">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px">
+          <span id="bulkProgressText">Verarbeite…</span>
+          <span id="bulkProgressPct"></span>
+        </div>
+        <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+          <div id="bulkProgressBar"
+               style="height:100%;background:var(--accent);border-radius:3px;
+                      width:0%;transition:width .3s"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="closeBulkModal()" class="btn btn-ghost" id="bulkCancelBtn">Abbrechen</button>
+        <button onclick="runBulkUse()" id="bulkConfirmBtn" class="btn btn-primary">
+          <i class="fa-solid fa-layer-group"></i> Alle in Vorrat übernehmen
         </button>
       </div>
     </div>
@@ -625,6 +727,145 @@ function showFetchStatus(html) {
 }
 function hideFetchStatus() {
   document.getElementById('fetchStatus').style.display = 'none';
+}
+
+// ── Bulk-Auswahl ──────────────────────────────────────────────
+const _sel = new Set();
+
+function toggleSelect(id) {
+  if (_sel.has(id)) {
+    _sel.delete(id);
+    _setCardSelected(id, false);
+  } else {
+    _sel.add(id);
+    _setCardSelected(id, true);
+  }
+  _updateSelBar();
+}
+
+function _setCardSelected(id, on) {
+  const circle = document.getElementById(`sel-${id}`);
+  const check  = document.getElementById(`selcheck-${id}`);
+  const card   = document.getElementById(`pcard-${id}`);
+  if (!circle) return;
+  circle.style.background      = on ? 'var(--accent)'            : 'rgba(0,0,0,.35)';
+  circle.style.borderColor     = on ? 'var(--accent)'            : 'rgba(255,255,255,.85)';
+  if (check) check.style.opacity = on ? '1' : '0';
+  if (card)  card.style.outline  = on ? '2px solid var(--accent)' : 'none';
+}
+
+function selectAllPosts() {
+  document.querySelectorAll('[id^="sel-"]').forEach(el => {
+    const id = parseInt(el.id.replace('sel-', ''));
+    if (!isNaN(id)) { _sel.add(id); _setCardSelected(id, true); }
+  });
+  _updateSelBar();
+}
+
+function selectNonePosts() {
+  _sel.forEach(id => _setCardSelected(id, false));
+  _sel.clear();
+  _updateSelBar();
+}
+
+function _updateSelBar() {
+  const n   = _sel.size;
+  const btn = document.getElementById('bulkUseBtn');
+  document.getElementById('selCount').textContent = n === 0
+    ? '0 ausgewählt'
+    : `${n} ausgewählt`;
+  if (btn) {
+    btn.disabled           = n === 0;
+    btn.style.opacity      = n === 0 ? '.4' : '1';
+    btn.style.pointerEvents = n === 0 ? 'none' : 'auto';
+  }
+}
+
+function openBulkModal() {
+  if (_sel.size === 0) return;
+  document.getElementById('bulkSubtitle').textContent =
+    `${_sel.size} Posts → als Entwurf in den Vorrat`;
+  document.getElementById('bulkProgress').style.display = 'none';
+  document.getElementById('bulkProgressBar').style.width = '0%';
+  document.getElementById('bulkConfirmBtn').disabled = false;
+  document.getElementById('bulkConfirmBtn').innerHTML =
+    '<i class="fa-solid fa-layer-group"></i> Alle in Vorrat übernehmen';
+
+  // Account-Dropdown füllen (einmalig)
+  const sel = document.getElementById('bulkAccountId');
+  if (sel.options.length <= 1) {
+    getAllAccountOptions().forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.id; opt.textContent = a.name;
+      sel.appendChild(opt);
+    });
+  }
+
+  document.getElementById('bulkModal').style.display = 'flex';
+}
+
+function closeBulkModal() {
+  document.getElementById('bulkModal').style.display = 'none';
+}
+
+async function runBulkUse() {
+  const ids        = [..._sel];
+  const account_id = parseInt(document.getElementById('bulkAccountId').value) || null;
+  const folder_id  = parseInt(document.getElementById('bulkFolderId').value)  || null;
+
+  const confirmBtn = document.getElementById('bulkConfirmBtn');
+  const cancelBtn  = document.getElementById('bulkCancelBtn');
+  const progWrap   = document.getElementById('bulkProgress');
+  const progBar    = document.getElementById('bulkProgressBar');
+  const progText   = document.getElementById('bulkProgressText');
+  const progPct    = document.getElementById('bulkProgressPct');
+
+  confirmBtn.disabled = true;
+  cancelBtn.disabled  = true;
+  progWrap.style.display = 'block';
+
+  let done = 0, errors = 0;
+  for (const id of ids) {
+    progText.textContent = `Verarbeite ${done + 1} von ${ids.length}…`;
+    progPct.textContent  = `${Math.round((done / ids.length) * 100)} %`;
+    progBar.style.width  = `${(done / ids.length) * 100}%`;
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 90000);
+      const resp = await fetch(`/api/inspirationen/${id}/use`, {
+        signal: controller.signal,
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({account_id, folder_id, mode: 'reserve', caption: ''})
+      });
+      clearTimeout(timer);
+      const r = await resp.json();
+      if (r.ok) {
+        const card = document.getElementById(`pcard-${id}`);
+        if (card) { card.style.opacity='0'; card.style.transform='scale(.95)';
+                    setTimeout(() => card.remove(), 350); }
+        _sel.delete(id);
+      } else {
+        errors++;
+      }
+    } catch(e) {
+      errors++;
+    }
+    done++;
+  }
+
+  progBar.style.width  = '100%';
+  progPct.textContent  = '100 %';
+  progText.textContent = errors > 0
+    ? `Fertig — ${done - errors} übernommen, ${errors} Fehler`
+    : `Fertig — alle ${done} übernommen ✓`;
+  progText.style.color = errors > 0 ? 'var(--warning)' : 'var(--success)';
+
+  cancelBtn.disabled  = false;
+  cancelBtn.textContent = 'Schließen';
+  _updateSelBar();
+  if (errors === 0) setTimeout(closeBulkModal, 1200);
 }
 
 // ── "Verwenden"-Buttons via Event-Delegation ──────────────────
