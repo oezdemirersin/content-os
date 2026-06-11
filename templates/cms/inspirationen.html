@@ -133,6 +133,48 @@
       {% endfor %}
     </div>
 
+    <!-- Filter & Sortierung -->
+    <form method="get" id="filterForm"
+          style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <input type="hidden" name="status" value="{{ status_filter }}">
+      {% if source_filter %}<input type="hidden" name="source" value="{{ source_filter }}">{% endif %}
+
+      <!-- Sortierung -->
+      <select name="sort" class="select-field" style="font-size:12px;padding:6px 10px;flex-shrink:0"
+              onchange="this.form.submit()">
+        <option value="date_desc"  {% if sort_by=='date_desc'  %}selected{% endif %}>Neueste zuerst</option>
+        <option value="likes_desc" {% if sort_by=='likes_desc' %}selected{% endif %}>Meiste Likes zuerst</option>
+        <option value="date_asc"   {% if sort_by=='date_asc'   %}selected{% endif %}>Älteste zuerst</option>
+      </select>
+
+      <!-- Min-Likes -->
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="font-size:11px;color:var(--muted);white-space:nowrap">Min. Likes</span>
+        <input type="number" name="min_likes" value="{{ min_likes }}" min="0" placeholder="z.B. 500"
+               class="input-field" style="width:80px;font-size:12px;padding:5px 8px">
+      </div>
+
+      <!-- Datum von/bis -->
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="font-size:11px;color:var(--muted)">Von</span>
+        <input type="date" name="date_from" value="{{ date_from }}"
+               class="input-field" style="font-size:12px;padding:5px 8px">
+        <span style="font-size:11px;color:var(--muted)">Bis</span>
+        <input type="date" name="date_to" value="{{ date_to }}"
+               class="input-field" style="font-size:12px;padding:5px 8px">
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="font-size:12px;padding:6px 14px">
+        <i class="fa-solid fa-filter"></i> Filtern
+      </button>
+      {% if min_likes or date_from or date_to or sort_by != 'date_desc' %}
+      <a href="{{ url_for('inspirationen', status=status_filter) }}"
+         class="btn btn-ghost" style="font-size:12px;padding:6px 10px;color:var(--muted)">
+        <i class="fa-solid fa-xmark"></i> Reset
+      </a>
+      {% endif %}
+    </form>
+
     <!-- Bulk-Auswahl-Leiste -->
     {% if posts %}
     <div id="selectionBar"
@@ -236,6 +278,25 @@
             </span>
             {% endif %}
           </div>
+
+          <!-- Likes & Kommentare -->
+          {% if post.like_count is not none %}
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+            <span style="font-size:12px;font-weight:700;color:
+              {% if post.like_count >= 10000 %}#f59e0b
+              {% elif post.like_count >= 1000 %}#22c55e
+              {% else %}var(--muted){% endif %}">
+              <i class="fa-solid fa-heart" style="font-size:10px;margin-right:2px"></i>
+              {{ '{:,}'.format(post.like_count).replace(',','.') }}
+            </span>
+            {% if post.comment_count %}
+            <span style="font-size:11px;color:var(--muted)">
+              <i class="fa-regular fa-comment" style="font-size:10px;margin-right:2px"></i>
+              {{ '{:,}'.format(post.comment_count).replace(',','.') }}
+            </span>
+            {% endif %}
+          </div>
+          {% endif %}
 
           <!-- Caption Preview -->
           {% if post.caption %}

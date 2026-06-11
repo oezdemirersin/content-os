@@ -417,6 +417,9 @@ def init_db():
                 created_at TIMESTAMP DEFAULT NOW()
             )''')
             safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS folder_id INTEGER REFERENCES content_folder(id)')
+            # ── inspiration_post: Likes / Comments ───────────────────────
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS like_count INTEGER')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS comment_count INTEGER')
             # ── account: KI-Caption Felder ───────────────────────────────
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS default_hashtags TEXT')
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS sports_hashtag VARCHAR(200)')
@@ -458,6 +461,12 @@ def init_db():
             ci_cols2 = [c['name'] for c in inspector.get_columns('content_item')]
             if 'folder_id' not in ci_cols2:
                 safe_alter('ALTER TABLE content_item ADD COLUMN folder_id INTEGER REFERENCES content_folder(id)')
+            # inspiration_post: Likes / Comments
+            ip_cols = [c['name'] for c in inspector.get_columns('inspiration_post')]
+            if 'like_count' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN like_count INTEGER')
+            if 'comment_count' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN comment_count INTEGER')
             # account: KI-Caption Felder
             if 'default_hashtags' not in account_cols:
                 safe_alter('ALTER TABLE account ADD COLUMN default_hashtags TEXT')
@@ -6300,13 +6309,38 @@ def inspirationen():
     sources = InspirationSource.query.order_by(InspirationSource.username).all()
     status_filter = request.args.get('status', 'new')
     source_filter = request.args.get('source', type=int)
+    sort_by       = request.args.get('sort', 'date_desc')      # date_desc | date_asc | likes_desc
+    min_likes     = request.args.get('min_likes', type=int)    # z.B. 500
+    date_from_str = request.args.get('date_from', '')          # YYYY-MM-DD
+    date_to_str   = request.args.get('date_to', '')
 
     q = InspirationPost.query
     if status_filter and status_filter != 'all':
         q = q.filter_by(status=status_filter)
     if source_filter:
         q = q.filter_by(source_id=source_filter)
-    posts = q.order_by(InspirationPost.post_date.desc()).limit(200).all()
+    if min_likes:
+        q = q.filter(InspirationPost.like_count >= min_likes)
+    if date_from_str:
+        try:
+            q = q.filter(InspirationPost.post_date >= datetime.fromisoformat(date_from_str))
+        except Exception:
+            pass
+    if date_to_str:
+        try:
+            q = q.filter(InspirationPost.post_date <= datetime.fromisoformat(date_to_str + 'T23:59:59'))
+        except Exception:
+            pass
+
+    if sort_by == 'likes_desc':
+        q = q.order_by(InspirationPost.like_count.desc().nulls_last(),
+                       InspirationPost.post_date.desc())
+    elif sort_by == 'date_asc':
+        q = q.order_by(InspirationPost.post_date.asc())
+    else:  # date_desc (default)
+        q = q.order_by(InspirationPost.post_date.desc())
+
+    posts = q.limit(300).all()
 
     counts = {
         'new':     InspirationPost.query.filter_by(status='new').count(),
@@ -6321,6 +6355,8 @@ def inspirationen():
     return render_template('inspirationen.html',
         sources=sources, posts=posts, counts=counts,
         status_filter=status_filter, source_filter=source_filter,
+        sort_by=sort_by, min_likes=min_likes or '',
+        date_from=date_from_str, date_to=date_to_str,
         has_rapidapi_key=has_rapidapi_key,
         all_accounts=all_accounts,
         all_folders=all_folders,
@@ -6565,11 +6601,25 @@ def inspiration_fetch(src_id):
         else:
             media_type = 'image'
 
+        # Likes / Kommentare — verschiedene API-Feldnamen abdecken
+        def _int_or_none(val):
+            try: return int(val) if val is not None else None
+            except: return None
+
+        raw_likes = (item.get('likeCount') or item.get('like_count') or
+                     item.get('likes') or item.get('likes_count') or
+                     (item.get('edge_media_to_like') or {}).get('count'))
+        raw_comments = (item.get('commentsCount') or item.get('comment_count') or
+                        item.get('comments') or
+                        (item.get('edge_media_to_comment') or {}).get('count'))
+
         post = InspirationPost(
             source_id=src.id, instagram_code=code,
             image_url=img_url, thumbnail_url=thumb_url or img_url,
             caption=caption, post_date=post_date,
             media_type=media_type, status='new',
+            like_count=_int_or_none(raw_likes),
+            comment_count=_int_or_none(raw_comments),
         )
         db.session.add(post)
         new_count += 1
