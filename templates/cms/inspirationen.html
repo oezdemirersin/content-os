@@ -201,8 +201,10 @@
           <!-- Aktionen -->
           <div style="display:flex;gap:4px;flex-wrap:wrap">
             {% if post.status != 'used' %}
-            <button onclick="openUseModal({{ post.id }}, {{ post.caption|tojson if post.caption else '\"\"' }}, {{ post.post_date.strftime('%m-%d') | tojson if post.post_date else 'null' }})"
-                    class="btn btn-primary"
+            <button class="btn btn-primary use-btn"
+                    data-id="{{ post.id }}"
+                    data-caption="{{ (post.caption or '') | e }}"
+                    data-md="{{ post.post_date.strftime('%m-%d') if post.post_date else '' }}"
                     style="flex:1;font-size:11px;padding:5px 8px;min-width:80px">
               <i class="fa-solid fa-arrow-right"></i> Verwenden
             </button>
@@ -567,5 +569,16 @@ function showFetchStatus(html) {
 function hideFetchStatus() {
   document.getElementById('fetchStatus').style.display = 'none';
 }
+
+// ── "Verwenden"-Buttons via Event-Delegation ──────────────────
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.use-btn');
+  if (!btn) return;
+  openUseModal(
+    btn.dataset.id,
+    btn.dataset.caption,
+    btn.dataset.md || null
+  );
+});
 </script>
 {% endblock %}
