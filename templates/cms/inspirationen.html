@@ -44,61 +44,114 @@
 
     <!-- Quellen-Liste gruppiert nach Account -->
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border);
-                  font-family:var(--font-display);font-size:12px;letter-spacing:.5px;color:var(--muted)">
-        BEOBACHTETE SEITEN ({{ sources|length }})
+
+      <!-- Header mit "Alle laden"-Button -->
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;
+                  border-bottom:1px solid var(--border)">
+        <span style="font-family:var(--font-display);font-size:11px;letter-spacing:.5px;
+                     color:var(--muted);flex:1">QUELLEN ({{ sources|length }})</span>
+        {% if sources and has_rapidapi_key %}
+        <button onclick="fetchAll()" title="Alle Seiten aktualisieren"
+                style="background:none;border:none;color:var(--muted);cursor:pointer;
+                       font-size:12px;padding:2px 4px" class="btn-icon-muted">
+          <i class="fa-solid fa-rotate"></i>
+        </button>
+        {% endif %}
       </div>
+
       {% if not sources %}
       <div style="padding:20px;text-align:center;font-size:12px;color:var(--muted)">
         Noch keine Seiten hinzugefügt.
       </div>
       {% else %}
 
-      {# --- Gruppen mit Account --- #}
+      {# ── Gruppen mit Account ── #}
       {% for acc_id, src_list in sources_by_account.items() %}
-        {% if acc_id %}
-        {% set acc = accounts_with_sources.get(acc_id) %}
-        <!-- Gruppen-Header -->
-        <a href="{{ url_for('inspirationen', account=acc_id, status=status_filter) }}"
-           style="display:flex;align-items:center;gap:7px;padding:8px 14px;
-                  background:{% if account_filter == acc_id %}rgba(99,102,241,.12){% else %}var(--surface2){% endif %};
-                  border-bottom:1px solid var(--border);text-decoration:none;
-                  border-left:3px solid {% if account_filter == acc_id %}var(--accent){% else %}transparent{% endif %}">
-          <i class="fa-solid fa-layer-group" style="font-size:10px;color:var(--accent)"></i>
-          <span style="font-size:12px;font-weight:700;color:var(--text);flex:1;min-width:0;
-                       overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-            {{ acc.name if acc else 'Account #' ~ acc_id }}
-          </span>
-          <span style="font-size:10px;color:var(--muted);flex-shrink:0">{{ src_list|length }}</span>
-        </a>
+      {% if acc_id %}
+      {% set acc = accounts_with_sources.get(acc_id) %}
+      {% set is_active = (account_filter == acc_id) %}
 
-        {% for src in src_list %}
-        <div style="border-bottom:1px solid var(--border);
-                    {% if source_filter == src.id %}background:rgba(59,130,246,.08){% endif %}">
-          <div style="display:flex;align-items:center;gap:8px;padding:7px 14px 7px 22px">
+      <!-- Gruppen-Header: Filter-Link + Auf/Zuklappen -->
+      <div style="border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;
+                    background:{% if is_active %}rgba(99,102,241,.1){% else %}var(--surface2){% endif %};
+                    border-left:3px solid {% if is_active %}var(--accent){% else %}transparent{% endif %}">
+
+          <!-- Klappbar-Toggle -->
+          <button onclick="toggleGroup({{ acc_id }})"
+                  style="background:none;border:none;cursor:pointer;padding:9px 8px 9px 12px;
+                         color:var(--muted);font-size:10px;flex-shrink:0">
+            <i class="fa-solid fa-chevron-down" id="chev-{{ acc_id }}"
+               style="transition:transform .2s"></i>
+          </button>
+
+          <!-- Filter-Link (Name) -->
+          <a href="{{ url_for('inspirationen', account=acc_id, status=status_filter) }}"
+             style="flex:1;min-width:0;text-decoration:none;padding:9px 0">
+            <div style="font-size:12px;font-weight:700;
+                        color:{% if is_active %}var(--accent){% else %}var(--text){% endif %};
+                        overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              {{ acc.name if acc else 'Account #' ~ acc_id }}
+            </div>
+          </a>
+
+          <!-- Quellenanzahl-Badge -->
+          <span style="font-size:10px;color:var(--muted);padding:0 12px;flex-shrink:0">
+            {{ src_list|length }}
+          </span>
+        </div>
+
+        <!-- Quellen dieser Gruppe (einklappbar) -->
+        <div id="group-{{ acc_id }}">
+          {% for src in src_list %}
+          <div style="display:flex;align-items:center;gap:6px;padding:6px 10px 6px 20px;
+                      border-top:1px solid var(--border);
+                      {% if source_filter == src.id %}background:rgba(59,130,246,.07){% endif %}">
+
+            <!-- Source-Link -->
             <a href="{{ url_for('inspirationen', account=acc_id, source=src.id, status=status_filter) }}"
                style="flex:1;min-width:0;text-decoration:none">
-              <div style="font-size:12px;font-weight:600;color:var(--text)">@{{ src.username }}</div>
+              <div style="font-size:12px;font-weight:{% if source_filter==src.id %}700{% else %}500{% endif %};
+                          color:{% if source_filter==src.id %}var(--accent){% else %}var(--text){% endif %}">
+                @{{ src.username }}
+              </div>
               <div style="font-size:10px;color:var(--muted)">
-                {% if src.last_fetch %}{{ src.last_fetch.strftime('%d.%m. %H:%M') }}
-                {% else %}Noch nie geladen{% endif %}
+                {% if src.last_fetch %}{{ src.last_fetch.strftime('%d.%m %H:%M') }}
+                {% else %}<span style="color:var(--warning)">nie geladen</span>{% endif %}
               </div>
             </a>
+
+            <!-- Gruppe-Wechseln Icon (öffnet verstecktes Select) -->
+            <button onclick="toggleGroupSelect({{ src.id }})" title="Gruppe ändern"
+                    style="background:none;border:none;cursor:pointer;color:var(--muted);
+                           font-size:11px;padding:3px;flex-shrink:0;opacity:.6">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+
+            <!-- Download -->
             <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
-                    class="btn btn-primary" style="font-size:10px;padding:3px 8px;flex-shrink:0"
-                    {% if not has_rapidapi_key %}disabled{% endif %}>
+                    title="Posts laden"
+                    style="background:none;border:none;cursor:pointer;color:var(--accent);
+                           font-size:11px;padding:3px;flex-shrink:0"
+                    {% if not has_rapidapi_key %}disabled style="opacity:.3"{% endif %}>
               <i class="fa-solid fa-download"></i>
             </button>
+
+            <!-- Löschen -->
             <button onclick="deleteSource({{ src.id }}, '@{{ src.username }}')"
-                    style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:2px">
+                    title="Entfernen"
+                    style="background:none;border:none;cursor:pointer;color:var(--muted);
+                           font-size:11px;padding:3px;flex-shrink:0;opacity:.5">
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
-          <!-- Account-Zuordnung -->
-          <div style="padding:0 14px 7px 22px">
+
+          <!-- Gruppen-Select (versteckt, per Stift-Icon aufklappbar) -->
+          <div id="gsel-{{ src.id }}" style="display:none;padding:4px 10px 6px 20px;
+               border-top:1px dashed var(--border);background:var(--surface2)">
             <select class="select-field src-account-select" data-src-id="{{ src.id }}"
-                    style="font-size:10px;padding:2px 6px;width:100%;height:auto">
-              <option value="">— Keiner —</option>
+                    style="font-size:11px;padding:3px 6px;width:100%;height:auto">
+              <option value="">— Keine Gruppe —</option>
               {% for a in all_accounts %}
               <option value="{{ a.id }}" {% if src.account_id == a.id %}selected{% endif %}>
                 {{ a.name }}
@@ -106,64 +159,83 @@
               {% endfor %}
             </select>
           </div>
+          {% endfor %}
         </div>
-        {% endfor %}
-        {% endif %}
+      </div>
+      {% endif %}
       {% endfor %}
 
-      {# --- Quellen ohne Account-Zuordnung --- #}
-      {% if sources_by_account.get(none) or sources_by_account.get(0) %}
+      {# ── Ohne Zuordnung ── #}
       {% set ungrouped = (sources_by_account.get(none) or []) + (sources_by_account.get(0) or []) %}
-      <div style="padding:7px 14px;background:var(--surface2);border-bottom:1px solid var(--border)">
-        <span style="font-size:11px;color:var(--muted);font-weight:600">
-          <i class="fa-solid fa-circle-question" style="margin-right:4px"></i>OHNE ZUORDNUNG
-        </span>
-      </div>
-      {% for src in ungrouped %}
-      <div style="border-bottom:1px solid var(--border);
-                  {% if source_filter == src.id %}background:rgba(59,130,246,.08){% endif %}">
-        <div style="display:flex;align-items:center;gap:8px;padding:7px 14px">
-          <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
-             style="flex:1;min-width:0;text-decoration:none">
-            <div style="font-size:12px;font-weight:600;color:var(--text)">@{{ src.username }}</div>
-            <div style="font-size:10px;color:var(--muted)">
-              {% if src.last_fetch %}{{ src.last_fetch.strftime('%d.%m. %H:%M') }}
-              {% else %}Noch nie geladen{% endif %}
+      {% if ungrouped %}
+      <div style="border-bottom:1px solid var(--border)">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;background:var(--surface2);
+                    border-left:3px solid transparent">
+          <button onclick="toggleGroup('none')"
+                  style="background:none;border:none;cursor:pointer;padding:8px 8px 8px 12px;
+                         color:var(--muted);font-size:10px;flex-shrink:0">
+            <i class="fa-solid fa-chevron-down" id="chev-none" style="transition:transform .2s"></i>
+          </button>
+          <span style="flex:1;font-size:11px;font-weight:600;color:var(--muted);
+                       padding:8px 0;letter-spacing:.3px">OHNE GRUPPE</span>
+          <span style="font-size:10px;color:var(--muted);padding:0 12px">{{ ungrouped|length }}</span>
+        </div>
+
+        <!-- Quellen -->
+        <div id="group-none">
+          {% for src in ungrouped %}
+          <div style="border-top:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:6px;padding:6px 10px 6px 14px;
+                        {% if source_filter == src.id %}background:rgba(59,130,246,.07){% endif %}">
+              <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
+                 style="flex:1;min-width:0;text-decoration:none">
+                <div style="font-size:12px;font-weight:500;color:var(--text)">@{{ src.username }}</div>
+                <div style="font-size:10px;color:var(--muted)">
+                  {% if src.last_fetch %}{{ src.last_fetch.strftime('%d.%m %H:%M') }}
+                  {% else %}<span style="color:var(--warning)">nie geladen</span>{% endif %}
+                </div>
+              </a>
+              <button onclick="toggleGroupSelect({{ src.id }})" title="Gruppe zuordnen"
+                      style="background:none;border:none;cursor:pointer;font-size:11px;
+                             padding:3px;flex-shrink:0;color:var(--warning)">
+                <i class="fa-solid fa-folder-plus"></i>
+              </button>
+              <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
+                      style="background:none;border:none;cursor:pointer;color:var(--accent);
+                             font-size:11px;padding:3px;flex-shrink:0"
+                      {% if not has_rapidapi_key %}disabled{% endif %}>
+                <i class="fa-solid fa-download"></i>
+              </button>
+              <button onclick="deleteSource({{ src.id }}, '@{{ src.username }}')"
+                      style="background:none;border:none;cursor:pointer;color:var(--muted);
+                             font-size:11px;padding:3px;flex-shrink:0;opacity:.5">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
             </div>
-          </a>
-          <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
-                  class="btn btn-primary" style="font-size:10px;padding:3px 8px;flex-shrink:0"
-                  {% if not has_rapidapi_key %}disabled{% endif %}>
-            <i class="fa-solid fa-download"></i>
-          </button>
-          <button onclick="deleteSource({{ src.id }}, '@{{ src.username }}')"
-                  style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:2px">
-            <i class="fa-solid fa-xmark"></i>
-          </button>
-        </div>
-        <div style="padding:0 14px 7px">
-          <select class="select-field src-account-select" data-src-id="{{ src.id }}"
-                  style="font-size:10px;padding:2px 6px;width:100%;height:auto">
-            <option value="">— Account zuordnen —</option>
-            {% for a in all_accounts %}
-            <option value="{{ a.id }}" {% if src.account_id == a.id %}selected{% endif %}>
-              {{ a.name }}
-            </option>
-            {% endfor %}
-          </select>
+            <!-- Gruppen-Select (aufklappbar) — bei ungrouped standardmäßig sichtbar -->
+            <div id="gsel-{{ src.id }}"
+                 style="padding:4px 10px 6px 14px;border-top:1px dashed var(--border);
+                        background:var(--surface2)">
+              <select class="select-field src-account-select" data-src-id="{{ src.id }}"
+                      style="font-size:11px;padding:3px 6px;width:100%;height:auto">
+                <option value="">— Gruppe zuordnen —</option>
+                {% for a in all_accounts %}
+                <option value="{{ a.id }}" {% if src.account_id == a.id %}selected{% endif %}>
+                  {{ a.name }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          {% endfor %}
         </div>
       </div>
-      {% endfor %}
       {% endif %}
 
       {% endif %}
     </div>
-
-    {% if sources and has_rapidapi_key %}
-    <button onclick="fetchAll()" class="btn btn-ghost" style="font-size:12px">
-      <i class="fa-solid fa-rotate"></i> Alle Seiten aktualisieren
-    </button>
-    {% endif %}
 
   </div>
 
@@ -1113,9 +1185,26 @@ document.addEventListener('change', function(e) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({account_id: sel.value ? parseInt(sel.value) : null})
   }).then(r => r.json()).then(d => {
-    if (d.ok) showToast('Standard-Account gespeichert ✓', 'success');
+    if (d.ok) { showToast('Gruppe gespeichert ✓', 'success'); setTimeout(()=>location.reload(),600); }
     else showToast(d.error || 'Fehler', 'error');
   });
 });
+
+// Gruppe auf-/zuklappen
+function toggleGroup(id) {
+  const body = document.getElementById('group-' + id);
+  const chev = document.getElementById('chev-' + id);
+  if (!body) return;
+  const collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? '' : 'none';
+  if (chev) chev.style.transform = collapsed ? '' : 'rotate(-90deg)';
+}
+
+// Gruppen-Select ein-/ausblenden (Stift-Icon)
+function toggleGroupSelect(srcId) {
+  const el = document.getElementById('gsel-' + srcId);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
 </script>
 {% endblock %}
