@@ -6307,18 +6307,37 @@ def meme_variant_notes(template_id, city):
 @login_required
 def inspirationen():
     sources = InspirationSource.query.order_by(InspirationSource.username).all()
-    status_filter = request.args.get('status', 'new')
-    source_filter = request.args.get('source', type=int)
-    sort_by       = request.args.get('sort', 'date_desc')      # date_desc | date_asc | likes_desc
-    min_likes     = request.args.get('min_likes', type=int)    # z.B. 500
-    date_from_str = request.args.get('date_from', '')          # YYYY-MM-DD
-    date_to_str   = request.args.get('date_to', '')
+    status_filter  = request.args.get('status', 'new')
+    source_filter  = request.args.get('source', type=int)
+    account_filter = request.args.get('account', type=int)   # alle Quellen dieses Accounts
+    sort_by        = request.args.get('sort', 'date_desc')
+    min_likes      = request.args.get('min_likes', type=int)
+    date_from_str  = request.args.get('date_from', '')
+    date_to_str    = request.args.get('date_to', '')
+
+    # Quellen nach Account gruppieren (für Sidebar)
+    from collections import defaultdict
+    sources_by_account = defaultdict(list)   # account_id → [sources]
+    for s in sources:
+        sources_by_account[s.account_id].append(s)
+    # Accounts mit Quellen laden (für Gruppen-Header)
+    account_ids_with_sources = [aid for aid in sources_by_account if aid]
+    accounts_with_sources = {
+        a.id: a for a in Account.query.filter(Account.id.in_(account_ids_with_sources)).all()
+    } if account_ids_with_sources else {}
 
     q = InspirationPost.query
     if status_filter and status_filter != 'all':
         q = q.filter_by(status=status_filter)
     if source_filter:
         q = q.filter_by(source_id=source_filter)
+    elif account_filter:
+        # Alle Quellen dieses Accounts
+        src_ids = [s.id for s in sources if s.account_id == account_filter]
+        if src_ids:
+            q = q.filter(InspirationPost.source_id.in_(src_ids))
+        else:
+            q = q.filter(db.false())
     if min_likes:
         q = q.filter(InspirationPost.like_count >= min_likes)
     if date_from_str:
@@ -6354,7 +6373,10 @@ def inspirationen():
     all_folders  = ContentFolder.query.order_by(ContentFolder.sort_order, ContentFolder.name).all()
     return render_template('inspirationen.html',
         sources=sources, posts=posts, counts=counts,
+        sources_by_account=dict(sources_by_account),
+        accounts_with_sources=accounts_with_sources,
         status_filter=status_filter, source_filter=source_filter,
+        account_filter=account_filter,
         sort_by=sort_by, min_likes=min_likes or '',
         date_from=date_from_str, date_to=date_to_str,
         has_rapidapi_key=has_rapidapi_key,
@@ -6593,9 +6615,8 @@ def inspiration_fetch(src_id):
         if not img_url:
             continue
 
-        # Caption — Apify liefert 'caption' als String, RapidAPI als Dict
-        cap_raw = item.get('caption') or ''
-        caption = cap_raw.get('text') if isinstance(cap_raw, dict) else str(cap_raw)
+        # Caption wird bewusst NICHT gespeichert (nur eigene Texte verwenden)
+        caption = ''
 
         # Datum — Apify liefert ISO-String, RapidAPI Unix-Timestamp
         post_date = None

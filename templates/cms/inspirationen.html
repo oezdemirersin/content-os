@@ -42,7 +42,7 @@
       </div>
     </div>
 
-    <!-- Quellen-Liste -->
+    <!-- Quellen-Liste gruppiert nach Account -->
     <div class="card" style="padding:0;overflow:hidden">
       <div style="padding:12px 16px;border-bottom:1px solid var(--border);
                   font-family:var(--font-display);font-size:12px;letter-spacing:.5px;color:var(--muted)">
@@ -53,52 +53,109 @@
         Noch keine Seiten hinzugefügt.
       </div>
       {% else %}
-      <div>
-        {% for src in sources %}
+
+      {# --- Gruppen mit Account --- #}
+      {% for acc_id, src_list in sources_by_account.items() %}
+        {% if acc_id %}
+        {% set acc = accounts_with_sources.get(acc_id) %}
+        <!-- Gruppen-Header -->
+        <a href="{{ url_for('inspirationen', account=acc_id, status=status_filter) }}"
+           style="display:flex;align-items:center;gap:7px;padding:8px 14px;
+                  background:{% if account_filter == acc_id %}rgba(99,102,241,.12){% else %}var(--surface2){% endif %};
+                  border-bottom:1px solid var(--border);text-decoration:none;
+                  border-left:3px solid {% if account_filter == acc_id %}var(--accent){% else %}transparent{% endif %}">
+          <i class="fa-solid fa-layer-group" style="font-size:10px;color:var(--accent)"></i>
+          <span style="font-size:12px;font-weight:700;color:var(--text);flex:1;min-width:0;
+                       overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            {{ acc.name if acc else 'Account #' ~ acc_id }}
+          </span>
+          <span style="font-size:10px;color:var(--muted);flex-shrink:0">{{ src_list|length }}</span>
+        </a>
+
+        {% for src in src_list %}
         <div style="border-bottom:1px solid var(--border);
                     {% if source_filter == src.id %}background:rgba(59,130,246,.08){% endif %}">
-
-          <!-- Zeile 1: Name + Buttons -->
-          <div style="display:flex;align-items:center;gap:8px;padding:10px 14px 4px">
+          <div style="display:flex;align-items:center;gap:8px;padding:7px 14px 7px 22px">
             <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
                style="flex:1;min-width:0;text-decoration:none">
-              <div style="font-size:13px;font-weight:600;color:var(--text)">@{{ src.username }}</div>
+              <div style="font-size:12px;font-weight:600;color:var(--text)">@{{ src.username }}</div>
               <div style="font-size:10px;color:var(--muted)">
-                {% if src.last_fetch %}Zuletzt: {{ src.last_fetch.strftime('%d.%m. %H:%M') }}
+                {% if src.last_fetch %}{{ src.last_fetch.strftime('%d.%m. %H:%M') }}
                 {% else %}Noch nie geladen{% endif %}
               </div>
             </a>
             <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
-                    class="btn btn-primary" style="font-size:11px;padding:5px 10px;flex-shrink:0"
-                    {% if not has_rapidapi_key %}disabled title="RapidAPI-Key fehlt"{% endif %}>
-              <i class="fa-solid fa-download"></i> Laden
+                    class="btn btn-primary" style="font-size:10px;padding:3px 8px;flex-shrink:0"
+                    {% if not has_rapidapi_key %}disabled{% endif %}>
+              <i class="fa-solid fa-download"></i>
             </button>
             <button onclick="deleteSource({{ src.id }}, '@{{ src.username }}')"
-                    style="background:none;border:none;color:var(--muted);cursor:pointer;
-                           font-size:13px;padding:4px;flex-shrink:0">
+                    style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:2px">
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
-
-          <!-- Zeile 2: Standard-Account Dropdown -->
-          <div style="padding:4px 14px 10px;display:flex;align-items:center;gap:6px">
-            <i class="fa-solid fa-arrow-right" style="font-size:10px;color:var(--muted);flex-shrink:0"></i>
-            <select class="select-field src-account-select"
-                    data-src-id="{{ src.id }}"
-                    style="font-size:11px;padding:3px 8px;flex:1;height:auto">
-              <option value="">— Kein Standard-Account —</option>
-              {% for acc in all_accounts %}
-              <option value="{{ acc.id }}"
-                {% if src.account_id == acc.id %}selected{% endif %}>
-                {{ acc.name }}{% if acc.status != 'active' %} ({{ acc.status }}){% endif %}
+          <!-- Account-Zuordnung -->
+          <div style="padding:0 14px 7px 22px">
+            <select class="select-field src-account-select" data-src-id="{{ src.id }}"
+                    style="font-size:10px;padding:2px 6px;width:100%;height:auto">
+              <option value="">— Keiner —</option>
+              {% for a in all_accounts %}
+              <option value="{{ a.id }}" {% if src.account_id == a.id %}selected{% endif %}>
+                {{ a.name }}
               </option>
               {% endfor %}
             </select>
           </div>
-
         </div>
         {% endfor %}
+        {% endif %}
+      {% endfor %}
+
+      {# --- Quellen ohne Account-Zuordnung --- #}
+      {% if sources_by_account.get(none) or sources_by_account.get(0) %}
+      {% set ungrouped = (sources_by_account.get(none) or []) + (sources_by_account.get(0) or []) %}
+      <div style="padding:7px 14px;background:var(--surface2);border-bottom:1px solid var(--border)">
+        <span style="font-size:11px;color:var(--muted);font-weight:600">
+          <i class="fa-solid fa-circle-question" style="margin-right:4px"></i>OHNE ZUORDNUNG
+        </span>
       </div>
+      {% for src in ungrouped %}
+      <div style="border-bottom:1px solid var(--border);
+                  {% if source_filter == src.id %}background:rgba(59,130,246,.08){% endif %}">
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 14px">
+          <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
+             style="flex:1;min-width:0;text-decoration:none">
+            <div style="font-size:12px;font-weight:600;color:var(--text)">@{{ src.username }}</div>
+            <div style="font-size:10px;color:var(--muted)">
+              {% if src.last_fetch %}{{ src.last_fetch.strftime('%d.%m. %H:%M') }}
+              {% else %}Noch nie geladen{% endif %}
+            </div>
+          </a>
+          <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
+                  class="btn btn-primary" style="font-size:10px;padding:3px 8px;flex-shrink:0"
+                  {% if not has_rapidapi_key %}disabled{% endif %}>
+            <i class="fa-solid fa-download"></i>
+          </button>
+          <button onclick="deleteSource({{ src.id }}, '@{{ src.username }}')"
+                  style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:2px">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div style="padding:0 14px 7px">
+          <select class="select-field src-account-select" data-src-id="{{ src.id }}"
+                  style="font-size:10px;padding:2px 6px;width:100%;height:auto">
+            <option value="">— Account zuordnen —</option>
+            {% for a in all_accounts %}
+            <option value="{{ a.id }}" {% if src.account_id == a.id %}selected{% endif %}>
+              {{ a.name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      {% endfor %}
+      {% endif %}
+
       {% endif %}
     </div>
 
