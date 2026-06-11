@@ -6371,26 +6371,40 @@ def inspiration_fetch(src_id):
 
     # ── Hilfsfunktion: Bild-URL extrahieren ───────────────────
     def _extract_img(item):
+        # instagram-scraper21: image = [{url, height, width}, ...]
+        img_list = item.get('image')
+        if isinstance(img_list, list) and img_list:
+            best = img_list[0].get('url', '') if isinstance(img_list[0], dict) else str(img_list[0])
+            thumb = img_list[-1].get('url', best) if isinstance(img_list[-1], dict) else best
+            if best.startswith('http'):
+                return best, thumb
+        # Andere APIs: image_versions2 / image_versions
         for key in ('image_versions2', 'image_versions'):
             iv_items = (item.get(key) or {}).get('items') or []
             if iv_items:
                 return iv_items[0].get('url'), iv_items[-1].get('url', iv_items[0].get('url'))
+        # Direkte URL-Felder
         for key in ('displayUrl', 'display_url', 'thumbnail_url', 'image_url', 'url'):
             v = item.get(key)
-            if v and v.startswith('http'):
+            if isinstance(v, str) and v.startswith('http'):
                 return v, v
+            if isinstance(v, list) and v:
+                u = v[0].get('url', '') if isinstance(v[0], dict) else str(v[0])
+                if u.startswith('http'):
+                    return u, u
+        # Carousel: erstes Bild nehmen
         cm = item.get('carousel_media') or item.get('images') or []
         if cm:
             first = cm[0] if isinstance(cm[0], dict) else None
             if first:
                 return _extract_img(first)
-            if isinstance(cm[0], str):
+            if isinstance(cm[0], str) and cm[0].startswith('http'):
                 return cm[0], cm[0]
         return None, None
 
-    # ── Posts verarbeiten ──────────────────────────────────────
+    # ── Posts verarbeiten (kein künstliches Limit) ─────────────
     new_count = 0
-    for item in items[:50]:
+    for item in items:
         code = str(item.get('shortCode') or item.get('code') or
                    item.get('shortcode') or item.get('id') or '')
         if not code:
@@ -6418,13 +6432,14 @@ def inspiration_fetch(src_id):
             except Exception:
                 pass
 
-        # Typ — Apify: "Image"/"Video"/"Sidecar", RapidAPI: 1/2/8
-        type_str = str(item.get('type') or '').lower()
-        mt = item.get('media_type', 1)
-        carousel_count = len(item.get('carousel_media') or item.get('images') or [])
-        if type_str == 'video' or mt == 2:
+        # Typ — scraper21: product_type ("clips"/"feed"), video=[{url}]
+        type_str    = str(item.get('type') or item.get('product_type') or '').lower()
+        mt          = item.get('media_type', 1)
+        has_video   = bool(item.get('video'))
+        carousel_ct = len(item.get('carousel_media') or item.get('images') or [])
+        if type_str in ('video', 'clips', 'reel') or has_video or mt == 2:
             media_type = 'video'
-        elif type_str == 'sidecar' or mt == 8 or carousel_count > 1:
+        elif type_str == 'sidecar' or mt == 8 or carousel_ct > 1:
             media_type = 'carousel'
         else:
             media_type = 'image'
