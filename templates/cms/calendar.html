@@ -40,10 +40,78 @@
   <div id="mainCalendar"></div>
 </div>
 
-<!-- Event Popup -->
-<div id="eventPopup" style="display:none;position:fixed;z-index:200;width:300px;
-     background:var(--surface);border:1px solid var(--border);border-radius:14px;
-     box-shadow:0 16px 48px rgba(0,0,0,.5);padding:16px"></div>
+<!-- Event Popup (kleiner Tooltip, bleibt für Kompatibilität) -->
+<div id="eventPopup" style="display:none"></div>
+
+<!-- Post-Detail-Modal -->
+<div id="postDetailModal"
+     style="display:none;position:fixed;inset:0;z-index:300;align-items:flex-start;
+            justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);
+            padding:20px;overflow-y:auto"
+     onclick="if(event.target===this)closePostDetail()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:18px;
+              width:100%;max-width:520px;box-shadow:0 32px 80px rgba(0,0,0,.6);
+              margin:auto;overflow:hidden">
+
+    <!-- Bild / Karussell -->
+    <div id="pdMedia" style="background:#000;position:relative;display:none">
+      <!-- Bild -->
+      <img id="pdImg" src="" alt=""
+           style="width:100%;max-height:520px;object-fit:contain;display:block">
+      <!-- Karussell-Navigation -->
+      <div id="pdCarousel" style="display:none">
+        <button onclick="carouselPrev()"
+                style="position:absolute;left:10px;top:50%;transform:translateY(-50%);
+                       background:rgba(0,0,0,.6);border:none;color:white;border-radius:50%;
+                       width:36px;height:36px;cursor:pointer;font-size:16px">‹</button>
+        <button onclick="carouselNext()"
+                style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+                       background:rgba(0,0,0,.6);border:none;color:white;border-radius:50%;
+                       width:36px;height:36px;cursor:pointer;font-size:16px">›</button>
+        <div id="pdCarouselDots"
+             style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
+                    display:flex;gap:5px"></div>
+      </div>
+      <!-- Video-Hinweis -->
+      <div id="pdVideoHint" style="display:none;position:absolute;top:50%;left:50%;
+           transform:translate(-50%,-50%);color:white;text-align:center">
+        <i class="fa-solid fa-play-circle" style="font-size:48px;opacity:.8"></i>
+        <div style="font-size:12px;margin-top:8px;opacity:.7">Video — Vorschau nicht verfügbar</div>
+      </div>
+    </div>
+
+    <!-- Info -->
+    <div style="padding:20px 22px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="pdTypeBadge" class="badge badge-blue" style="text-transform:uppercase"></span>
+          <span id="pdStatusBadge" class="badge"></span>
+        </div>
+        <button onclick="closePostDetail()"
+                style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px" id="pdAccount"></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px" id="pdDate"></div>
+
+      <div id="pdCaptionBlock"
+           style="font-size:13px;color:var(--text);line-height:1.6;border-top:1px solid var(--border);
+                  padding-top:14px;margin-bottom:14px;white-space:pre-wrap;display:none" id="pdCaption"></div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:14px">
+        <button id="pdDeleteBtn" onclick="" class="btn btn-ghost"
+                style="color:#ef4444;font-size:12px">
+          <i class="fa-solid fa-trash"></i> Löschen
+        </button>
+        <button onclick="closePostDetail()" class="btn btn-ghost" style="font-size:12px">
+          Schließen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- New Post Modal -->
 <div id="newPostModal" style="display:none;position:fixed;inset:0;z-index:200;
@@ -121,25 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }).then(r=>r.json()).then(d=>{ if (!d.ok) info.revert(); });
     },
     eventClick: info => {
-      const p = info.event.extendedProps;
-      const popup = document.getElementById('eventPopup');
-      popup.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <span class="badge badge-blue" style="text-transform:uppercase">${p.type}</span>
-          <button onclick="this.closest('#eventPopup').style.display='none'"
-                  style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">&times;</button>
-        </div>
-        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">${p.account}</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">${info.event.start.toLocaleString('de-DE')}</div>
-        ${p.caption ? `<div style="font-size:12px;color:var(--muted);border-top:1px solid var(--border);padding-top:10px;line-height:1.5">${p.caption}…</div>` : ''}
-        <div style="margin-top:10px;display:flex;align-items:center;justify-content:space-between">
-          <span class="badge ${p.status==='published'?'badge-green':p.status==='failed'?'badge-red':'badge-blue'}">${p.status}</span>
-          ${p.status==='scheduled'?`<button onclick="deletePost(${p.post_id})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px"><i class="fa-solid fa-trash" style="margin-right:4px"></i>Löschen</button>`:''}
-        </div>`;
-      const rect = info.el.getBoundingClientRect();
-      popup.style.top = Math.min(rect.bottom + window.scrollY + 8, window.innerHeight + window.scrollY - 220) + 'px';
-      popup.style.left = Math.min(rect.left, window.innerWidth - 320) + 'px';
-      popup.style.display = 'block';
+      openPostDetail(info.event);
     }
   });
   calendar.render();
@@ -175,9 +225,131 @@ async function deletePost(id) {
   const ok = await customConfirm('Post löschen', 'Diesen geplanten Post wirklich löschen?');
   if (!ok) return;
   await fetch(`/api/posts/${id}/delete`, {method:'POST'});
-  document.getElementById('eventPopup').style.display = 'none';
+  closePostDetail();
   calendar.refetchEvents();
   showToast('Post gelöscht.', 'info');
+}
+
+// ── Post-Detail-Modal ──────────────────────────────────────────
+let _carouselUrls = [];
+let _carouselIdx  = 0;
+
+async function openPostDetail(event) {
+  const p = event.extendedProps;
+
+  // Basis-Info
+  document.getElementById('pdAccount').textContent = p.account;
+  document.getElementById('pdDate').textContent    = event.start.toLocaleString('de-DE', {
+    weekday:'long', day:'2-digit', month:'long', year:'numeric',
+    hour:'2-digit', minute:'2-digit'
+  });
+  document.getElementById('pdTypeBadge').textContent = p.type || 'feed';
+
+  const sb = document.getElementById('pdStatusBadge');
+  sb.textContent  = p.status;
+  sb.className    = 'badge ' + (p.status === 'published' ? 'badge-green'
+                               : p.status === 'failed'    ? 'badge-red'
+                               : 'badge-blue');
+
+  // Caption
+  const captionEl = document.getElementById('pdCaptionBlock');
+  if (p.caption) {
+    captionEl.textContent = p.caption;
+    captionEl.style.display = 'block';
+  } else {
+    captionEl.style.display = 'none';
+  }
+
+  // Löschen-Button
+  const delBtn = document.getElementById('pdDeleteBtn');
+  if (p.status === 'scheduled' || p.status === 'pending') {
+    delBtn.style.display = 'inline-flex';
+    delBtn.onclick = () => deletePost(p.post_id);
+  } else {
+    delBtn.style.display = 'none';
+  }
+
+  // Media laden
+  _carouselUrls = [];
+  _carouselIdx  = 0;
+  const mediaBlock  = document.getElementById('pdMedia');
+  const img         = document.getElementById('pdImg');
+  const videoHint   = document.getElementById('pdVideoHint');
+  const carouselNav = document.getElementById('pdCarousel');
+
+  mediaBlock.style.display  = 'none';
+  videoHint.style.display   = 'none';
+  carouselNav.style.display = 'none';
+
+  if (p.type === 'video' || p.type === 'reel') {
+    // Video: kein Thumbnail-Preview, nur Hinweis
+    mediaBlock.style.display = 'block';
+    img.style.display        = 'none';
+    videoHint.style.display  = 'flex';
+  } else if (p.media_count > 1) {
+    // Karussell: alle Bilder per API nachladen
+    mediaBlock.style.display = 'block';
+    img.style.display        = 'block';
+    img.src = '';
+    const mediaIds = p.media_ids || [];
+    if (mediaIds.length > 0) {
+      try {
+        const res  = await fetch(`/api/posts/${p.post_id}/media`);
+        const data = await res.json();
+        _carouselUrls = data.urls || [];
+      } catch(e) {}
+    }
+    if (_carouselUrls.length === 0 && p.media_url) {
+      _carouselUrls = [p.media_url];
+    }
+    renderCarouselSlide();
+    if (_carouselUrls.length > 1) {
+      carouselNav.style.display = 'block';
+      renderCarouselDots();
+    }
+  } else if (p.media_url) {
+    // Einzelbild
+    mediaBlock.style.display = 'block';
+    img.style.display        = 'block';
+    img.src = p.media_url;
+    img.onerror = () => { mediaBlock.style.display = 'none'; };
+  }
+
+  document.getElementById('postDetailModal').style.display = 'flex';
+}
+
+function closePostDetail() {
+  document.getElementById('postDetailModal').style.display = 'none';
+  document.getElementById('pdImg').src = '';
+}
+
+function renderCarouselSlide() {
+  const img = document.getElementById('pdImg');
+  if (_carouselUrls[_carouselIdx]) {
+    img.src = _carouselUrls[_carouselIdx];
+  }
+  renderCarouselDots();
+}
+
+function renderCarouselDots() {
+  const dots = document.getElementById('pdCarouselDots');
+  dots.innerHTML = _carouselUrls.map((_, i) =>
+    `<div onclick="goSlide(${i})" style="width:7px;height:7px;border-radius:50%;cursor:pointer;
+     background:${i===_carouselIdx?'white':'rgba(255,255,255,.4)'}"></div>`
+  ).join('');
+}
+
+function carouselPrev() {
+  _carouselIdx = (_carouselIdx - 1 + _carouselUrls.length) % _carouselUrls.length;
+  renderCarouselSlide();
+}
+function carouselNext() {
+  _carouselIdx = (_carouselIdx + 1) % _carouselUrls.length;
+  renderCarouselSlide();
+}
+function goSlide(i) {
+  _carouselIdx = i;
+  renderCarouselSlide();
 }
 </script>
 {% endblock %}

@@ -1960,6 +1960,29 @@ def post_delete(post_id):
     return jsonify({'ok': True})
 
 
+@app.route('/api/posts/<int:post_id>/media', methods=['GET'])
+@login_required
+def post_media(post_id):
+    """Gibt alle Bild-URLs eines geplanten Posts zurück (für Karussell-Vorschau)."""
+    post = ScheduledPost.query.get_or_404(post_id)
+    urls = []
+    # Karussell: media_ids Liste
+    media_ids = post.get_media_ids()
+    if media_ids:
+        items = MediaItem.query.filter(MediaItem.id.in_(media_ids)).all()
+        id_to_item = {m.id: m for m in items}
+        for mid in media_ids:
+            m = id_to_item.get(int(mid))
+            if m and m.url:
+                urls.append(m.url)
+    # Fallback: einzelnes media_item_id
+    if not urls and post.media_item_id:
+        m = MediaItem.query.get(post.media_item_id)
+        if m and m.url:
+            urls.append(m.url)
+    return jsonify({'ok': True, 'urls': urls})
+
+
 @app.route('/api/posts/<int:post_id>/send-telegram', methods=['POST'])
 @login_required
 def post_send_telegram(post_id):
