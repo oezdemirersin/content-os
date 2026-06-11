@@ -6566,7 +6566,27 @@ def inspiration_fetch(src_id):
                    item.get('shortcode') or item.get('id') or '')
         if not code:
             continue
-        if InspirationPost.query.filter_by(instagram_code=code).first():
+        # Likes / Kommentare — verschiedene API-Feldnamen abdecken
+        def _int_or_none(val):
+            try: return int(val) if val is not None else None
+            except: return None
+
+        raw_likes = (item.get('likeCount') or item.get('like_count') or
+                     item.get('likes') or item.get('likes_count') or
+                     (item.get('edge_media_to_like') or {}).get('count'))
+        raw_comments = (item.get('commentsCount') or item.get('comment_count') or
+                        item.get('comments') or
+                        (item.get('edge_media_to_comment') or {}).get('count'))
+        like_val    = _int_or_none(raw_likes)
+        comment_val = _int_or_none(raw_comments)
+
+        existing = InspirationPost.query.filter_by(instagram_code=code).first()
+        if existing:
+            # Likes/Kommentare bei bestehenden Posts aktualisieren (falls neu verfügbar)
+            if like_val is not None:
+                existing.like_count    = like_val
+            if comment_val is not None:
+                existing.comment_count = comment_val
             continue
 
         img_url, thumb_url = _extract_img(item)
@@ -6601,25 +6621,13 @@ def inspiration_fetch(src_id):
         else:
             media_type = 'image'
 
-        # Likes / Kommentare — verschiedene API-Feldnamen abdecken
-        def _int_or_none(val):
-            try: return int(val) if val is not None else None
-            except: return None
-
-        raw_likes = (item.get('likeCount') or item.get('like_count') or
-                     item.get('likes') or item.get('likes_count') or
-                     (item.get('edge_media_to_like') or {}).get('count'))
-        raw_comments = (item.get('commentsCount') or item.get('comment_count') or
-                        item.get('comments') or
-                        (item.get('edge_media_to_comment') or {}).get('count'))
-
         post = InspirationPost(
             source_id=src.id, instagram_code=code,
             image_url=img_url, thumbnail_url=thumb_url or img_url,
             caption=caption, post_date=post_date,
             media_type=media_type, status='new',
-            like_count=_int_or_none(raw_likes),
-            comment_count=_int_or_none(raw_comments),
+            like_count=like_val,
+            comment_count=comment_val,
         )
         db.session.add(post)
         new_count += 1
