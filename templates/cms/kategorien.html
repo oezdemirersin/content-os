@@ -80,46 +80,7 @@
     {% endfor %}
   </div>
 
-  <!-- Ordner-Liste -->
-  {% if not folders %}
-  <div style="text-align:center;padding:60px 20px;color:var(--muted)">
-    <i class="fa-solid fa-folder-open" style="font-size:48px;opacity:.2;display:block;margin-bottom:16px"></i>
-    <div style="font-size:15px;font-weight:600;margin-bottom:8px">Noch keine Ordner</div>
-    <div style="font-size:13px">Klicke auf „Neuer Ordner" um loszulegen.</div>
-  </div>
-  {% else %}
-
-  <!-- Globale Ordner -->
-  {% set global_folders = folders | selectattr('account_id', 'none') | list %}
-  {% set account_folders = folders | rejectattr('account_id', 'none') | list %}
-
-  {% if global_folders %}
-  <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:8px;margin-top:4px">
-    GLOBALE ORDNER (alle Accounts)
-  </div>
-  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
-    {% for f in global_folders %}
-    {{ folder_card(f) }}
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {% if account_folders %}
-  <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:8px">
-    ACCOUNT-SPEZIFISCHE ORDNER
-  </div>
-  <div style="display:flex;flex-direction:column;gap:8px">
-    {% for f in account_folders %}
-    {{ folder_card(f) }}
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {% endif %}
-
-</div>
-
-{# ── Makro: eine Ordner-Karte ── #}
+{# ── Makro: eine Ordner-Karte (muss VOR Verwendung stehen) ── #}
 {% macro folder_card(f) %}
 <div id="fcard-{{ f.id }}"
      style="background:var(--surface);border:1px solid var(--border);border-radius:12px;
@@ -232,6 +193,44 @@
 </div>
 {% endmacro %}
 
+  <!-- Ordner-Liste -->
+  {% if not folders %}
+  <div style="text-align:center;padding:60px 20px;color:var(--muted)">
+    <i class="fa-solid fa-folder-open" style="font-size:48px;opacity:.2;display:block;margin-bottom:16px"></i>
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">Noch keine Ordner</div>
+    <div style="font-size:13px">Klicke auf „Neuer Ordner" um loszulegen.</div>
+  </div>
+  {% else %}
+
+  <!-- Globale Ordner -->
+  {% set global_folders = folders | selectattr('account_id', 'none') | list %}
+  {% set account_folders = folders | rejectattr('account_id', 'none') | list %}
+
+  {% if global_folders %}
+  <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:8px;margin-top:4px">
+    GLOBALE ORDNER (alle Accounts)
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
+    {% for f in global_folders %}
+    {{ folder_card(f) }}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if account_folders %}
+  <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:8px">
+    ACCOUNT-SPEZIFISCHE ORDNER
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    {% for f in account_folders %}
+    {{ folder_card(f) }}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% endif %}
+
+</div>
 
 <!-- ── Auto-Planer ─────────────────────────────────────────── -->
 <div style="margin-top:32px;background:var(--surface);border:1px solid var(--border);
