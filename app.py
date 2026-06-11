@@ -417,9 +417,12 @@ def init_db():
                 created_at TIMESTAMP DEFAULT NOW()
             )''')
             safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS folder_id INTEGER REFERENCES content_folder(id)')
-            # ── inspiration_post: Likes / Comments ───────────────────────
+            # ── inspiration_post: Likes / Comments / is_saved ────────────
             safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS like_count INTEGER')
             safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS comment_count INTEGER')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS is_saved BOOLEAN DEFAULT FALSE')
+            # Bestehende status='saved' Posts migrieren → is_saved=True
+            safe_alter("UPDATE inspiration_post SET is_saved=TRUE WHERE status='saved'")
             # ── account: KI-Caption Felder ───────────────────────────────
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS default_hashtags TEXT')
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS sports_hashtag VARCHAR(200)')
@@ -461,12 +464,16 @@ def init_db():
             ci_cols2 = [c['name'] for c in inspector.get_columns('content_item')]
             if 'folder_id' not in ci_cols2:
                 safe_alter('ALTER TABLE content_item ADD COLUMN folder_id INTEGER REFERENCES content_folder(id)')
-            # inspiration_post: Likes / Comments
+            # inspiration_post: Likes / Comments / is_saved
             ip_cols = [c['name'] for c in inspector.get_columns('inspiration_post')]
             if 'like_count' not in ip_cols:
                 safe_alter('ALTER TABLE inspiration_post ADD COLUMN like_count INTEGER')
             if 'comment_count' not in ip_cols:
                 safe_alter('ALTER TABLE inspiration_post ADD COLUMN comment_count INTEGER')
+            if 'is_saved' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN is_saved BOOLEAN DEFAULT 0')
+                # Bestehende status='saved' Posts migrieren
+                safe_alter("UPDATE inspiration_post SET is_saved=1 WHERE status='saved'")
             # account: KI-Caption Felder
             if 'default_hashtags' not in account_cols:
                 safe_alter('ALTER TABLE account ADD COLUMN default_hashtags TEXT')
@@ -6327,8 +6334,11 @@ def inspirationen():
     } if account_ids_with_sources else {}
 
     q = InspirationPost.query
-    if status_filter and status_filter != 'all':
-        q = q.filter_by(status=status_filter)
+    if status_filter == 'saved':
+        # Gespeichert = is_saved=True (unabhängig vom status)
+        q = q.filter(InspirationPost.is_saved == True)
+    elif status_filter and status_filter != 'all':
+        q = q.filter(InspirationPost.status == status_filter)
     if source_filter:
         q = q.filter_by(source_id=source_filter)
     elif account_filter:
@@ -6363,7 +6373,7 @@ def inspirationen():
 
     counts = {
         'new':     InspirationPost.query.filter_by(status='new').count(),
-        'saved':   InspirationPost.query.filter_by(status='saved').count(),
+        'saved':   InspirationPost.query.filter(InspirationPost.is_saved == True).count(),
         'ignored': InspirationPost.query.filter_by(status='ignored').count(),
         'used':    InspirationPost.query.filter_by(status='used').count(),
     }
@@ -6662,14 +6672,30 @@ def inspiration_fetch(src_id):
 @app.route('/api/inspirationen/<int:post_id>/status', methods=['POST'])
 @login_required
 def inspiration_post_status(post_id):
-    """Status eines Inspirations-Posts ändern: new | saved | ignored | used."""
+    """Status eines Inspirations-Posts ändern: new | ignored | used.
+    'saved' wird über /save gehandelt (is_saved-Flag).
+    """
     post   = InspirationPost.query.get_or_404(post_id)
     status = (request.get_json() or {}).get('status', 'new')
     if status not in ('new', 'saved', 'ignored', 'used'):
         return jsonify({'ok': False, 'error': 'Ungültiger Status'})
-    post.status = status
+    if status == 'saved':
+        # Legacy: als Bookmark behandeln
+        post.is_saved = True
+    else:
+        post.status = status
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/inspirationen/<int:post_id>/save', methods=['POST'])
+@login_required
+def inspiration_post_save(post_id):
+    """Inspo-Lesezeichen togglen (is_saved). Unabhängig vom status."""
+    post = InspirationPost.query.get_or_404(post_id)
+    post.is_saved = not post.is_saved
+    db.session.commit()
+    return jsonify({'ok': True, 'is_saved': post.is_saved})
 
 
 @app.route('/api/inspirationen/<int:post_id>/use', methods=['POST'])

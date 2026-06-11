@@ -379,17 +379,15 @@
                   overflow:hidden;transition:opacity .3s,transform .3s">
 
         <!-- Bild -->
-        <div style="aspect-ratio:1;overflow:hidden;background:var(--surface2);position:relative;
-                    {% if post.status != 'used' %}cursor:pointer{% endif %}"
-             {% if post.status != 'used' %}onclick="toggleSelect({{ post.id }})"{% endif %}>
+        <div data-imgwrap style="aspect-ratio:1;overflow:hidden;background:var(--surface2);position:relative;cursor:pointer"
+             onclick="toggleSelect({{ post.id }})">
           {% if post.thumbnail_url %}
           <img src="{{ post.thumbnail_url }}" alt=""
                style="width:100%;height:100%;object-fit:cover;pointer-events:none"
                onerror="this.style.display='none'">
           {% endif %}
 
-          <!-- Auswahl-Checkbox (nur für auswählbare Posts) -->
-          {% if post.status != 'used' %}
+          <!-- Auswahl-Checkbox -->
           <div id="sel-{{ post.id }}"
                style="position:absolute;top:7px;left:7px;width:22px;height:22px;border-radius:50%;
                       border:2px solid rgba(255,255,255,.85);background:rgba(0,0,0,.35);
@@ -398,7 +396,6 @@
             <i class="fa-solid fa-check" id="selcheck-{{ post.id }}"
                style="font-size:10px;color:white;opacity:0;transition:opacity .15s"></i>
           </div>
-          {% endif %}
 
           <!-- Typ-Badge -->
           {% if post.media_type == 'video' %}
@@ -413,16 +410,18 @@
           </div>
           {% endif %}
 
-          <!-- Status-Badge -->
-          {% if post.status == 'saved' %}
-          <div style="position:absolute;bottom:7px;left:7px;background:#22c55e;
-               border-radius:5px;padding:2px 7px;font-size:10px;color:white">
+          <!-- Inspo-Bookmark-Badge -->
+          {% if post.is_saved %}
+          <div style="position:absolute;bottom:7px;left:7px;background:#f59e0b;
+               border-radius:5px;padding:2px 8px;font-size:10px;color:white;
+               display:flex;align-items:center;gap:4px">
             <i class="fa-solid fa-bookmark"></i>
+            {% if post.status == 'used' %}<span>+ Vorrat</span>{% endif %}
           </div>
           {% elif post.status == 'used' %}
-          <div style="position:absolute;top:7px;left:7px;background:var(--accent);
+          <div style="position:absolute;bottom:7px;left:7px;background:var(--accent);
                border-radius:5px;padding:2px 7px;font-size:10px;color:white">
-            <i class="fa-solid fa-check"></i> Übernommen
+            <i class="fa-solid fa-check"></i> Vorrat
           </div>
           {% endif %}
         </div>
@@ -477,30 +476,37 @@
 
           <!-- Aktionen -->
           <div style="display:flex;gap:4px;flex-wrap:wrap">
-            {% if post.status != 'used' %}
+
+            <!-- Verwenden — immer sichtbar -->
             <button class="btn btn-primary use-btn"
                     data-id="{{ post.id }}"
                     data-caption="{{ (post.caption or '') | e }}"
                     data-md="{{ post.post_date.strftime('%m-%d') if post.post_date else '' }}"
                     data-account="{{ post.source.account_id or '' }}"
                     data-img="{{ post.image_url or post.thumbnail_url or '' }}"
-                    style="flex:1;font-size:11px;padding:5px 8px;min-width:80px">
-              <i class="fa-solid fa-arrow-right"></i> Verwenden
+                    style="flex:1;font-size:11px;padding:5px 8px;min-width:80px;
+                           {% if post.status == 'used' %}opacity:.6{% endif %}">
+              <i class="fa-solid fa-{% if post.status == 'used' %}rotate{% else %}arrow-right{% endif %}"></i>
+              {% if post.status == 'used' %}Erneut{% else %}Verwenden{% endif %}
             </button>
-            {% endif %}
 
-            {% if post.status == 'new' %}
-            <button onclick="setStatus({{ post.id }}, 'saved', this)"
-                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
-                    title="Merken">
-              <i class="fa-solid fa-bookmark"></i>
+            <!-- Bookmark-Toggle — immer sichtbar -->
+            <button id="savebtn-{{ post.id }}"
+                    onclick="toggleSave({{ post.id }}, this)"
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px;
+                           color:{% if post.is_saved %}#f59e0b{% else %}var(--muted){% endif %}"
+                    title="{% if post.is_saved %}Aus Inspo entfernen{% else %}Als Inspo speichern{% endif %}">
+              <i class="fa-{% if post.is_saved %}solid{% else %}regular{% endif %} fa-bookmark"></i>
             </button>
+
+            <!-- Ignorieren (nur für neue Posts) -->
+            {% if post.status == 'new' %}
             <button onclick="setStatus({{ post.id }}, 'ignored', this)"
                     class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
                     title="Ignorieren">
               <i class="fa-solid fa-xmark"></i>
             </button>
-            {% elif post.status == 'saved' %}
+            {% elif post.status == 'ignored' %}
             <button onclick="setStatus({{ post.id }}, 'new', this)"
                     class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
                     title="Zurücksetzen">
@@ -880,6 +886,9 @@ async function rewriteCaption() {
   }
 }
 
+// ── Aktueller Tab (für Card-Verhalten nach Verwenden) ─────────
+const CURRENT_TAB = '{{ status_filter }}';
+
 // ── Übernehmen ────────────────────────────────────────────────
 let _dupConfirmed = false;   // wird true wenn User Duplikat-Warnung bestätigt
 
@@ -918,13 +927,30 @@ async function confirmUse() {
     clearTimeout(timer);
     const r = await resp.json();
     if (r.ok) {
-      showToast(r.message, 'success');
       _dupConfirmed = false;
       closeUseModal();
       const card = document.getElementById(`pcard-${_currentPostId}`);
-      if (card) {
-        card.style.opacity = '0'; card.style.transform = 'scale(.95)';
-        setTimeout(() => card.remove(), 350);
+      if (CURRENT_TAB === 'saved') {
+        // Im Gespeichert-Tab bleibt die Karte — nur Badge + Button aktualisieren
+        showToast('In Vorrat übernommen ✓ — bleibt als Inspo gespeichert', 'success');
+        const badge = card ? card.querySelector('.inspo-use-badge') : null;
+        if (card) {
+          // Vorrat-Badge einblenden
+          const img = card.querySelector('[data-imgwrap]');
+          if (img) {
+            const b = img.querySelector('.status-badge');
+            if (b) { b.innerHTML = '<i class="fa-solid fa-bookmark"></i> <span>+ Vorrat</span>'; b.style.background='#f59e0b'; }
+          }
+          // "Verwenden"-Button → "Erneut"
+          const useBtn = card.querySelector('.use-btn');
+          if (useBtn) { useBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Erneut'; useBtn.style.opacity = '.6'; }
+        }
+      } else {
+        showToast(r.message, 'success');
+        if (card) {
+          card.style.opacity = '0'; card.style.transform = 'scale(.95)';
+          setTimeout(() => card.remove(), 350);
+        }
       }
     } else if (r.duplicate && !_dupConfirmed) {
       // Duplikat-Warnung: Button umbenennen, beim nächsten Klick trotzdem übernehmen
@@ -1189,6 +1215,42 @@ document.addEventListener('change', function(e) {
     else showToast(d.error || 'Fehler', 'error');
   });
 });
+
+// ── Inspo-Bookmark toggle ─────────────────────────────────────
+async function toggleSave(postId, btn) {
+  const r = await fetch(`/api/inspirationen/${postId}/save`, {method:'POST'}).then(x=>x.json());
+  if (!r.ok) { showToast('Fehler', 'error'); return; }
+  const saved = r.is_saved;
+  // Button updaten
+  btn.style.color = saved ? '#f59e0b' : 'var(--muted)';
+  btn.title = saved ? 'Aus Inspo entfernen' : 'Als Inspo speichern';
+  btn.innerHTML = `<i class="fa-${saved ? 'solid' : 'regular'} fa-bookmark"></i>`;
+  // Badge auf Karte updaten
+  const card = document.getElementById(`pcard-${postId}`);
+  if (card) {
+    const imgWrap = card.querySelector('[style*="aspect-ratio"]');
+    if (imgWrap) {
+      let badge = imgWrap.querySelector('.status-badge');
+      if (saved) {
+        if (!badge) {
+          badge = document.createElement('div');
+          badge.className = 'status-badge';
+          badge.style.cssText = 'position:absolute;bottom:7px;left:7px;border-radius:5px;padding:2px 8px;font-size:10px;color:white;display:flex;align-items:center;gap:4px';
+          imgWrap.appendChild(badge);
+        }
+        badge.style.background = '#f59e0b';
+        badge.innerHTML = '<i class="fa-solid fa-bookmark"></i>';
+      } else if (!saved && badge) {
+        badge.remove();
+      }
+    }
+  }
+  // Im Gespeichert-Tab: Karte ausblenden wenn Bookmark entfernt
+  if (!saved && CURRENT_TAB === 'saved') {
+    if (card) { card.style.opacity='0'; card.style.transform='scale(.95)'; setTimeout(()=>card.remove(),300); }
+  }
+  showToast(saved ? '📌 Als Inspo gespeichert' : 'Lesezeichen entfernt', 'success');
+}
 
 // Gruppe auf-/zuklappen
 function toggleGroup(id) {

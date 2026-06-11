@@ -644,8 +644,10 @@ class InspirationPost(db.Model):
     caption         = db.Column(db.Text)
     post_date       = db.Column(db.DateTime)
     media_type      = db.Column(db.String(20), default='image')  # image | video | carousel
-    # Status: new=frisch | saved=will ich verwenden | ignored=nicht interessant | used=schon übernommen
+    # Status: new=frisch | ignored=nicht interessant | used=schon übernommen
+    # (saved wurde durch is_saved ersetzt — ist_saved bleibt auch nach Verwenden erhalten)
     status          = db.Column(db.String(20), default='new', index=True)
+    is_saved        = db.Column(db.Boolean, default=False, nullable=False)  # Inspo-Lesezeichen
     like_count      = db.Column(db.Integer, nullable=True)     # Likes zum Zeitpunkt des Downloads
     comment_count   = db.Column(db.Integer, nullable=True)     # Kommentare zum Zeitpunkt des Downloads
     content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
