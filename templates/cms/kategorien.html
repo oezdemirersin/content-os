@@ -159,6 +159,17 @@
       <input type="number" id="ap_ppw" value="7" min="1" max="21" class="input-field" style="width:100%">
     </div>
     <div>
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">
+        Mindestabstand zwischen Posts
+      </label>
+      <select id="ap_min_gap" class="select-field" style="width:100%">
+        <option value="0">Kein Mindestabstand</option>
+        <option value="1" selected>Mindestens 1 Tag Pause</option>
+        <option value="2">Mindestens 2 Tage Pause</option>
+        <option value="3">Mindestens 3 Tage Pause</option>
+      </select>
+    </div>
+    <div>
       <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Von</label>
       <input type="date" id="ap_from" class="input-field" style="width:100%">
     </div>
@@ -540,6 +551,7 @@ async function runAutoplan() {
         day_mode:       dayMode,
         post_days:      days,
         days_per_week:  daysPerWeek,
+        min_gap_days:   parseInt(document.getElementById('ap_min_gap').value) || 0,
         folder_rules:   folderRules,
         ...timePayload,
       })

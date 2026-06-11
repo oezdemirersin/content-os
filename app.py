@@ -6845,6 +6845,7 @@ def autoplan():
     day_mode       = d.get('day_mode', 'fixed')
     post_days      = [int(x) for x in (d.get('post_days') or [0,1,2,3,4,5,6])]
     days_per_week  = max(1, min(7, int(d.get('days_per_week', 5) or 5)))
+    min_gap_days   = max(0, int(d.get('min_gap_days', 0) or 0))
     folder_rules   = {int(k): int(v) for k, v in (d.get('folder_rules') or {}).items() if int(v) > 0}
     time_mode      = d.get('time_mode', 'fixed')
 
@@ -6912,6 +6913,17 @@ def autoplan():
 
     if not slots:
         return jsonify({'ok': False, 'error': 'Keine Posting-Slots im gewählten Zeitraum.'})
+
+    # Mindestabstand zwischen Posts filtern
+    if min_gap_days > 0:
+        slots.sort()
+        filtered = []
+        last_day = None
+        for s in slots:
+            if last_day is None or (s.date() - last_day).days > min_gap_days:
+                filtered.append(s)
+                last_day = s.date()
+        slots = filtered
 
     # Vorhandene Belegung prüfen → nur freie Slots verwenden
     existing = {sp.scheduled_at for sp in ScheduledPost.query.filter(
