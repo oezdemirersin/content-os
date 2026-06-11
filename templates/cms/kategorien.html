@@ -6,7 +6,7 @@
 <div style="max-width:900px">
 
   <!-- Header -->
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
     <div>
       <div style="font-size:13px;color:var(--muted);margin-top:2px">
         Ordne deinen Vorrat in Kategorien — stelle ein, wie viele Posts pro Woche aus jedem Ordner eingeplant werden sollen.
@@ -16,6 +16,53 @@
       <i class="fa-solid fa-plus"></i> Neuer Ordner
     </button>
   </div>
+
+  <!-- Gesamt-Übersicht -->
+  {% set total_posts = folder_counts.values() | sum %}
+  {% if folders %}
+  <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
+                padding:12px 20px;display:flex;align-items:center;gap:10px">
+      <i class="fa-solid fa-box" style="color:var(--accent);font-size:16px"></i>
+      <div>
+        <div style="font-size:20px;font-weight:800;color:var(--accent)">{{ total_posts }}</div>
+        <div style="font-size:10px;color:var(--muted)">Beiträge gesamt im Vorrat</div>
+      </div>
+    </div>
+    {% set total_ppw = folders | sum(attribute='posts_per_week') %}
+    {% if total_ppw > 0 %}
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
+                padding:12px 20px;display:flex;align-items:center;gap:10px">
+      <i class="fa-solid fa-clock" style="color:#22c55e;font-size:16px"></i>
+      <div>
+        <div style="font-size:20px;font-weight:800;color:#22c55e">
+          {{ (total_posts / total_ppw) | round(1) }}
+        </div>
+        <div style="font-size:10px;color:var(--muted)">Wochen Reichweite gesamt</div>
+      </div>
+    </div>
+    {% endif %}
+    {% set empty_folders = folders | selectattr('id') | list | selectattr('id') | list %}
+    {% set low_folders = [] %}
+    {% for f in folders %}
+      {% if f.posts_per_week > 0 and folder_counts.get(f.id, 0) < f.posts_per_week %}
+        {% set _ = low_folders.append(f) %}
+      {% endif %}
+    {% endfor %}
+    {% if low_folders %}
+    <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;
+                padding:12px 20px;display:flex;align-items:center;gap:10px">
+      <i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;font-size:16px"></i>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#ef4444">Vorrat fast leer</div>
+        <div style="font-size:10px;color:var(--muted)">
+          {{ low_folders | map(attribute='name') | join(', ') }}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <!-- Account-Filter -->
   <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
@@ -105,18 +152,40 @@
   </div>
 
   <!-- Stats -->
-  <div style="display:flex;align-items:center;gap:20px;flex-shrink:0">
-    <div style="text-align:center">
-      <div style="font-size:18px;font-weight:700;color:var(--accent)">
-        {{ folder_counts.get(f.id, 0) }}
+  {% set count = folder_counts.get(f.id, 0) %}
+  {% if f.posts_per_week > 0 %}
+    {% set weeks = (count / f.posts_per_week) | round(1) %}
+  {% else %}
+    {% set weeks = none %}
+  {% endif %}
+  <div style="display:flex;align-items:center;gap:16px;flex-shrink:0">
+    <!-- Vorrat-Zahl -->
+    <div style="text-align:center;min-width:54px">
+      <div style="font-size:22px;font-weight:800;
+                  color:{% if count == 0 %}#ef4444{% elif count < 5 %}#f59e0b{% else %}var(--accent){% endif %}">
+        {{ count }}
       </div>
-      <div style="font-size:10px;color:var(--muted)">im Vorrat</div>
+      <div style="font-size:10px;color:var(--muted)">Beiträge</div>
     </div>
-    <div style="text-align:center">
-      <div style="font-size:18px;font-weight:700;{% if f.posts_per_week > 0 %}color:var(--success){% else %}color:var(--muted){% endif %}">
+    <!-- Reichweite -->
+    <div style="text-align:center;min-width:54px">
+      {% if weeks is not none %}
+      <div style="font-size:22px;font-weight:800;
+                  color:{% if weeks < 1 %}#ef4444{% elif weeks < 2 %}#f59e0b{% else %}#22c55e{% endif %}">
+        {{ weeks }}
+      </div>
+      <div style="font-size:10px;color:var(--muted)">Wochen</div>
+      {% else %}
+      <div style="font-size:22px;font-weight:800;color:var(--muted)">—</div>
+      <div style="font-size:10px;color:var(--muted)">Wochen</div>
+      {% endif %}
+    </div>
+    <!-- Posts/Woche -->
+    <div style="text-align:center;min-width:40px">
+      <div style="font-size:14px;font-weight:700;color:var(--muted)">
         {{ f.posts_per_week if f.posts_per_week > 0 else '—' }}
       </div>
-      <div style="font-size:10px;color:var(--muted)">pro Woche</div>
+      <div style="font-size:10px;color:var(--muted)">/Woche</div>
     </div>
   </div>
 

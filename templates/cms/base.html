@@ -390,6 +390,10 @@
     </a>
     <a href="{{ url_for('kategorien') }}" class="nav-sub {% if active_page == 'kategorien' %}active{% endif %}">
       <i class="fa-solid fa-folder-open"></i> Vorrat-Ordner
+      {% if vorrat_total > 0 %}
+      <span style="margin-left:auto;background:var(--accent);color:white;border-radius:10px;
+                   font-size:9px;padding:1px 6px;font-weight:700">{{ vorrat_total }}</span>
+      {% endif %}
     </a>
 
     <div class="nav-section">System</div>

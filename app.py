@@ -52,7 +52,18 @@ def _invalidate_ep_cache() -> None:
 
 @app.context_processor
 def inject_globals():
-    return {'now': datetime.utcnow, 'emergency_pause_active': _is_emergency_paused()}
+    # Vorrat-Gesamtzahl für Nav-Badge
+    try:
+        vorrat_total = db.session.query(func.count(ContentItem.id))\
+            .filter(ContentItem.status.in_(['draft', 'ready', 'in_progress']))\
+            .scalar() or 0
+    except Exception:
+        vorrat_total = 0
+    return {
+        'now': datetime.utcnow,
+        'emergency_pause_active': _is_emergency_paused(),
+        'vorrat_total': vorrat_total,
+    }
 
 @app.template_filter('fmt_followers')
 def fmt_followers(n):
