@@ -701,9 +701,29 @@ async function runAutoplan() {
     }).then(r => r.json());
 
     if (r.ok) {
+      // ── Ergebnis anzeigen ─────────────────────────────────────
       showToast(r.message, 'success');
-      document.getElementById('ap_result').textContent = r.message;
-      document.getElementById('ap_result').style.color = 'var(--success)';
+      const apResult = document.getElementById('ap_result');
+      let html = `<span style="color:var(--success)">${r.message}</span>`;
+
+      // Detail-Zeilen: verschoben / Überlauf
+      const details = [];
+      if (r.moved  > 0) details.push(`↕ ${r.moved} bestehende Random-Post(s) in freie Slots verschoben`);
+      if (r.overflow > 0) details.push(`🔁 ${r.overflow} Überlauf-Post(s) für ${new Date().getFullYear()+1} vorgemerkt`);
+      if (details.length) {
+        html += '<ul style="margin:6px 0 0 0;padding-left:18px;font-size:0.82rem;color:var(--text-muted)">'
+              + details.map(d=>`<li>${d}</li>`).join('') + '</ul>';
+      }
+
+      // Warnungen (Überschneidungen, Überkapazität)
+      if (r.warnings && r.warnings.length) {
+        html += '<div style="margin-top:8px">'
+              + r.warnings.map(w=>`<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:6px;padding:6px 10px;font-size:0.82rem;margin-top:4px">${w}</div>`).join('')
+              + '</div>';
+        r.warnings.forEach(w => showToast(w, 'warning'));
+      }
+
+      apResult.innerHTML = html;
     } else {
       showToast(r.error || 'Fehler', 'error');
       document.getElementById('ap_result').textContent = r.error || 'Fehler';

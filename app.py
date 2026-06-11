@@ -577,7 +577,7 @@ def generate_alerts():
     """Auto-generate system alerts based on current state."""
     # Clear old unresolved automated alerts
     SystemAlert.query.filter_by(resolved=False).filter(
-        SystemAlert.alert_type.in_(['low_stock', 'no_posts', 'empty_stock'])
+        SystemAlert.alert_type.in_(['low_stock', 'no_posts', 'empty_stock', 'overcapacity'])
     ).delete()
     db.session.flush()  # sicherstellen dass deletes durch sind bevor neue eingefügt werden
 
@@ -641,6 +641,31 @@ def generate_alerts():
                     f'⏰ Posting-Lücke: {acc.name}',
                     'Kein Post in den nächsten 48 Stunden geplant.',
                     link=f'/accounts/{acc.id}/planer', account_id=acc.id)
+
+        # Überkapazitäts-Prüfung: Wochen mit zu vielen geplanten Posts
+        ppw = getattr(acc, 'posts_per_week', 0) or 0
+        if ppw > 0:
+            from collections import defaultdict as _dd
+            _wc = _dd(int)
+            _fps = ScheduledPost.query.filter(
+                ScheduledPost.account_id == acc.id,
+                ScheduledPost.scheduled_at >= now,
+                ScheduledPost.status.in_(['pending', 'scheduled'])
+            ).all()
+            for _sp in _fps:
+                _iso = _sp.scheduled_at.isocalendar()
+                _wc[(_iso[0], _iso[1])] += 1
+            _over = [(w, c) for w, c in _wc.items() if c > ppw]
+            if _over:
+                _over.sort()
+                _msg = ', '.join(
+                    f'KW {w[1]}/{w[0]} ({c} Posts, Limit: {ppw})'
+                    for w, c in _over[:3]
+                )
+                db.session.add(SystemAlert(
+                    account_id=acc.id, alert_type='overcapacity', severity='warning',
+                    message=f'„{acc.name}" Überkapazität in {len(_over)} Woche(n): {_msg}'
+                ))
 
     # Automation errors
     broken_rules = AutomationRule.query.filter(AutomationRule.error_count > 3, AutomationRule.active == True).all()
@@ -7226,42 +7251,148 @@ def autoplan():
                 last_day = s.date()
         slots = filtered
 
-    # Vorhandene Belegung prüfen → nur freie Slots verwenden
-    existing = {sp.scheduled_at for sp in ScheduledPost.query.filter(
-        ScheduledPost.account_id == account_id,
-        ScheduledPost.scheduled_at >= date_from,
-        ScheduledPost.scheduled_at <= date_to,
-        ScheduledPost.status.in_(['pending', 'scheduled'])
-    ).all()}
-    free_slots = [s for s in slots if s not in existing]
-
-    if not free_slots:
-        return jsonify({'ok': False, 'error': 'Alle Slots im Zeitraum sind bereits belegt.'})
-
-    # ── Prioritäts-Ordner: aktive Zeitfenster zuerst ─────────────
+    # ── Prioritäts-Ordner: Zeitfenster laden ─────────────────────
     from datetime import date as _date
+    import random as _rand
     today = _date.today()
 
     def _folder_is_active(folder):
-        """Gibt True zurück wenn der Ordner ein aktives Zeitfenster hat."""
         if not folder.valid_from or not folder.valid_until:
             return False
         vf, vu = folder.valid_from, folder.valid_until
         if folder.recurring_yearly:
-            # Nur Monat+Tag vergleichen
             vf = vf.replace(year=today.year)
             vu = vu.replace(year=today.year)
             if vf <= vu:
                 return vf <= today <= vu
-            else:  # Jahreswechsel (z.B. 28.12. – 02.01.)
+            else:
                 return today >= vf or today <= vu
         return vf <= today <= vu
 
-    all_content_folders = ContentFolder.query.all()
-    active_priority_fids = [f.id for f in all_content_folders if _folder_is_active(f)]
+    def _slot_in_window(slot_dt, vf, vu, recurring):
+        """Prüft ob ein Slot innerhalb eines Zeitfensters liegt."""
+        sd = slot_dt.date()
+        if recurring:
+            vf2 = vf.replace(year=sd.year)
+            vu2 = vu.replace(year=sd.year)
+            if vf2 <= vu2:
+                return vf2 <= sd <= vu2
+            else:
+                return sd >= vf2 or sd <= vu2
+        return vf <= sd <= vu
 
-    # Posts aus Vorrat holen — nach Ordner-Regeln aufteilen
-    # Sentinel: folder_id=-1 bedeutet "alle Posts egal welcher Ordner"
+    all_content_folders = ContentFolder.query.all()
+    active_priority_folders = [f for f in all_content_folders if _folder_is_active(f)]
+    active_priority_fids    = [f.id for f in active_priority_folders]
+
+    # Slots die in mindestens einem Prioritätsfenster liegen
+    def _is_priority_slot(slot_dt):
+        for pf in active_priority_folders:
+            if _slot_in_window(slot_dt, pf.valid_from, pf.valid_until, pf.recurring_yearly):
+                return True
+        return False
+
+    priority_slot_set = {s for s in slots if _is_priority_slot(s)}
+
+    # ── Alle bestehenden Posts im Zeitraum laden ───────────────────
+    existing_sps = ScheduledPost.query.filter(
+        ScheduledPost.account_id == account_id,
+        ScheduledPost.scheduled_at >= date_from,
+        ScheduledPost.scheduled_at <= date_to,
+        ScheduledPost.status.in_(['pending', 'scheduled'])
+    ).all()
+    existing_map = {sp.scheduled_at: sp for sp in existing_sps}  # zeit → ScheduledPost
+    existing_times = set(existing_map.keys())
+
+    # ── Überschneidende Zeitfenster erkennen ─────────────────────
+    warnings = []
+    overlap_split = {}   # fid → Anteil der Priority-Slots (0.0–1.0)
+    if len(active_priority_folders) > 1:
+        # Berechne Slots pro Ordner innerhalb des Planungszeitraums
+        folder_slot_sets = {}
+        for pf in active_priority_folders:
+            folder_slot_sets[pf.id] = {
+                s for s in slots
+                if _slot_in_window(s, pf.valid_from, pf.valid_until, pf.recurring_yearly)
+            }
+        # Überschneidungspaare finden
+        fids = list(folder_slot_sets.keys())
+        for i in range(len(fids)):
+            for j in range(i + 1, len(fids)):
+                a, b = fids[i], fids[j]
+                overlap = folder_slot_sets[a] & folder_slot_sets[b]
+                if overlap:
+                    fa = next(f for f in active_priority_folders if f.id == a)
+                    fb = next(f for f in active_priority_folders if f.id == b)
+                    warnings.append(
+                        f'⚠ Zeitfenster-Überschneidung: „{fa.name}" und „{fb.name}" '
+                        f'teilen sich {len(overlap)} Slot(s) — werden proportional aufgeteilt.'
+                    )
+        # Proportionale Aufteilung: jeder Ordner bekommt Anteil basierend auf Posts-Pool-Größe
+        for pf in active_priority_folders:
+            pool_size = ContentItem.query.filter(
+                ContentItem.status.in_(['draft', 'ready']),
+                ContentItem.accounts.any(id=account_id),
+                ContentItem.folder_id == pf.id
+            ).count()
+            overlap_split[pf.id] = max(pool_size, 1)
+        total_weight = sum(overlap_split.values())
+        for fid in overlap_split:
+            overlap_split[fid] /= total_weight   # → 0.0–1.0
+
+    # ── Randoms aus Priority-Slots rauswerfen ─────────────────────
+    moved_count  = 0
+    freed_slots  = []   # Slots die durch Verschiebung frei wurden
+
+    if active_priority_folders and priority_slot_set:
+        # Nicht-Prioritäts-Posts die in Priority-Slots liegen
+        to_move = []
+        for t, sp in existing_map.items():
+            if t in priority_slot_set:
+                ci = sp.content_item
+                if ci and ci.folder_id not in active_priority_fids:
+                    to_move.append(sp)
+                elif ci is None:
+                    to_move.append(sp)  # unbekannte Posts auch verschieben
+
+        # Freie Slots außerhalb des Prioritätsfensters suchen
+        non_priority_free = sorted(
+            [s for s in slots if s not in priority_slot_set and s not in existing_times],
+            key=lambda x: x
+        )
+        # Zusätzliche Slots nach dem Planungszeitraum generieren (Puffer)
+        extra_start = date_to + timedelta(days=1)
+        extra_cur   = extra_start.replace(hour=18, minute=0, second=0, microsecond=0)
+        for _ in range(len(to_move) * 3):
+            if extra_cur.weekday() in post_days:
+                non_priority_free.append(extra_cur)
+            extra_cur += timedelta(days=1)
+
+        for sp in to_move:
+            if non_priority_free:
+                new_slot = non_priority_free.pop(0)
+                old_slot = sp.scheduled_at
+                sp.scheduled_at = new_slot
+                existing_times.discard(old_slot)
+                existing_times.add(new_slot)
+                freed_slots.append(old_slot)
+                moved_count += 1
+            else:
+                # Kein freier Platz → Post auf status='pending' zurücksetzen (entplanen)
+                sp.status = 'pending'
+                if sp.content_item:
+                    sp.content_item.status = 'ready'
+                freed_slots.append(sp.scheduled_at)
+                existing_times.discard(sp.scheduled_at)
+                moved_count += 1
+
+    # ── Freie Slots berechnen (nach Verschiebungen) ───────────────
+    free_slots = sorted([s for s in slots if s not in existing_times])
+
+    if not free_slots and not active_priority_folders:
+        return jsonify({'ok': False, 'error': 'Alle Slots im Zeitraum sind bereits belegt.'})
+
+    # ── Post-Pool-Hilfsfunktion ───────────────────────────────────
     ALL_FOLDERS = -1
 
     def _get_pool(folder_id=None):
@@ -7272,52 +7403,66 @@ def autoplan():
         if folder_id and folder_id != ALL_FOLDERS:
             q = q.filter(ContentItem.folder_id == folder_id)
         elif folder_id is None:
-            # Nur Posts ohne Ordner
             q = q.filter(ContentItem.folder_id.is_(None))
-        # folder_id == ALL_FOLDERS → kein Filter → alle Posts
         return q.order_by(db.func.random()).all()
 
-    # Slot-Budget pro Ordner berechnen
-    total_slots = len(free_slots)
-    slot_idx    = 0
-    created     = 0
+    # ── Slot-Aufteilung nach Ordner-Priorität ────────────────────
+    total_slots   = len(free_slots)
+    slot_idx      = 0
+    created       = 0
     used_item_ids = set()
+    assignments   = []
 
-    # ── Aktive Prioritäts-Ordner zuerst füllen ────────────────────
-    assignments = []  # [(folder_id_or_sentinel, n_slots)]
-    priority_slots_used = 0
+    if active_priority_folders:
+        if len(active_priority_folders) > 1 and overlap_split:
+            # Überschneidung: proportional aufteilen
+            for pf in active_priority_folders:
+                # Slots die speziell diesem Ordner gehören
+                pf_slots = [s for s in free_slots
+                            if _slot_in_window(s, pf.valid_from, pf.valid_until, pf.recurring_yearly)]
+                # Bei Überschneidungen: proportionaler Anteil der geteilten Slots
+                shared = [s for s in pf_slots if any(
+                    _slot_in_window(s, other.valid_from, other.valid_until, other.recurring_yearly)
+                    for other in active_priority_folders if other.id != pf.id
+                )]
+                exclusive = [s for s in pf_slots if s not in shared]
+                n = len(exclusive) + round(len(shared) * overlap_split.get(pf.id, 0.5))
+                assignments.append((pf.id, max(n, 1)))
+        else:
+            for pf in active_priority_folders:
+                n = len([s for s in free_slots
+                         if _slot_in_window(s, pf.valid_from, pf.valid_until, pf.recurring_yearly)])
+                assignments.append((pf.id, max(n, 1)))
 
-    if active_priority_fids:
-        # Prioritäts-Pool: alle Posts aus aktiven Zeitfenster-Ordnern
-        for fid in active_priority_fids:
-            assignments.append((fid, total_slots))  # max. Puffer; wird durch Pool-Größe begrenzt
-        priority_slots_used = total_slots  # wird nach der Runde angepasst
-
-    # ── Normale Ordner-Regeln (restliche Slots) ───────────────────
-    remaining_label = 'REMAINING'  # Platzhalter; wird nach Prioritäts-Runde aufgelöst
-
-    if folder_rules:
+    # Normale Ordner für verbleibende Slots
+    priority_n = sum(n for _, n in assignments)
+    remaining  = max(0, total_slots - priority_n)
+    if folder_rules and remaining > 0:
         total_ppw = sum(folder_rules.values())
         for fid, ppw in folder_rules.items():
-            n = max(1, round(total_slots * ppw / total_ppw))
+            n = max(1, round(remaining * ppw / total_ppw))
             assignments.append((fid if fid else None, n))
-        assigned_normal = sum(n for _, n in assignments[len(active_priority_fids):])
-        if assigned_normal < total_slots:
-            assignments.append((ALL_FOLDERS, total_slots - assigned_normal))
-    else:
-        assignments.append((ALL_FOLDERS, total_slots))
+        extra = remaining - sum(n for _, n in assignments[len(active_priority_folders):])
+        if extra > 0:
+            assignments.append((ALL_FOLDERS, extra))
+    elif remaining > 0:
+        assignments.append((ALL_FOLDERS, remaining))
 
-    import random
+    # ── Scheduling-Loop ───────────────────────────────────────────
+    overflow_by_folder = {}   # fid → [leftover ContentItems] für nächstes Jahr
+
     for folder_id, n_slots in assignments:
         pool = _get_pool(folder_id)
         pool = [p for p in pool if p.id not in used_item_ids]
-        random.shuffle(pool)
-        for i in range(min(n_slots, len(pool))):
+        _rand.shuffle(pool)
+        scheduled_this_round = 0
+        for item in pool:
+            if scheduled_this_round >= n_slots:
+                break
             if slot_idx >= len(free_slots):
                 break
-            item     = pool[i]
-            slot     = free_slots[slot_idx]
-            media    = item.media_items[0] if item.media_items else None
+            slot  = free_slots[slot_idx]
+            media = item.media_items[0] if item.media_items else None
             sp = ScheduledPost(
                 account_id      = account_id,
                 content_item_id = item.id,
@@ -7330,14 +7475,110 @@ def autoplan():
             db.session.add(sp)
             item.status = 'scheduled'
             used_item_ids.add(item.id)
-            slot_idx += 1
-            created  += 1
+            slot_idx             += 1
+            created              += 1
+            scheduled_this_round += 1
+
+        # Überlauf bei jährlich-wiederkehrenden Ordnern sammeln
+        if folder_id in active_priority_fids:
+            pf = next((f for f in active_priority_folders if f.id == folder_id), None)
+            if pf and pf.recurring_yearly:
+                leftover = [p for p in pool[scheduled_this_round:] if p.id not in used_item_ids]
+                if leftover:
+                    overflow_by_folder[pf] = leftover
+
+    # ── Überlauf → nächstes Jahr einplanen ───────────────────────
+    overflow_created = 0
+    for pf, leftover in overflow_by_folder.items():
+        try:
+            next_vf = pf.valid_from.replace(year=today.year + 1)
+            next_vu = pf.valid_until.replace(year=today.year + 1)
+            # Einfache Slot-Generierung: jeden Tag im nächsten Fenster mit 18:00 Uhr
+            ny_slots = []
+            ny_cur = datetime(next_vf.year, next_vf.month, next_vf.day, 18, 0)
+            ny_end = datetime(next_vu.year, next_vu.month, next_vu.day, 23, 59)
+            while ny_cur <= ny_end and len(ny_slots) < len(leftover):
+                if ny_cur.weekday() in post_days:
+                    ny_slots.append(ny_cur)
+                ny_cur += timedelta(days=1)
+            # Schon belegte nächstjährige Slots ausschließen
+            ny_existing = {sp.scheduled_at for sp in ScheduledPost.query.filter(
+                ScheduledPost.account_id == account_id,
+                ScheduledPost.scheduled_at >= ny_slots[0] if ny_slots else date_from,
+                ScheduledPost.scheduled_at <= ny_slots[-1] if ny_slots else date_to,
+                ScheduledPost.status.in_(['pending', 'scheduled'])
+            ).all()} if ny_slots else set()
+            ny_free = [s for s in ny_slots if s not in ny_existing]
+            for item, slot in zip(leftover, ny_free):
+                media = item.media_items[0] if item.media_items else None
+                sp = ScheduledPost(
+                    account_id      = account_id,
+                    content_item_id = item.id,
+                    media_item_id   = media.id if media else None,
+                    caption         = item.caption or item.title or '',
+                    scheduled_at    = slot,
+                    status          = 'pending',
+                    post_type       = item.content_type or 'feed',
+                )
+                db.session.add(sp)
+                item.status = 'scheduled'
+                overflow_created += 1
+        except Exception:
+            pass
 
     db.session.commit()
+
+    # ── Überkapazitäts-Warnung: Wochen mit zu vielen Posts ────────
+    overcapacity_weeks = []
+    if posts_per_week > 0:
+        from collections import defaultdict as _dd
+        week_counts = _dd(int)
+        future_posts = ScheduledPost.query.filter(
+            ScheduledPost.account_id == account_id,
+            ScheduledPost.scheduled_at >= datetime.utcnow(),
+            ScheduledPost.status.in_(['pending', 'scheduled'])
+        ).all()
+        for sp in future_posts:
+            iso = sp.scheduled_at.isocalendar()
+            week_counts[(iso[0], iso[1])] += 1
+        overcapacity_weeks = [
+            f'KW {w[1]}/{w[0]} ({cnt} Posts, Limit: {posts_per_week})'
+            for w, cnt in sorted(week_counts.items()) if cnt > posts_per_week
+        ]
+        # SystemAlert erstellen wenn Überkapazität
+        if overcapacity_weeks:
+            existing_alert = SystemAlert.query.filter_by(
+                alert_type='overcapacity', account_id=account_id, resolved=False
+            ).first()
+            if not existing_alert:
+                db.session.add(SystemAlert(
+                    alert_type='overcapacity',
+                    severity='warning',
+                    account_id=account_id,
+                    message=f'Überkapazität in {len(overcapacity_weeks)} Woche(n): '
+                            + ', '.join(overcapacity_weeks[:3]),
+                ))
+                db.session.commit()
+
+    # ── Ergebnis zusammenbauen ────────────────────────────────────
+    msg_parts = [f'{created} Posts eingeplant ✓']
+    if moved_count:
+        msg_parts.append(f'{moved_count} Random-Post(s) verschoben')
+    if overflow_created:
+        msg_parts.append(f'{overflow_created} Überlauf-Posts für {today.year + 1} vorgemerkt')
+    if overcapacity_weeks:
+        msg_parts.append(f'⚠ Überkapazität in {len(overcapacity_weeks)} Woche(n)')
+
     return jsonify({
         'ok': True,
         'created': created,
-        'message': f'{created} Posts wurden automatisch eingeplant ✓'
+        'moved': moved_count,
+        'overflow': overflow_created,
+        'warnings': warnings + (
+            [f'⚠ Überkapazität: ' + '; '.join(overcapacity_weeks[:5])]
+            if overcapacity_weeks else []
+        ),
+        'message': ' · '.join(msg_parts),
     })
 
 

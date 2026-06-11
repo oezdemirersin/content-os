@@ -23,6 +23,30 @@
   </div>
 </div>
 
+<!-- ── System-Alerts Banner ── -->
+{% set warn_alerts = alerts | selectattr('alert_type', 'in', ['overcapacity', 'low_stock', 'empty_stock', 'no_posts']) | list %}
+{% if warn_alerts %}
+<div style="margin-bottom:16px;display:flex;flex-direction:column;gap:6px">
+  {% for al in warn_alerts[:5] %}
+  {% set _color = '#ef4444' if al.severity == 'critical' else '#f59e0b' %}
+  <div data-alert="{{ al.id }}" style="display:flex;align-items:center;gap:10px;padding:10px 16px;
+              border-radius:10px;border:1px solid {{ _color }}40;
+              background:{{ _color }}10;font-size:12.5px">
+    <i class="fa-solid {% if al.severity == 'critical' %}fa-circle-exclamation{% else %}fa-triangle-exclamation{% endif %}"
+       style="color:{{ _color }};flex-shrink:0"></i>
+    <span style="flex:1;color:var(--text)">{{ al.message }}</span>
+    {% if al.alert_type == 'overcapacity' %}
+    <a href="{{ url_for('kategorien') }}" style="font-size:11px;color:{{ _color }};text-decoration:none;white-space:nowrap">
+      Planer → </a>
+    {% endif %}
+    <button onclick="resolveAlert({{ al.id }}, document.querySelector('[data-alert=\'{{ al.id }}\']'))"
+            style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px"
+            title="Schließen">✕</button>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if stats.total_accounts == 0 %}
 <!-- ── Onboarding ── -->
 <div style="background:linear-gradient(135deg,rgba(59,130,246,.08),rgba(168,85,247,.06));
@@ -572,6 +596,12 @@
 
 {% block scripts %}
 <script>
+// ── Alert schließen ───────────────────────────────────────────
+async function resolveAlert(alertId, el) {
+  await fetch(`/api/alerts/resolve/${alertId}`, { method: 'POST' });
+  if (el) el.remove();
+}
+
 // ── Portfolio-Gesamt-Chart ──────────────────────────────────────
 let portfolioChart, portDays = 30;
 
