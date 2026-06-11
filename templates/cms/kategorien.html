@@ -166,9 +166,55 @@
       <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Bis</label>
       <input type="date" id="ap_to" class="input-field" style="width:100%">
     </div>
-    <div>
-      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Posting-Zeiten (kommagetrennt)</label>
-      <input type="text" id="ap_times" value="18:00" placeholder="18:00, 12:00" class="input-field" style="width:100%">
+    <div style="grid-column:1/-1">
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:8px">Uhrzeit-Modus</label>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;
+                      padding:8px 14px;border-radius:8px;border:1px solid var(--border);flex:1;
+                      background:var(--surface2)" id="modeFixedCard" onclick="setTimeMode('fixed')">
+          <input type="radio" name="timeMode" value="fixed" checked style="accent-color:var(--accent)">
+          <div>
+            <div style="font-weight:600">Feste Uhrzeiten</div>
+            <div style="font-size:10px;color:var(--muted)">z.B. immer 18:00 Uhr</div>
+          </div>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;
+                      padding:8px 14px;border-radius:8px;border:1px solid var(--border);flex:1;
+                      background:var(--surface2)" id="modeRandomCard" onclick="setTimeMode('random')">
+          <input type="radio" name="timeMode" value="random" style="accent-color:var(--accent)">
+          <div>
+            <div style="font-weight:600">Zufällige Uhrzeit</div>
+            <div style="font-size:10px;color:var(--muted)">random zwischen zwei Zeiten</div>
+          </div>
+        </label>
+      </div>
+      <!-- Feste Zeiten -->
+      <div id="fixedTimesBlock">
+        <input type="text" id="ap_times" value="18:00" placeholder="18:00, 12:00"
+               class="input-field" style="width:100%">
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">Mehrere Zeiten kommagetrennt → mehrere Posts pro Tag</div>
+      </div>
+      <!-- Random-Zeitraum -->
+      <div id="randomTimesBlock" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="flex:1">
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Frühestens</label>
+            <input type="time" id="ap_time_from" value="11:00" class="input-field" style="width:100%">
+          </div>
+          <div style="color:var(--muted);padding-top:14px">—</div>
+          <div style="flex:1">
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Spätestens</label>
+            <input type="time" id="ap_time_to" value="18:00" class="input-field" style="width:100%">
+          </div>
+          <div style="flex:1">
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Posts pro Tag</label>
+            <input type="number" id="ap_posts_per_day" value="1" min="1" max="5" class="input-field" style="width:100%">
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">
+          Für jeden Posting-Tag wird eine zufällige Uhrzeit im Fenster gewählt (mind. 90 Min. Abstand bei mehreren Posts).
+        </div>
+      </div>
     </div>
     <div>
       <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Posting-Tage</label>
@@ -378,13 +424,19 @@ async function deleteFolder(id, name) {
 
 // ── Auto-Planer ───────────────────────────────────────────────
 (function() {
-  // Standarddatum: heute bis +30 Tage
   const today = new Date();
   const plus30 = new Date(); plus30.setDate(plus30.getDate() + 30);
   const fmt = d => d.toISOString().slice(0,10);
   document.getElementById('ap_from').value = fmt(today);
   document.getElementById('ap_to').value   = fmt(plus30);
 })();
+
+function setTimeMode(mode) {
+  document.getElementById('fixedTimesBlock').style.display  = mode === 'fixed'  ? 'block' : 'none';
+  document.getElementById('randomTimesBlock').style.display = mode === 'random' ? 'block' : 'none';
+  document.getElementById('modeFixedCard').style.borderColor  = mode === 'fixed'  ? 'var(--accent)' : 'var(--border)';
+  document.getElementById('modeRandomCard').style.borderColor = mode === 'random' ? 'var(--accent)' : 'var(--border)';
+}
 
 async function runAutoplan() {
   const accountId = parseInt(document.getElementById('ap_account').value);
@@ -394,10 +446,25 @@ async function runAutoplan() {
   const dateTo   = document.getElementById('ap_to').value;
   if (!dateFrom || !dateTo) { showToast('Bitte Zeitraum wählen.', 'warning'); return; }
 
-  const ppw    = parseInt(document.getElementById('ap_ppw').value) || 7;
-  const times  = document.getElementById('ap_times').value
-                   .split(',').map(t => t.trim()).filter(Boolean);
-  const days   = [...document.querySelectorAll('.ap-day:checked')].map(cb => parseInt(cb.value));
+  const ppw  = parseInt(document.getElementById('ap_ppw').value) || 7;
+  const days = [...document.querySelectorAll('.ap-day:checked')].map(cb => parseInt(cb.value));
+
+  const isRandom = document.querySelector('[name="timeMode"]:checked').value === 'random';
+  let timePayload = {};
+  if (isRandom) {
+    timePayload = {
+      time_mode:      'random',
+      time_from:      document.getElementById('ap_time_from').value,
+      time_to:        document.getElementById('ap_time_to').value,
+      posts_per_day:  parseInt(document.getElementById('ap_posts_per_day').value) || 1,
+    };
+  } else {
+    timePayload = {
+      time_mode:  'fixed',
+      post_times: document.getElementById('ap_times').value
+                    .split(',').map(t => t.trim()).filter(Boolean),
+    };
+  }
 
   const folderRules = {};
   document.querySelectorAll('.ap-folder-input').forEach(inp => {
@@ -415,13 +482,13 @@ async function runAutoplan() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        account_id: accountId,
-        date_from: dateFrom + 'T00:00:00',
-        date_to:   dateTo   + 'T23:59:59',
+        account_id:     accountId,
+        date_from:      dateFrom + 'T00:00:00',
+        date_to:        dateTo   + 'T23:59:59',
         posts_per_week: ppw,
-        post_times: times,
-        post_days: days,
-        folder_rules: folderRules,
+        post_days:      days,
+        folder_rules:   folderRules,
+        ...timePayload,
       })
     }).then(r => r.json());
 
@@ -432,7 +499,7 @@ async function runAutoplan() {
     } else {
       showToast(r.error || 'Fehler', 'error');
       document.getElementById('ap_result').textContent = r.error || 'Fehler';
-      document.getElementById('ap_result').style.color = 'var(--danger)';
+      document.getElementById('ap_result').style.color = '#ef4444';
     }
   } catch (e) {
     showToast('Fehler: ' + e.message, 'error');

@@ -6817,22 +6817,53 @@ def autoplan():
     except Exception:
         return jsonify({'ok': False, 'error': 'Ungültiges Datum.'})
 
+    import random as _random
     posts_per_week = int(d.get('posts_per_week', 7) or 7)
-    post_times     = d.get('post_times') or ['18:00']
     post_days      = [int(x) for x in (d.get('post_days') or [0,1,2,3,4,5,6])]
     folder_rules   = {int(k): int(v) for k, v in (d.get('folder_rules') or {}).items() if int(v) > 0}
+    time_mode      = d.get('time_mode', 'fixed')
+
+    # Hilfsfunktion: Uhrzeiten für einen Tag generieren
+    def _times_for_day(day_dt):
+        if time_mode == 'random':
+            try:
+                fh, fm = map(int, d.get('time_from', '11:00').split(':'))
+                th, tm = map(int, d.get('time_to',   '18:00').split(':'))
+            except Exception:
+                fh, fm, th, tm = 11, 0, 18, 0
+            ppd         = max(1, int(d.get('posts_per_day', 1) or 1))
+            from_min    = fh * 60 + fm
+            to_min      = th * 60 + tm
+            if from_min >= to_min:
+                to_min = from_min + 60
+            gap         = 90   # mindestens 90 Minuten Abstand
+            chosen      = []
+            attempts    = 0
+            while len(chosen) < ppd and attempts < 200:
+                attempts += 1
+                candidate = _random.randint(from_min, to_min)
+                if all(abs(candidate - c) >= gap for c in chosen):
+                    chosen.append(candidate)
+            chosen.sort()
+            return [day_dt.replace(hour=m // 60, minute=m % 60, second=0, microsecond=0)
+                    for m in chosen]
+        else:
+            post_times = d.get('post_times') or ['18:00']
+            result = []
+            for t in post_times:
+                try:
+                    h, m = map(int, t.split(':'))
+                    result.append(day_dt.replace(hour=h, minute=m, second=0, microsecond=0))
+                except Exception:
+                    pass
+            return result
 
     # Alle Slots im Zeitraum berechnen
     slots = []
     cur = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
     while cur <= date_to:
         if cur.weekday() in post_days:
-            for t in post_times:
-                try:
-                    h, m = map(int, t.split(':'))
-                    slots.append(cur.replace(hour=h, minute=m))
-                except Exception:
-                    pass
+            slots.extend(_times_for_day(cur))
         cur += timedelta(days=1)
 
     if not slots:
