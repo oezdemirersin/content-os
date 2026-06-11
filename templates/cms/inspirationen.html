@@ -76,7 +76,7 @@
         <div style="border-bottom:1px solid var(--border);
                     {% if source_filter == src.id %}background:rgba(59,130,246,.08){% endif %}">
           <div style="display:flex;align-items:center;gap:8px;padding:7px 14px 7px 22px">
-            <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
+            <a href="{{ url_for('inspirationen', account=acc_id, source=src.id, status=status_filter) }}"
                style="flex:1;min-width:0;text-decoration:none">
               <div style="font-size:12px;font-weight:600;color:var(--text)">@{{ src.username }}</div>
               <div style="font-size:10px;color:var(--muted)">
@@ -170,10 +170,14 @@
   <!-- ── Rechte Spalte: Posts ── -->
   <div>
 
-    <!-- Status-Tabs -->
+    <!-- Status-Tabs (bewahren account + source Filter) -->
     <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
       {% for tab_status, label in [('new','Neu'), ('saved','Gespeichert'), ('ignored','Ignoriert'), ('used','Übernommen'), ('all','Alle')] %}
-      <a href="{{ url_for('inspirationen', status=tab_status, source=source_filter or '') }}"
+      <a href="{{ url_for('inspirationen', status=tab_status,
+                  account=account_filter or '',
+                  source=source_filter or '',
+                  sort=sort_by, min_likes=min_likes or '',
+                  date_from=date_from or '', date_to=date_to or '') }}"
          style="display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:20px;
                 font-size:12px;font-weight:{% if status_filter == tab_status %}700{% else %}600{% endif %};
                 text-decoration:none;
@@ -194,6 +198,7 @@
     <form method="get" id="filterForm"
           style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
       <input type="hidden" name="status" value="{{ status_filter }}">
+      {% if account_filter %}<input type="hidden" name="account" value="{{ account_filter }}">{% endif %}
       {% if source_filter %}<input type="hidden" name="source" value="{{ source_filter }}">{% endif %}
 
       <!-- Sortierung -->
@@ -224,13 +229,43 @@
       <button type="submit" class="btn btn-primary" style="font-size:12px;padding:6px 14px">
         <i class="fa-solid fa-filter"></i> Filtern
       </button>
-      {% if min_likes or date_from or date_to or sort_by != 'date_desc' %}
-      <a href="{{ url_for('inspirationen', status=status_filter) }}"
+      {% if min_likes or date_from or date_to or sort_by != 'date_desc' or source_filter or account_filter %}
+      <a href="{{ url_for('inspirationen', status=status_filter,
+                  account=account_filter or '', source=source_filter or '') }}"
          class="btn btn-ghost" style="font-size:12px;padding:6px 10px;color:var(--muted)">
         <i class="fa-solid fa-xmark"></i> Reset
       </a>
       {% endif %}
     </form>
+
+    <!-- Quellen-Pills (nur wenn Account-Gruppe aktiv) -->
+    {% if account_filter and sources_by_account.get(account_filter) %}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;
+                padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
+      <span style="font-size:10px;color:var(--muted);align-self:center;margin-right:2px;white-space:nowrap">
+        <i class="fa-solid fa-filter" style="font-size:9px"></i> QUELLE:
+      </span>
+      <!-- "Alle" Pill -->
+      <a href="{{ url_for('inspirationen', account=account_filter, status=status_filter,
+                  sort=sort_by, min_likes=min_likes or '', date_from=date_from or '', date_to=date_to or '') }}"
+         style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;
+                font-size:11px;font-weight:600;text-decoration:none;
+                {% if not source_filter %}background:var(--accent);color:white;
+                {% else %}background:var(--surface2);border:1px solid var(--border);color:var(--muted);{% endif %}">
+        Alle
+      </a>
+      {% for src in sources_by_account[account_filter] %}
+      <a href="{{ url_for('inspirationen', account=account_filter, source=src.id, status=status_filter,
+                  sort=sort_by, min_likes=min_likes or '', date_from=date_from or '', date_to=date_to or '') }}"
+         style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;
+                font-size:11px;font-weight:600;text-decoration:none;
+                {% if source_filter == src.id %}background:var(--accent);color:white;
+                {% else %}background:var(--surface2);border:1px solid var(--border);color:var(--muted);{% endif %}">
+        @{{ src.username }}
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
 
     <!-- Bulk-Auswahl-Leiste -->
     {% if posts %}
