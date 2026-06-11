@@ -6819,7 +6819,9 @@ def autoplan():
 
     import random as _random
     posts_per_week = int(d.get('posts_per_week', 7) or 7)
+    day_mode       = d.get('day_mode', 'fixed')
     post_days      = [int(x) for x in (d.get('post_days') or [0,1,2,3,4,5,6])]
+    days_per_week  = max(1, min(7, int(d.get('days_per_week', 5) or 5)))
     folder_rules   = {int(k): int(v) for k, v in (d.get('folder_rules') or {}).items() if int(v) > 0}
     time_mode      = d.get('time_mode', 'fixed')
 
@@ -6860,11 +6862,30 @@ def autoplan():
 
     # Alle Slots im Zeitraum berechnen
     slots = []
-    cur = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
-    while cur <= date_to:
-        if cur.weekday() in post_days:
-            slots.extend(_times_for_day(cur))
-        cur += timedelta(days=1)
+    if day_mode == 'random':
+        # Woche für Woche: zufällig days_per_week Tage auswählen
+        cur = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Auf Montag der ersten Woche zurückgehen
+        week_start = cur - timedelta(days=cur.weekday())
+        while week_start <= date_to:
+            # Alle 7 Tage der Woche die im Zeitraum liegen
+            week_days = []
+            for wd in range(7):
+                day = week_start + timedelta(days=wd)
+                if date_from.date() <= day.date() <= date_to.date():
+                    week_days.append(day)
+            if week_days:
+                chosen = _random.sample(week_days, min(days_per_week, len(week_days)))
+                chosen.sort()
+                for day in chosen:
+                    slots.extend(_times_for_day(day))
+            week_start += timedelta(weeks=1)
+    else:
+        cur = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+        while cur <= date_to:
+            if cur.weekday() in post_days:
+                slots.extend(_times_for_day(cur))
+            cur += timedelta(days=1)
 
     if not slots:
         return jsonify({'ok': False, 'error': 'Keine Posting-Slots im gewählten Zeitraum.'})

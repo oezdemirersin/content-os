@@ -216,14 +216,52 @@
         </div>
       </div>
     </div>
-    <div>
-      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Posting-Tage</label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-        {% for i, tag in [(0,'Mo'),(1,'Di'),(2,'Mi'),(3,'Do'),(4,'Fr'),(5,'Sa'),(6,'So')] %}
-        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
-          <input type="checkbox" class="ap-day" value="{{ i }}" {% if i < 5 %}checked{% endif %}> {{ tag }}
+    <div style="grid-column:1/-1">
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:8px">Tage-Modus</label>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;
+                      padding:8px 14px;border-radius:8px;border:1px solid var(--accent);flex:1;
+                      background:var(--surface2)" id="modeDaysFixedCard" onclick="setDayMode('fixed')">
+          <input type="radio" name="dayMode" value="fixed" checked style="accent-color:var(--accent)">
+          <div>
+            <div style="font-weight:600">Feste Wochentage</div>
+            <div style="font-size:10px;color:var(--muted)">z.B. immer Mo, Mi, Fr</div>
+          </div>
         </label>
-        {% endfor %}
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;
+                      padding:8px 14px;border-radius:8px;border:1px solid var(--border);flex:1;
+                      background:var(--surface2)" id="modeDaysRandomCard" onclick="setDayMode('random')">
+          <input type="radio" name="dayMode" value="random" style="accent-color:var(--accent)">
+          <div>
+            <div style="font-weight:600">Zufällige Tage</div>
+            <div style="font-size:10px;color:var(--muted)">X beliebige Tage pro Woche</div>
+          </div>
+        </label>
+      </div>
+      <!-- Feste Tage -->
+      <div id="fixedDaysBlock">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          {% for i, tag in [(0,'Mo'),(1,'Di'),(2,'Mi'),(3,'Do'),(4,'Fr'),(5,'Sa'),(6,'So')] %}
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;
+                        padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2)">
+            <input type="checkbox" class="ap-day" value="{{ i }}" {% if i < 5 %}checked{% endif %}
+                   style="accent-color:var(--accent)"> {{ tag }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      <!-- Random Tage -->
+      <div id="randomDaysBlock" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="flex:1">
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Tage pro Woche</label>
+            <input type="number" id="ap_days_per_week" value="5" min="1" max="7"
+                   class="input-field" style="width:100%">
+          </div>
+          <div style="flex:2;font-size:11px;color:var(--muted);padding-top:12px">
+            Das System wählt für jede Woche zufällig die angegebene Anzahl Tage (Mo–So).
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -438,6 +476,13 @@ function setTimeMode(mode) {
   document.getElementById('modeRandomCard').style.borderColor = mode === 'random' ? 'var(--accent)' : 'var(--border)';
 }
 
+function setDayMode(mode) {
+  document.getElementById('fixedDaysBlock').style.display      = mode === 'fixed'  ? 'block' : 'none';
+  document.getElementById('randomDaysBlock').style.display     = mode === 'random' ? 'block' : 'none';
+  document.getElementById('modeDaysFixedCard').style.borderColor  = mode === 'fixed'  ? 'var(--accent)' : 'var(--border)';
+  document.getElementById('modeDaysRandomCard').style.borderColor = mode === 'random' ? 'var(--accent)' : 'var(--border)';
+}
+
 async function runAutoplan() {
   const accountId = parseInt(document.getElementById('ap_account').value);
   if (!accountId) { showToast('Bitte einen Account auswählen.', 'warning'); return; }
@@ -446,8 +491,14 @@ async function runAutoplan() {
   const dateTo   = document.getElementById('ap_to').value;
   if (!dateFrom || !dateTo) { showToast('Bitte Zeitraum wählen.', 'warning'); return; }
 
-  const ppw  = parseInt(document.getElementById('ap_ppw').value) || 7;
-  const days = [...document.querySelectorAll('.ap-day:checked')].map(cb => parseInt(cb.value));
+  const ppw     = parseInt(document.getElementById('ap_ppw').value) || 7;
+  const dayMode = document.querySelector('[name="dayMode"]:checked').value;
+  const days    = dayMode === 'random'
+    ? []
+    : [...document.querySelectorAll('.ap-day:checked')].map(cb => parseInt(cb.value));
+  const daysPerWeek = dayMode === 'random'
+    ? (parseInt(document.getElementById('ap_days_per_week').value) || 5)
+    : null;
 
   const isRandom = document.querySelector('[name="timeMode"]:checked').value === 'random';
   let timePayload = {};
@@ -486,7 +537,9 @@ async function runAutoplan() {
         date_from:      dateFrom + 'T00:00:00',
         date_to:        dateTo   + 'T23:59:59',
         posts_per_week: ppw,
+        day_mode:       dayMode,
         post_days:      days,
+        days_per_week:  daysPerWeek,
         folder_rules:   folderRules,
         ...timePayload,
       })
