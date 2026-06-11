@@ -227,9 +227,13 @@ class ContentFolder(db.Model):
     color          = db.Column(db.String(20), default='#6366f1')
     icon           = db.Column(db.String(50), default='fa-folder')
     account_id     = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)  # NULL = global
-    sort_order     = db.Column(db.Integer, default=0)
-    posts_per_week = db.Column(db.Integer, default=0)   # 0 = kein Limit
-    notes          = db.Column(db.Text)
+    sort_order       = db.Column(db.Integer, default=0)
+    posts_per_week   = db.Column(db.Integer, default=0)   # 0 = kein Limit
+    notes            = db.Column(db.Text)
+    # Zeitfenster: Ordner wird nur in diesem Zeitraum eingeplant (Priorität)
+    valid_from       = db.Column(db.Date, nullable=True)   # Startdatum des aktiven Fensters
+    valid_until      = db.Column(db.Date, nullable=True)   # Enddatum
+    recurring_yearly = db.Column(db.Boolean, default=False) # True = jedes Jahr wiederholen (nur MM-TT zählt)
     created_at     = db.Column(db.DateTime, default=datetime.utcnow)
     content_items  = db.relationship('ContentItem', backref='folder', lazy='select',
                                      foreign_keys='ContentItem.folder_id')
@@ -649,6 +653,7 @@ class InspirationPost(db.Model):
     status          = db.Column(db.String(20), default='new', index=True)
     is_saved        = db.Column(db.Boolean, default=False, nullable=False)  # Inspo-Lesezeichen
     carousel_urls   = db.Column(db.Text, nullable=True)        # JSON-Array aller Bilder bei Karussels
+    video_url       = db.Column(db.String(1000), nullable=True) # MP4-URL bei Videos
     like_count      = db.Column(db.Integer, nullable=True)     # Likes zum Zeitpunkt des Downloads
     comment_count   = db.Column(db.Integer, nullable=True)     # Kommentare zum Zeitpunkt des Downloads
     content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)

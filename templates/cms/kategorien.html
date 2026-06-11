@@ -145,6 +145,34 @@
       <span style="font-size:10px;padding:2px 8px;border-radius:10px;
                    background:rgba(99,102,241,.12);color:#818cf8">Global</span>
       {% endif %}
+
+      {# Zeitfenster-Badge #}
+      {% if f.valid_from and f.valid_until %}
+        {% if f.recurring_yearly %}
+          {% set vf = f.valid_from.replace(year=today.year) %}
+          {% set vu = f.valid_until.replace(year=today.year) %}
+        {% else %}
+          {% set vf = f.valid_from %}
+          {% set vu = f.valid_until %}
+        {% endif %}
+        {% if vf <= today <= vu %}
+        <span style="font-size:10px;padding:2px 9px;border-radius:10px;
+                     background:rgba(34,197,94,.15);color:#22c55e;font-weight:700">
+          🟢 Aktiv jetzt
+        </span>
+        {% elif today < vf %}
+          {% set days_left = (vf - today).days %}
+          <span style="font-size:10px;padding:2px 9px;border-radius:10px;
+                       background:rgba(245,158,11,.12);color:#f59e0b;font-weight:600">
+            🟡 Startet in {{ days_left }} Tag{{ 'en' if days_left != 1 else '' }}
+          </span>
+        {% else %}
+        <span style="font-size:10px;padding:2px 9px;border-radius:10px;
+                     background:var(--surface2);color:var(--muted)">
+          ⚪ {{ f.valid_from.strftime('%d.%m') }}–{{ f.valid_until.strftime('%d.%m') }}{% if f.recurring_yearly %} (jährl.){% endif %}
+        </span>
+        {% endif %}
+      {% endif %}
     </div>
     {% if f.notes %}
     <div style="font-size:11px;color:var(--muted);margin-top:2px">{{ f.notes }}</div>
@@ -191,7 +219,7 @@
 
   <!-- Aktionen -->
   <div style="display:flex;gap:6px;flex-shrink:0">
-    <button onclick="openEditModal({{ f.id }}, {{ f.name|tojson }}, {{ f.color|tojson }}, {{ f.icon|tojson }}, {{ f.account_id or 'null' }}, {{ f.posts_per_week }}, {{ (f.notes or '')|tojson }})"
+    <button onclick="openEditModal({{ f.id }}, {{ f.name|tojson }}, {{ f.color|tojson }}, {{ f.icon|tojson }}, {{ f.account_id or 'null' }}, {{ f.posts_per_week }}, {{ (f.notes or '')|tojson }}, {{ (f.valid_from.strftime('%Y-%m-%d') if f.valid_from else '')|tojson }}, {{ (f.valid_until.strftime('%Y-%m-%d') if f.valid_until else '')|tojson }}, {{ f.recurring_yearly|tojson }})"
             class="btn btn-ghost" style="font-size:12px;padding:5px 10px" title="Bearbeiten">
       <i class="fa-solid fa-pen"></i>
     </button>
@@ -332,15 +360,11 @@
       </div>
       <!-- Random Tage -->
       <div id="randomDaysBlock" style="display:none">
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="flex:1">
-            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Tage pro Woche</label>
-            <input type="number" id="ap_days_per_week" value="5" min="1" max="7"
-                   class="input-field" style="width:100%">
-          </div>
-          <div style="flex:2;font-size:11px;color:var(--muted);padding-top:12px">
-            Das System wählt für jede Woche zufällig die angegebene Anzahl Tage (Mo–So).
-          </div>
+        <div style="font-size:11px;color:var(--muted);padding:8px 12px;background:var(--surface2);
+                    border-radius:8px;border:1px solid var(--border)">
+          <i class="fa-solid fa-shuffle" style="margin-right:5px;color:var(--accent)"></i>
+          Das System wählt pro Woche automatisch zufällige Tage — so viele, wie du oben bei
+          <strong>Posts pro Woche</strong> eingestellt hast (÷ Posts pro Tag).
         </div>
       </div>
     </div>
@@ -451,6 +475,33 @@
         <textarea id="fNotes" class="input-field" rows="2" style="width:100%;resize:none"
                   placeholder="z.B. Immer mit Stadtname im Caption"></textarea>
       </div>
+
+      <!-- Zeitfenster -->
+      <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:2px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <label style="font-size:11px;font-weight:700;color:var(--text)">
+            <i class="fa-solid fa-calendar-check" style="color:var(--accent);margin-right:5px"></i>
+            ZEITFENSTER (optional)
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer">
+            <input type="checkbox" id="fRecurring"> Jährlich wiederholen
+          </label>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.5">
+          Beiträge aus diesem Ordner haben <strong>Vorrang</strong> vor allen anderen und werden
+          <strong>nur in diesem Zeitraum</strong> eingeplant. Ideal für Weihnachten, Events, Karneval etc.
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Von</label>
+            <input type="date" id="fValidFrom" class="input-field" style="width:100%">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Bis</label>
+            <input type="date" id="fValidUntil" class="input-field" style="width:100%">
+          </div>
+        </div>
+      </div>
     </div>
 
     <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
@@ -469,25 +520,31 @@ let _editFolderId = null;
 function openNewModal() {
   _editFolderId = null;
   document.getElementById('modalTitle').textContent = 'NEUER ORDNER';
-  document.getElementById('fName').value    = '';
-  document.getElementById('fColor').value  = '#6366f1';
-  document.getElementById('fIcon').value   = 'fa-folder';
-  document.getElementById('fAccount').value = '';
-  document.getElementById('fPpw').value    = '0';
-  document.getElementById('fNotes').value  = '';
+  document.getElementById('fName').value      = '';
+  document.getElementById('fColor').value     = '#6366f1';
+  document.getElementById('fIcon').value      = 'fa-folder';
+  document.getElementById('fAccount').value   = '';
+  document.getElementById('fPpw').value       = '0';
+  document.getElementById('fNotes').value     = '';
+  document.getElementById('fValidFrom').value  = '';
+  document.getElementById('fValidUntil').value = '';
+  document.getElementById('fRecurring').checked = false;
   document.getElementById('folderModal').style.display = 'flex';
   setTimeout(() => document.getElementById('fName').focus(), 50);
 }
 
-function openEditModal(id, name, color, icon, accountId, ppw, notes) {
+function openEditModal(id, name, color, icon, accountId, ppw, notes, validFrom, validUntil, recurring) {
   _editFolderId = id;
   document.getElementById('modalTitle').textContent = 'ORDNER BEARBEITEN';
-  document.getElementById('fName').value    = name;
-  document.getElementById('fColor').value  = color;
-  document.getElementById('fIcon').value   = icon;
-  document.getElementById('fAccount').value = accountId || '';
-  document.getElementById('fPpw').value    = ppw;
-  document.getElementById('fNotes').value  = notes || '';
+  document.getElementById('fName').value      = name;
+  document.getElementById('fColor').value     = color;
+  document.getElementById('fIcon').value      = icon;
+  document.getElementById('fAccount').value   = accountId || '';
+  document.getElementById('fPpw').value       = ppw;
+  document.getElementById('fNotes').value     = notes || '';
+  document.getElementById('fValidFrom').value  = validFrom || '';
+  document.getElementById('fValidUntil').value = validUntil || '';
+  document.getElementById('fRecurring').checked = !!recurring;
   document.getElementById('folderModal').style.display = 'flex';
   setTimeout(() => document.getElementById('fName').focus(), 50);
 }
@@ -506,12 +563,15 @@ async function saveFolder() {
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
 
   const payload = {
-    name:           name,
-    color:          document.getElementById('fColor').value,
-    icon:           document.getElementById('fIcon').value,
-    account_id:     parseInt(document.getElementById('fAccount').value) || null,
-    posts_per_week: parseInt(document.getElementById('fPpw').value) || 0,
-    notes:          document.getElementById('fNotes').value.trim(),
+    name:             name,
+    color:            document.getElementById('fColor').value,
+    icon:             document.getElementById('fIcon').value,
+    account_id:       parseInt(document.getElementById('fAccount').value) || null,
+    posts_per_week:   parseInt(document.getElementById('fPpw').value) || 0,
+    notes:            document.getElementById('fNotes').value.trim(),
+    valid_from:       document.getElementById('fValidFrom').value  || null,
+    valid_until:      document.getElementById('fValidUntil').value || null,
+    recurring_yearly: document.getElementById('fRecurring').checked,
   };
 
   const url    = _editFolderId ? `/api/folders/${_editFolderId}` : '/api/folders';
@@ -585,26 +645,31 @@ async function runAutoplan() {
   const days    = dayMode === 'random'
     ? []
     : [...document.querySelectorAll('.ap-day:checked')].map(cb => parseInt(cb.value));
-  const daysPerWeek = dayMode === 'random'
-    ? (parseInt(document.getElementById('ap_days_per_week').value) || 5)
-    : null;
 
   const isRandom = document.querySelector('[name="timeMode"]:checked').value === 'random';
   let timePayload = {};
+  let postsPerDayCount = 1;
   if (isRandom) {
+    postsPerDayCount = parseInt(document.getElementById('ap_posts_per_day').value) || 1;
     timePayload = {
       time_mode:      'random',
       time_from:      document.getElementById('ap_time_from').value,
       time_to:        document.getElementById('ap_time_to').value,
-      posts_per_day:  parseInt(document.getElementById('ap_posts_per_day').value) || 1,
+      posts_per_day:  postsPerDayCount,
     };
   } else {
+    const fixedTimes = document.getElementById('ap_times').value
+                         .split(',').map(t => t.trim()).filter(Boolean);
+    postsPerDayCount = Math.max(1, fixedTimes.length);
     timePayload = {
       time_mode:  'fixed',
-      post_times: document.getElementById('ap_times').value
-                    .split(',').map(t => t.trim()).filter(Boolean),
+      post_times: fixedTimes,
     };
   }
+  // Tage pro Woche = Posts pro Woche ÷ Posts pro Tag (automatisch abgeleitet)
+  const daysPerWeek = dayMode === 'random'
+    ? Math.max(1, Math.min(7, Math.ceil(ppw / postsPerDayCount)))
+    : null;
 
   const folderRules = {};
   document.querySelectorAll('.ap-folder-input').forEach(inp => {

@@ -431,6 +431,10 @@ def init_db():
             safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS comment_count INTEGER')
             safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS is_saved BOOLEAN DEFAULT FALSE')
             safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS carousel_urls TEXT')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS video_url VARCHAR(1000)')
+            safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS valid_from DATE')
+            safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS valid_until DATE')
+            safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS recurring_yearly BOOLEAN DEFAULT FALSE')
             # Bestehende status='saved' Posts migrieren → is_saved=True
             safe_alter("UPDATE inspiration_post SET is_saved=TRUE WHERE status='saved'")
             # ── account: KI-Caption Felder ───────────────────────────────
@@ -485,6 +489,15 @@ def init_db():
                 safe_alter("UPDATE inspiration_post SET is_saved=1 WHERE status='saved'")
             if 'carousel_urls' not in ip_cols:
                 safe_alter('ALTER TABLE inspiration_post ADD COLUMN carousel_urls TEXT')
+            if 'video_url' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN video_url VARCHAR(1000)')
+            cf_cols = [c['name'] for c in inspector.get_columns('content_folder')]
+            if 'valid_from' not in cf_cols:
+                safe_alter('ALTER TABLE content_folder ADD COLUMN valid_from DATE')
+            if 'valid_until' not in cf_cols:
+                safe_alter('ALTER TABLE content_folder ADD COLUMN valid_until DATE')
+            if 'recurring_yearly' not in cf_cols:
+                safe_alter('ALTER TABLE content_folder ADD COLUMN recurring_yearly BOOLEAN DEFAULT 0')
             # account: KI-Caption Felder
             if 'default_hashtags' not in account_cols:
                 safe_alter('ALTER TABLE account ADD COLUMN default_hashtags TEXT')
@@ -6569,6 +6582,30 @@ def inspiration_fetch(src_id):
                         'error': f'Keine Posts geladen. Bitte prüfe ob du auf RapidAPI '
                                  f'einen Instagram-Scraper abonniert hast. ({last_err})'})
 
+    # ── Hilfsfunktion: Video-URL extrahieren ──────────────────
+    def _extract_video_url(item):
+        # scraper21: video = [{url, width, height}]
+        v = item.get('video')
+        if isinstance(v, list) and v:
+            first = v[0]
+            if isinstance(first, dict):
+                u = first.get('url') or first.get('videoUrl')
+                if u and u.startswith('http'): return u
+            elif isinstance(first, str) and first.startswith('http'):
+                return first
+        if isinstance(v, str) and v.startswith('http'):
+            return v
+        # Andere API-Formate
+        for key in ('video_url', 'videoUrl', 'video_versions', 'video_resources'):
+            vv = item.get(key)
+            if isinstance(vv, str) and vv.startswith('http'):
+                return vv
+            if isinstance(vv, list) and vv:
+                first = vv[0]
+                u = first.get('url') if isinstance(first, dict) else str(first)
+                if u.startswith('http'): return u
+        return None
+
     # ── Hilfsfunktion: Bild-URL extrahieren ───────────────────
     def _extract_img(item):
         # instagram-scraper21: image = [{url, height, width}, ...]
@@ -6678,12 +6715,15 @@ def inspiration_fetch(src_id):
         else:
             media_type = 'image'
 
+        video_url = _extract_video_url(item) if media_type == 'video' else None
+
         post = InspirationPost(
             source_id=src.id, instagram_code=code,
             image_url=img_url, thumbnail_url=thumb_url or img_url,
             caption=caption, post_date=post_date,
             media_type=media_type, status='new',
             carousel_urls=carousel_urls_json,
+            video_url=video_url,
             like_count=like_val,
             comment_count=comment_val,
         )
@@ -6753,10 +6793,10 @@ def inspiration_post_use(post_id):
         except Exception:
             pass
 
-    # ── Bild-URLs sammeln (Einzel- oder Karussel) ────────────────
-    def _fetch_img_bytes(url):
+    # ── Datei(en) laden und hochladen ────────────────────────────
+    def _fetch_bytes(url):
         try:
-            resp = req_lib.get(url, timeout=(10, 20),
+            resp = req_lib.get(url, timeout=(15, 60),
                                headers={'User-Agent': 'Mozilla/5.0',
                                         'Referer': 'https://www.instagram.com/'})
             resp.raise_for_status()
@@ -6764,54 +6804,86 @@ def inspiration_post_use(post_id):
         except Exception:
             return None
 
-    # Karussel: alle gespeicherten URLs nutzen; sonst nur das Hauptbild
-    carousel_urls_list = []
-    if post.media_type == 'carousel' and post.carousel_urls:
-        try:
-            carousel_urls_list = json.loads(post.carousel_urls)
-        except Exception:
-            pass
-    if not carousel_urls_list:
-        carousel_urls_list = [post.image_url]
-
-    img_bytes_first = _fetch_img_bytes(carousel_urls_list[0])
-    if not img_bytes_first:
-        # Fallback: Thumbnail
-        if post.thumbnail_url and post.thumbnail_url != carousel_urls_list[0]:
-            img_bytes_first = _fetch_img_bytes(post.thumbnail_url)
-    if not img_bytes_first:
-        return jsonify({'ok': False,
-                        'error': 'Bild nicht mehr abrufbar (CDN-Link abgelaufen). '
-                                 'Bitte die Quelle neu laden (↓ Laden).'})
-
-    # ── Duplikat-Prüfung (nur erstes Bild) ───────────────────────
     force_dup = bool(data.get('force_duplicate'))
-    img_hash  = _compute_image_hash(img_bytes_first)
-    if img_hash and not force_dup:
-        dup, diff = _find_duplicate(img_hash)
-        if dup:
-            dup_info = f'"{dup.original_filename or dup.filename}" (vom {dup.created_at.strftime("%d.%m.%Y") if dup.created_at else "?"})'
-            return jsonify({
-                'ok': False, 'duplicate': True,
-                'error': f'⚠️ Dieses Bild existiert bereits in deiner Medienbibliothek: {dup_info}. '
-                         f'Trotzdem übernehmen? Dann erneut klicken.',
-                'dup_media_id': dup.id, 'dup_info': dup_info,
-            })
 
-    # ── Alle Bilder hochladen (Karussel = mehrere MediaItems) ────
-    def _upload_one(img_bytes, idx):
-        fname = f'insp_{post.instagram_code}_{idx}.jpg'
-        h     = _compute_image_hash(img_bytes) if idx > 0 else img_hash
-        cl    = _cloudinary_upload(io.BytesIO(img_bytes), fname)
+    # ── VIDEO ─────────────────────────────────────────────────────
+    if post.media_type == 'video':
+        vid_url = post.video_url or post.image_url
+        if not vid_url:
+            return jsonify({'ok': False, 'error': 'Keine Video-URL gespeichert. '
+                                                   'Bitte Quelle neu laden (↓ Laden).'})
+        vid_bytes = _fetch_bytes(vid_url)
+        if not vid_bytes:
+            return jsonify({'ok': False, 'error': 'Video nicht mehr abrufbar (CDN abgelaufen). '
+                                                   'Bitte Quelle neu laden (↓ Laden).'})
+        fname = f'insp_{post.instagram_code}.mp4'
+        cl = _cloudinary_upload(io.BytesIO(vid_bytes), fname)
         if cl:
-            return MediaItem(
+            media = MediaItem(
                 filename=cl['public_id'], original_filename=fname,
-                file_type='image', mime_type='image/jpeg',
-                file_size=cl.get('bytes', len(img_bytes)),
+                file_type='video', mime_type='video/mp4',
+                file_size=cl.get('bytes', len(vid_bytes)),
                 width=cl.get('width'), height=cl.get('height'),
-                url=cl['secure_url'], storage_source='cloudinary', image_hash=h,
+                url=cl['secure_url'], storage_source='cloudinary',
             )
         else:
+            uname = f"{uuid.uuid4().hex}.mp4"
+            with open(os.path.join(app.config['UPLOAD_FOLDER'], uname), 'wb') as _f:
+                _f.write(vid_bytes)
+            media = MediaItem(
+                filename=uname, original_filename=fname,
+                file_type='video', mime_type='video/mp4',
+                file_size=len(vid_bytes), url=f'/media/file/{uname}',
+                storage_source='local',
+            )
+        db.session.add(media)
+        db.session.flush()
+        media_items = [media]
+
+    # ── BILD / KARUSSEL ───────────────────────────────────────────
+    else:
+        carousel_urls_list = []
+        if post.media_type == 'carousel' and post.carousel_urls:
+            try:
+                carousel_urls_list = json.loads(post.carousel_urls)
+            except Exception:
+                pass
+        if not carousel_urls_list:
+            carousel_urls_list = [post.image_url]
+
+        img_bytes_first = _fetch_bytes(carousel_urls_list[0])
+        if not img_bytes_first and post.thumbnail_url != carousel_urls_list[0]:
+            img_bytes_first = _fetch_bytes(post.thumbnail_url)
+        if not img_bytes_first:
+            return jsonify({'ok': False,
+                            'error': 'Bild nicht mehr abrufbar (CDN-Link abgelaufen). '
+                                     'Bitte die Quelle neu laden (↓ Laden).'})
+
+        # Duplikat-Prüfung (erstes Bild)
+        img_hash = _compute_image_hash(img_bytes_first)
+        if img_hash and not force_dup:
+            dup, diff = _find_duplicate(img_hash)
+            if dup:
+                dup_info = f'"{dup.original_filename or dup.filename}" (vom {dup.created_at.strftime("%d.%m.%Y") if dup.created_at else "?"})'
+                return jsonify({
+                    'ok': False, 'duplicate': True,
+                    'error': f'⚠️ Dieses Bild existiert bereits in deiner Medienbibliothek: {dup_info}. '
+                             f'Trotzdem übernehmen? Dann erneut klicken.',
+                    'dup_media_id': dup.id, 'dup_info': dup_info,
+                })
+
+        def _upload_one(img_bytes, idx):
+            fname = f'insp_{post.instagram_code}_{idx}.jpg'
+            h     = _compute_image_hash(img_bytes) if idx > 0 else img_hash
+            cl    = _cloudinary_upload(io.BytesIO(img_bytes), fname)
+            if cl:
+                return MediaItem(
+                    filename=cl['public_id'], original_filename=fname,
+                    file_type='image', mime_type='image/jpeg',
+                    file_size=cl.get('bytes', len(img_bytes)),
+                    width=cl.get('width'), height=cl.get('height'),
+                    url=cl['secure_url'], storage_source='cloudinary', image_hash=h,
+                )
             uname = f"{uuid.uuid4().hex}.jpg"
             with open(os.path.join(app.config['UPLOAD_FOLDER'], uname), 'wb') as _f:
                 _f.write(img_bytes)
@@ -6822,21 +6894,19 @@ def inspiration_post_use(post_id):
                 storage_source='local', image_hash=h,
             )
 
-    media_items = []
-    all_bytes   = [img_bytes_first]
-    # Restliche Karussel-Bilder laden
-    for url in carousel_urls_list[1:]:
-        b = _fetch_img_bytes(url)
-        if b:
-            all_bytes.append(b)
+        all_bytes = [img_bytes_first]
+        for url in carousel_urls_list[1:]:
+            b = _fetch_bytes(url)
+            if b:
+                all_bytes.append(b)
 
-    for idx, byt in enumerate(all_bytes):
-        m = _upload_one(byt, idx)
-        db.session.add(m)
-        media_items.append(m)
-    db.session.flush()
-
-    media = media_items[0]  # erstes Bild = Haupt-MediaItem
+        media_items = []
+        for idx, byt in enumerate(all_bytes):
+            m = _upload_one(byt, idx)
+            db.session.add(m)
+            media_items.append(m)
+        db.session.flush()
+        media = media_items[0]
 
     content_status = 'draft' if mode == 'reserve' else 'scheduled' if (mode == 'schedule' and scheduled_at) else 'ready'
     ci = ContentItem(
@@ -6953,10 +7023,12 @@ def kategorien():
                     ContentItem.status.in_(['draft', 'ready', 'in_progress', 'scheduled']))\
             .count()
 
+    from datetime import date as _date_today
     return render_template('kategorien.html',
         folders=folders, accounts=accounts,
         folder_counts=folder_counts,
         sel_account=account_id,
+        today=_date_today.today(),
         active_page='kategorien')
 
 
@@ -6984,15 +7056,22 @@ def folder_create():
     if not name:
         return jsonify({'ok': False, 'error': 'Name darf nicht leer sein.'})
     account_id = d.get('account_id') or None
+    def _parse_date(s):
+        try: return datetime.strptime(s, '%Y-%m-%d').date() if s else None
+        except: return None
+
     try:
         f = ContentFolder(
-            name           = name,
-            color          = d.get('color', '#6366f1'),
-            icon           = d.get('icon', 'fa-folder'),
-            account_id     = account_id,
-            sort_order     = int(d.get('sort_order', 0) or 0),
-            posts_per_week = int(d.get('posts_per_week', 0) or 0),
-            notes          = d.get('notes', '') or '',
+            name             = name,
+            color            = d.get('color', '#6366f1'),
+            icon             = d.get('icon', 'fa-folder'),
+            account_id       = account_id,
+            sort_order       = int(d.get('sort_order', 0) or 0),
+            posts_per_week   = int(d.get('posts_per_week', 0) or 0),
+            notes            = d.get('notes', '') or '',
+            valid_from       = _parse_date(d.get('valid_from')),
+            valid_until      = _parse_date(d.get('valid_until')),
+            recurring_yearly = bool(d.get('recurring_yearly', False)),
         )
         db.session.add(f)
         db.session.commit()
@@ -7008,13 +7087,19 @@ def folder_create():
 def folder_update(fid):
     f = ContentFolder.query.get_or_404(fid)
     d = request.get_json() or {}
-    if 'name'           in d: f.name           = (d['name'] or '').strip() or f.name
-    if 'color'          in d: f.color          = d['color']
-    if 'icon'           in d: f.icon           = d['icon']
-    if 'account_id'     in d: f.account_id     = d['account_id'] or None
-    if 'sort_order'     in d: f.sort_order      = int(d['sort_order'] or 0)
-    if 'posts_per_week' in d: f.posts_per_week  = int(d['posts_per_week'] or 0)
-    if 'notes'          in d: f.notes           = d['notes']
+    def _pd(s):
+        try: return datetime.strptime(s, '%Y-%m-%d').date() if s else None
+        except: return None
+    if 'name'             in d: f.name             = (d['name'] or '').strip() or f.name
+    if 'color'            in d: f.color            = d['color']
+    if 'icon'             in d: f.icon             = d['icon']
+    if 'account_id'       in d: f.account_id       = d['account_id'] or None
+    if 'sort_order'       in d: f.sort_order        = int(d['sort_order'] or 0)
+    if 'posts_per_week'   in d: f.posts_per_week    = int(d['posts_per_week'] or 0)
+    if 'notes'            in d: f.notes             = d['notes']
+    if 'valid_from'       in d: f.valid_from        = _pd(d['valid_from'])
+    if 'valid_until'      in d: f.valid_until       = _pd(d['valid_until'])
+    if 'recurring_yearly' in d: f.recurring_yearly  = bool(d['recurring_yearly'])
     db.session.commit()
     return jsonify({'ok': True})
 
@@ -7153,6 +7238,28 @@ def autoplan():
     if not free_slots:
         return jsonify({'ok': False, 'error': 'Alle Slots im Zeitraum sind bereits belegt.'})
 
+    # ── Prioritäts-Ordner: aktive Zeitfenster zuerst ─────────────
+    from datetime import date as _date
+    today = _date.today()
+
+    def _folder_is_active(folder):
+        """Gibt True zurück wenn der Ordner ein aktives Zeitfenster hat."""
+        if not folder.valid_from or not folder.valid_until:
+            return False
+        vf, vu = folder.valid_from, folder.valid_until
+        if folder.recurring_yearly:
+            # Nur Monat+Tag vergleichen
+            vf = vf.replace(year=today.year)
+            vu = vu.replace(year=today.year)
+            if vf <= vu:
+                return vf <= today <= vu
+            else:  # Jahreswechsel (z.B. 28.12. – 02.01.)
+                return today >= vf or today <= vu
+        return vf <= today <= vu
+
+    all_content_folders = ContentFolder.query.all()
+    active_priority_fids = [f.id for f in all_content_folders if _folder_is_active(f)]
+
     # Posts aus Vorrat holen — nach Ordner-Regeln aufteilen
     # Sentinel: folder_id=-1 bedeutet "alle Posts egal welcher Ordner"
     ALL_FOLDERS = -1
@@ -7176,21 +7283,29 @@ def autoplan():
     created     = 0
     used_item_ids = set()
 
-    # Folder-Anteile: proportional zu posts_per_week
-    # folder_rules kann folder_id='' (leer = kein Ordner) oder echte IDs enthalten
+    # ── Aktive Prioritäts-Ordner zuerst füllen ────────────────────
     assignments = []  # [(folder_id_or_sentinel, n_slots)]
+    priority_slots_used = 0
+
+    if active_priority_fids:
+        # Prioritäts-Pool: alle Posts aus aktiven Zeitfenster-Ordnern
+        for fid in active_priority_fids:
+            assignments.append((fid, total_slots))  # max. Puffer; wird durch Pool-Größe begrenzt
+        priority_slots_used = total_slots  # wird nach der Runde angepasst
+
+    # ── Normale Ordner-Regeln (restliche Slots) ───────────────────
+    remaining_label = 'REMAINING'  # Platzhalter; wird nach Prioritäts-Runde aufgelöst
+
     if folder_rules:
         total_ppw = sum(folder_rules.values())
         for fid, ppw in folder_rules.items():
             n = max(1, round(total_slots * ppw / total_ppw))
-            # fid=0 oder leer → Posts ohne Ordner
             assignments.append((fid if fid else None, n))
-        assigned = sum(n for _, n in assignments)
-        if assigned < total_slots:
-            assignments.append((ALL_FOLDERS, total_slots - assigned))
+        assigned_normal = sum(n for _, n in assignments[len(active_priority_fids):])
+        if assigned_normal < total_slots:
+            assignments.append((ALL_FOLDERS, total_slots - assigned_normal))
     else:
-        # Keine Regeln → alle Posts aus dem gesamten Vorrat mischen
-        assignments = [(ALL_FOLDERS, total_slots)]
+        assignments.append((ALL_FOLDERS, total_slots))
 
     import random
     for folder_id, n_slots in assignments:
