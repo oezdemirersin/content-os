@@ -139,6 +139,14 @@ class Account(db.Model):
     # Kunden-Share-Link
     share_token = db.Column(db.String(64), unique=True)
 
+    # Telegram
+    telegram_chat_id = db.Column(db.String(100))  # Channel-ID z.B. -1001234567890
+
+    # Layout / Canva
+    canva_url         = db.Column(db.String(500))  # Link zum Canva-Ordner / Template
+    layout_notes      = db.Column(db.Text)          # Layout-Hinweise (Farben, Schriften, Stil)
+    page_persona      = db.Column(db.Text)          # Seiten-Persönlichkeit für Inspiration-KI
+
     # Relationships
     scheduled_posts = db.relationship('ScheduledPost', backref='account', lazy=True, cascade='all,delete')
     analytics = db.relationship('AnalyticsSnapshot', backref='account', lazy=True, cascade='all,delete')
@@ -207,6 +215,22 @@ class AIConfig(db.Model):
         return json.loads(self.posting_times or '["09:00","18:00"]')
 
 
+class ContentFolder(db.Model):
+    """Vorrat-Ordner: benutzerdefinierte Kategorien für Content-Planung pro Account."""
+    __tablename__ = 'content_folder'
+    id             = db.Column(db.Integer, primary_key=True)
+    name           = db.Column(db.String(100), nullable=False)
+    color          = db.Column(db.String(20), default='#6366f1')
+    icon           = db.Column(db.String(50), default='fa-folder')
+    account_id     = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)  # NULL = global
+    sort_order     = db.Column(db.Integer, default=0)
+    posts_per_week = db.Column(db.Integer, default=0)   # 0 = kein Limit
+    notes          = db.Column(db.Text)
+    created_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    content_items  = db.relationship('ContentItem', backref='folder', lazy='select',
+                                     foreign_keys='ContentItem.folder_id')
+
+
 class ContentItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(500), nullable=False)
@@ -215,6 +239,7 @@ class ContentItem(db.Model):
     source_url = db.Column(db.String(1000))
     source_name = db.Column(db.String(200))
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'))
+    folder_id   = db.Column(db.Integer, db.ForeignKey('content_folder.id'), nullable=True)
     labels = db.relationship('Label', secondary=content_labels, backref='content_items')
     accounts = db.relationship('Account', secondary=content_accounts, backref='content_items')
 
@@ -310,6 +335,9 @@ class ScheduledPost(db.Model):
 
     # Instagram post ID after publishing
     external_post_id = db.Column(db.String(200))
+
+    # Telegram
+    telegram_sent_at = db.Column(db.DateTime)  # gesetzt sobald an Telegram gesendet
 
     # Performance (filled after publishing)
     likes = db.Column(db.Integer)
@@ -553,3 +581,65 @@ class RecurringPost(db.Model):
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
     content_item    = db.relationship('ContentItem', backref='recurring_posts')
     account         = db.relationship('Account', backref='recurring_posts')
+
+
+# ── Meme Templates ───────────────────────────────────────────
+class MemeTemplate(db.Model):
+    """Ein hochgeladenes Meme-Template-Bild (Canva-Export)."""
+    __tablename__ = 'meme_template'
+    id                   = db.Column(db.Integer, primary_key=True)
+    title                = db.Column(db.String(200))
+    image_url            = db.Column(db.String(500))        # Cloudinary URL
+    cloudinary_public_id = db.Column(db.String(200))        # für späteres Löschen
+    source_city          = db.Column(db.String(100))        # z.B. "Darmstadt"
+    notes                = db.Column(db.Text)
+    meme_context         = db.Column(db.Text)               # JSON: Typ, Kern-Element, Ton, Zielgruppe
+    created_at           = db.Column(db.DateTime, default=datetime.utcnow)
+    variants             = db.relationship('MemeVariant', backref='template',
+                                           lazy='select', cascade='all,delete')
+
+
+class MemeVariant(db.Model):
+    """Status + Claude-Vorschlag für eine Stadt-Variante eines Templates."""
+    __tablename__ = 'meme_variant'
+    id              = db.Column(db.Integer, primary_key=True)
+    template_id     = db.Column(db.Integer, db.ForeignKey('meme_template.id'), nullable=False)
+    city            = db.Column(db.String(100), nullable=False)   # z.B. "Frankfurt"
+    status          = db.Column(db.String(20), default='pending')
+    # pending → noch offen | done → Canva-Version fertig | skip → überspringen
+    suggestion      = db.Column(db.Text)   # Claude-Vorschlag (Text/JSON)
+    notes           = db.Column(db.Text)   # eigene Notizen
+    content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at      = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class InspirationSource(db.Model):
+    """Eine Instagram-Seite die wir beobachten (Inspiration-Quellen)."""
+    __tablename__ = 'inspiration_source'
+    id         = db.Column(db.Integer, primary_key=True)
+    username   = db.Column(db.String(100), nullable=False, unique=True)
+    notes      = db.Column(db.Text)
+    last_fetch = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Standard-Account: Posts von dieser Quelle gehen automatisch hierhin
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)
+    posts      = db.relationship('InspirationPost', backref='source',
+                                 lazy='select', cascade='all,delete')
+
+
+class InspirationPost(db.Model):
+    """Ein heruntergeladener Post von einer beobachteten Seite."""
+    __tablename__ = 'inspiration_post'
+    id              = db.Column(db.Integer, primary_key=True)
+    source_id       = db.Column(db.Integer, db.ForeignKey('inspiration_source.id'), nullable=False)
+    instagram_code  = db.Column(db.String(50), unique=True)   # Post-Shortcode
+    image_url       = db.Column(db.String(1000))              # Original Instagram CDN URL
+    thumbnail_url   = db.Column(db.String(1000))              # kleinere Version
+    caption         = db.Column(db.Text)
+    post_date       = db.Column(db.DateTime)
+    media_type      = db.Column(db.String(20), default='image')  # image | video | carousel
+    # Status: new=frisch | saved=will ich verwenden | ignored=nicht interessant | used=schon übernommen
+    status          = db.Column(db.String(20), default='new', index=True)
+    content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
