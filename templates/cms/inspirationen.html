@@ -55,27 +55,47 @@
       {% else %}
       <div>
         {% for src in sources %}
-        <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;
-                    border-bottom:1px solid var(--border);
+        <div style="border-bottom:1px solid var(--border);
                     {% if source_filter == src.id %}background:rgba(59,130,246,.08){% endif %}">
-          <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
-             style="flex:1;min-width:0;text-decoration:none">
-            <div style="font-size:13px;font-weight:600;color:var(--text)">@{{ src.username }}</div>
-            <div style="font-size:10px;color:var(--muted)">
-              {% if src.last_fetch %}Zuletzt: {{ src.last_fetch.strftime('%d.%m. %H:%M') }}
-              {% else %}Noch nie geladen{% endif %}
-            </div>
-          </a>
-          <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
-                  class="btn btn-primary" style="font-size:11px;padding:5px 10px;flex-shrink:0"
-                  {% if not has_rapidapi_key %}disabled title="RapidAPI-Key fehlt"{% endif %}>
-            <i class="fa-solid fa-download"></i> Laden
-          </button>
-          <button onclick="deleteSource({{ src.id }}, '@{{ src.username }}')"
-                  style="background:none;border:none;color:var(--muted);cursor:pointer;
-                         font-size:13px;padding:4px;flex-shrink:0">
-            <i class="fa-solid fa-xmark"></i>
-          </button>
+
+          <!-- Zeile 1: Name + Buttons -->
+          <div style="display:flex;align-items:center;gap:8px;padding:10px 14px 4px">
+            <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
+               style="flex:1;min-width:0;text-decoration:none">
+              <div style="font-size:13px;font-weight:600;color:var(--text)">@{{ src.username }}</div>
+              <div style="font-size:10px;color:var(--muted)">
+                {% if src.last_fetch %}Zuletzt: {{ src.last_fetch.strftime('%d.%m. %H:%M') }}
+                {% else %}Noch nie geladen{% endif %}
+              </div>
+            </a>
+            <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
+                    class="btn btn-primary" style="font-size:11px;padding:5px 10px;flex-shrink:0"
+                    {% if not has_rapidapi_key %}disabled title="RapidAPI-Key fehlt"{% endif %}>
+              <i class="fa-solid fa-download"></i> Laden
+            </button>
+            <button onclick="deleteSource({{ src.id }}, '@{{ src.username }}')"
+                    style="background:none;border:none;color:var(--muted);cursor:pointer;
+                           font-size:13px;padding:4px;flex-shrink:0">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+
+          <!-- Zeile 2: Standard-Account Dropdown -->
+          <div style="padding:4px 14px 10px;display:flex;align-items:center;gap:6px">
+            <i class="fa-solid fa-arrow-right" style="font-size:10px;color:var(--muted);flex-shrink:0"></i>
+            <select class="select-field src-account-select"
+                    data-src-id="{{ src.id }}"
+                    style="font-size:11px;padding:3px 8px;flex:1;height:auto">
+              <option value="">— Kein Standard-Account —</option>
+              {% for acc in all_accounts %}
+              <option value="{{ acc.id }}"
+                {% if src.account_id == acc.id %}selected{% endif %}>
+                {{ acc.name }}{% if acc.status != 'active' %} ({{ acc.status }}){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
         </div>
         {% endfor %}
       </div>
@@ -205,6 +225,7 @@
                     data-id="{{ post.id }}"
                     data-caption="{{ (post.caption or '') | e }}"
                     data-md="{{ post.post_date.strftime('%m-%d') if post.post_date else '' }}"
+                    data-account="{{ post.source.account_id or '' }}"
                     style="flex:1;font-size:11px;padding:5px 8px;min-width:80px">
               <i class="fa-solid fa-arrow-right"></i> Verwenden
             </button>
@@ -365,35 +386,44 @@ let _accountsCache   = null;
 let _selectedMode    = 'reserve';
 let _postMonthDay    = null;   // "MM-DD" des Original-Posts
 
-// ── Accounts laden ────────────────────────────────────────────
-async function loadAccounts() {
+// ── Alle Accounts (inkl. inaktive) aus Server-Template ────────
+// Werden einmalig aus dem Dropdown der Quellen-Liste gelesen
+function getAllAccountOptions() {
   if (_accountsCache) return _accountsCache;
-  const data = await fetch('/api/accounts').then(r => r.json()).catch(() => []);
-  _accountsCache = data;
-  return data;
+  const seen = new Set();
+  const opts = [];
+  document.querySelectorAll('.src-account-select option').forEach(o => {
+    if (o.value && !seen.has(o.value)) {
+      seen.add(o.value);
+      opts.push({id: o.value, name: o.textContent.trim()});
+    }
+  });
+  _accountsCache = opts;
+  return opts;
 }
 
 // ── "Verwenden"-Modal öffnen ──────────────────────────────────
-async function openUseModal(postId, caption, monthDay) {
+function openUseModal(postId, caption, monthDay, defaultAccountId) {
   _currentPostId = postId;
   _postMonthDay  = monthDay || null;
   document.getElementById('useCaptionText').value = caption || '';
   document.getElementById('rewriteStatus').style.display = 'none';
-  // "Gleicher Tag"-Button nur zeigen wenn Datum bekannt
   document.getElementById('sameYearBtn').style.display = monthDay ? 'inline-flex' : 'none';
   selectMode('reserve');
 
-  // Accounts laden
+  // Account-Dropdown füllen (einmalig)
   const sel = document.getElementById('useAccountId');
   if (sel.options.length <= 1) {
-    const accounts = await loadAccounts();
-    accounts.forEach(a => {
+    getAllAccountOptions().forEach(a => {
       const opt = document.createElement('option');
       opt.value = a.id;
-      opt.textContent = a.name + (a.handle ? ` · ${a.handle}` : '');
+      opt.textContent = a.name;
       sel.appendChild(opt);
     });
   }
+
+  // Standard-Account vorauswählen
+  sel.value = defaultAccountId || '';
 
   document.getElementById('useModal').style.display = 'flex';
 }
@@ -577,8 +607,23 @@ document.addEventListener('click', function(e) {
   openUseModal(
     btn.dataset.id,
     btn.dataset.caption,
-    btn.dataset.md || null
+    btn.dataset.md || null,
+    btn.dataset.account || null
   );
+});
+
+// ── Standard-Account einer Quelle speichern ───────────────────
+document.addEventListener('change', function(e) {
+  const sel = e.target.closest('.src-account-select');
+  if (!sel) return;
+  fetch(`/api/inspirationen/sources/${sel.dataset.srcId}/account`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({account_id: sel.value ? parseInt(sel.value) : null})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) showToast('Standard-Account gespeichert ✓', 'success');
+    else showToast(d.error || 'Fehler', 'error');
+  });
 });
 </script>
 {% endblock %}

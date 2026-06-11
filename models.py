@@ -605,6 +605,8 @@ class InspirationSource(db.Model):
     notes      = db.Column(db.Text)
     last_fetch = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Standard-Account: Posts von dieser Quelle gehen automatisch hierhin
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)
     posts      = db.relationship('InspirationPost', backref='source',
                                  lazy='select', cascade='all,delete')
 

@@ -391,6 +391,7 @@ def init_db():
             safe_alter("ALTER TABLE content_template ADD COLUMN IF NOT EXISTS posting_time_pref VARCHAR(10) DEFAULT ''")
             # ── meme_template ────────────────────────────────────────────
             safe_alter('ALTER TABLE meme_template ADD COLUMN IF NOT EXISTS meme_context TEXT')
+            safe_alter('ALTER TABLE inspiration_source ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES account(id)')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -6216,10 +6217,13 @@ def inspirationen():
     }
 
     has_rapidapi_key = bool(get_setting('rapidapi_key'))
+    # Alle Accounts (auch inaktive) für die Zuweisung
+    all_accounts = Account.query.order_by(Account.name).all()
     return render_template('inspirationen.html',
         sources=sources, posts=posts, counts=counts,
         status_filter=status_filter, source_filter=source_filter,
         has_rapidapi_key=has_rapidapi_key,
+        all_accounts=all_accounts,
         now=datetime.utcnow(),
         active_page='inspirationen')
 
@@ -6245,6 +6249,22 @@ def inspiration_source_add():
 def inspiration_source_delete(src_id):
     src = InspirationSource.query.get_or_404(src_id)
     db.session.delete(src)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/inspirationen/sources/<int:src_id>/account', methods=['POST'])
+@login_required
+def inspiration_source_set_account(src_id):
+    """Standard-Account für eine Inspirations-Quelle setzen."""
+    src = InspirationSource.query.get_or_404(src_id)
+    d   = request.get_json() or {}
+    account_id = d.get('account_id') or None
+    if account_id:
+        acc = Account.query.get(account_id)
+        if not acc:
+            return jsonify({'ok': False, 'error': 'Account nicht gefunden'})
+    src.account_id = account_id
     db.session.commit()
     return jsonify({'ok': True})
 
