@@ -7124,6 +7124,16 @@ def inspiration_post_save(post_id):
     return jsonify({'ok': True, 'is_saved': post.is_saved})
 
 
+@app.route('/api/inspirationen/<int:post_id>', methods=['DELETE'])
+@login_required
+def inspiration_post_delete(post_id):
+    """Einen Inspirations-Post dauerhaft löschen."""
+    post = InspirationPost.query.get_or_404(post_id)
+    db.session.delete(post)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
 @app.route('/api/inspirationen/<int:post_id>/use', methods=['POST'])
 @login_required
 def inspiration_post_use(post_id):

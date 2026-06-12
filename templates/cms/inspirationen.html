@@ -445,9 +445,13 @@
       <button onclick="selectNonePosts()" class="btn btn-ghost"
               style="font-size:11px;padding:4px 10px">Keine</button>
       <div style="flex:1"></div>
+      <button onclick="bulkDeletePosts()" id="bulkDeleteBtn" class="btn btn-ghost"
+              style="font-size:12px;opacity:.4;pointer-events:none;color:#ef4444;border-color:rgba(239,68,68,.3)" disabled>
+        <i class="fa-solid fa-trash"></i> Löschen
+      </button>
       <button onclick="openBulkModal()" id="bulkUseBtn" class="btn btn-primary"
               style="font-size:12px;opacity:.4;pointer-events:none" disabled>
-        <i class="fa-solid fa-layer-group"></i> Ausgewählte in Vorrat
+        <i class="fa-solid fa-layer-group"></i> In Vorrat
       </button>
     </div>
     {% endif %}
@@ -1255,15 +1259,59 @@ function selectNonePosts() {
 }
 
 function _updateSelBar() {
-  const n   = _sel.size;
-  const btn = document.getElementById('bulkUseBtn');
+  const n       = _sel.size;
+  const useBtn  = document.getElementById('bulkUseBtn');
+  const delBtn  = document.getElementById('bulkDeleteBtn');
   document.getElementById('selCount').textContent = n === 0
     ? '0 ausgewählt'
     : `${n} ausgewählt`;
-  if (btn) {
-    btn.disabled           = n === 0;
-    btn.style.opacity      = n === 0 ? '.4' : '1';
+  [useBtn, delBtn].forEach(btn => {
+    if (!btn) return;
+    btn.disabled            = n === 0;
+    btn.style.opacity       = n === 0 ? '.4' : '1';
     btn.style.pointerEvents = n === 0 ? 'none' : 'auto';
+  });
+}
+
+async function bulkDeletePosts() {
+  const n = _sel.size;
+  if (n === 0) return;
+  if (!confirm(`${n} ${n === 1 ? 'Post' : 'Posts'} dauerhaft löschen?\nDies kann nicht rückgängig gemacht werden.`)) return;
+
+  const ids     = [..._sel];
+  const delBtn  = document.getElementById('bulkDeleteBtn');
+  const useBtn  = document.getElementById('bulkUseBtn');
+  const countEl = document.getElementById('selCount');
+
+  delBtn.disabled = true;
+  useBtn.disabled = true;
+  delBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+  let done = 0, errors = 0;
+  for (const id of ids) {
+    countEl.textContent = `Lösche ${done + 1} / ${ids.length}…`;
+    try {
+      const r = await fetch(`/api/inspirationen/${id}`, {method: 'DELETE'}).then(r => r.json());
+      if (r.ok) {
+        const card = document.getElementById(`pcard-${id}`);
+        if (card) {
+          card.style.opacity   = '0';
+          card.style.transform = 'scale(.9)';
+          setTimeout(() => card.remove(), 300);
+        }
+        _sel.delete(id);
+      } else { errors++; }
+    } catch(e) { errors++; }
+    done++;
+  }
+
+  delBtn.innerHTML = '<i class="fa-solid fa-trash"></i> Löschen';
+  _updateSelBar();
+
+  if (errors === 0) {
+    showToast(`${done} ${done === 1 ? 'Post' : 'Posts'} gelöscht ✓`, 'success');
+  } else {
+    showToast(`${done - errors} gelöscht, ${errors} Fehler`, 'warning');
   }
 }
 
