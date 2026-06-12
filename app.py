@@ -4940,6 +4940,106 @@ def settings_export():
         headers={'Content-Disposition': f'attachment; filename=content-os-config-{datetime.now().strftime("%Y%m%d")}.json'})
 
 
+@app.route('/api/export/all')
+@login_required
+def export_all_data():
+    """Vollständiger JSON-Export aller Nutzerdaten."""
+    from flask import Response
+
+    def _date(v):
+        return v.isoformat() if v else None
+
+    accounts = Account.query.options(joinedload(Account.category)).all()
+    content_items = ContentItem.query.options(
+        joinedload(ContentItem.category),
+        joinedload(ContentItem.folder),
+        joinedload(ContentItem.media_items),
+    ).order_by(ContentItem.created_at.desc()).all()
+    folders = ContentFolder.query.all()
+    scheduled = ScheduledPost.query.order_by(ScheduledPost.scheduled_at.desc()).limit(500).all()
+    inspiration = InspirationPost.query.order_by(InspirationPost.created_at.desc()).all()
+    settings_rows = AppSettings.query.all()
+    hashtag_sets = HashtagSet.query.all() if 'HashtagSet' in dir() else []
+    koops = Kooperation.query.all()
+    serien = ContentSeries.query.all()
+
+    data = {
+        'exported_at': datetime.utcnow().isoformat(),
+        'version': '2.0',
+
+        'accounts': [{
+            'id': a.id, 'name': a.name, 'handle': a.handle,
+            'platform': a.platform.name if a.platform else None,
+            'category': a.category.name if a.category else None,
+            'follower_count': a.follower_count, 'status': a.status,
+            'notes': a.notes, 'page_persona': a.page_persona,
+            'canva_url': a.canva_url, 'weather_city': a.weather_city,
+            'default_hashtags': a.default_hashtags,
+            'telegram_chat_id': a.telegram_chat_id,
+            'smart_refill_threshold': a.smart_refill_threshold,
+            'created_at': _date(a.created_at),
+        } for a in accounts],
+
+        'folders': [{
+            'id': f.id, 'name': f.name, 'account_id': f.account_id,
+            'color': f.color, 'icon': f.icon, 'notes': f.notes,
+            'posts_per_week': f.posts_per_week,
+        } for f in folders],
+
+        'content_items': [{
+            'id': c.id, 'title': c.title, 'caption': c.caption,
+            'status': c.status, 'content_type': c.content_type,
+            'category': c.category.name if c.category else None,
+            'folder': c.folder.name if c.folder else None,
+            'source_url': c.source_url, 'source_name': c.source_name,
+            'ai_caption': c.ai_caption, 'ai_score': c.ai_score,
+            'media_count': len(c.media_items) if c.media_items else 0,
+            'created_at': _date(c.created_at), 'updated_at': _date(c.updated_at),
+        } for c in content_items],
+
+        'scheduled_posts': [{
+            'id': s.id, 'account_id': s.account_id,
+            'post_type': s.post_type, 'status': s.status,
+            'scheduled_at': _date(s.scheduled_at),
+            'published_at': _date(s.published_at),
+            'caption': s.caption,
+        } for s in scheduled],
+
+        'inspiration_posts': [{
+            'id': i.id, 'source_url': i.source_url,
+            'caption': i.caption, 'status': i.status,
+            'like_count': i.like_count,
+            'created_at': _date(i.created_at),
+        } for i in inspiration],
+
+        'kooperationen': [{
+            'id': k.id, 'partner_name': k.partner_name,
+            'koop_type': k.koop_type, 'status': k.status,
+            'amount': float(k.amount) if k.amount else None,
+            'currency': k.currency, 'deadline': _date(k.deadline),
+            'notes': k.notes,
+        } for k in koops],
+
+        'serien': [{
+            'id': s.id, 'name': s.name, 'account_id': s.account_id,
+            'days_of_week': json.loads(s.days_of_week or '[]'),
+            'preferred_time': s.preferred_time, 'post_type': s.post_type,
+            'active': s.active,
+        } for s in serien],
+
+        'settings': {r.key: r.value for r in settings_rows
+                     if r.key not in ('anthropic_api_key', 'apify_token',
+                                      'telegram_bot_token', 'sendgrid_api_key')},
+    }
+
+    json_str = json.dumps(data, ensure_ascii=False, indent=2)
+    stamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
+    return Response(
+        json_str, mimetype='application/json',
+        headers={'Content-Disposition': f'attachment; filename=content-os-ALLES-{stamp}.json'}
+    )
+
+
 @app.route('/settings/import', methods=['POST'])
 def settings_import():
     f = request.files.get('config_file')

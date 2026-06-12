@@ -135,15 +135,35 @@
         <div id="backupList" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
 
+      <!-- Vollexport -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">
+          <i class="fa-solid fa-box-archive" style="color:var(--accent2);margin-right:6px"></i>
+          Alle Daten exportieren
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+          Accounts, Ordner, Content, Inspiration-Posts, Kooperationen, Serien — alles als lesbare JSON-Datei.
+          API-Keys werden aus Sicherheitsgründen nicht mitexportiert.
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <a href="/api/export/all" class="btn btn-primary" style="font-size:12px">
+            <i class="fa-solid fa-download"></i> Alles herunterladen (JSON)
+          </a>
+          <button onclick="copyAllData()" class="btn btn-ghost" style="font-size:12px" id="copyAllBtn">
+            <i class="fa-solid fa-copy"></i> In Zwischenablage kopieren
+          </button>
+        </div>
+      </div>
+
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <a href="{{ url_for('settings_export') }}" class="btn btn-ghost">
-          <i class="fa-solid fa-download"></i> Config exportieren (JSON)
+        <a href="{{ url_for('settings_export') }}" class="btn btn-ghost" style="font-size:12px">
+          <i class="fa-solid fa-sliders"></i> Nur Config (JSON)
         </a>
-        <a href="{{ url_for('accounts_export_csv') }}" class="btn btn-ghost">
-          <i class="fa-solid fa-file-csv"></i> Accounts exportieren (CSV)
+        <a href="{{ url_for('accounts_export_csv') }}" class="btn btn-ghost" style="font-size:12px">
+          <i class="fa-solid fa-file-csv"></i> Accounts (CSV)
         </a>
-        <a href="{{ url_for('analytics_export') }}" class="btn btn-ghost">
-          <i class="fa-solid fa-chart-bar"></i> Analytics exportieren (CSV)
+        <a href="{{ url_for('analytics_export') }}" class="btn btn-ghost" style="font-size:12px">
+          <i class="fa-solid fa-chart-bar"></i> Analytics (CSV)
         </a>
       </div>
       <form method="post" action="{{ url_for('settings_import') }}" enctype="multipart/form-data"
@@ -277,6 +297,28 @@ async function autoArchive() {
     }).join('');
   } catch { document.getElementById('backupStatusLine').textContent = 'Status nicht verfügbar'; }
 })();
+
+async function copyAllData() {
+  const btn = document.getElementById('copyAllBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Lädt…';
+  try {
+    const r = await fetch('/api/export/all');
+    const text = await r.text();
+    await navigator.clipboard.writeText(text);
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Kopiert!';
+    btn.style.color = 'var(--success)';
+    setTimeout(() => {
+      btn.innerHTML = '<i class="fa-solid fa-copy"></i> In Zwischenablage kopieren';
+      btn.style.color = '';
+      btn.disabled = false;
+    }, 2500);
+  } catch {
+    showToast('Kopieren fehlgeschlagen — bitte herunterladen', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-copy"></i> In Zwischenablage kopieren';
+  }
+}
 
 async function doManualBackup() {
   const btn = document.getElementById('backupNowBtn');
