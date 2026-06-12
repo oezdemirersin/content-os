@@ -17,6 +17,121 @@
     </button>
   </div>
 
+  <!-- ── Pipeline-Übersicht ────────────────────────────────── -->
+  {% if pipeline is defined %}
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;
+              padding:18px 22px;margin-bottom:20px">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:14px">
+      <i class="fa-solid fa-route" style="color:var(--accent);margin-right:6px"></i>
+      CONTENT-PIPELINE — Wo sind deine Beiträge gerade?
+    </div>
+    <div style="display:flex;align-items:stretch;gap:0">
+
+      <!-- Stufe 1: Inspiration -->
+      <div style="flex:1;text-align:center;padding:12px 8px;
+                  background:rgba(99,102,241,.07);border-radius:10px 0 0 10px;
+                  border:1px solid rgba(99,102,241,.2)">
+        <div style="font-size:10px;font-weight:700;color:#818cf8;margin-bottom:8px;letter-spacing:.3px">
+          <i class="fa-solid fa-lightbulb"></i> INSPIRATION
+        </div>
+        <div style="display:flex;justify-content:center;gap:14px">
+          <div>
+            <div style="font-size:22px;font-weight:800;color:#818cf8">{{ pipeline.insp_new }}</div>
+            <div style="font-size:9px;color:var(--muted)">Neu</div>
+          </div>
+          <div>
+            <div style="font-size:22px;font-weight:800;color:#6366f1">{{ pipeline.insp_saved }}</div>
+            <div style="font-size:9px;color:var(--muted)">Gespeichert</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pfeil -->
+      <div style="display:flex;align-items:center;padding:0 3px;color:var(--muted);font-size:20px;flex-shrink:0">›</div>
+
+      <!-- Stufe 2: Vorrat -->
+      <div style="flex:1.6;text-align:center;padding:12px 8px;
+                  background:rgba(245,158,11,.07);
+                  border-top:1px solid rgba(245,158,11,.2);border-bottom:1px solid rgba(245,158,11,.2)">
+        <div style="font-size:10px;font-weight:700;color:#f59e0b;margin-bottom:8px;letter-spacing:.3px">
+          <i class="fa-solid fa-box"></i> VORRAT
+        </div>
+        <div style="display:flex;justify-content:center;gap:10px">
+          <div>
+            <div style="font-size:22px;font-weight:800;color:#9ca3af">{{ pipeline.vorrat_draft }}</div>
+            <div style="font-size:9px;color:var(--muted)">Entwurf</div>
+          </div>
+          <div>
+            <div style="font-size:22px;font-weight:800;color:#f59e0b">{{ pipeline.vorrat_ready }}</div>
+            <div style="font-size:9px;color:var(--muted)">Bereit</div>
+          </div>
+          <div>
+            <div style="font-size:22px;font-weight:800;color:#22c55e">{{ pipeline.vorrat_sched }}</div>
+            <div style="font-size:9px;color:var(--muted)">Eingeplant</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pfeil -->
+      <div style="display:flex;align-items:center;padding:0 3px;color:var(--muted);font-size:20px;flex-shrink:0">›</div>
+
+      <!-- Stufe 3: Veröffentlicht -->
+      <div style="flex:1;text-align:center;padding:12px 8px;
+                  background:rgba(34,197,94,.07);border-radius:0 10px 10px 0;
+                  border:1px solid rgba(34,197,94,.2)">
+        <div style="font-size:10px;font-weight:700;color:#22c55e;margin-bottom:8px;letter-spacing:.3px">
+          <i class="fa-solid fa-circle-check"></i> VERÖFFENTLICHT
+        </div>
+        <div>
+          <div style="font-size:22px;font-weight:800;color:#22c55e">{{ pipeline.published }}</div>
+          <div style="font-size:9px;color:var(--muted)">Posts live</div>
+        </div>
+      </div>
+
+    </div>
+    {% set vorrat_total = pipeline.vorrat_draft + pipeline.vorrat_ready + pipeline.vorrat_sched %}
+    <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.6">
+      <strong style="color:var(--text)">Vorrat gesamt: {{ vorrat_total }}</strong>
+      — davon {{ pipeline.vorrat_draft }} Entwurf · {{ pipeline.vorrat_ready }} bereit zum Posten · {{ pipeline.vorrat_sched }} bereits eingeplant
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Verlorene Beiträge ─────────────────────────────────── -->
+  {% if orphan_no_account is defined and orphan_no_account > 0 %}
+  <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;
+              padding:13px 16px;display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
+    <i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;font-size:15px;margin-top:2px;flex-shrink:0"></i>
+    <div>
+      <div style="font-size:13px;font-weight:700;color:#ef4444;margin-bottom:3px">
+        ⚠️ {{ orphan_no_account }} Beiträge ohne Account-Zuweisung
+      </div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.5">
+        Diese Entwürfe/Bereit-Posts sind <strong>keinem Account zugewiesen</strong> und werden vom Auto-Planer
+        <strong>ignoriert</strong> — deshalb können sie "verschwunden" wirken.
+        → Gehe zur <a href="{{ url_for('mediathek') }}" style="color:#ef4444;text-decoration:underline">Mediathek → Vorrat</a>
+        und weise sie einem Account zu.
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if orphan_no_folder is defined and orphan_no_folder > 0 %}
+  <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:10px;
+              padding:13px 16px;display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
+    <i class="fa-solid fa-folder-open" style="color:#f59e0b;font-size:15px;margin-top:2px;flex-shrink:0"></i>
+    <div>
+      <div style="font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:3px">
+        {{ orphan_no_folder }} Beiträge ohne Ordner
+      </div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.5">
+        Diese Posts haben keinen Ordner zugeordnet. Sie erscheinen unter „Alle Posts (kein Ordner)" im Auto-Planer —
+        nur wenn du dort eine Zahl einträgst, werden sie eingeplant.
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Gesamt-Übersicht -->
   {% set total_posts = folder_counts.values() | sum %}
   {% if folders %}
@@ -146,6 +261,41 @@
     </div>
     {% if f.notes %}
     <div style="font-size:11px;color:var(--muted);margin-top:2px">{{ f.notes }}</div>
+    {% endif %}
+
+    {# ── Status-Badges pro Ordner ── #}
+    {% set fs = folder_statuses.get(f.id, {}) if folder_statuses is defined else {} %}
+    {% set fs_draft = fs.get('draft', 0) %}
+    {% set fs_ready = fs.get('ready', 0) %}
+    {% set fs_sched = fs.get('scheduled', 0) %}
+    {% set fs_pub   = fs.get('published', 0) %}
+    {% if fs_draft > 0 or fs_ready > 0 or fs_sched > 0 or fs_pub > 0 %}
+    <div style="display:flex;gap:4px;margin-top:5px;flex-wrap:wrap">
+      {% if fs_draft > 0 %}
+      <span style="font-size:9px;padding:2px 7px;border-radius:8px;
+                   background:rgba(107,114,128,.12);color:#9ca3af;font-weight:600">
+        {{ fs_draft }} Entw.
+      </span>
+      {% endif %}
+      {% if fs_ready > 0 %}
+      <span style="font-size:9px;padding:2px 7px;border-radius:8px;
+                   background:rgba(245,158,11,.14);color:#f59e0b;font-weight:600">
+        {{ fs_ready }} Bereit
+      </span>
+      {% endif %}
+      {% if fs_sched > 0 %}
+      <span style="font-size:9px;padding:2px 7px;border-radius:8px;
+                   background:rgba(34,197,94,.14);color:#22c55e;font-weight:600">
+        {{ fs_sched }} Eingeplant
+      </span>
+      {% endif %}
+      {% if fs_pub > 0 %}
+      <span style="font-size:9px;padding:2px 7px;border-radius:8px;
+                   background:rgba(99,102,241,.12);color:#818cf8;font-weight:600">
+        {{ fs_pub }} Verö.
+      </span>
+      {% endif %}
+    </div>
     {% endif %}
   </div>
 
