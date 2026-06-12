@@ -38,9 +38,14 @@
         <i class="fa-solid fa-download"></i> CSV
       </a>
       <button onclick="cleanupSnapshots()" id="cleanupBtn"
-              class="btn btn-ghost" style="font-size:11px;padding:5px 12px;color:var(--danger)"
-              title="Löscht alle gespeicherten Snapshots von gelöschten, inaktiven und ausgeblendeten Accounts dauerhaft">
+              class="btn btn-ghost" style="font-size:11px;padding:5px 12px;color:var(--warning)"
+              title="Löscht Snapshots von gelöschten/inaktiven Accounts">
         <i class="fa-solid fa-broom"></i> Bereinigen
+      </button>
+      <button onclick="resetHistory()" id="resetBtn"
+              class="btn btn-ghost" style="font-size:11px;padding:5px 12px;color:var(--danger)"
+              title="Löscht den kompletten Snapshot-Verlauf und startet mit aktuellen Zahlen neu (für Test-Daten-Bereinigung)">
+        <i class="fa-solid fa-rotate-left"></i> Verlauf zurücksetzen
       </button>
     </div>
   </div>
@@ -413,6 +418,35 @@ async function cleanupSnapshots() {
     showToast('Verbindungsfehler', 'error');
     btn.disabled = false;
     btn.innerHTML = '<i class="fa-solid fa-broom"></i> Bereinigen';
+  }
+}
+
+// ── Verlauf komplett zurücksetzen (für Test-Daten-Bereinigung) ──────
+async function resetHistory() {
+  if (!confirm(
+    '⚠️ Kompletten Snapshot-Verlauf zurücksetzen?\n\n' +
+    'ALLE historischen Follower-Daten werden gelöscht.\n' +
+    'Es wird ein sauberer Start-Snapshot mit den aktuellen Zahlen angelegt.\n\n' +
+    'Diese Aktion kann nicht rückgängig gemacht werden.'
+  )) return;
+  const btn = document.getElementById('resetBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Zurücksetzen…';
+  try {
+    const r = await fetch('/api/analytics/reset-history', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('✅ ' + d.msg, 'success');
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      showToast('Fehler beim Zurücksetzen', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Verlauf zurücksetzen';
+    }
+  } catch(e) {
+    showToast('Verbindungsfehler', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Verlauf zurücksetzen';
   }
 }
 

@@ -3333,8 +3333,7 @@ def analytics_portfolio():
 
 @app.route('/api/analytics/cleanup-snapshots', methods=['POST'])
 def cleanup_orphan_snapshots():
-    """Löscht alle AnalyticsSnapshots von nicht-aktiven oder ausgeblendeten Accounts.
-    Einmalige Bereinigung — z.B. nach Test-Phase oder nach dem Ausblenden von Accounts."""
+    """Löscht AnalyticsSnapshots von nicht-aktiven oder ausgeblendeten Accounts."""
     valid_ids = [r.id for r in db.session.query(Account.id).filter(
         Account.status == 'active',
         Account.hide_in_analytics == False
@@ -3347,7 +3346,36 @@ def cleanup_orphan_snapshots():
         deleted = 0
     db.session.commit()
     return jsonify({'ok': True, 'deleted': deleted,
-                    'msg': f'{deleted} veraltete Snapshots dauerhaft gelöscht'})
+                    'msg': f'{deleted} veraltete Snapshots gelöscht'})
+
+
+@app.route('/api/analytics/reset-history', methods=['POST'])
+def reset_analytics_history():
+    """Löscht ALLE AnalyticsSnapshots und legt einen sauberen Start-Snapshot
+    mit dem aktuellen follower_count pro Account an.
+    Geeignet nach einer Test-Phase um verfälschte Verlaufsdaten zu entfernen."""
+    # Alles löschen
+    total_deleted = AnalyticsSnapshot.query.delete(synchronize_session='fetch')
+    db.session.flush()
+
+    # Einen frischen Snapshot pro aktivem Account anlegen
+    now = datetime.utcnow()
+    active_accounts = Account.query.filter_by(status='active').all()
+    for acc in active_accounts:
+        if acc.follower_count:
+            db.session.add(AnalyticsSnapshot(
+                account_id=acc.id,
+                followers=acc.follower_count,
+                recorded_at=now,
+            ))
+    db.session.commit()
+    return jsonify({
+        'ok': True,
+        'deleted': total_deleted,
+        'fresh_snapshots': len(active_accounts),
+        'msg': f'Verlauf zurückgesetzt: {total_deleted} alte Snapshots gelöscht, '
+               f'{len(active_accounts)} saubere Start-Snapshots angelegt',
+    })
 
 
 @app.route('/api/accounts/<int:account_id>/toggle-analytics', methods=['POST'])
