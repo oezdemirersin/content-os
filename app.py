@@ -30,31 +30,54 @@ from sqlalchemy.orm import joinedload, selectinload
 
 app = Flask(__name__, template_folder='templates/cms')
 
-# ── Automatisches DB-Backup bei jedem Start ───────────────────────────────────
-def _auto_backup_db():
-    """Erstellt ein Backup der SQLite-DB beim Start. Niemals bei Postgres."""
+# ══════════════════════════════════════════════════════════════════════════════
+# DB-BACKUP-SYSTEM — 5 Schutzschichten
+# ══════════════════════════════════════════════════════════════════════════════
+_ICLOUD = os.path.expanduser(
+    '~/Library/Mobile Documents/com~apple~CloudDocs/ContentOS-Backups')
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_DB_PATH  = os.path.join(_BASE_DIR, 'instance', 'content_os.db')
+_LOCAL_BACKUP_DIR = os.path.join(_BASE_DIR, 'db_backups')
+
+
+def _do_backup(label='auto'):
+    """Kopiert die DB in lokales db_backups/ UND iCloud. Gibt Pfad zurück."""
     import shutil, glob
-    db_url = os.environ.get('DATABASE_URL', 'sqlite:///content_os.db')
-    if 'postgresql' in db_url:
-        return
-    # Pfad: instance/content_os.db neben app.py
-    base = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(base, 'instance', 'content_os.db')
-    if not os.path.exists(db_path) or os.path.getsize(db_path) < 4096:
-        return
-    backup_dir = os.path.join(base, 'db_backups')
-    os.makedirs(backup_dir, exist_ok=True)
-    from datetime import datetime as _dt
-    stamp = _dt.now().strftime('%Y-%m-%d_%H-%M-%S')
-    dst = os.path.join(backup_dir, f'content_os_{stamp}.db')
-    shutil.copy2(db_path, dst)
-    # Nur 30 neueste behalten
-    old = sorted(glob.glob(os.path.join(backup_dir, '*.db')))[:-30]
+    if 'postgresql' in os.environ.get('DATABASE_URL', ''):
+        return None
+    if not os.path.exists(_DB_PATH) or os.path.getsize(_DB_PATH) < 4096:
+        return None
+    stamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    fname = f'content_os_{label}_{stamp}.db'
+
+    # Schicht 1: Lokales Backup
+    os.makedirs(_LOCAL_BACKUP_DIR, exist_ok=True)
+    local_dst = os.path.join(_LOCAL_BACKUP_DIR, fname)
+    shutil.copy2(_DB_PATH, local_dst)
+
+    # Schicht 2: iCloud Backup
+    try:
+        os.makedirs(_ICLOUD, exist_ok=True)
+        shutil.copy2(_DB_PATH, os.path.join(_ICLOUD, fname))
+        # iCloud: max 60 Backups behalten
+        old = sorted(glob.glob(os.path.join(_ICLOUD, '*.db')))[:-60]
+        for f in old:
+            try: os.remove(f)
+            except: pass
+    except Exception:
+        pass  # iCloud optional — nie crashen
+
+    # Lokal: max 30 Backups behalten
+    old = sorted(glob.glob(os.path.join(_LOCAL_BACKUP_DIR, '*.db')))[:-30]
     for f in old:
         try: os.remove(f)
         except: pass
 
-_auto_backup_db()
+    return local_dst
+
+
+# Schicht 3: Backup beim App-Start
+_auto_backup_result = _do_backup('startup')
 
 # ── Emergency-Pause Cache ─────────────────────────────────────────────────────
 # Shared by inject_globals() (every request) AND the scheduler (every 60 s).
@@ -1712,6 +1735,10 @@ def schedule_automations():
             # Content-Serien stündlich planen
             if tick % 60 == 0:
                 threading.Thread(target=_process_series, daemon=True).start()
+            # Schicht 4: Stündliches DB-Backup (lokal + iCloud)
+            if tick % 60 == 0:
+                threading.Thread(
+                    target=lambda: _do_backup('hourly'), daemon=True).start()
 
         except Exception:
             pass
@@ -4874,6 +4901,50 @@ def analytics_compare():
 
 
 # ─────────────────────── SETTINGS IMPORT / EXPORT ───────────────────────
+
+@app.route('/api/backup/download')
+@login_required
+def backup_download():
+    """Schicht 5: DB direkt aus dem Browser herunterladen."""
+    if 'postgresql' in os.environ.get('DATABASE_URL', ''):
+        return jsonify({'error': 'Nur für SQLite verfügbar'}), 400
+    if not os.path.exists(_DB_PATH):
+        return jsonify({'error': 'Keine lokale Datenbank gefunden'}), 404
+    from flask import send_file
+    stamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
+    return send_file(_DB_PATH, as_attachment=True,
+                     download_name=f'content_os_backup_{stamp}.db',
+                     mimetype='application/octet-stream')
+
+
+@app.route('/api/backup/status')
+@login_required
+def backup_status():
+    """Gibt Info über letzte Backups zurück."""
+    import glob
+    if 'postgresql' in os.environ.get('DATABASE_URL', ''):
+        return jsonify({'mode': 'postgres', 'backups': []})
+    local_files = sorted(glob.glob(os.path.join(_LOCAL_BACKUP_DIR, '*.db')), reverse=True)[:5]
+    icloud_files = sorted(glob.glob(os.path.join(_ICLOUD, '*.db')), reverse=True)[:3]
+    db_size = os.path.getsize(_DB_PATH) if os.path.exists(_DB_PATH) else 0
+    return jsonify({
+        'mode': 'sqlite',
+        'db_size_kb': round(db_size / 1024, 1),
+        'local_backups': [os.path.basename(f) for f in local_files],
+        'icloud_backups': [os.path.basename(f) for f in icloud_files],
+        'last_backup': os.path.basename(local_files[0]) if local_files else None,
+    })
+
+
+@app.route('/api/backup/now', methods=['POST'])
+@login_required
+def backup_now():
+    """Manuelles Backup auslösen."""
+    result = _do_backup('manual')
+    if result:
+        return jsonify({'ok': True, 'file': os.path.basename(result)})
+    return jsonify({'ok': False, 'error': 'Backup fehlgeschlagen oder Postgres'})
+
 
 @app.route('/settings/export')
 def settings_export():

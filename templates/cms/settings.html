@@ -108,6 +108,33 @@
   <div class="card" style="overflow:hidden">
     <div class="card-header"><span class="card-title">BACKUP & IMPORT</span></div>
     <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+
+      <!-- DB-Backup Panel -->
+      <div style="background:linear-gradient(135deg,rgba(34,197,94,.07),rgba(59,130,246,.05));
+                  border:1px solid rgba(34,197,94,.25);border-radius:12px;padding:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:38px;height:38px;border-radius:10px;background:rgba(34,197,94,.15);
+                        display:flex;align-items:center;justify-content:center">
+              <i class="fa-solid fa-database" style="color:var(--success);font-size:16px"></i>
+            </div>
+            <div>
+              <div style="font-size:13px;font-weight:700;color:var(--text)">Datenbank-Backup</div>
+              <div style="font-size:11px;color:var(--muted)" id="backupStatusLine">Lädt…</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="doManualBackup()" class="btn btn-ghost" style="font-size:12px" id="backupNowBtn">
+              <i class="fa-solid fa-shield-halved"></i> Jetzt sichern
+            </button>
+            <a href="/api/backup/download" class="btn btn-primary" style="font-size:12px">
+              <i class="fa-solid fa-download"></i> DB herunterladen
+            </a>
+          </div>
+        </div>
+        <div id="backupList" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <a href="{{ url_for('settings_export') }}" class="btn btn-ghost">
           <i class="fa-solid fa-download"></i> Config exportieren (JSON)
@@ -225,6 +252,47 @@ async function autoArchive() {
   });
   const d = await res.json();
   showToast(`${d.archived} Inhalte archiviert.`, 'success');
+}
+
+// ── Backup-Status ────────────────────────────────────────────
+(async function loadBackupStatus() {
+  try {
+    const d = await fetch('/api/backup/status').then(r => r.json());
+    const line = document.getElementById('backupStatusLine');
+    const list = document.getElementById('backupList');
+    if (d.mode === 'postgres') {
+      line.textContent = 'PostgreSQL — Backup über Render Dashboard';
+      return;
+    }
+    const last = d.last_backup
+      ? d.last_backup.replace('content_os_','').replace('.db','').replace('_',' ')
+      : 'noch keins';
+    line.innerHTML = `Letztes Backup: <strong>${last}</strong> · ${d.db_size_kb} KB · `
+      + `${d.local_backups.length} lokal · ${d.icloud_backups.length} in iCloud`;
+    list.innerHTML = d.local_backups.slice(0,5).map(f => {
+      const label = f.replace('content_os_','').replace('.db','');
+      return `<span style="font-size:10px;padding:3px 9px;border-radius:10px;
+                           background:rgba(34,197,94,.12);color:var(--success);font-weight:600">
+                ${label}
+              </span>`;
+    }).join('');
+  } catch { document.getElementById('backupStatusLine').textContent = 'Status nicht verfügbar'; }
+})();
+
+async function doManualBackup() {
+  const btn = document.getElementById('backupNowBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sichert…';
+  const r = await fetch('/api/backup/now', {method:'POST'});
+  const d = await r.json();
+  if (d.ok) {
+    showToast('Backup gespeichert: ' + d.file, 'success');
+    setTimeout(() => location.reload(), 1200);
+  } else {
+    showToast('Backup fehlgeschlagen', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Jetzt sichern';
+  }
 }
 </script>
 {% endblock %}
