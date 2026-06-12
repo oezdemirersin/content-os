@@ -7134,6 +7134,149 @@ def inspiration_post_delete(post_id):
     return jsonify({'ok': True})
 
 
+@app.route('/api/inspirationen/<int:post_id>/suggest-folder', methods=['POST'])
+@login_required
+def inspiration_suggest_folder(post_id):
+    """KI-gestützte Ordner-Zuordnung: analysiert Bild (OCR + Motive) + Caption
+    und schlägt den passenden Vorrat-Ordner vor.
+    Body: { account_id: int|null }
+    """
+    import base64 as _b64
+    import requests as _req
+    import anthropic as _ant
+    import re as _re
+
+    post = InspirationPost.query.get_or_404(post_id)
+    d    = request.get_json() or {}
+    account_id = d.get('account_id')
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert.'})
+
+    # Ordner laden: account-spezifisch + globale
+    if account_id:
+        folders = ContentFolder.query.filter(
+            db.or_(ContentFolder.account_id == int(account_id),
+                   ContentFolder.account_id.is_(None))
+        ).order_by(ContentFolder.name).all()
+    else:
+        folders = ContentFolder.query.order_by(ContentFolder.name).all()
+
+    if not folders:
+        return jsonify({'ok': False, 'error': 'Keine Ordner vorhanden. Lege zuerst Ordner an.'})
+
+    # Stadt-Kontext aus Account-Name
+    city_hint = ''
+    if account_id:
+        _acc = db.session.get(Account, int(account_id))
+        if _acc:
+            city_hint = _get_weather_city(_acc) or ''
+
+    # Caption + Ordner-Liste für Prompt
+    caption_text = (post.caption or '').strip()[:600]
+    folder_lines = []
+    for f in folders:
+        desc = (f.notes or '').strip()
+        folder_lines.append(
+            f'  - ID {f.id}: "{f.name}"' + (f' ({desc})' if desc else '')
+        )
+
+    city_line = (f'\nACCOUNT-KONTEXT: Der Account bezieht sich auf die Stadt {city_hint}.'
+                 if city_hint else '')
+
+    prompt_text = f"""Ordne diesen Instagram-Post dem besten Ordner zu.
+
+VERFÜGBARE ORDNER:
+{chr(10).join(folder_lines)}
+
+POST-CAPTION: "{caption_text or '(keine Caption)'}"
+{city_line}
+
+Aufgaben:
+1. Lies Text auf dem Bild (Schilder, Text-Overlays, Stadtname)
+2. Erkenne Motive (Essen, Sport, Natur, Event, Meme, Wetter usw.)
+3. Wähle den am besten passenden Ordner
+4. Beurteile ob der Content stadt-spezifisch oder allgemein nutzbar ist
+
+Antworte NUR mit diesem JSON (kein anderer Text):
+{{"folder_id": <Zahl oder null>, "folder_name": "<Name>", "is_city_specific": <true/false>, "confidence": <0.0-1.0>, "reason": "<1-2 Sätze Begründung auf Deutsch>"}}"""
+
+    # Bild laden (für Vision)
+    img_b64   = None
+    img_mtype = 'image/jpeg'
+    if post.thumbnail_url:
+        try:
+            _r = _req.get(post.thumbnail_url, timeout=(8, 20),
+                          headers={'User-Agent': 'Mozilla/5.0',
+                                    'Referer': 'https://www.instagram.com/'})
+            if _r.ok:
+                _bytes = _r.content
+                img_mtype = _r.headers.get('content-type', 'image/jpeg').split(';')[0].strip()
+                if img_mtype not in ('image/jpeg', 'image/png', 'image/gif', 'image/webp'):
+                    img_mtype = 'image/jpeg'
+                img_b64 = _b64.standard_b64encode(_bytes).decode()
+        except Exception:
+            pass  # kein Bild → nur Caption analysieren
+
+    try:
+        client = _ant.Anthropic(api_key=api_key)
+        # Mit Bild: Vision → OCR + Motiv-Erkennung; ohne Bild: reine Caption-Analyse
+        if img_b64:
+            content = [
+                {'type': 'image', 'source': {'type': 'base64',
+                                              'media_type': img_mtype,
+                                              'data': img_b64}},
+                {'type': 'text', 'text': prompt_text},
+            ]
+        else:
+            content = prompt_text
+
+        resp = client.messages.create(
+            model='claude-haiku-4-5',   # Haiku: schnell + günstig für Klassifizierung
+            max_tokens=300,
+            system=(
+                'Du bist ein Content-Klassifizierer für deutsche Instagram-Seiten. '
+                'Antworte AUSSCHLIESSLICH mit dem angeforderten JSON-Objekt.'
+            ),
+            messages=[{'role': 'user', 'content': content}]
+        )
+        raw = resp.content[0].text.strip()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Claude-Fehler: {e}'})
+
+    # JSON parsen (Claude schreibt manchmal Backticks)
+    try:
+        if '```' in raw:
+            _m = _re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', raw)
+            raw = _m.group(1) if _m else raw
+        result = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return jsonify({'ok': False, 'error': 'KI-Antwort konnte nicht geparst werden.',
+                        'raw': raw[:200]})
+
+    folder_id        = result.get('folder_id')
+    folder_name      = result.get('folder_name', '')
+    confidence       = float(result.get('confidence', 0))
+    reason           = result.get('reason', '')
+    is_city_specific = result.get('is_city_specific', False)
+
+    # folder_id auf erlaubte Werte beschränken
+    allowed_ids = {f.id for f in folders}
+    if folder_id and int(folder_id) not in allowed_ids:
+        folder_id = None
+
+    return jsonify({
+        'ok': True,
+        'folder_id': int(folder_id) if folder_id else None,
+        'folder_name': folder_name,
+        'confidence': round(confidence, 2),
+        'reason': reason,
+        'is_city_specific': bool(is_city_specific),
+        'image_analyzed': img_b64 is not None,
+    })
+
+
 @app.route('/api/inspirationen/<int:post_id>/use', methods=['POST'])
 @login_required
 def inspiration_post_use(post_id):

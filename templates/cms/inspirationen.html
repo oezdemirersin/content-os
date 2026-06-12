@@ -677,13 +677,22 @@
 
       <!-- Ordner -->
       <div>
-        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
           <span>In welchen Ordner?</span>
-          <button onclick="toggleInlineNewFolder()" type="button"
-                  style="background:none;border:none;cursor:pointer;font-size:11px;
-                         color:var(--accent);padding:0;display:flex;align-items:center;gap:4px">
-            <i class="fa-solid fa-plus"></i> Neuer Ordner
-          </button>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <button onclick="suggestFolder()" id="suggestFolderBtn" type="button"
+                    style="background:none;border:none;cursor:pointer;font-size:11px;
+                           color:#818cf8;padding:0;display:flex;align-items:center;gap:4px;font-weight:600"
+                    title="Claude analysiert Bild + Caption und schlägt automatisch den richtigen Ordner vor">
+              <i class="fa-solid fa-robot" id="suggestFolderIcon"></i> KI-Vorschlag
+            </button>
+            <span style="color:var(--border)">|</span>
+            <button onclick="toggleInlineNewFolder()" type="button"
+                    style="background:none;border:none;cursor:pointer;font-size:11px;
+                           color:var(--accent);padding:0;display:flex;align-items:center;gap:4px">
+              <i class="fa-solid fa-plus"></i> Neuer Ordner
+            </button>
+          </div>
         </label>
         <select id="useFolderId" class="select-field">
           <option value="">— Kein Ordner —</option>
@@ -691,6 +700,16 @@
           <option value="{{ f.id }}" data-color="{{ f.color }}">{{ f.name }}</option>
           {% endfor %}
         </select>
+
+        <!-- KI-Vorschlag Ergebnis -->
+        <div id="folderSuggestHint" style="display:none;margin-top:7px;padding:9px 12px;
+             background:rgba(129,140,248,.08);border:1px solid rgba(129,140,248,.25);
+             border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6">
+          <div style="display:flex;align-items:flex-start;gap:7px">
+            <i class="fa-solid fa-robot" style="color:#818cf8;flex-shrink:0;margin-top:1px"></i>
+            <div id="folderSuggestText"></div>
+          </div>
+        </div>
 
         <!-- Inline-Formular: Neuer Ordner -->
         <div id="inlineNewFolder" style="display:none;margin-top:8px;padding:10px 12px;
@@ -872,6 +891,24 @@
         </div>
       </div>
 
+      <!-- KI-Ordner-Erkennung -->
+      <div style="background:rgba(129,140,248,.06);border:1px solid rgba(129,140,248,.2);
+                  border-radius:8px;padding:10px 13px">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+          <input type="checkbox" id="bulkAutoFolder"
+                 style="margin-top:2px;accent-color:#818cf8;flex-shrink:0">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#818cf8;margin-bottom:2px">
+              <i class="fa-solid fa-robot"></i> Ordner automatisch per KI erkennen
+            </div>
+            <div style="font-size:10px;color:var(--muted);line-height:1.5">
+              Claude analysiert Bild + Caption jedes Posts einzeln und wählt den
+              passenden Ordner. Überschreibt die manuelle Auswahl oben.
+            </div>
+          </div>
+        </label>
+      </div>
+
       <!-- Fortschritt -->
       <div id="bulkProgress" style="display:none">
         <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px">
@@ -937,6 +974,8 @@ function openUseModal(postId, caption, monthDay, defaultAccountId, imageUrl) {
   document.getElementById('useCaptionText').value = caption || '';
   document.getElementById('rewriteStatus').style.display = 'none';
   document.getElementById('sameYearBtn').style.display = monthDay ? 'inline-flex' : 'none';
+  document.getElementById('folderSuggestHint').style.display = 'none';
+  document.getElementById('useFolderId').value = '';
   selectMode('reserve');
 
   // Account-Dropdown füllen (einmalig)
@@ -1315,6 +1354,56 @@ async function bulkDeletePosts() {
   }
 }
 
+// ── KI-Ordner-Vorschlag (Einzelpost) ─────────────────────────
+async function suggestFolder() {
+  if (!_currentPostId) return;
+  const btn      = document.getElementById('suggestFolderBtn');
+  const icon     = document.getElementById('suggestFolderIcon');
+  const hint     = document.getElementById('folderSuggestHint');
+  const hintText = document.getElementById('folderSuggestText');
+
+  // Loading-State
+  btn.style.pointerEvents = 'none';
+  icon.className = 'fa-solid fa-spinner fa-spin';
+
+  const accountId = parseInt(document.getElementById('useAccountId').value) || null;
+
+  try {
+    const r = await fetch(`/api/inspirationen/${_currentPostId}/suggest-folder`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({account_id: accountId})
+    }).then(res => res.json());
+
+    if (r.ok && r.folder_id) {
+      // Ordner-Dropdown setzen
+      document.getElementById('useFolderId').value = r.folder_id;
+
+      // Hinweis anzeigen
+      const pct      = Math.round(r.confidence * 100);
+      const imgIcon  = r.image_analyzed ? '🖼️' : '📝';
+      const cityBadge = r.is_city_specific
+        ? '<span style="background:rgba(34,197,94,.15);color:#22c55e;padding:1px 6px;border-radius:5px;font-size:9px;font-weight:700;margin-left:4px">📍 Stadtspez.</span>'
+        : '';
+      hintText.innerHTML =
+        `<strong style="color:var(--text)">${r.folder_name}</strong>`
+        + ` <span style="color:#818cf8;font-weight:700">${pct}%</span>${cityBadge}`
+        + `<br><span style="color:var(--muted)">${imgIcon} ${r.reason}</span>`;
+      hint.style.display = 'block';
+    } else if (r.ok && !r.folder_id) {
+      hintText.innerHTML = '<span style="color:var(--muted)">Kein passender Ordner gefunden — bitte manuell wählen.</span>';
+      hint.style.display = 'block';
+    } else {
+      showToast(r.error || 'KI-Analyse fehlgeschlagen', 'warning');
+    }
+  } catch(e) {
+    showToast('Verbindungsfehler: ' + e.message, 'error');
+  } finally {
+    btn.style.pointerEvents = '';
+    icon.className = 'fa-solid fa-robot';
+  }
+}
+
 function openBulkModal() {
   if (_sel.size === 0) return;
   document.getElementById('bulkSubtitle').textContent =
@@ -1345,7 +1434,8 @@ function closeBulkModal() {
 async function runBulkUse() {
   const ids        = [..._sel];
   const account_id = parseInt(document.getElementById('bulkAccountId').value) || null;
-  const folder_id  = parseInt(document.getElementById('bulkFolderId').value)  || null;
+  const base_folder_id  = parseInt(document.getElementById('bulkFolderId').value)  || null;
+  const autoFolder = document.getElementById('bulkAutoFolder')?.checked || false;
 
   const confirmBtn = document.getElementById('bulkConfirmBtn');
   const cancelBtn  = document.getElementById('bulkCancelBtn');
@@ -1358,11 +1448,27 @@ async function runBulkUse() {
   cancelBtn.disabled  = true;
   progWrap.style.display = 'block';
 
-  let done = 0, errors = 0;
+  let done = 0, errors = 0, autoAssigned = 0;
   for (const id of ids) {
-    progText.textContent = `Verarbeite ${done + 1} von ${ids.length}…`;
+    progText.textContent = `${autoFolder ? '🤖 Analysiere' : 'Verarbeite'} ${done + 1} von ${ids.length}…`;
     progPct.textContent  = `${Math.round((done / ids.length) * 100)} %`;
     progBar.style.width  = `${(done / ids.length) * 100}%`;
+
+    // KI-Ordner-Erkennung pro Post
+    let folder_id = base_folder_id;
+    if (autoFolder) {
+      try {
+        const sf = await fetch(`/api/inspirationen/${id}/suggest-folder`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({account_id})
+        }).then(r => r.json());
+        if (sf.ok && sf.folder_id) {
+          folder_id = sf.folder_id;
+          autoAssigned++;
+        }
+      } catch(e) { /* Fallback auf base_folder_id */ }
+    }
 
     try {
       const controller = new AbortController();
@@ -1391,15 +1497,17 @@ async function runBulkUse() {
 
   progBar.style.width  = '100%';
   progPct.textContent  = '100 %';
-  progText.textContent = errors > 0
-    ? `Fertig — ${done - errors} übernommen, ${errors} Fehler`
-    : `Fertig — alle ${done} übernommen ✓`;
+  let doneMsg = errors > 0
+    ? `${done - errors} übernommen, ${errors} Fehler`
+    : `alle ${done} übernommen ✓`;
+  if (autoFolder && autoAssigned > 0) doneMsg += ` · 🤖 ${autoAssigned}× Ordner auto-erkannt`;
+  progText.textContent = doneMsg;
   progText.style.color = errors > 0 ? 'var(--warning)' : 'var(--success)';
 
   cancelBtn.disabled  = false;
   cancelBtn.textContent = 'Schließen';
   _updateSelBar();
-  if (errors === 0) setTimeout(closeBulkModal, 1200);
+  if (errors === 0) setTimeout(closeBulkModal, 1400);
 }
 
 // ── "Verwenden"-Buttons via Event-Delegation ──────────────────
