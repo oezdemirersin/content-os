@@ -444,6 +444,7 @@ def init_db():
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS default_hashtags TEXT')
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS sports_hashtag VARCHAR(200)')
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS weather_city VARCHAR(100)')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS hide_in_analytics BOOLEAN DEFAULT FALSE')
             # ── Wetter-System ────────────────────────────────────────────
             safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS trigger_condition VARCHAR(50)')
             safe_alter('''CREATE TABLE IF NOT EXISTS weather_cache (
@@ -529,6 +530,8 @@ def init_db():
                 safe_alter('ALTER TABLE account ADD COLUMN sports_hashtag VARCHAR(200)')
             if 'weather_city' not in account_cols:
                 safe_alter('ALTER TABLE account ADD COLUMN weather_city VARCHAR(100)')
+            if 'hide_in_analytics' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN hide_in_analytics BOOLEAN DEFAULT 0')
             # content_folder: Wetter-Trigger
             if 'trigger_condition' not in cf_cols:
                 safe_alter('ALTER TABLE content_folder ADD COLUMN trigger_condition VARCHAR(50)')
@@ -3153,13 +3156,23 @@ def calendar_events():
 
 @app.route('/analytics')
 def analytics():
-    all_accounts = Account.query.filter_by(status='active').order_by(Account.follower_count.desc()).all()
-    categories = Category.query.all()
-    total_followers = sum(a.follower_count for a in all_accounts)
+    all_accounts = Account.query\
+        .filter_by(status='active')\
+        .options(joinedload(Account.category))\
+        .order_by(Account.follower_count.desc()).all()
 
+    # Sichtbare Accounts (ohne Test-/Hidden-Accounts) für Gesamt-KPIs
+    visible = [a for a in all_accounts if not a.hide_in_analytics]
+    hidden  = [a for a in all_accounts if a.hide_in_analytics]
+    total_followers = sum(a.follower_count for a in visible)
+
+    # days_map für Account-Ranking (verhindert N+1 Queries im Template)
+    days_map = _get_planned_days_batch(all_accounts)
+
+    categories = Category.query.all()
     cat_stats = []
     for cat in categories:
-        accs = Account.query.filter_by(category_id=cat.id, status='active').all()
+        accs = [a for a in visible if a.category_id == cat.id]
         if accs:
             followers = sum(a.follower_count for a in accs)
             cat_stats.append({
@@ -3170,8 +3183,9 @@ def analytics():
     cat_stats.sort(key=lambda x: x['followers'], reverse=True)
 
     return render_template('analytics.html',
-        accounts=all_accounts, cat_stats=cat_stats, total_followers=total_followers,
-        active_page='analytics')
+        accounts=visible, hidden_accounts=hidden,
+        cat_stats=cat_stats, total_followers=total_followers,
+        days_map=days_map, active_page='analytics')
 
 
 @app.route('/api/analytics/growth')
@@ -3183,13 +3197,21 @@ def analytics_growth():
     today = datetime.utcnow().date()
     start_date = today - timedelta(days=days - 1)
 
-    # Eine einzige GROUP-BY-Query statt N Einzel-Queries (war: 30–90 Queries pro Klick)
+    # Eine einzige GROUP-BY-Query statt N Einzel-Queries
     q = db.session.query(
         func.date(AnalyticsSnapshot.recorded_at).label('d'),
         func.sum(AnalyticsSnapshot.followers).label('total')
     ).filter(func.date(AnalyticsSnapshot.recorded_at) >= start_date)
+
     if account_id:
         q = q.filter(AnalyticsSnapshot.account_id == account_id)
+    else:
+        # Test-/Hidden-Accounts vom Gesamt-Chart ausschließen
+        hidden_ids = db.session.query(Account.id).filter(
+            Account.hide_in_analytics == True
+        ).subquery()
+        q = q.filter(~AnalyticsSnapshot.account_id.in_(hidden_ids))
+
     rows = q.group_by(func.date(AnalyticsSnapshot.recorded_at)).all()
     snap_dict = {str(r.d): int(r.total or 0) for r in rows}
 
@@ -3199,7 +3221,23 @@ def analytics_growth():
         labels.append(day.strftime('%d.%m'))
         data.append(snap_dict.get(day.isoformat(), 0))
 
-    result = {'labels': labels, 'data': data}
+    # Wachstums-Statistiken berechnen
+    non_zero = [v for v in data if v > 0]
+    start_val = non_zero[0] if non_zero else 0
+    end_val   = data[-1] or 0
+    growth    = end_val - start_val
+    growth_pct = round(growth / start_val * 100, 1) if start_val else 0
+    # Tägliches Delta (nur Tage mit Daten)
+    daily_deltas = [data[i] - data[i-1] for i in range(1, len(data)) if data[i] > 0 and data[i-1] > 0]
+    daily_avg = round(sum(daily_deltas) / len(daily_deltas), 0) if daily_deltas else 0
+
+    result = {
+        'labels': labels, 'data': data,
+        'stats': {
+            'start': start_val, 'end': end_val,
+            'growth': growth, 'growth_pct': growth_pct, 'daily_avg': int(daily_avg),
+        }
+    }
     if include_forecast:
         forecast_vals = linear_forecast(data, 14)
         forecast_labels = [(datetime.utcnow() + timedelta(days=i+1)).strftime('%d.%m') for i in range(14)]
@@ -3219,21 +3257,25 @@ def analytics_portfolio():
     days = request.args.get('days', 30, type=int)
     today = datetime.utcnow().date()
 
-    # Aktuelles Portfolio-Total aus Account.follower_count
+    # Aktuelles Portfolio-Total (nur sichtbare Accounts)
     current_total = db.session.query(func.sum(Account.follower_count))\
-        .filter(Account.status == 'active').scalar() or 0
+        .filter(Account.status == 'active', Account.hide_in_analytics == False).scalar() or 0
 
-    # Pro Account + Tag: nur den NEUESTEN Snapshot nehmen, dann über alle Accounts summieren.
-    # So werden mehrfache Updates am selben Tag nicht aufsummiert.
     start_date = today - timedelta(days=days - 1)
 
-    # Subquery: spätester recorded_at pro (account_id, tag)
+    # IDs der ausgeblendeten Accounts für den Filter
+    hidden_ids = db.session.query(Account.id).filter(
+        Account.hide_in_analytics == True
+    ).subquery()
+
+    # Subquery: spätester recorded_at pro (account_id, tag) — ohne Hidden-Accounts
     latest_per_acc_day = db.session.query(
         AnalyticsSnapshot.account_id,
         func.date(AnalyticsSnapshot.recorded_at).label('snap_day'),
         func.max(AnalyticsSnapshot.recorded_at).label('latest_at')
     ).filter(
-        func.date(AnalyticsSnapshot.recorded_at) >= start_date
+        func.date(AnalyticsSnapshot.recorded_at) >= start_date,
+        ~AnalyticsSnapshot.account_id.in_(hidden_ids)
     ).group_by(
         AnalyticsSnapshot.account_id,
         func.date(AnalyticsSnapshot.recorded_at)
@@ -3281,6 +3323,20 @@ def analytics_portfolio():
         'current': current_total,
         'delta':   delta,
         'days':    days,
+    })
+
+
+@app.route('/api/accounts/<int:account_id>/toggle-analytics', methods=['POST'])
+def toggle_analytics_visibility(account_id):
+    """Blendet einen Account aus den Analytics-Gesamt-Charts aus / ein."""
+    acc = Account.query.get_or_404(account_id)
+    acc.hide_in_analytics = not acc.hide_in_analytics
+    db.session.commit()
+    return jsonify({
+        'ok': True,
+        'hidden': acc.hide_in_analytics,
+        'name': acc.name,
+        'msg': f'"{acc.name}" {"ausgeblendet" if acc.hide_in_analytics else "wieder eingeblendet"}',
     })
 
 
@@ -3661,27 +3717,45 @@ def analytics_daily_growth():
     days = request.args.get('days', 30, type=int)
     account_id = request.args.get('account_id', type=int)
 
+    today = datetime.utcnow().date()
+    start_date = today - timedelta(days=days - 1)
+
+    # Zwei GROUP-BY-Queries statt N×2 Einzel-Queries
+    fq = db.session.query(
+        func.date(AnalyticsSnapshot.recorded_at).label('d'),
+        func.sum(AnalyticsSnapshot.followers).label('total')
+    ).filter(func.date(AnalyticsSnapshot.recorded_at) >= start_date)
+    eq = db.session.query(
+        func.date(AnalyticsSnapshot.recorded_at).label('d'),
+        func.avg(AnalyticsSnapshot.engagement_rate).label('eng')
+    ).filter(func.date(AnalyticsSnapshot.recorded_at) >= start_date)
+
+    if account_id:
+        fq = fq.filter(AnalyticsSnapshot.account_id == account_id)
+        eq = eq.filter(AnalyticsSnapshot.account_id == account_id)
+    else:
+        hidden_ids = db.session.query(Account.id).filter(Account.hide_in_analytics == True).subquery()
+        fq = fq.filter(~AnalyticsSnapshot.account_id.in_(hidden_ids))
+        eq = eq.filter(~AnalyticsSnapshot.account_id.in_(hidden_ids))
+
+    fq = fq.group_by(func.date(AnalyticsSnapshot.recorded_at))
+    eq = eq.group_by(func.date(AnalyticsSnapshot.recorded_at))
+
+    follower_by_day = {str(r.d): int(r.total or 0) for r in fq.all()}
+    eng_by_day      = {str(r.d): round(float(r.eng or 0), 2) for r in eq.all()}
+
     labels, deltas, eng_rates = [], [], []
     prev = None
-
     for i in range(days - 1, -1, -1):
-        day = datetime.utcnow() - timedelta(days=i)
-        q = db.session.query(func.sum(AnalyticsSnapshot.followers))\
-            .filter(func.date(AnalyticsSnapshot.recorded_at) == day.date())
-        eq = db.session.query(func.avg(AnalyticsSnapshot.engagement_rate))\
-            .filter(func.date(AnalyticsSnapshot.recorded_at) == day.date())
-        if account_id:
-            q = q.filter(AnalyticsSnapshot.account_id == account_id)
-            eq = eq.filter(AnalyticsSnapshot.account_id == account_id)
-
-        total = q.scalar() or 0
-        eng = round(eq.scalar() or 0, 2)
-        delta = (total - prev) if prev is not None else 0
-        prev = total
-
+        day = today - timedelta(days=i)
+        key = day.isoformat()
+        total = follower_by_day.get(key, 0)
+        delta = (total - prev) if prev is not None and total > 0 else 0
+        if total > 0:
+            prev = total
         labels.append(day.strftime('%d.%m'))
         deltas.append(delta)
-        eng_rates.append(eng)
+        eng_rates.append(eng_by_day.get(key, 0))
 
     return jsonify({'labels': labels, 'deltas': deltas, 'engagement': eng_rates})
 

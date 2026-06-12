@@ -154,6 +154,10 @@ class Account(db.Model):
     # Wetter-System: Stadt für OpenWeatherMap (z.B. "Frankfurt")
     weather_city      = db.Column(db.String(100), nullable=True)
 
+    # Analytics-Sichtbarkeit: True = Account wird in Gesamt-Charts ausgeblendet
+    # (z.B. für Test-Accounts oder interne Konten)
+    hide_in_analytics = db.Column(db.Boolean, default=False, nullable=False, server_default='false')
+
     # Relationships
     scheduled_posts = db.relationship('ScheduledPost', backref='account', lazy=True, cascade='all,delete')
     analytics = db.relationship('AnalyticsSnapshot', backref='account', lazy=True, cascade='all,delete')
