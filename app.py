@@ -6736,10 +6736,38 @@ def inspirationen():
     has_rapidapi_key = bool(get_setting('rapidapi_key'))
     all_accounts = Account.query.order_by(Account.name).all()
     all_folders  = ContentFolder.query.order_by(ContentFolder.sort_order, ContentFolder.name).all()
+
+    # ── Status-Zählungen pro Quelle (eine einzige Query) ─────────────
+    _st_rows = db.session.query(
+        InspirationPost.source_id,
+        InspirationPost.status,
+        func.count(InspirationPost.id)
+    ).group_by(InspirationPost.source_id, InspirationPost.status).all()
+    source_counts = defaultdict(lambda: {'new': 0, 'saved': 0, 'ignored': 0, 'used': 0})
+    for _sid, _st, _cnt in _st_rows:
+        if _st in ('new', 'ignored', 'used'):
+            source_counts[_sid][_st] = _cnt
+    # saved = is_saved=True (unabhängig vom status)
+    _sv_rows = db.session.query(
+        InspirationPost.source_id,
+        func.count(InspirationPost.id)
+    ).filter(InspirationPost.is_saved == True).group_by(InspirationPost.source_id).all()
+    for _sid, _cnt in _sv_rows:
+        source_counts[_sid]['saved'] = _cnt
+
+    # ── Gruppen-Counts (aggregiert aus Quellen-Counts) ────────────────
+    account_src_counts = defaultdict(lambda: {'new': 0, 'saved': 0, 'ignored': 0, 'used': 0})
+    for _src in sources:
+        if _src.account_id:
+            for _st in ('new', 'saved', 'ignored', 'used'):
+                account_src_counts[_src.account_id][_st] += source_counts[_src.id][_st]
+
     return render_template('inspirationen.html',
         sources=sources, posts=posts, counts=counts,
         sources_by_account=dict(sources_by_account),
         accounts_with_sources=accounts_with_sources,
+        source_counts={k: dict(v) for k, v in source_counts.items()},
+        account_src_counts={k: dict(v) for k, v in account_src_counts.items()},
         status_filter=status_filter, source_filter=source_filter,
         account_filter=account_filter,
         sort_by=sort_by, min_likes=min_likes or '',
@@ -7346,18 +7374,51 @@ def kategorien():
     folders = q.order_by(ContentFolder.account_id.nullslast(),
                          ContentFolder.sort_order, ContentFolder.name).all()
 
-    # Anzahl Posts pro Ordner im Vorrat (draft/ready)
-    folder_counts = {}
+    # ── Anzahl Posts pro Ordner (mit Status-Aufschlüsselung) ─────
+    folder_counts   = {}   # fid → Gesamt (aktiv)
+    folder_statuses = {}   # fid → {status: count}
     for f in folders:
-        folder_counts[f.id] = ContentItem.query\
-            .filter(ContentItem.folder_id == f.id,
-                    ContentItem.status.in_(['draft', 'ready', 'in_progress', 'scheduled']))\
-            .count()
+        rows = db.session.query(ContentItem.status, func.count(ContentItem.id))\
+            .filter(ContentItem.folder_id == f.id)\
+            .group_by(ContentItem.status).all()
+        sc = {s: c for s, c in rows}
+        active = sum(sc.get(s, 0) for s in ['draft', 'ready', 'in_progress', 'scheduled'])
+        folder_counts[f.id]   = active
+        folder_statuses[f.id] = sc
+
+    # ── Pipeline-Zahlen ──────────────────────────────────────────
+    base_ci = ContentItem.query
+    base_ip = InspirationPost.query
+    if account_id:
+        base_ci = base_ci.filter(ContentItem.accounts.any(id=account_id))
+
+    pipeline = {
+        'insp_new':       base_ip.filter_by(status='new').count(),
+        'insp_saved':     base_ip.filter_by(is_saved=True).count(),
+        'vorrat_draft':   base_ci.filter_by(status='draft').count(),
+        'vorrat_ready':   base_ci.filter_by(status='ready').count(),
+        'vorrat_sched':   base_ci.filter_by(status='scheduled').count(),
+        'published':      base_ci.filter_by(status='published').count(),
+    }
+
+    # ── Verlorene Posts (kein Ordner ODER kein Account) ──────────
+    orphan_no_folder = ContentItem.query.filter(
+        ContentItem.folder_id.is_(None),
+        ContentItem.status.in_(['draft', 'ready'])
+    ).count()
+    orphan_no_account = db.session.query(func.count(ContentItem.id)).filter(
+        ContentItem.status.in_(['draft', 'ready']),
+        ~ContentItem.accounts.any()
+    ).scalar() or 0
 
     from datetime import date as _date_today
     return render_template('kategorien.html',
         folders=folders, accounts=accounts,
         folder_counts=folder_counts,
+        folder_statuses=folder_statuses,
+        pipeline=pipeline,
+        orphan_no_folder=orphan_no_folder,
+        orphan_no_account=orphan_no_account,
         sel_account=account_id,
         today=_date_today.today(),
         active_page='kategorien')

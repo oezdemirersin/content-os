@@ -85,14 +85,44 @@
                style="transition:transform .2s"></i>
           </button>
 
-          <!-- Filter-Link (Name) -->
+          <!-- Filter-Link (Name + Status-Counts) -->
           <a href="{{ url_for('inspirationen', account=acc_id, status=status_filter) }}"
-             style="flex:1;min-width:0;text-decoration:none;padding:9px 0">
+             style="flex:1;min-width:0;text-decoration:none;padding:7px 0">
             <div style="font-size:12px;font-weight:700;
                         color:{% if is_active %}var(--accent){% else %}var(--text){% endif %};
                         overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
               {{ acc.name if acc else 'Account #' ~ acc_id }}
             </div>
+            {# Status-Mini-Badges für diese Gruppe #}
+            {% set ac = account_src_counts.get(acc_id, {}) %}
+            {% if ac %}
+            <div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap">
+              {% if ac.get('new', 0) > 0 %}
+              <span style="font-size:9px;padding:1px 5px;border-radius:6px;
+                           background:rgba(99,102,241,.15);color:#818cf8;font-weight:700;line-height:1.4">
+                {{ ac.get('new', 0) }} Neu
+              </span>
+              {% endif %}
+              {% if ac.get('saved', 0) > 0 %}
+              <span style="font-size:9px;padding:1px 5px;border-radius:6px;
+                           background:rgba(34,197,94,.15);color:#22c55e;font-weight:700;line-height:1.4">
+                {{ ac.get('saved', 0) }} Gesp.
+              </span>
+              {% endif %}
+              {% if ac.get('ignored', 0) > 0 %}
+              <span style="font-size:9px;padding:1px 5px;border-radius:6px;
+                           background:rgba(107,114,128,.13);color:#9ca3af;font-weight:600;line-height:1.4">
+                {{ ac.get('ignored', 0) }} Ign.
+              </span>
+              {% endif %}
+              {% if ac.get('used', 0) > 0 %}
+              <span style="font-size:9px;padding:1px 5px;border-radius:6px;
+                           background:rgba(245,158,11,.13);color:#f59e0b;font-weight:600;line-height:1.4">
+                {{ ac.get('used', 0) }} Übernom.
+              </span>
+              {% endif %}
+            </div>
+            {% endif %}
           </a>
 
           <!-- Quellenanzahl-Badge -->
@@ -119,6 +149,37 @@
                 {% if src.last_fetch %}{{ src.last_fetch.strftime('%d.%m %H:%M') }}
                 {% else %}<span style="color:var(--warning)">nie geladen</span>{% endif %}
               </div>
+              {# Status-Counts für diese Quelle #}
+              {% set sc = source_counts.get(src.id, {}) %}
+              {% set sc_total = sc.get('new',0) + sc.get('saved',0) + sc.get('ignored',0) + sc.get('used',0) %}
+              {% if sc_total > 0 %}
+              <div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap">
+                {% if sc.get('new', 0) > 0 %}
+                <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                             background:rgba(99,102,241,.15);color:#818cf8;font-weight:700;line-height:1.5">
+                  {{ sc.get('new', 0) }}N
+                </span>
+                {% endif %}
+                {% if sc.get('saved', 0) > 0 %}
+                <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                             background:rgba(34,197,94,.15);color:#22c55e;font-weight:700;line-height:1.5">
+                  {{ sc.get('saved', 0) }}G
+                </span>
+                {% endif %}
+                {% if sc.get('ignored', 0) > 0 %}
+                <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                             background:rgba(107,114,128,.12);color:#9ca3af;font-weight:600;line-height:1.5">
+                  {{ sc.get('ignored', 0) }}I
+                </span>
+                {% endif %}
+                {% if sc.get('used', 0) > 0 %}
+                <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                             background:rgba(245,158,11,.12);color:#f59e0b;font-weight:600;line-height:1.5">
+                  {{ sc.get('used', 0) }}Ü
+                </span>
+                {% endif %}
+              </div>
+              {% endif %}
             </a>
 
             <!-- Gruppe-Wechseln Icon (öffnet verstecktes Select) -->
@@ -191,11 +252,45 @@
                         {% if source_filter == src.id %}background:rgba(59,130,246,.07){% endif %}">
               <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
                  style="flex:1;min-width:0;text-decoration:none">
-                <div style="font-size:12px;font-weight:500;color:var(--text)">@{{ src.username }}</div>
+                <div style="font-size:12px;font-weight:{% if source_filter==src.id %}700{% else %}500{% endif %};
+                            color:{% if source_filter==src.id %}var(--accent){% else %}var(--text){% endif %}">
+                  @{{ src.username }}
+                </div>
                 <div style="font-size:10px;color:var(--muted)">
                   {% if src.last_fetch %}{{ src.last_fetch.strftime('%d.%m %H:%M') }}
                   {% else %}<span style="color:var(--warning)">nie geladen</span>{% endif %}
                 </div>
+                {# Status-Counts für ungrouped Quelle #}
+                {% set sc = source_counts.get(src.id, {}) %}
+                {% set sc_total = sc.get('new',0) + sc.get('saved',0) + sc.get('ignored',0) + sc.get('used',0) %}
+                {% if sc_total > 0 %}
+                <div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap">
+                  {% if sc.get('new', 0) > 0 %}
+                  <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                               background:rgba(99,102,241,.15);color:#818cf8;font-weight:700;line-height:1.5">
+                    {{ sc.get('new', 0) }}N
+                  </span>
+                  {% endif %}
+                  {% if sc.get('saved', 0) > 0 %}
+                  <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                               background:rgba(34,197,94,.15);color:#22c55e;font-weight:700;line-height:1.5">
+                    {{ sc.get('saved', 0) }}G
+                  </span>
+                  {% endif %}
+                  {% if sc.get('ignored', 0) > 0 %}
+                  <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                               background:rgba(107,114,128,.12);color:#9ca3af;font-weight:600;line-height:1.5">
+                    {{ sc.get('ignored', 0) }}I
+                  </span>
+                  {% endif %}
+                  {% if sc.get('used', 0) > 0 %}
+                  <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                               background:rgba(245,158,11,.12);color:#f59e0b;font-weight:600;line-height:1.5">
+                    {{ sc.get('used', 0) }}Ü
+                  </span>
+                  {% endif %}
+                </div>
+                {% endif %}
               </a>
               <button onclick="toggleGroupSelect({{ src.id }})" title="Gruppe zuordnen"
                       style="background:none;border:none;cursor:pointer;font-size:11px;
