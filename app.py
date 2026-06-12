@@ -661,7 +661,13 @@ def init_db():
                 account_id INTEGER NOT NULL UNIQUE REFERENCES account(id),
                 konzept TEXT, zielgruppe TEXT, tonalitaet TEXT, themen TEXT,
                 last_generated DATETIME, generated_ideas TEXT,
+                past_posts_json TEXT, page_analysis TEXT,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            aic_cols = [c['name'] for c in inspector.get_columns('account_ideen_context')]
+            if 'past_posts_json' not in aic_cols:
+                safe_alter('ALTER TABLE account_ideen_context ADD COLUMN past_posts_json TEXT')
+            if 'page_analysis' not in aic_cols:
+                safe_alter('ALTER TABLE account_ideen_context ADD COLUMN page_analysis TEXT')
             # content_folder: Wetter-Trigger
             if 'trigger_condition' not in cf_cols:
                 safe_alter('ALTER TABLE content_folder ADD COLUMN trigger_condition VARCHAR(50)')
@@ -9259,13 +9265,19 @@ def get_ideen_context(account_id):
             ideas = json.loads(ctx.generated_ideas)
         except Exception:
             ideas = []
+    past_posts = []
+    if ctx.past_posts_json:
+        try: past_posts = json.loads(ctx.past_posts_json)
+        except: pass
     return jsonify({
-        'konzept':    ctx.konzept or '',
-        'zielgruppe': ctx.zielgruppe or '',
-        'tonalitaet': ctx.tonalitaet or '',
-        'themen':     ctx.themen or '',
-        'updated_at': ctx.updated_at.isoformat() if ctx.updated_at else None,
+        'konzept':       ctx.konzept or '',
+        'zielgruppe':    ctx.zielgruppe or '',
+        'tonalitaet':    ctx.tonalitaet or '',
+        'themen':        ctx.themen or '',
+        'updated_at':    ctx.updated_at.isoformat() if ctx.updated_at else None,
         'generated_ideas': ideas,
+        'past_posts':    past_posts,
+        'page_analysis': ctx.page_analysis or '',
     })
 
 
@@ -9285,6 +9297,93 @@ def save_ideen_context():
     ctx.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/content-ideen/<int:account_id>/past-posts', methods=['POST'])
+@login_required
+def save_past_posts(account_id):
+    """Speichert die Liste bisheriger Beiträge mit Insights."""
+    d = request.get_json() or {}
+    posts = d.get('posts', [])
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx:
+        ctx = AccountIdeenContext(account_id=account_id)
+        db.session.add(ctx)
+    ctx.past_posts_json = json.dumps(posts, ensure_ascii=False)
+    ctx.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True, 'count': len(posts)})
+
+
+@app.route('/api/content-ideen/<int:account_id>/analyse', methods=['POST'])
+@login_required
+def analyse_page(account_id):
+    """KI analysiert bisherige Beiträge und erstellt ein Seiten-Profil."""
+    import anthropic as _ant
+    acc = Account.query.get_or_404(account_id)
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx or not ctx.past_posts_json:
+        return jsonify({'ok': False, 'error': 'Keine bisherigen Beiträge hinterlegt.'})
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert.'})
+
+    try:
+        posts = json.loads(ctx.past_posts_json)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Beitrags-Daten ungültig.'})
+
+    post_lines = []
+    for i, p in enumerate(posts, 1):
+        reach = p.get('reach', '')
+        likes = p.get('likes', '')
+        komm  = p.get('kommentare', '')
+        saves = p.get('saves', '')
+        eng_parts = []
+        if reach: eng_parts.append(f'Reach: {reach}')
+        if likes: eng_parts.append(f'Likes: {likes}')
+        if komm:  eng_parts.append(f'Kommentare: {komm}')
+        if saves: eng_parts.append(f'Saves: {saves}')
+        eng_str = ' | '.join(eng_parts) if eng_parts else 'keine Zahlen'
+        besonders = f' — Notiz: {p["was_besonders"]}' if p.get('was_besonders') else ''
+        post_lines.append(
+            f'{i}. [{p.get("format","?")}] {p.get("beschreibung","?")}\n'
+            f'   {eng_str}{besonders}'
+        )
+
+    prompt = f"""Du analysierst die Instagram-Seite "{acc.name}".
+
+Hier sind {len(posts)} bisherige Beiträge mit ihren Insights:
+
+{chr(10).join(post_lines)}
+
+Analysiere diese Seite und gib eine strukturierte Auswertung. Nutze exakt dieses Format:
+
+STÄRKEN: [Was funktioniert gut? Welche Inhalte haben hohe Reichweite/Engagement?]
+BESTE_FORMATE: [Welche Formate (Reel/Feed/Karussell) performen am besten und warum?]
+CONTENT_PATTERN: [Was ist das wiederkehrende Muster? Was macht diese Seite aus?]
+THEMEN_DIE_PERFORMEN: [Konkrete Themenfelder mit Potenzial, basierend auf den Daten]
+EMPFEHLUNG: [Was sollte die Seite häufiger/seltener machen? Max. 3 Punkte]
+SEITEN_DNA: [Kernaussage in 1-2 Sätzen: Was macht diese Seite einzigartig?]
+
+Sei konkret. Beziehe dich auf die Beitrags-Daten. Keine allgemeinen Social-Media-Tipps."""
+
+    try:
+        client = _ant.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=1500,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        analysis = resp.content[0].text.strip()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+    ctx.page_analysis = analysis
+    ctx.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True, 'analysis': analysis})
 
 
 @app.route('/api/content-ideen/generate', methods=['POST'])
@@ -9310,6 +9409,9 @@ def generate_content_ideen():
     fokus_hint = f'\nAktueller Fokus: {focus}' if focus else ''
     kategorie  = acc.category.name if acc.category else 'Allgemein'
 
+    page_analysis = (ctx.page_analysis or '') if ctx else ''
+    analysis_hint = f'\n\nSEITEN-ANALYSE (was bisher gut funktioniert):\n{page_analysis}' if page_analysis else ''
+
     prompt = f"""Du bist ein kreativer Social-Media-Stratege für Instagram.
 
 Erstelle genau {count} konkrete Content-Ideen für diese Instagram-Seite:
@@ -9319,7 +9421,7 @@ KATEGORIE: {kategorie}
 KONZEPT: {konzept}
 ZIELGRUPPE: {zielgruppe}
 TON/STIL: {tonalitaet}
-THEMEN: {themen}{fokus_hint}
+THEMEN: {themen}{fokus_hint}{analysis_hint}
 
 Für jede Idee genau dieses Format — eine pro Zeile, durch --- getrennt:
 TITEL: [kurzer Titel, max. 60 Zeichen]

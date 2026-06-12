@@ -4,10 +4,10 @@
 {% set active_page = 'content_ideen' %}
 
 {% block content %}
-<div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between">
+<div style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between">
   <div>
-    <div style="font-family:var(--font-display);font-size:22px;letter-spacing:1px">KI-CONTENT-IDEEN</div>
-    <div style="font-size:12px;color:var(--muted);margin-top:3px">Erkläre jeder Seite ihren Sinn — die KI denkt mit dir.</div>
+    <div style="font-family:var(--font-display);font-size:22px;letter-spacing:1px">KI-CONTENT-STRATEGIE</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:3px">Lade deine Beiträge hoch — die KI versteht deine Seite und denkt mit dir.</div>
   </div>
 </div>
 
@@ -29,66 +29,164 @@
   {% endfor %}
 </div>
 
-<!-- ── Context Form ── -->
+<!-- ══════════════════════════════════════════════════════
+     SEKTION 1: Bisherige Beiträge + KI-Analyse
+     ══════════════════════════════════════════════════════ -->
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
 
+  <!-- ── Beiträge-Tabelle ── -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <span class="card-title">BISHERIGE BEITRÄGE</span>
+        <span style="font-size:11px;color:var(--muted);margin-left:10px" id="postCount"></span>
+      </div>
+      <button onclick="addPostRow()"
+              style="padding:6px 14px;border-radius:8px;border:1px dashed var(--border);
+                     background:transparent;color:var(--accent2);font-size:11px;font-weight:700;
+                     cursor:pointer;font-family:var(--font-body)">
+        <i class="fa-solid fa-plus"></i> Beitrag
+      </button>
+    </div>
+
+    <!-- Header -->
+    <div style="display:grid;grid-template-columns:1fr 70px 65px 65px 65px 28px;
+                gap:6px;padding:8px 14px;border-bottom:1px solid var(--border);
+                font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted)">
+      <span>BESCHREIBUNG</span><span>FORMAT</span>
+      <span style="text-align:right">REACH</span>
+      <span style="text-align:right">LIKES</span>
+      <span style="text-align:right">SAVES</span>
+      <span></span>
+    </div>
+
+    <!-- Rows -->
+    <div id="postRows" style="max-height:340px;overflow-y:auto"></div>
+
+    <!-- Hinweis leer -->
+    <div id="postEmpty" style="padding:40px 20px;text-align:center;color:var(--muted);font-size:12px">
+      <i class="fa-solid fa-table-list" style="font-size:24px;opacity:.25;display:block;margin-bottom:10px"></i>
+      Füge deine bisherigen Beiträge hinzu — je mehr Daten, desto besser die Analyse.
+    </div>
+
+    <div style="padding:12px 14px;border-top:1px solid var(--border);display:flex;gap:8px">
+      <button onclick="savePosts()" class="btn btn-ghost" style="font-size:11px;flex:1">
+        <i class="fa-solid fa-floppy-disk"></i> Speichern
+      </button>
+      <button onclick="runAnalysis()" class="btn btn-primary" style="font-size:11px;flex:2" id="analyseBtn">
+        <i class="fa-solid fa-magnifying-glass-chart"></i> KI Seite analysieren
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Analyse-Panel ── -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between">
+      <span class="card-title">KI-SEITENANALYSE</span>
+      <span id="analyseDate" style="font-size:10px;color:var(--muted)"></span>
+    </div>
+
+    <!-- Leer-Zustand -->
+    <div id="analyseEmpty" style="padding:50px 24px;text-align:center;color:var(--muted);font-size:12px">
+      <i class="fa-solid fa-brain" style="font-size:28px;opacity:.2;display:block;margin-bottom:12px"></i>
+      Beiträge hinzufügen &amp; «KI Seite analysieren» klicken —<br>
+      die KI erstellt ein Profil deiner Seite.
+    </div>
+
+    <!-- Analyse-Ergebnis -->
+    <div id="analyseResult" style="display:none;padding:16px 20px;overflow-y:auto;max-height:390px">
+      <div id="analyseSections" style="display:flex;flex-direction:column;gap:14px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     SEKTION 2: Kontext + Ideen
+     ══════════════════════════════════════════════════════ -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+  <!-- ── Context Form ── -->
   <div class="card" style="padding:20px">
-    <div class="card-header" style="padding:0 0 16px 0;border-bottom:1px solid var(--border);margin-bottom:16px">
+    <div class="card-header" style="padding:0 0 14px 0;border-bottom:1px solid var(--border);margin-bottom:14px;
+                                    display:flex;align-items:center;justify-content:space-between">
       <span class="card-title">SEITEN-KONTEXT</span>
       <span style="font-size:11px;color:var(--muted)" id="ctxSavedNote"></span>
     </div>
 
-    <div style="display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;flex-direction:column;gap:12px">
       <div>
-        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">
-          KONZEPT & ZIEL DER SEITE
+        <label style="font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:5px">
+          KONZEPT & ZIEL
         </label>
-        <textarea id="ctx_konzept" rows="3" placeholder="Wofür ist diese Seite? Was ist die Mission? z.B. Lokale Nachrichten für Darmstadter, Fokus Kultur + Events"
+        <textarea id="ctx_konzept" rows="2"
+                  placeholder="Wofür ist diese Seite? Mission, Fokus?"
                   style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-                         color:var(--text);font-family:var(--font-body);font-size:13px;
-                         padding:10px 12px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+                         color:var(--text);font-family:var(--font-body);font-size:12px;
+                         padding:9px 11px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
       </div>
-
       <div>
-        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">
+        <label style="font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:5px">
           ZIELGRUPPE
         </label>
-        <textarea id="ctx_zielgruppe" rows="2" placeholder="Wer folgt dieser Seite? Alter, Interessen, Verbindung zur Stadt etc."
+        <textarea id="ctx_zielgruppe" rows="2"
+                  placeholder="Wer folgt? Alter, Interessen, Verbindung zur Stadt?"
                   style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-                         color:var(--text);font-family:var(--font-body);font-size:13px;
-                         padding:10px 12px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+                         color:var(--text);font-family:var(--font-body);font-size:12px;
+                         padding:9px 11px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
       </div>
-
       <div>
-        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">
-          TONALITÄT & STIL
+        <label style="font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:5px">
+          TONALITÄT
         </label>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px" id="toneChips">
+        <div style="display:flex;flex-wrap:wrap;gap:6px" id="toneChips">
           {% for t in ['Lokal & nahbar', 'Professionell', 'Humorvoll', 'Inspirierend', 'Informativ', 'Jugendlich', 'Nostalgisch', 'Politisch neutral'] %}
           <button onclick="toggleTone(this)"
-                  style="padding:5px 12px;border-radius:16px;border:1px solid var(--border);
+                  style="padding:4px 11px;border-radius:14px;border:1px solid var(--border);
                          background:var(--surface2);color:var(--muted);font-size:11px;
                          cursor:pointer;transition:all .15s;font-family:var(--font-body)">{{ t }}</button>
           {% endfor %}
         </div>
         <input id="ctx_tonalitaet" type="hidden" value="">
       </div>
-
       <div>
-        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">
-          KERNTHEMEN (kommagetrennt)
+        <label style="font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:5px">
+          KERNTHEMEN
         </label>
-        <input id="ctx_themen" type="text" placeholder="Events, Gastronomie, Stadtentwicklung, Wetter, Menschen..."
+        <input id="ctx_themen" type="text"
+               placeholder="Events, Gastronomie, Stadtentwicklung, Wetter…"
                style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-                      color:var(--text);font-family:var(--font-body);font-size:13px;
-                      padding:10px 12px;box-sizing:border-box">
+                      color:var(--text);font-family:var(--font-body);font-size:12px;
+                      padding:9px 11px;box-sizing:border-box">
       </div>
-
-      <div style="display:flex;gap:10px">
-        <button onclick="saveContext()" class="btn btn-ghost" style="font-size:12px;flex:1">
-          <i class="fa-solid fa-floppy-disk"></i> Kontext speichern
+      <div>
+        <label style="font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:5px">
+          AKTUELLER FOKUS <span style="opacity:.5;font-weight:400">(optional)</span>
+        </label>
+        <input id="ctx_focus" type="text"
+               placeholder="z.B. Sommerferien, Stadtfest, neue Staffel…"
+               style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                      color:var(--text);font-family:var(--font-body);font-size:12px;
+                      padding:9px 11px;box-sizing:border-box">
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted);white-space:nowrap">ANZAHL</label>
+        <select id="ctx_count"
+                style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                       color:var(--text);font-family:var(--font-body);font-size:12px;
+                       padding:6px 10px;flex:1">
+          <option value="8">8 Ideen</option>
+          <option value="12" selected>12 Ideen</option>
+          <option value="20">20 Ideen</option>
+          <option value="30">30 Ideen</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="saveContext()" class="btn btn-ghost" style="font-size:11px;flex:1">
+          <i class="fa-solid fa-floppy-disk"></i> Speichern
         </button>
-        <button onclick="generateIdeas()" class="btn btn-primary" style="font-size:12px;flex:2" id="genBtn">
+        <button onclick="generateIdeas()" class="btn btn-primary" style="font-size:11px;flex:2" id="genBtn">
           <i class="fa-solid fa-sparkles"></i> KI-Ideen generieren
         </button>
       </div>
@@ -97,7 +195,8 @@
 
   <!-- ── Ideas Panel ── -->
   <div class="card" style="padding:0;overflow:hidden">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between">
       <span class="card-title">GENERIERTE IDEEN</span>
       <span id="ideaCount" style="font-size:11px;color:var(--muted)"></span>
     </div>
@@ -109,6 +208,39 @@
     </div>
   </div>
 </div>
+
+<!-- ── Row Template für Beiträge ── -->
+<template id="postRowTpl">
+  <div class="post-row" style="display:grid;grid-template-columns:1fr 70px 65px 65px 65px 28px;
+                                gap:6px;padding:7px 14px;border-bottom:1px solid var(--border);align-items:center">
+    <input class="pr-beschreibung" type="text" placeholder="Was zeigt dieser Beitrag?"
+           style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                  color:var(--text);font-family:var(--font-body);font-size:12px;
+                  padding:5px 8px;width:100%;box-sizing:border-box">
+    <select class="pr-format"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                   color:var(--text);font-family:var(--font-body);font-size:11px;padding:5px 4px">
+      <option>Reel</option><option>Feed</option><option>Karussell</option><option>Story</option>
+    </select>
+    <input class="pr-reach" type="number" placeholder="0" min="0"
+           style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                  color:var(--text);font-family:var(--font-body);font-size:12px;
+                  padding:5px 6px;text-align:right;width:100%;box-sizing:border-box">
+    <input class="pr-likes" type="number" placeholder="0" min="0"
+           style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                  color:var(--text);font-family:var(--font-body);font-size:12px;
+                  padding:5px 6px;text-align:right;width:100%;box-sizing:border-box">
+    <input class="pr-saves" type="number" placeholder="0" min="0"
+           style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                  color:var(--text);font-family:var(--font-body);font-size:12px;
+                  padding:5px 6px;text-align:right;width:100%;box-sizing:border-box">
+    <button onclick="removePostRow(this)"
+            style="background:transparent;border:none;color:var(--muted);cursor:pointer;
+                   font-size:13px;padding:2px;line-height:1">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+  </div>
+</template>
 
 <!-- ── Idea Card Template ── -->
 <template id="ideaCardTpl">
@@ -123,15 +255,12 @@
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <span class="idea-format" style="font-size:10px;padding:2px 8px;border-radius:10px;
                                            background:rgba(59,130,246,.12);color:var(--accent2);font-weight:700"></span>
-          <span class="idea-timing" style="font-size:10px;padding:2px 8px;border-radius:10px;
-                                            background:rgba(34,197,94,.1);color:var(--success);font-weight:700"></span>
         </div>
       </div>
       <button class="idea-save-btn" onclick="saveIdeaToVorrat(this)"
               style="flex-shrink:0;padding:6px 12px;border-radius:8px;border:1px solid var(--border);
                      background:var(--surface);color:var(--muted);font-family:var(--font-body);
-                     font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;
-                     transition:all .15s">
+                     font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .15s">
         + Vorrat
       </button>
     </div>
@@ -148,12 +277,23 @@
 {% block scripts %}
 <script>
 let activeAccountId = {{ accounts[0].id if accounts else 'null' }};
-const contextCache = {};
+let _posts = [];  // aktuell geladene Beitrags-Liste
+
+// ── Analyse-Label-Map ──
+const ANALYSE_LABELS = {
+  'STÄRKEN':             { label: 'Stärken',              icon: 'fa-trophy',            color: '#22c55e' },
+  'BESTE_FORMATE':       { label: 'Beste Formate',        icon: 'fa-film',              color: '#3b82f6' },
+  'CONTENT_PATTERN':     { label: 'Content-Pattern',      icon: 'fa-fingerprint',       color: '#a855f7' },
+  'THEMEN_DIE_PERFORMEN':{ label: 'Themen mit Potenzial', icon: 'fa-fire',              color: '#f97316' },
+  'EMPFEHLUNG':          { label: 'Empfehlung',           icon: 'fa-lightbulb',         color: '#eab308' },
+  'SEITEN_DNA':          { label: 'Seiten-DNA',           icon: 'fa-dna',               color: '#ec4899' },
+};
 
 document.addEventListener('DOMContentLoaded', () => {
   if (activeAccountId) loadContext(activeAccountId);
 });
 
+// ── Account-Tab ──────────────────────────────────────────────
 function selectAccount(id, btn) {
   activeAccountId = id;
   document.querySelectorAll('.acc-tab-btn').forEach(b => {
@@ -171,125 +311,271 @@ function selectAccount(id, btn) {
   document.getElementById('ideaCount').textContent = '';
 }
 
-function toggleTone(btn) {
-  const active = btn.style.background.includes('accent') || btn.style.background.includes('59,130,246');
-  if (active) {
-    btn.style.background = 'var(--surface2)';
-    btn.style.color = 'var(--muted)';
-    btn.style.borderColor = 'var(--border)';
-  } else {
-    btn.style.background = 'rgba(59,130,246,.15)';
-    btn.style.color = 'var(--accent2)';
-    btn.style.borderColor = 'var(--accent)';
-  }
-  updateToneValue();
-}
-
-function updateToneValue() {
-  const active = [...document.querySelectorAll('#toneChips button')]
-    .filter(b => b.style.color.includes('accent') || b.style.color.includes('59,130,246') || b.style.color === 'var(--accent2)')
-    .map(b => b.textContent.trim());
-  document.getElementById('ctx_tonalitaet').value = active.join(', ');
-}
-
+// ── Kontext laden ─────────────────────────────────────────────
 async function loadContext(accountId) {
   try {
     const r = await fetch(`/api/content-ideen/context/${accountId}`);
     if (!r.ok) return;
     const ctx = await r.json();
-    document.getElementById('ctx_konzept').value = ctx.konzept || '';
+
+    document.getElementById('ctx_konzept').value   = ctx.konzept || '';
     document.getElementById('ctx_zielgruppe').value = ctx.zielgruppe || '';
-    document.getElementById('ctx_themen').value = ctx.themen || '';
-    // Reset tone chips
+    document.getElementById('ctx_themen').value     = ctx.themen || '';
+
     document.querySelectorAll('#toneChips button').forEach(b => {
-      b.style.background = 'var(--surface2)';
-      b.style.color = 'var(--muted)';
-      b.style.borderColor = 'var(--border)';
+      b.style.background = 'var(--surface2)'; b.style.color = 'var(--muted)'; b.style.borderColor = 'var(--border)';
     });
     if (ctx.tonalitaet) {
       const tones = ctx.tonalitaet.split(',').map(t => t.trim());
       document.querySelectorAll('#toneChips button').forEach(b => {
-        if (tones.includes(b.textContent.trim())) {
-          b.style.background = 'rgba(59,130,246,.15)';
-          b.style.color = 'var(--accent2)';
-          b.style.borderColor = 'var(--accent)';
-        }
+        if (tones.includes(b.textContent.trim())) activateToneBtn(b);
       });
     }
-    if (ctx.generated_ideas?.length) {
-      renderIdeas(ctx.generated_ideas);
-    }
+
+    if (ctx.generated_ideas?.length) renderIdeas(ctx.generated_ideas);
+
     const note = document.getElementById('ctxSavedNote');
-    if (ctx.updated_at) {
-      note.textContent = 'Gespeichert ' + new Date(ctx.updated_at).toLocaleDateString('de-DE');
+    if (ctx.updated_at) note.textContent = 'Gespeichert ' + new Date(ctx.updated_at).toLocaleDateString('de-DE');
+
+    // Bisherige Beiträge laden
+    _posts = ctx.past_posts || [];
+    renderPostRows(_posts);
+
+    // Seitenanalyse laden
+    if (ctx.page_analysis) {
+      renderAnalysis(ctx.page_analysis);
+      document.getElementById('analyseDate').textContent = ctx.updated_at
+        ? 'Analysiert ' + new Date(ctx.updated_at).toLocaleDateString('de-DE') : '';
+    } else {
+      document.getElementById('analyseEmpty').style.display = 'block';
+      document.getElementById('analyseResult').style.display = 'none';
     }
-  } catch {}
+  } catch(e) { console.error(e); }
+}
+
+// ── Beitrags-Tabelle ─────────────────────────────────────────
+function renderPostRows(posts) {
+  const container = document.getElementById('postRows');
+  container.innerHTML = '';
+  _posts = posts;
+  posts.forEach(p => appendRow(p));
+  updatePostUI();
+}
+
+function appendRow(data = {}) {
+  const tpl = document.getElementById('postRowTpl').content.cloneNode(true);
+  const row = tpl.querySelector('.post-row');
+  if (data.beschreibung) row.querySelector('.pr-beschreibung').value = data.beschreibung;
+  if (data.format)       row.querySelector('.pr-format').value       = data.format;
+  if (data.reach)        row.querySelector('.pr-reach').value        = data.reach;
+  if (data.likes)        row.querySelector('.pr-likes').value        = data.likes;
+  if (data.saves)        row.querySelector('.pr-saves').value        = data.saves;
+  document.getElementById('postRows').appendChild(tpl);
+  updatePostUI();
+}
+
+function addPostRow() {
+  appendRow();
+}
+
+function removePostRow(btn) {
+  btn.closest('.post-row').remove();
+  updatePostUI();
+}
+
+function updatePostUI() {
+  const count = document.getElementById('postRows').querySelectorAll('.post-row').length;
+  document.getElementById('postCount').textContent = count ? `${count} Beiträge` : '';
+  document.getElementById('postEmpty').style.display = count ? 'none' : 'block';
+}
+
+function collectPosts() {
+  return [...document.getElementById('postRows').querySelectorAll('.post-row')].map(row => ({
+    beschreibung: row.querySelector('.pr-beschreibung').value.trim(),
+    format:       row.querySelector('.pr-format').value,
+    reach:        parseInt(row.querySelector('.pr-reach').value) || 0,
+    likes:        parseInt(row.querySelector('.pr-likes').value) || 0,
+    saves:        parseInt(row.querySelector('.pr-saves').value) || 0,
+  })).filter(p => p.beschreibung);
+}
+
+async function savePosts() {
+  if (!activeAccountId) return;
+  const posts = collectPosts();
+  const r = await fetch(`/api/content-ideen/${activeAccountId}/past-posts`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ posts })
+  });
+  if (r.ok) showToast(`${posts.length} Beiträge gespeichert`, 'success');
+}
+
+// ── KI Seitenanalyse ─────────────────────────────────────────
+async function runAnalysis() {
+  if (!activeAccountId) return;
+  const posts = collectPosts();
+  if (!posts.length) { showToast('Füge zuerst Beiträge hinzu', 'warning'); return; }
+
+  // Posts erst speichern
+  await fetch(`/api/content-ideen/${activeAccountId}/past-posts`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ posts })
+  });
+
+  const btn = document.getElementById('analyseBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> KI analysiert…';
+
+  const r = await fetch(`/api/content-ideen/${activeAccountId}/analyse`, { method: 'POST' });
+  const data = await r.json();
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-magnifying-glass-chart"></i> KI Seite analysieren';
+
+  if (data.ok) {
+    renderAnalysis(data.analysis);
+    document.getElementById('analyseDate').textContent = 'Gerade analysiert';
+    showToast('Seitenanalyse erstellt', 'success');
+  } else {
+    showToast(data.error || 'Fehler bei der Analyse', 'error');
+  }
+}
+
+function renderAnalysis(text) {
+  const sections = document.getElementById('analyseSections');
+  sections.innerHTML = '';
+  document.getElementById('analyseEmpty').style.display = 'none';
+  document.getElementById('analyseResult').style.display = 'block';
+
+  // Sektionen parsen: KEY: value
+  const lines = text.split('\n');
+  let current = null;
+  const parsed = {};
+  for (const line of lines) {
+    const match = line.match(/^([A-Z_]+):\s*(.*)/);
+    if (match) {
+      current = match[1];
+      parsed[current] = match[2].trim();
+    } else if (current && line.trim()) {
+      parsed[current] += ' ' + line.trim();
+    }
+  }
+
+  // Seiten-DNA zuerst und prominent
+  if (parsed['SEITEN_DNA']) {
+    const dna = document.createElement('div');
+    dna.style.cssText = 'background:rgba(236,72,153,.08);border:1px solid rgba(236,72,153,.25);border-radius:10px;padding:14px 16px;margin-bottom:4px';
+    dna.innerHTML = `
+      <div style="font-size:10px;font-weight:700;color:#ec4899;letter-spacing:.5px;margin-bottom:6px">
+        <i class="fa-solid fa-dna"></i> SEITEN-DNA
+      </div>
+      <div style="font-size:13px;font-weight:600;color:var(--text);line-height:1.5">${parsed['SEITEN_DNA']}</div>`;
+    sections.appendChild(dna);
+  }
+
+  // Restliche Sektionen
+  const order = ['STÄRKEN','BESTE_FORMATE','CONTENT_PATTERN','THEMEN_DIE_PERFORMEN','EMPFEHLUNG'];
+  for (const key of order) {
+    if (!parsed[key]) continue;
+    const meta = ANALYSE_LABELS[key] || { label: key, icon: 'fa-circle', color: 'var(--accent)' };
+    const el = document.createElement('div');
+    el.style.cssText = 'border-left:3px solid ' + meta.color + ';padding:10px 14px;border-radius:0 8px 8px 0;background:var(--surface2)';
+    el.innerHTML = `
+      <div style="font-size:10px;font-weight:700;letter-spacing:.5px;color:${meta.color};margin-bottom:5px">
+        <i class="fa-solid ${meta.icon}"></i> ${meta.label.toUpperCase()}
+      </div>
+      <div style="font-size:12px;color:var(--text);line-height:1.6">${parsed[key]}</div>`;
+    sections.appendChild(el);
+  }
+
+  // Fallback: Rohtext
+  if (!Object.keys(parsed).length) {
+    const el = document.createElement('div');
+    el.style.cssText = 'font-size:12px;color:var(--text);line-height:1.7;white-space:pre-wrap';
+    el.textContent = text;
+    sections.appendChild(el);
+  }
+}
+
+// ── Kontext ───────────────────────────────────────────────────
+function toggleTone(btn) {
+  const isActive = btn.style.color === 'var(--accent2)';
+  if (isActive) {
+    btn.style.background = 'var(--surface2)'; btn.style.color = 'var(--muted)'; btn.style.borderColor = 'var(--border)';
+  } else {
+    activateToneBtn(btn);
+  }
+  updateToneValue();
+}
+
+function activateToneBtn(btn) {
+  btn.style.background = 'rgba(59,130,246,.15)'; btn.style.color = 'var(--accent2)'; btn.style.borderColor = 'var(--accent)';
+}
+
+function updateToneValue() {
+  const active = [...document.querySelectorAll('#toneChips button')]
+    .filter(b => b.style.color === 'var(--accent2)').map(b => b.textContent.trim());
+  document.getElementById('ctx_tonalitaet').value = active.join(', ');
 }
 
 async function saveContext() {
   if (!activeAccountId) return;
   updateToneValue();
-  const body = {
-    account_id: activeAccountId,
-    konzept: document.getElementById('ctx_konzept').value,
-    zielgruppe: document.getElementById('ctx_zielgruppe').value,
-    tonalitaet: document.getElementById('ctx_tonalitaet').value,
-    themen: document.getElementById('ctx_themen').value,
-  };
   const r = await fetch('/api/content-ideen/save-context', {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      account_id: activeAccountId,
+      konzept:    document.getElementById('ctx_konzept').value,
+      zielgruppe: document.getElementById('ctx_zielgruppe').value,
+      tonalitaet: document.getElementById('ctx_tonalitaet').value,
+      themen:     document.getElementById('ctx_themen').value,
+    })
   });
   if (r.ok) showToast('Kontext gespeichert', 'success');
 }
 
+// ── Ideen generieren ─────────────────────────────────────────
 async function generateIdeas() {
   if (!activeAccountId) return;
   updateToneValue();
   const btn = document.getElementById('genBtn');
   btn.disabled = true;
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> KI denkt nach…';
-  const body = {
-    account_id: activeAccountId,
-    konzept: document.getElementById('ctx_konzept').value,
-    zielgruppe: document.getElementById('ctx_zielgruppe').value,
-    tonalitaet: document.getElementById('ctx_tonalitaet').value,
-    themen: document.getElementById('ctx_themen').value,
-  };
   try {
     const r = await fetch('/api/content-ideen/generate', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        account_id: activeAccountId,
+        count:      document.getElementById('ctx_count').value,
+        focus:      document.getElementById('ctx_focus').value,
+        konzept:    document.getElementById('ctx_konzept').value,
+        zielgruppe: document.getElementById('ctx_zielgruppe').value,
+        tonalitaet: document.getElementById('ctx_tonalitaet').value,
+        themen:     document.getElementById('ctx_themen').value,
+      })
     });
     const data = await r.json();
-    if (data.ideas) {
-      renderIdeas(data.ideas);
-      showToast(data.ideas.length + ' Ideen generiert', 'success');
-    } else {
-      showToast(data.error || 'Fehler beim Generieren', 'error');
-    }
-  } catch {
-    showToast('Verbindungsfehler', 'error');
-  }
+    if (data.ideas) { renderIdeas(data.ideas); showToast(data.ideas.length + ' Ideen generiert', 'success'); }
+    else showToast(data.error || 'Fehler beim Generieren', 'error');
+  } catch { showToast('Verbindungsfehler', 'error'); }
   btn.disabled = false;
   btn.innerHTML = '<i class="fa-solid fa-sparkles"></i> KI-Ideen generieren';
 }
 
 function renderIdeas(ideas) {
   const list = document.getElementById('ideasList');
-  const tpl = document.getElementById('ideaCardTpl');
+  const tpl  = document.getElementById('ideaCardTpl');
   list.innerHTML = '';
   document.getElementById('ideaCount').textContent = ideas.length + ' Ideen';
   ideas.forEach((idea, i) => {
     const clone = tpl.content.cloneNode(true);
-    clone.querySelector('.idea-num').textContent = i + 1;
-    clone.querySelector('.idea-title').textContent = idea.title || idea.thema || '';
-    clone.querySelector('.idea-desc').textContent = idea.description || idea.beschreibung || '';
+    clone.querySelector('.idea-num').textContent  = i + 1;
+    clone.querySelector('.idea-title').textContent = idea.titel || idea.title || '';
+    clone.querySelector('.idea-desc').textContent  = idea.idee  || idea.description || '';
     clone.querySelector('.idea-format').textContent = idea.format || '';
-    clone.querySelector('.idea-timing').textContent = idea.timing || idea.zeitpunkt || '';
     clone.querySelector('.idea-caption').textContent = idea.caption || '';
-    const tags = (idea.hashtags || []).join(' ');
+    const tags = (idea.hashtags || '').split(',').map(h => h.trim()).filter(Boolean).join(' ');
     clone.querySelector('.idea-hashtags').textContent = tags;
-    const card = clone.querySelector('.idea-card');
-    card.dataset.idea = JSON.stringify(idea);
+    clone.querySelector('.idea-card').dataset.idea = JSON.stringify(idea);
     list.appendChild(clone);
   });
 }
@@ -297,20 +583,12 @@ function renderIdeas(ideas) {
 async function saveIdeaToVorrat(btn) {
   const card = btn.closest('.idea-card');
   const idea = JSON.parse(card.dataset.idea);
-  btn.disabled = true;
-  btn.textContent = '…';
+  btn.disabled = true; btn.textContent = '…';
   const r = await fetch(`/api/content-ideen/${activeAccountId}/save-idea`, {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(idea)
   });
-  if (r.ok) {
-    btn.textContent = '✓ Gespeichert';
-    btn.style.color = 'var(--success)';
-    btn.style.borderColor = 'var(--success)';
-  } else {
-    btn.textContent = '+ Vorrat';
-    btn.disabled = false;
-    showToast('Fehler beim Speichern', 'error');
-  }
+  if (r.ok) { btn.textContent = '✓ Gespeichert'; btn.style.color = 'var(--success)'; btn.style.borderColor = 'var(--success)'; }
+  else { btn.textContent = '+ Vorrat'; btn.disabled = false; showToast('Fehler', 'error'); }
 }
 </script>
 {% endblock %}

@@ -732,6 +732,8 @@ class AccountIdeenContext(db.Model):
     themen          = db.Column(db.Text)     # Welche Themen / Kategorien?
     last_generated  = db.Column(db.DateTime)
     generated_ideas = db.Column(db.Text)     # JSON: letzte KI-Ideen
+    past_posts_json = db.Column(db.Text)     # JSON: bisherige Beiträge mit Metrics
+    page_analysis   = db.Column(db.Text)     # KI-Seitenanalyse (Freitext strukturiert)
     updated_at      = db.Column(db.DateTime, default=datetime.utcnow)
     account         = db.relationship('Account', backref=db.backref('ideen_context', uselist=False))
 
