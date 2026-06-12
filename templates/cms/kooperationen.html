@@ -324,20 +324,30 @@ async function loadChart() {
       data: {
         labels: d.labels,
         datasets: [
-          { label:'Bezahlt',    data:d.bezahlt,    backgroundColor:'rgba(34,197,94,.75)',  borderRadius:4, stack:'a' },
-          { label:'Ausstehend', data:d.ausstehend, backgroundColor:'rgba(249,115,22,.55)', borderRadius:4, stack:'a' },
+          { label:'Bezahlt',    data:d.bezahlt,    backgroundColor:'rgba(34,197,94,.75)',  borderRadius:4, stack:'a', yAxisID:'y' },
+          { label:'Ausstehend', data:d.ausstehend, backgroundColor:'rgba(249,115,22,.55)', borderRadius:4, stack:'a', yAxisID:'y' },
+          { label:'Anzahl',     data:d.anzahl,     type:'line', yAxisID:'y2',
+            borderColor:'rgba(148,163,184,.8)', backgroundColor:'rgba(148,163,184,.15)',
+            borderWidth:2, pointRadius:4, pointBackgroundColor:'rgba(148,163,184,.9)',
+            tension:0.3, fill:false },
         ]
       },
       options: {
         responsive:true, maintainAspectRatio:true,
         plugins: { legend:{ display:false }, tooltip:{
-          callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${ctx.raw.toLocaleString('de-DE',{style:'currency',currency:'EUR'})}` }
+          callbacks:{ label: ctx => ctx.dataset.yAxisID==='y2'
+            ? ` Anzahl: ${ctx.raw} Koop${ctx.raw!==1?'s':''}`
+            : ` ${ctx.dataset.label}: ${ctx.raw.toLocaleString('de-DE',{style:'currency',currency:'EUR'})}` }
         }},
         scales: {
-          x: { stacked:true, grid:{ display:false }, ticks:{ color:'#ffffff', font:{ size:10 } } },
-          y: { stacked:true, grid:{ color:'rgba(255,255,255,.08)' },
-               ticks:{ color:'#ffffff', font:{ size:10 },
-                 callback: v => v.toLocaleString('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}) } }
+          x:  { stacked:true, grid:{ display:false }, ticks:{ color:'#ffffff', font:{ size:10 } } },
+          y:  { stacked:true, grid:{ color:'rgba(255,255,255,.08)' }, position:'left',
+                ticks:{ color:'#ffffff', font:{ size:10 },
+                  callback: v => v.toLocaleString('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}) } },
+          y2: { position:'right', grid:{ display:false },
+                ticks:{ color:'rgba(148,163,184,.8)', font:{ size:10 }, stepSize:1,
+                  callback: v => Number.isInteger(v) ? v : '' },
+                min:0 }
         }
       }
     });
