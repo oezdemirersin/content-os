@@ -603,6 +603,7 @@
                     data-md="{{ post.post_date.strftime('%m-%d') if post.post_date else '' }}"
                     data-account="{{ post.source.account_id or '' }}"
                     data-img="{{ post.image_url or post.thumbnail_url or '' }}"
+                    data-suggested-folder="{{ post.suggested_folder_id or '' }}"
                     style="flex:1;font-size:11px;padding:5px 8px;min-width:80px;
                            {% if post.status == 'used' %}opacity:.6{% endif %}">
               <i class="fa-solid fa-{% if post.status == 'used' %}rotate{% else %}arrow-right{% endif %}"></i>
@@ -967,7 +968,7 @@ function getAllAccountOptions() {
 }
 
 // ── "Verwenden"-Modal öffnen ──────────────────────────────────
-function openUseModal(postId, caption, monthDay, defaultAccountId, imageUrl) {
+function openUseModal(postId, caption, monthDay, defaultAccountId, imageUrl, suggestedFolderId) {
   _currentPostId  = postId;
   _postMonthDay   = monthDay || null;
   _currentImageUrl = imageUrl || null;
@@ -975,7 +976,25 @@ function openUseModal(postId, caption, monthDay, defaultAccountId, imageUrl) {
   document.getElementById('rewriteStatus').style.display = 'none';
   document.getElementById('sameYearBtn').style.display = monthDay ? 'inline-flex' : 'none';
   document.getElementById('folderSuggestHint').style.display = 'none';
-  document.getElementById('useFolderId').value = '';
+
+  // KI-Vorschlag vorausfüllen (wenn vorhanden und nicht manuell gesperrt)
+  const folderSel = document.getElementById('useFolderId');
+  if (suggestedFolderId) {
+    folderSel.value = suggestedFolderId;
+    // Hinweis anzeigen dass dies ein KI-Vorschlag ist
+    const hint     = document.getElementById('folderSuggestHint');
+    const hintText = document.getElementById('folderSuggestText');
+    const opt      = folderSel.options[folderSel.selectedIndex];
+    if (opt && opt.value) {
+      hintText.innerHTML = `<strong style="color:var(--text)">${opt.textContent.trim()}</strong>`
+        + ` <span style="color:#818cf8;font-size:9px;font-weight:700">KI-AUTO</span>`
+        + `<br><span style="color:var(--muted)">Automatisch kategorisiert — Ordner änderbar</span>`;
+      hint.style.display = 'block';
+    }
+  } else {
+    folderSel.value = '';
+  }
+
   selectMode('reserve');
 
   // Account-Dropdown füllen (einmalig)
@@ -1519,8 +1538,20 @@ document.addEventListener('click', function(e) {
     btn.dataset.caption,
     btn.dataset.md || null,
     btn.dataset.account || null,
-    btn.dataset.img || null
+    btn.dataset.img || null,
+    btn.dataset.suggestedFolder || null
   );
+});
+
+// ── Manueller Ordner-Wechsel → folder_locked setzen ──────────
+document.getElementById('useFolderId').addEventListener('change', function() {
+  if (!_currentPostId) return;
+  // User hat Ordner manuell geändert → als gesperrt markieren
+  fetch(`/api/inspirationen/${_currentPostId}/lock-folder`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({folder_id: parseInt(this.value) || null})
+  }).catch(() => {});   // Fehler ignorieren (non-critical)
 });
 
 // ── Standard-Account einer Quelle speichern ───────────────────

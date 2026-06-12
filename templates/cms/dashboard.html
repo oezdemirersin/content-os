@@ -195,6 +195,65 @@
   </div>
 </div>
 
+<!-- ── KI-Auto-Kategorisierung Toggle ── -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;
+            padding:16px 20px;margin-bottom:20px">
+  <div style="display:flex;align-items:center;gap:14px">
+    <div style="width:40px;height:40px;border-radius:10px;
+                background:rgba(129,140,248,{% if auto_classify_on %}.18{% else %}.08{% endif %});
+                display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      <i class="fa-solid fa-robot" style="color:{% if auto_classify_on %}#818cf8{% else %}var(--muted){% endif %};font-size:17px"></i>
+    </div>
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px">
+        KI-Auto-Kategorisierung
+        <span id="acBadge" style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;
+              background:{% if auto_classify_on %}rgba(129,140,248,.15);color:#818cf8{% else %}var(--surface2);color:var(--muted){% endif %}">
+          {% if auto_classify_on %}AN{% else %}AUS{% endif %}
+        </span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">
+        Neue Inspirations-Posts werden automatisch einem Vorrats-Ordner zugeordnet
+        · manuell geordnete &amp; Vorrat-Posts werden nicht geändert
+      </div>
+    </div>
+
+    <!-- Stats -->
+    {% if classify_stats and classify_stats.total_new > 0 %}
+    <div style="display:flex;gap:14px;flex-shrink:0;padding:0 16px;border-left:1px solid var(--border);border-right:1px solid var(--border)">
+      <div style="text-align:center">
+        <div style="font-size:18px;font-weight:800;color:var(--text)" id="acTotalNew">{{ classify_stats.total_new }}</div>
+        <div style="font-size:9px;color:var(--muted)">Neue Posts</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:18px;font-weight:800;color:#818cf8" id="acClassified">{{ classify_stats.classified }}</div>
+        <div style="font-size:9px;color:var(--muted)">Sortiert</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:18px;font-weight:800;color:var(--muted)" id="acPending">{{ classify_stats.pending }}</div>
+        <div style="font-size:9px;color:var(--muted)">Ausstehend</div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Toggle Switch -->
+    <label style="position:relative;display:inline-block;width:50px;height:27px;
+                  cursor:pointer;flex-shrink:0" title="KI-Auto-Kategorisierung ein/aus">
+      <input type="checkbox" id="acToggle"
+             {% if auto_classify_on %}checked{% endif %}
+             onchange="toggleAutoClassify(this)"
+             style="opacity:0;width:0;height:0;position:absolute">
+      <span id="acSlider"
+            style="position:absolute;inset:0;border-radius:27px;transition:.3s;
+                   background:{% if auto_classify_on %}#818cf8{% else %}var(--border){% endif %}"></span>
+      <span id="acThumb"
+            style="position:absolute;width:21px;height:21px;border-radius:50%;background:white;
+                   top:3px;transition:.3s;box-shadow:0 1px 4px rgba(0,0,0,.2);
+                   left:{% if auto_classify_on %}26px{% else %}3px{% endif %}"></span>
+    </label>
+  </div>
+</div>
+
 <!-- ── Portfolio-Gesamt-Chart ── -->
 <div class="card" style="margin-bottom:20px;background:linear-gradient(135deg,rgba(99,102,241,.06) 0%,var(--surface) 60%)">
   <div class="card-header" style="border-bottom:1px solid var(--border);padding:16px 20px">
@@ -596,6 +655,47 @@
 
 {% block scripts %}
 <script>
+// ── KI-Auto-Kategorisierung Toggle ───────────────────────────
+async function toggleAutoClassify(checkbox) {
+  const enabled = checkbox.checked;
+  const slider  = document.getElementById('acSlider');
+  const thumb   = document.getElementById('acThumb');
+  const badge   = document.getElementById('acBadge');
+
+  // UI sofort aktualisieren
+  slider.style.background = enabled ? '#818cf8' : 'var(--border)';
+  thumb.style.left        = enabled ? '26px' : '3px';
+  badge.textContent       = enabled ? 'AN' : 'AUS';
+  badge.style.background  = enabled ? 'rgba(129,140,248,.15)' : 'var(--surface2)';
+  badge.style.color       = enabled ? '#818cf8' : 'var(--muted)';
+
+  try {
+    const r = await fetch('/api/settings/auto-classify', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled})
+    }).then(r => r.json());
+
+    if (r.ok) {
+      showToast(enabled
+        ? '🤖 KI-Auto-Kategorisierung aktiviert — läuft alle 10 Min.'
+        : 'KI-Auto-Kategorisierung deaktiviert', 'success');
+      // Stats aktualisieren
+      if (document.getElementById('acTotalNew')) {
+        document.getElementById('acTotalNew').textContent  = r.total_new;
+        document.getElementById('acClassified').textContent = r.classified;
+        document.getElementById('acPending').textContent    = r.pending;
+      }
+    } else {
+      showToast('Fehler beim Speichern', 'error');
+      checkbox.checked = !enabled;
+    }
+  } catch(e) {
+    showToast('Verbindungsfehler', 'error');
+    checkbox.checked = !enabled;
+  }
+}
+
 // ── Alert schließen ───────────────────────────────────────────
 async function resolveAlert(alertId, el) {
   await fetch(`/api/alerts/resolve/${alertId}`, { method: 'POST' });

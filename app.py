@@ -433,6 +433,8 @@ def init_db():
             safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS is_saved BOOLEAN DEFAULT FALSE')
             safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS carousel_urls TEXT')
             safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS video_url VARCHAR(1000)')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS suggested_folder_id INTEGER REFERENCES content_folder(id)')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS folder_locked BOOLEAN DEFAULT FALSE')
             safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS valid_from DATE')
             safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS valid_until DATE')
             safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS recurring_yearly BOOLEAN DEFAULT FALSE')
@@ -509,6 +511,10 @@ def init_db():
                 safe_alter('ALTER TABLE inspiration_post ADD COLUMN carousel_urls TEXT')
             if 'video_url' not in ip_cols:
                 safe_alter('ALTER TABLE inspiration_post ADD COLUMN video_url VARCHAR(1000)')
+            if 'suggested_folder_id' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN suggested_folder_id INTEGER REFERENCES content_folder(id)')
+            if 'folder_locked' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN folder_locked BOOLEAN DEFAULT 0')
             cf_cols = [c['name'] for c in inspector.get_columns('content_folder')]
             if 'valid_from' not in cf_cols:
                 safe_alter('ALTER TABLE content_folder ADD COLUMN valid_from DATE')
@@ -1186,6 +1192,152 @@ def _get_weather_city(account):
     return parts[0] if parts else None
 
 
+def _classify_post_folder(post, folders, api_key):
+    """Kern-Logik: analysiert einen InspirationPost via Claude Vision und gibt
+    das beste Folder-Match zurück: {'folder_id': int, 'confidence': float, ...}
+    Wird von suggest-folder-Endpoint UND vom Batch-Prozess genutzt.
+    """
+    import base64 as _b64
+    import requests as _req
+    import anthropic as _ant
+    import re as _re
+
+    caption_text = (post.caption or '').strip()[:600]
+    folder_lines = [
+        f'  - ID {f.id}: "{f.name}"' + (f' — {(f.notes or "").strip()}' if f.notes else '')
+        for f in folders
+    ]
+
+    prompt_text = f"""Analysiere diesen deutschen Instagram-Post und ordne ihn dem passenden Inhaltskategorie-Ordner zu.
+
+VERFÜGBARE ORDNER:
+{chr(10).join(folder_lines)}
+
+POST-CAPTION: "{caption_text or '(keine Caption)'}"
+
+INHALTSKATEGORIEN — Erkennungsmerkmale (zur Orientierung, ordne in die ORDNER oben ein):
+• Starterpacks      → Collage aus mehreren Bildern/Symbolen, Text "Der/Die Starter Pack für...", typische Klischees
+• Wetter            → Wetterextreme (Hitze, Schnee, Sturm, Gewitter), Wetter-Screenshots, Thermometer
+• Events            → Konzerte, Festivals, Stadtfeste, Volksfeste, Messen, Veranstaltungs-Flyer, Bühnen
+• Weihnachten       → Weihnachtsmarkt, Advent, Christbaum, Geschenke, Nikolaus, Glühwein, Krippe
+• Silvester/Neujahr → Feuerwerk, Raketen, "Frohes neues Jahr", Sektflöten, Countdown
+• Frühling          → Kirschblüte, Ostern, erste Sonne, Frühlingsblumen, "endlich Frühling"
+• Sommer            → Freibad, Hitzewelle, Eis, Grillen, See/Strand, Sonnenbad
+• Herbst            → Blätterfärben, Oktoberfest, Ernte, Kürbis, Nebel, "Herbststimmung"
+• Winter            → Schnee, Eislaufen, heiße Schokolade, Frost, Winterlandschaft
+• Stadtleben/Memes  → Alltagssituationen, Erkennungszeichen der Stadt, "typisch [Stadt]", lokale Klischees
+• Essen & Trinken   → Restaurants, Gerichte, Streetfood, Cafés, lokale Spezialitäten
+• Sport/Fußball     → Stadion, Trikots, Spieler, Sportereignisse, Vereinslogo
+• Nostalgie         → Alte Fotos, Throwback, "früher war...", historische Bilder, Vergleich alt/neu
+• Natur             → Parks, Flüsse, Wälder, Naturlandschaften, Sonnenuntergang
+• Humor & Memes     → Witzbilder, Reaktionsbilder, Textmemes, absurde Situationen
+
+Erkenne anhand von: Bild-Motive, Text auf dem Bild (OCR), Caption-Text, Hashtags, Emojis.
+
+Antworte NUR mit diesem JSON (kein anderer Text):
+{{"folder_id": <Zahl oder null>, "folder_name": "<Name>", "detected_type": "<erkannter Typ>", "confidence": <0.0-1.0>, "reason": "<1-2 Sätze auf Deutsch>"}}"""
+
+    # Bild laden
+    img_b64, img_mtype = None, 'image/jpeg'
+    if post.thumbnail_url:
+        try:
+            _r = _req.get(post.thumbnail_url, timeout=(6, 18),
+                          headers={'User-Agent': 'Mozilla/5.0',
+                                    'Referer': 'https://www.instagram.com/'})
+            if _r.ok:
+                img_mtype = _r.headers.get('content-type', 'image/jpeg').split(';')[0].strip()
+                if img_mtype not in ('image/jpeg', 'image/png', 'image/gif', 'image/webp'):
+                    img_mtype = 'image/jpeg'
+                img_b64 = _b64.standard_b64encode(_r.content).decode()
+        except Exception:
+            pass
+
+    client  = _ant.Anthropic(api_key=api_key)
+    content = ([{'type': 'image', 'source': {'type': 'base64',
+                                              'media_type': img_mtype,
+                                              'data': img_b64}},
+                {'type': 'text', 'text': prompt_text}]
+               if img_b64 else prompt_text)
+    resp = client.messages.create(
+        model='claude-haiku-4-5', max_tokens=300,
+        system='Du bist ein Content-Klassifizierer für deutsche Instagram-Seiten. Antworte AUSSCHLIESSLICH mit dem JSON-Objekt.',
+        messages=[{'role': 'user', 'content': content}]
+    )
+    raw = resp.content[0].text.strip()
+    if '```' in raw:
+        _m = _re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', raw)
+        raw = _m.group(1) if _m else raw
+    result = json.loads(raw)
+
+    folder_id = result.get('folder_id')
+    allowed   = {f.id for f in folders}
+    if folder_id and int(folder_id) not in allowed:
+        folder_id = None
+
+    return {
+        'folder_id':     int(folder_id) if folder_id else None,
+        'folder_name':   result.get('folder_name', ''),
+        'detected_type': result.get('detected_type', ''),
+        'confidence':    round(float(result.get('confidence', 0)), 2),
+        'reason':        result.get('reason', ''),
+        'image_analyzed': img_b64 is not None,
+    }
+
+
+def _auto_classify_batch():
+    """Klassifiziert neue InspirationPosts via KI — läuft im Hintergrund.
+    Verarbeitet max. 20 Posts pro Durchlauf. Überspringt:
+    - Posts mit status != 'new' (bereits in Vorrat oder ignoriert)
+    - Posts mit folder_locked=True (manuell kategorisiert)
+    - Posts die bereits einen suggested_folder_id haben
+    """
+    with app.app_context():
+        # Einstellung prüfen
+        setting = get_setting('auto_classify_inspirationen')
+        if setting != 'true':
+            return
+
+        api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+        if not api_key:
+            return
+
+        # Nur frische, unkategorisierte, nicht-gesperrte Posts
+        posts = InspirationPost.query.filter(
+            InspirationPost.status == 'new',
+            InspirationPost.folder_locked == False,
+            InspirationPost.suggested_folder_id.is_(None),
+        ).order_by(InspirationPost.created_at.desc()).limit(20).all()
+
+        if not posts:
+            return
+
+        # Alle Ordner vorladen (nach Account gruppiert)
+        from collections import defaultdict as _dd
+        all_folders   = ContentFolder.query.all()
+        global_folders = [f for f in all_folders if f.account_id is None]
+        acc_folders    = _dd(list)
+        for f in all_folders:
+            if f.account_id:
+                acc_folders[f.account_id].append(f)
+
+        for post in posts:
+            try:
+                source     = db.session.get(InspirationSource, post.source_id)
+                account_id = source.account_id if source else None
+                folders    = (acc_folders.get(account_id, []) + global_folders) if account_id else global_folders
+                if not folders:
+                    continue
+
+                result = _classify_post_folder(post, folders, api_key)
+                if result and result.get('folder_id'):
+                    post.suggested_folder_id = result['folder_id']
+                    db.session.commit()
+                    app.logger.debug(f'[AutoClassify] Post {post.id} → {result["folder_name"]} ({result["confidence"]})')
+            except Exception as e:
+                app.logger.debug(f'[AutoClassify] Post {post.id} Fehler: {e}')
+                db.session.rollback()
+
+
 def _check_all_weather():
     """Hauptfunktion: prüft Wetter für alle aktiven Accounts — wird 4× täglich aufgerufen."""
     import requests as _req
@@ -1421,6 +1573,9 @@ def schedule_automations():
             # Wetter-Check 4× täglich (alle 360 Ticks = 6 Stunden)
             if tick % 360 == 0:
                 threading.Thread(target=_check_all_weather, daemon=True).start()
+            # KI-Auto-Klassifizierung alle 10 Minuten (Batch von 20 Posts)
+            if tick % 10 == 0:
+                threading.Thread(target=_auto_classify_batch, daemon=True).start()
 
         except Exception:
             pass
@@ -1637,12 +1792,22 @@ def dashboard():
 
     categories = Category.query.order_by(Category.name).all()
 
+    auto_classify_on = get_setting('auto_classify_inspirationen') == 'true'
+    _total_new   = InspirationPost.query.filter_by(status='new').count()
+    _classified  = InspirationPost.query.filter(
+        InspirationPost.status == 'new',
+        InspirationPost.suggested_folder_id.isnot(None)
+    ).count()
+    classify_stats = {'total_new': _total_new, 'classified': _classified,
+                      'pending': _total_new - _classified}
+
     return render_template('dashboard.html',
         stats=stats, accounts=accounts, recent_content=recent_content, alerts=alerts,
         chart_labels=json.dumps(chart_labels), chart_data=json.dumps(chart_data),
         forecast=json.dumps(forecast), stock_summary=stock_summary,
         recent_activity=recent_activity, posts_today=posts_today,
         all_accounts=all_active, categories=categories,
+        auto_classify_on=auto_classify_on, classify_stats=classify_stats,
         active_page='dashboard')
 
 
@@ -7124,6 +7289,21 @@ def inspiration_post_save(post_id):
     return jsonify({'ok': True, 'is_saved': post.is_saved})
 
 
+@app.route('/api/inspirationen/<int:post_id>/lock-folder', methods=['POST'])
+@login_required
+def inspiration_post_lock_folder(post_id):
+    """Setzt folder_locked=True + speichert manuell gewählten Ordner als suggested_folder_id.
+    Damit überschreibt der KI-Batch-Prozess diesen Post nicht mehr.
+    """
+    post = InspirationPost.query.get_or_404(post_id)
+    d    = request.get_json() or {}
+    folder_id = d.get('folder_id')
+    post.folder_locked       = True
+    post.suggested_folder_id = int(folder_id) if folder_id else None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
 @app.route('/api/inspirationen/<int:post_id>', methods=['DELETE'])
 @login_required
 def inspiration_post_delete(post_id):
@@ -7137,15 +7317,9 @@ def inspiration_post_delete(post_id):
 @app.route('/api/inspirationen/<int:post_id>/suggest-folder', methods=['POST'])
 @login_required
 def inspiration_suggest_folder(post_id):
-    """KI-gestützte Ordner-Zuordnung: analysiert Bild (OCR + Motive) + Caption
-    und schlägt den passenden Vorrat-Ordner vor.
+    """KI-gestützte Ordner-Zuordnung via _classify_post_folder() Hilfsfunktion.
     Body: { account_id: int|null }
     """
-    import base64 as _b64
-    import requests as _req
-    import anthropic as _ant
-    import re as _re
-
     post = InspirationPost.query.get_or_404(post_id)
     d    = request.get_json() or {}
     account_id = d.get('account_id')
@@ -7154,7 +7328,6 @@ def inspiration_suggest_folder(post_id):
     if not api_key:
         return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert.'})
 
-    # Ordner laden: account-spezifisch + globale
     if account_id:
         folders = ContentFolder.query.filter(
             db.or_(ContentFolder.account_id == int(account_id),
@@ -7166,120 +7339,19 @@ def inspiration_suggest_folder(post_id):
     if not folders:
         return jsonify({'ok': False, 'error': 'Keine Ordner vorhanden. Lege zuerst Ordner an.'})
 
-    # Caption + Ordner-Liste für Prompt
-    caption_text = (post.caption or '').strip()[:600]
-    folder_lines = []
-    for f in folders:
-        desc = (f.notes or '').strip()
-        folder_lines.append(
-            f'  - ID {f.id}: "{f.name}"' + (f' — {desc}' if desc else '')
-        )
-
-    prompt_text = f"""Analysiere diesen deutschen Instagram-Post und ordne ihn dem passenden Inhaltskategorie-Ordner zu.
-
-VERFÜGBARE ORDNER:
-{chr(10).join(folder_lines)}
-
-POST-CAPTION: "{caption_text or '(keine Caption)'}"
-
-INHALTSKATEGORIEN — Erkennungsmerkmale (zur Orientierung, ordne aber in die ORDNER oben ein):
-• Starterpacks      → Collage aus mehreren Bildern/Symbolen, Text "Der/Die Starter Pack für...", typische Klischees
-• Wetter            → Wetterextreme (Hitze, Schnee, Sturm, Gewitter), Wetter-Screenshots, Thermometer
-• Events            → Konzerte, Festivals, Stadtfeste, Volksfeste, Messen, Veranstaltungs-Flyer, Bühnen
-• Weihnachten       → Weihnachtsmarkt, Advent, Christbaum, Geschenke, Nikolaus, Glühwein, Krippe
-• Silvester/Neujahr → Feuerwerk, Raketen, "Frohes neues Jahr", Sektflöten, Countdown
-• Frühling          → Kirschblüte, Ostern, erste Sonne, Frühlingsblumen, "endlich Frühling"
-• Sommer            → Freibad, Hitzewelle, Eis, Grillen, See/Strand, Sonnenbad
-• Herbst            → Blätterfärben, Oktoberfest, Ernte, Kürbis, Nebel, "Herbststimmung"
-• Winter            → Schnee, Eislaufen, heiße Schokolade, Frost, Winterlandschaft
-• Stadtleben/Memes  → Alltagssituationen, Erkennungszeichen der Stadt, "typisch [Stadt]", lokale Klischees
-• Essen & Trinken   → Restaurants, Gerichte, Streetfood, Cafés, lokale Spezialitäten
-• Sport/Fußball     → Stadion, Trikots, Spieler, Sportereignisse, Vereinslogo
-• Nostalgie         → Alte Fotos, Throwback, "früher war...", historische Bilder, Vergleich alt/neu
-• Natur             → Parks, Flüsse, Wälder, Naturlandschaften, Sonnenuntergang
-• Humor & Memes     → Witzbilder, Reaktionsbilder, Textmemes, absurde Situationen
-
-Erkenne anhand von:
-1. Visuelle Elemente im Bild (Motive, Farben, Jahreszeit, Objekte, Text-Overlays)
-2. Text auf dem Bild (Schilder, Overlays, Titel, Zahlen wie Temperaturen/Uhrzeiten)
-3. Caption-Text (Hashtags, Erwähnungen, Emojis, Stichwörter)
-
-Antworte NUR mit diesem JSON (kein anderer Text):
-{{"folder_id": <Zahl oder null wenn wirklich kein Ordner passt>, "folder_name": "<Name des gewählten Ordners>", "detected_type": "<erkannter Inhaltstyp aus der Liste oben>", "confidence": <0.0-1.0>, "reason": "<1-2 präzise Sätze: was genau auf dem Bild/in der Caption auf diese Kategorie hindeutet>"}}"""
-
-    # Bild laden (für Vision)
-    img_b64   = None
-    img_mtype = 'image/jpeg'
-    if post.thumbnail_url:
-        try:
-            _r = _req.get(post.thumbnail_url, timeout=(8, 20),
-                          headers={'User-Agent': 'Mozilla/5.0',
-                                    'Referer': 'https://www.instagram.com/'})
-            if _r.ok:
-                _bytes = _r.content
-                img_mtype = _r.headers.get('content-type', 'image/jpeg').split(';')[0].strip()
-                if img_mtype not in ('image/jpeg', 'image/png', 'image/gif', 'image/webp'):
-                    img_mtype = 'image/jpeg'
-                img_b64 = _b64.standard_b64encode(_bytes).decode()
-        except Exception:
-            pass  # kein Bild → nur Caption analysieren
-
     try:
-        client = _ant.Anthropic(api_key=api_key)
-        # Mit Bild: Vision → OCR + Motiv-Erkennung; ohne Bild: reine Caption-Analyse
-        if img_b64:
-            content = [
-                {'type': 'image', 'source': {'type': 'base64',
-                                              'media_type': img_mtype,
-                                              'data': img_b64}},
-                {'type': 'text', 'text': prompt_text},
-            ]
-        else:
-            content = prompt_text
-
-        resp = client.messages.create(
-            model='claude-haiku-4-5',   # Haiku: schnell + günstig für Klassifizierung
-            max_tokens=300,
-            system=(
-                'Du bist ein Content-Klassifizierer für deutsche Instagram-Seiten. '
-                'Antworte AUSSCHLIESSLICH mit dem angeforderten JSON-Objekt.'
-            ),
-            messages=[{'role': 'user', 'content': content}]
-        )
-        raw = resp.content[0].text.strip()
+        result = _classify_post_folder(post, folders, api_key)
+    except json.JSONDecodeError:
+        return jsonify({'ok': False, 'error': 'KI-Antwort konnte nicht geparst werden.'})
     except Exception as e:
         return jsonify({'ok': False, 'error': f'Claude-Fehler: {e}'})
 
-    # JSON parsen (Claude schreibt manchmal Backticks)
-    try:
-        if '```' in raw:
-            _m = _re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', raw)
-            raw = _m.group(1) if _m else raw
-        result = json.loads(raw)
-    except (json.JSONDecodeError, ValueError):
-        return jsonify({'ok': False, 'error': 'KI-Antwort konnte nicht geparst werden.',
-                        'raw': raw[:200]})
+    # Vorschlag speichern wenn noch nicht gesetzt und nicht gesperrt
+    if result.get('folder_id') and not post.folder_locked and not post.suggested_folder_id:
+        post.suggested_folder_id = result['folder_id']
+        db.session.commit()
 
-    folder_id     = result.get('folder_id')
-    folder_name   = result.get('folder_name', '')
-    confidence    = float(result.get('confidence', 0))
-    reason        = result.get('reason', '')
-    detected_type = result.get('detected_type', '')
-
-    # folder_id auf erlaubte Werte beschränken
-    allowed_ids = {f.id for f in folders}
-    if folder_id and int(folder_id) not in allowed_ids:
-        folder_id = None
-
-    return jsonify({
-        'ok': True,
-        'folder_id':     int(folder_id) if folder_id else None,
-        'folder_name':   folder_name,
-        'detected_type': detected_type,
-        'confidence':    round(confidence, 2),
-        'reason':        reason,
-        'image_analyzed': img_b64 is not None,
-    })
+    return jsonify({'ok': True, **result})
 
 
 @app.route('/api/inspirationen/<int:post_id>/use', methods=['POST'])
@@ -7761,6 +7833,35 @@ _STANDARD_FOLDER_TEMPLATES = [
      'notes': 'Feuerwerk, Jahreswechsel, "Frohes neues Jahr", Countdown',
      'posts_per_week': 2, 'valid_from_md': '12-27', 'valid_until_md': '01-03', 'recurring': True},
 ]
+
+
+@app.route('/api/settings/auto-classify', methods=['POST'])
+@login_required
+def toggle_auto_classify():
+    """Schaltet KI-Auto-Kategorisierung ein oder aus.
+    Body: { enabled: true|false }  ODER leerer Body → togglet den aktuellen Wert.
+    """
+    d       = request.get_json() or {}
+    current = get_setting('auto_classify_inspirationen') == 'true'
+    enabled = d.get('enabled', not current)   # toggle wenn nicht angegeben
+
+    _set = AppSettings.query.filter_by(key='auto_classify_inspirationen').first()
+    if _set:
+        _set.value = 'true' if enabled else 'false'
+    else:
+        db.session.add(AppSettings(key='auto_classify_inspirationen',
+                                   value='true' if enabled else 'false'))
+    db.session.commit()
+
+    # Stats für die UI
+    total_new   = InspirationPost.query.filter_by(status='new').count()
+    classified  = InspirationPost.query.filter(
+        InspirationPost.status == 'new',
+        InspirationPost.suggested_folder_id.isnot(None)
+    ).count()
+    return jsonify({'ok': True, 'enabled': enabled,
+                    'total_new': total_new, 'classified': classified,
+                    'pending': total_new - classified})
 
 
 @app.route('/api/folders/create-standard', methods=['POST'])

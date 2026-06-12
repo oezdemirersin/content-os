@@ -662,8 +662,12 @@ class InspirationPost(db.Model):
     video_url       = db.Column(db.String(1000), nullable=True) # MP4-URL bei Videos
     like_count      = db.Column(db.Integer, nullable=True)     # Likes zum Zeitpunkt des Downloads
     comment_count   = db.Column(db.Integer, nullable=True)     # Kommentare zum Zeitpunkt des Downloads
-    content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
-    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    content_item_id     = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
+    created_at          = db.Column(db.DateTime, default=datetime.utcnow)
+    # KI-Auto-Kategorisierung
+    suggested_folder_id = db.Column(db.Integer, db.ForeignKey('content_folder.id'), nullable=True)
+    folder_locked       = db.Column(db.Boolean, default=False, nullable=False)
+    # folder_locked=True → User hat manuell kategorisiert, KI überschreibt nicht
 
 
 class WeatherCache(db.Model):
