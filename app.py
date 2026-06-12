@@ -3206,11 +3206,15 @@ def analytics_growth():
     if account_id:
         q = q.filter(AnalyticsSnapshot.account_id == account_id)
     else:
-        # Test-/Hidden-Accounts vom Gesamt-Chart ausschließen
-        hidden_ids = db.session.query(Account.id).filter(
-            Account.hide_in_analytics == True
+        # Whitelist: nur Snapshots von aktuell aktiven + nicht-versteckten Accounts.
+        # Verhindert, dass gelöschte/inaktive Test-Accounts die Charts verfälschen —
+        # Blacklist (nur hide_in_analytics) reicht nicht, weil Orphan-Snapshots
+        # von längst gelöschten Accounts weiterhin in der DB liegen können.
+        valid_ids = db.session.query(Account.id).filter(
+            Account.status == 'active',
+            Account.hide_in_analytics == False
         ).subquery()
-        q = q.filter(~AnalyticsSnapshot.account_id.in_(hidden_ids))
+        q = q.filter(AnalyticsSnapshot.account_id.in_(valid_ids))
 
     rows = q.group_by(func.date(AnalyticsSnapshot.recorded_at)).all()
     snap_dict = {str(r.d): int(r.total or 0) for r in rows}
@@ -3263,19 +3267,20 @@ def analytics_portfolio():
 
     start_date = today - timedelta(days=days - 1)
 
-    # IDs der ausgeblendeten Accounts für den Filter
-    hidden_ids = db.session.query(Account.id).filter(
-        Account.hide_in_analytics == True
+    # Whitelist: nur aktive + sichtbare Accounts (schließt Orphan-Snapshots aus)
+    valid_ids = db.session.query(Account.id).filter(
+        Account.status == 'active',
+        Account.hide_in_analytics == False
     ).subquery()
 
-    # Subquery: spätester recorded_at pro (account_id, tag) — ohne Hidden-Accounts
+    # Subquery: spätester recorded_at pro (account_id, tag) — nur valide Accounts
     latest_per_acc_day = db.session.query(
         AnalyticsSnapshot.account_id,
         func.date(AnalyticsSnapshot.recorded_at).label('snap_day'),
         func.max(AnalyticsSnapshot.recorded_at).label('latest_at')
     ).filter(
         func.date(AnalyticsSnapshot.recorded_at) >= start_date,
-        ~AnalyticsSnapshot.account_id.in_(hidden_ids)
+        AnalyticsSnapshot.account_id.in_(valid_ids)
     ).group_by(
         AnalyticsSnapshot.account_id,
         func.date(AnalyticsSnapshot.recorded_at)
@@ -3324,6 +3329,25 @@ def analytics_portfolio():
         'delta':   delta,
         'days':    days,
     })
+
+
+@app.route('/api/analytics/cleanup-snapshots', methods=['POST'])
+def cleanup_orphan_snapshots():
+    """Löscht alle AnalyticsSnapshots von nicht-aktiven oder ausgeblendeten Accounts.
+    Einmalige Bereinigung — z.B. nach Test-Phase oder nach dem Ausblenden von Accounts."""
+    valid_ids = [r.id for r in db.session.query(Account.id).filter(
+        Account.status == 'active',
+        Account.hide_in_analytics == False
+    ).all()]
+    if valid_ids:
+        deleted = AnalyticsSnapshot.query.filter(
+            ~AnalyticsSnapshot.account_id.in_(valid_ids)
+        ).delete(synchronize_session='fetch')
+    else:
+        deleted = 0
+    db.session.commit()
+    return jsonify({'ok': True, 'deleted': deleted,
+                    'msg': f'{deleted} veraltete Snapshots dauerhaft gelöscht'})
 
 
 @app.route('/api/accounts/<int:account_id>/toggle-analytics', methods=['POST'])
@@ -3734,9 +3758,13 @@ def analytics_daily_growth():
         fq = fq.filter(AnalyticsSnapshot.account_id == account_id)
         eq = eq.filter(AnalyticsSnapshot.account_id == account_id)
     else:
-        hidden_ids = db.session.query(Account.id).filter(Account.hide_in_analytics == True).subquery()
-        fq = fq.filter(~AnalyticsSnapshot.account_id.in_(hidden_ids))
-        eq = eq.filter(~AnalyticsSnapshot.account_id.in_(hidden_ids))
+        # Whitelist: nur aktive + sichtbare Accounts
+        valid_ids = db.session.query(Account.id).filter(
+            Account.status == 'active',
+            Account.hide_in_analytics == False
+        ).subquery()
+        fq = fq.filter(AnalyticsSnapshot.account_id.in_(valid_ids))
+        eq = eq.filter(AnalyticsSnapshot.account_id.in_(valid_ids))
 
     fq = fq.group_by(func.date(AnalyticsSnapshot.recorded_at))
     eq = eq.group_by(func.date(AnalyticsSnapshot.recorded_at))

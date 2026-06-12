@@ -33,10 +33,15 @@
   <div class="stat-card">
     <div class="stat-label">Kategorien</div>
     <div class="stat-value blue">{{ cat_stats|length }}</div>
-    <div style="display:flex;gap:4px;margin-top:8px">
+    <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap">
       <a href="{{ url_for('analytics_export') }}" class="btn btn-ghost" style="font-size:11px;padding:5px 12px">
         <i class="fa-solid fa-download"></i> CSV
       </a>
+      <button onclick="cleanupSnapshots()" id="cleanupBtn"
+              class="btn btn-ghost" style="font-size:11px;padding:5px 12px;color:var(--danger)"
+              title="Löscht alle gespeicherten Snapshots von gelöschten, inaktiven und ausgeblendeten Accounts dauerhaft">
+        <i class="fa-solid fa-broom"></i> Bereinigen
+      </button>
     </div>
   </div>
 </div>
@@ -386,6 +391,30 @@ if (catData.length) {
 
 loadGrowth(30, document.querySelectorAll('#periodBtns button')[1]);
 loadDelta();
+
+// ── Testdaten / Orphan-Snapshots bereinigen ─────────────────────────
+async function cleanupSnapshots() {
+  if (!confirm('Alle Snapshots von gelöschten, inaktiven und ausgeblendeten Accounts dauerhaft löschen?\n\nDas kann nicht rückgängig gemacht werden.')) return;
+  const btn = document.getElementById('cleanupBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Bereinige…';
+  try {
+    const r = await fetch('/api/analytics/cleanup-snapshots', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('✅ ' + d.msg, 'success');
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      showToast('Fehler beim Bereinigen', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-broom"></i> Bereinigen';
+    }
+  } catch(e) {
+    showToast('Verbindungsfehler', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-broom"></i> Bereinigen';
+  }
+}
 
 // ── Account ausblenden / einblenden ────────────────────────────────
 async function toggleHide(accountId, btn, isCurrentlyHidden = false) {
