@@ -1380,14 +1380,14 @@ async function suggestFolder() {
       document.getElementById('useFolderId').value = r.folder_id;
 
       // Hinweis anzeigen
-      const pct      = Math.round(r.confidence * 100);
-      const imgIcon  = r.image_analyzed ? '🖼️' : '📝';
-      const cityBadge = r.is_city_specific
-        ? '<span style="background:rgba(34,197,94,.15);color:#22c55e;padding:1px 6px;border-radius:5px;font-size:9px;font-weight:700;margin-left:4px">📍 Stadtspez.</span>'
+      const pct     = Math.round(r.confidence * 100);
+      const imgIcon = r.image_analyzed ? '🖼️' : '📝';
+      const typeBadge = r.detected_type
+        ? `<span style="background:rgba(129,140,248,.15);color:#818cf8;padding:1px 6px;border-radius:5px;font-size:9px;font-weight:700;margin-left:4px">${r.detected_type}</span>`
         : '';
       hintText.innerHTML =
         `<strong style="color:var(--text)">${r.folder_name}</strong>`
-        + ` <span style="color:#818cf8;font-weight:700">${pct}%</span>${cityBadge}`
+        + ` <span style="color:#818cf8;font-weight:700">${pct}%</span>${typeBadge}`
         + `<br><span style="color:var(--muted)">${imgIcon} ${r.reason}</span>`;
       hint.style.display = 'block';
     } else if (r.ok && !r.folder_id) {

@@ -7166,41 +7166,46 @@ def inspiration_suggest_folder(post_id):
     if not folders:
         return jsonify({'ok': False, 'error': 'Keine Ordner vorhanden. Lege zuerst Ordner an.'})
 
-    # Stadt-Kontext aus Account-Name
-    city_hint = ''
-    if account_id:
-        _acc = db.session.get(Account, int(account_id))
-        if _acc:
-            city_hint = _get_weather_city(_acc) or ''
-
     # Caption + Ordner-Liste für Prompt
     caption_text = (post.caption or '').strip()[:600]
     folder_lines = []
     for f in folders:
         desc = (f.notes or '').strip()
         folder_lines.append(
-            f'  - ID {f.id}: "{f.name}"' + (f' ({desc})' if desc else '')
+            f'  - ID {f.id}: "{f.name}"' + (f' — {desc}' if desc else '')
         )
 
-    city_line = (f'\nACCOUNT-KONTEXT: Der Account bezieht sich auf die Stadt {city_hint}.'
-                 if city_hint else '')
-
-    prompt_text = f"""Ordne diesen Instagram-Post dem besten Ordner zu.
+    prompt_text = f"""Analysiere diesen deutschen Instagram-Post und ordne ihn dem passenden Inhaltskategorie-Ordner zu.
 
 VERFÜGBARE ORDNER:
 {chr(10).join(folder_lines)}
 
 POST-CAPTION: "{caption_text or '(keine Caption)'}"
-{city_line}
 
-Aufgaben:
-1. Lies Text auf dem Bild (Schilder, Text-Overlays, Stadtname)
-2. Erkenne Motive (Essen, Sport, Natur, Event, Meme, Wetter usw.)
-3. Wähle den am besten passenden Ordner
-4. Beurteile ob der Content stadt-spezifisch oder allgemein nutzbar ist
+INHALTSKATEGORIEN — Erkennungsmerkmale (zur Orientierung, ordne aber in die ORDNER oben ein):
+• Starterpacks      → Collage aus mehreren Bildern/Symbolen, Text "Der/Die Starter Pack für...", typische Klischees
+• Wetter            → Wetterextreme (Hitze, Schnee, Sturm, Gewitter), Wetter-Screenshots, Thermometer
+• Events            → Konzerte, Festivals, Stadtfeste, Volksfeste, Messen, Veranstaltungs-Flyer, Bühnen
+• Weihnachten       → Weihnachtsmarkt, Advent, Christbaum, Geschenke, Nikolaus, Glühwein, Krippe
+• Silvester/Neujahr → Feuerwerk, Raketen, "Frohes neues Jahr", Sektflöten, Countdown
+• Frühling          → Kirschblüte, Ostern, erste Sonne, Frühlingsblumen, "endlich Frühling"
+• Sommer            → Freibad, Hitzewelle, Eis, Grillen, See/Strand, Sonnenbad
+• Herbst            → Blätterfärben, Oktoberfest, Ernte, Kürbis, Nebel, "Herbststimmung"
+• Winter            → Schnee, Eislaufen, heiße Schokolade, Frost, Winterlandschaft
+• Stadtleben/Memes  → Alltagssituationen, Erkennungszeichen der Stadt, "typisch [Stadt]", lokale Klischees
+• Essen & Trinken   → Restaurants, Gerichte, Streetfood, Cafés, lokale Spezialitäten
+• Sport/Fußball     → Stadion, Trikots, Spieler, Sportereignisse, Vereinslogo
+• Nostalgie         → Alte Fotos, Throwback, "früher war...", historische Bilder, Vergleich alt/neu
+• Natur             → Parks, Flüsse, Wälder, Naturlandschaften, Sonnenuntergang
+• Humor & Memes     → Witzbilder, Reaktionsbilder, Textmemes, absurde Situationen
+
+Erkenne anhand von:
+1. Visuelle Elemente im Bild (Motive, Farben, Jahreszeit, Objekte, Text-Overlays)
+2. Text auf dem Bild (Schilder, Overlays, Titel, Zahlen wie Temperaturen/Uhrzeiten)
+3. Caption-Text (Hashtags, Erwähnungen, Emojis, Stichwörter)
 
 Antworte NUR mit diesem JSON (kein anderer Text):
-{{"folder_id": <Zahl oder null>, "folder_name": "<Name>", "is_city_specific": <true/false>, "confidence": <0.0-1.0>, "reason": "<1-2 Sätze Begründung auf Deutsch>"}}"""
+{{"folder_id": <Zahl oder null wenn wirklich kein Ordner passt>, "folder_name": "<Name des gewählten Ordners>", "detected_type": "<erkannter Inhaltstyp aus der Liste oben>", "confidence": <0.0-1.0>, "reason": "<1-2 präzise Sätze: was genau auf dem Bild/in der Caption auf diese Kategorie hindeutet>"}}"""
 
     # Bild laden (für Vision)
     img_b64   = None
@@ -7255,11 +7260,11 @@ Antworte NUR mit diesem JSON (kein anderer Text):
         return jsonify({'ok': False, 'error': 'KI-Antwort konnte nicht geparst werden.',
                         'raw': raw[:200]})
 
-    folder_id        = result.get('folder_id')
-    folder_name      = result.get('folder_name', '')
-    confidence       = float(result.get('confidence', 0))
-    reason           = result.get('reason', '')
-    is_city_specific = result.get('is_city_specific', False)
+    folder_id     = result.get('folder_id')
+    folder_name   = result.get('folder_name', '')
+    confidence    = float(result.get('confidence', 0))
+    reason        = result.get('reason', '')
+    detected_type = result.get('detected_type', '')
 
     # folder_id auf erlaubte Werte beschränken
     allowed_ids = {f.id for f in folders}
@@ -7268,11 +7273,11 @@ Antworte NUR mit diesem JSON (kein anderer Text):
 
     return jsonify({
         'ok': True,
-        'folder_id': int(folder_id) if folder_id else None,
-        'folder_name': folder_name,
-        'confidence': round(confidence, 2),
-        'reason': reason,
-        'is_city_specific': bool(is_city_specific),
+        'folder_id':     int(folder_id) if folder_id else None,
+        'folder_name':   folder_name,
+        'detected_type': detected_type,
+        'confidence':    round(confidence, 2),
+        'reason':        reason,
         'image_analyzed': img_b64 is not None,
     })
 
@@ -7706,6 +7711,121 @@ def folder_delete(fid):
     db.session.delete(f)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+# ── Standard-Ordner-Templates für deutsche Stadt-Instagram-Seiten ────────────
+_STANDARD_FOLDER_TEMPLATES = [
+    {'name': 'Starterpacks',     'icon': 'fa-grip',              'color': '#6366f1',
+     'notes': 'Starter Pack Memes — Collage-Format "Der Starter Pack für..."',
+     'posts_per_week': 1},
+    {'name': 'Wetter',           'icon': 'fa-cloud-sun-rain',    'color': '#38bdf8',
+     'notes': 'Wetterextreme, Hitze, Schnee, Sturm, Wetter-Screenshots',
+     'posts_per_week': 1},
+    {'name': 'Events',           'icon': 'fa-calendar-star',     'color': '#f59e0b',
+     'notes': 'Konzerte, Festivals, Stadtfeste, Messen, Veranstaltungs-Flyer',
+     'posts_per_week': 1},
+    {'name': 'Weihnachten',      'icon': 'fa-snowflake',         'color': '#ef4444',
+     'notes': 'Weihnachtsmarkt, Advent, Christbaum, Glühwein, Winterzauber',
+     'posts_per_week': 2, 'valid_from_md': '12-01', 'valid_until_md': '01-06', 'recurring': True},
+    {'name': 'Frühling',         'icon': 'fa-seedling',          'color': '#22c55e',
+     'notes': 'Kirschblüte, Ostern, erste Sonne, Frühlingsblumen',
+     'posts_per_week': 1, 'valid_from_md': '03-01', 'valid_until_md': '05-31', 'recurring': True},
+    {'name': 'Sommer',           'icon': 'fa-sun',               'color': '#fbbf24',
+     'notes': 'Freibad, Hitzewelle, Eis essen, Grillen, See/Strand',
+     'posts_per_week': 2, 'valid_from_md': '06-01', 'valid_until_md': '08-31', 'recurring': True},
+    {'name': 'Herbst',           'icon': 'fa-leaf',              'color': '#f97316',
+     'notes': 'Blätterfärben, Oktoberfest, Kürbis, Ernte, Nebelstimmung',
+     'posts_per_week': 1, 'valid_from_md': '09-01', 'valid_until_md': '11-30', 'recurring': True},
+    {'name': 'Winter',           'icon': 'fa-icicles',           'color': '#93c5fd',
+     'notes': 'Schnee, Eislaufen, Frost, Winterlandschaft (außerhalb Weihnachten)',
+     'posts_per_week': 1, 'valid_from_md': '12-01', 'valid_until_md': '02-28', 'recurring': True},
+    {'name': 'Stadtleben',       'icon': 'fa-city',              'color': '#8b5cf6',
+     'notes': 'Alltagsmemes, Erkennungszeichen, "typisch [Stadt]", lokale Klischees',
+     'posts_per_week': 2},
+    {'name': 'Essen & Trinken',  'icon': 'fa-utensils',          'color': '#d97706',
+     'notes': 'Restaurants, Gerichte, Streetfood, Cafés, lokale Spezialitäten',
+     'posts_per_week': 1},
+    {'name': 'Sport',            'icon': 'fa-futbol',            'color': '#10b981',
+     'notes': 'Sport, Fußball, lokale Vereine, Sportereignisse',
+     'posts_per_week': 1},
+    {'name': 'Nostalgie',        'icon': 'fa-clock-rotate-left', 'color': '#9ca3af',
+     'notes': 'Throwbacks, alte Fotos, "früher war...", Vergleich alt/neu',
+     'posts_per_week': 1},
+    {'name': 'Humor & Memes',    'icon': 'fa-face-laugh',        'color': '#ec4899',
+     'notes': 'Allgemeine Witzbilder, Reaktionsbilder, Textmemes',
+     'posts_per_week': 1},
+    {'name': 'Natur',            'icon': 'fa-tree',              'color': '#16a34a',
+     'notes': 'Parks, Flüsse, Wälder, Sonnenuntergänge, Naturlandschaften',
+     'posts_per_week': 1},
+    {'name': 'Silvester',        'icon': 'fa-champagne-glasses', 'color': '#c084fc',
+     'notes': 'Feuerwerk, Jahreswechsel, "Frohes neues Jahr", Countdown',
+     'posts_per_week': 2, 'valid_from_md': '12-27', 'valid_until_md': '01-03', 'recurring': True},
+]
+
+
+@app.route('/api/folders/create-standard', methods=['POST'])
+@login_required
+def folders_create_standard():
+    """Legt Standard-Inhaltskategorien als Ordner an.
+    Body: { account_id: int|null, skip_existing: bool (default true) }
+    Gibt zurück: { created: [Namen], skipped: [Namen] }
+    """
+    from datetime import date as _date
+    d          = request.get_json() or {}
+    account_id = d.get('account_id') or None
+    skip_ex    = d.get('skip_existing', True)
+
+    # Vorhandene Namen für diesen Account
+    existing_q = ContentFolder.query
+    if account_id:
+        existing_q = existing_q.filter(
+            db.or_(ContentFolder.account_id == int(account_id),
+                   ContentFolder.account_id.is_(None))
+        )
+    existing_names = {f.name.lower() for f in existing_q.all()}
+
+    created, skipped = [], []
+    year = datetime.utcnow().year
+
+    for t in _STANDARD_FOLDER_TEMPLATES:
+        if skip_ex and t['name'].lower() in existing_names:
+            skipped.append(t['name'])
+            continue
+
+        valid_from  = None
+        valid_until = None
+        if t.get('valid_from_md'):
+            try:
+                m, day = t['valid_from_md'].split('-')
+                valid_from = _date(year, int(m), int(day))
+            except Exception:
+                pass
+        if t.get('valid_until_md'):
+            try:
+                m, day = t['valid_until_md'].split('-')
+                # Dezember→Januar: valid_until im nächsten Jahr
+                y = year + 1 if t.get('valid_from_md', '').startswith('12') and m == '01' else year
+                valid_until = _date(y, int(m), int(day))
+            except Exception:
+                pass
+
+        f = ContentFolder(
+            name             = t['name'],
+            icon             = t['icon'],
+            color            = t['color'],
+            notes            = t.get('notes', ''),
+            posts_per_week   = t.get('posts_per_week', 1),
+            account_id       = int(account_id) if account_id else None,
+            valid_from       = valid_from,
+            valid_until      = valid_until,
+            recurring_yearly = t.get('recurring', False),
+        )
+        db.session.add(f)
+        created.append(t['name'])
+
+    db.session.commit()
+    return jsonify({'ok': True, 'created': created, 'skipped': skipped,
+                    'total_created': len(created)})
 
 
 @app.route('/api/autoplan', methods=['POST'])

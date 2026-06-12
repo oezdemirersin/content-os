@@ -12,9 +12,15 @@
         Ordne deinen Vorrat in Kategorien — stelle ein, wie viele Posts pro Woche aus jedem Ordner eingeplant werden sollen.
       </div>
     </div>
-    <button onclick="openNewModal()" class="btn btn-primary">
-      <i class="fa-solid fa-plus"></i> Neuer Ordner
-    </button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="openStandardModal()" class="btn btn-ghost"
+              style="font-size:12px;border-color:rgba(129,140,248,.4);color:#818cf8">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> Standard-Ordner
+      </button>
+      <button onclick="openNewModal()" class="btn btn-primary">
+        <i class="fa-solid fa-plus"></i> Neuer Ordner
+      </button>
+    </div>
   </div>
 
   <!-- ── Pipeline-Übersicht ────────────────────────────────── -->
@@ -692,6 +698,87 @@
   </div>
 </div>
 
+<!-- ── Standard-Ordner-Modal ───────────────────────────────── -->
+<div id="standardModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);
+     z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:520px;max-width:95vw;
+              max-height:90vh;overflow-y:auto">
+    <div style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px;margin-bottom:6px">
+      <i class="fa-solid fa-wand-magic-sparkles" style="color:#818cf8"></i>
+      STANDARD-ORDNER ANLEGEN
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.6">
+      Legt alle gängigen Inhaltskategorien für deutsche Stadt-Instagram-Seiten auf einmal an.
+      Bereits vorhandene Ordner werden übersprungen. Saisonale Ordner erhalten automatisch Zeitfenster.
+    </div>
+
+    <!-- Account-Auswahl -->
+    <div style="margin-bottom:16px">
+      <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">
+        Für welchen Account? (leer = globale Ordner für alle)
+      </label>
+      <select id="stdAccount" class="select-field" style="width:100%">
+        <option value="">— Globale Ordner (alle Accounts) —</option>
+        {% for acc in accounts %}
+        <option value="{{ acc.id }}">{{ acc.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Vorschau der Kategorien -->
+    <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.4px;margin-bottom:10px">
+      ENTHALTENE KATEGORIEN ({{ _STANDARD_TEMPLATES|default(15) }})
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:20px">
+      {% set _cats = [
+        ('Starterpacks','#6366f1','fa-grip',''),
+        ('Wetter','#38bdf8','fa-cloud-sun-rain',''),
+        ('Events','#f59e0b','fa-calendar-star',''),
+        ('Weihnachten','#ef4444','fa-snowflake','Dez–Jan'),
+        ('Frühling','#22c55e','fa-seedling','Mär–Mai'),
+        ('Sommer','#fbbf24','fa-sun','Jun–Aug'),
+        ('Herbst','#f97316','fa-leaf','Sep–Nov'),
+        ('Winter','#93c5fd','fa-icicles','Dez–Feb'),
+        ('Stadtleben','#8b5cf6','fa-city',''),
+        ('Essen & Trinken','#d97706','fa-utensils',''),
+        ('Sport','#10b981','fa-futbol',''),
+        ('Nostalgie','#9ca3af','fa-clock-rotate-left',''),
+        ('Humor & Memes','#ec4899','fa-face-laugh',''),
+        ('Natur','#16a34a','fa-tree',''),
+        ('Silvester','#c084fc','fa-champagne-glasses','Dez–Jan'),
+      ] %}
+      {% for name, color, icon, window in _cats %}
+      <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;
+                  background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+        <div style="width:28px;height:28px;border-radius:7px;background:{{ color }}22;
+                    display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i class="fa-solid {{ icon }}" style="color:{{ color }};font-size:12px"></i>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            {{ name }}
+          </div>
+          {% if window %}
+          <div style="font-size:9px;color:var(--muted)">🗓 {{ window }}</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div id="stdResult" style="display:none;margin-bottom:14px;padding:10px 14px;
+         border-radius:8px;font-size:12px"></div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeStandardModal()" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="runCreateStandard()" id="stdCreateBtn" class="btn btn-primary"
+              style="background:#818cf8;border-color:#818cf8">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> Jetzt anlegen
+      </button>
+    </div>
+  </div>
+</div>
+
 {% block scripts %}
 <script>
 let _editFolderId = null;
@@ -923,6 +1010,74 @@ async function runAutoplan() {
 document.getElementById('fName').addEventListener('keydown', e => {
   if (e.key === 'Enter') saveFolder();
 });
+
+// ── Standard-Ordner Modal ─────────────────────────────────────
+function openStandardModal() {
+  document.getElementById('stdResult').style.display = 'none';
+  document.getElementById('stdCreateBtn').disabled   = false;
+  document.getElementById('stdCreateBtn').innerHTML  =
+    '<i class="fa-solid fa-wand-magic-sparkles"></i> Jetzt anlegen';
+  document.getElementById('standardModal').style.display = 'flex';
+}
+
+function closeStandardModal() {
+  document.getElementById('standardModal').style.display = 'none';
+}
+
+async function runCreateStandard() {
+  const btn       = document.getElementById('stdCreateBtn');
+  const resultEl  = document.getElementById('stdResult');
+  const accountId = parseInt(document.getElementById('stdAccount').value) || null;
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Legt an…';
+
+  try {
+    const r = await fetch('/api/folders/create-standard', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({account_id: accountId, skip_existing: true})
+    }).then(r => r.json());
+
+    if (r.ok) {
+      let html = '';
+      if (r.created.length > 0) {
+        html += `<div style="color:#22c55e;font-weight:700;margin-bottom:6px">
+                   ✓ ${r.total_created} Ordner angelegt
+                 </div>`;
+        html += `<div style="color:var(--muted)">${r.created.join(' · ')}</div>`;
+      }
+      if (r.skipped.length > 0) {
+        html += `<div style="color:var(--muted);margin-top:6px;font-size:10px">
+                   Übersprungen (bereits vorhanden): ${r.skipped.join(', ')}
+                 </div>`;
+      }
+      if (r.created.length === 0) {
+        html = '<div style="color:var(--muted)">Alle Standard-Ordner sind bereits vorhanden.</div>';
+      }
+      resultEl.innerHTML = html;
+      resultEl.style.background = r.created.length > 0
+        ? 'rgba(34,197,94,.08)' : 'var(--surface2)';
+      resultEl.style.border = r.created.length > 0
+        ? '1px solid rgba(34,197,94,.3)' : '1px solid var(--border)';
+      resultEl.style.display = 'block';
+
+      btn.innerHTML = '<i class="fa-solid fa-check"></i> Fertig';
+      if (r.created.length > 0) {
+        showToast(`${r.total_created} Standard-Ordner angelegt ✓`, 'success');
+        setTimeout(() => location.reload(), 1500);
+      }
+    } else {
+      showToast(r.error || 'Fehler', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Jetzt anlegen';
+    }
+  } catch(e) {
+    showToast('Fehler: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Jetzt anlegen';
+  }
+}
 </script>
 {% endblock %}
 {% endblock %}
