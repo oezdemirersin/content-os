@@ -5027,9 +5027,7 @@ def export_all_data():
             'active': s.active,
         } for s in serien],
 
-        'settings': {r.key: r.value for r in settings_rows
-                     if r.key not in ('anthropic_api_key', 'apify_token',
-                                      'telegram_bot_token', 'sendgrid_api_key')},
+        'settings': {r.key: r.value for r in settings_rows},
     }
 
     json_str = json.dumps(data, ensure_ascii=False, indent=2)
