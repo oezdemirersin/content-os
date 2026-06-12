@@ -9519,14 +9519,14 @@ def save_idea_to_vorrat(account_id):
 # ═══════════════════════════════════════════════════════════════
 
 def _koop_ref_date(k):
-    """Primäres Datum einer Koop: frühestes Posting → start_date → created_at."""
+    """Primäres Datum einer Koop: frühestes Posting → start_date → deadline → created_at."""
     from datetime import date as _d
     if k.posting_dates:
         try:
             dates = [_d.fromisoformat(x) for x in json.loads(k.posting_dates) if x]
             if dates: return min(dates)
         except: pass
-    return k.start_date or (k.created_at.date() if k.created_at else _d.min)
+    return k.start_date or k.deadline or (k.created_at.date() if k.created_at else _d.min)
 
 
 def _check_koop_reminders():
@@ -9726,19 +9726,20 @@ def koop_chart():
         months.append(d.strftime('%Y-%m'))
         d = _date(d.year + (d.month == 12), (d.month % 12) + 1, 1)
 
-    koops = Kooperation.query.filter(
-        Kooperation.created_at >= datetime(2025, 1, 1),
-        Kooperation.status != 'storniert',
-    ).all()
+    # Alle nicht-stornierten Koops ohne created_at-Filter —
+    # Gruppierung läuft über _koop_ref_date (Posting → Deadline → created_at)
+    koops = Kooperation.query.filter(Kooperation.status != 'storniert').all()
 
     bucket = {m: {'bezahlt': 0.0, 'ausstehend': 0.0, 'anzahl': 0} for m in months}
+    from datetime import date as _d2
     for k in koops:
         if not k.amount:
             continue
         ref_date = _koop_ref_date(k)
-        from datetime import date as _d2
-        month = ref_date.strftime('%Y-%m') if ref_date and ref_date != _d2.min else None
-        if month not in bucket:
+        if not ref_date or ref_date == _d2.min:
+            continue
+        month = ref_date.strftime('%Y-%m')
+        if month not in bucket:   # Außerhalb Jan 2025 – heute → überspringen
             continue
         bucket[month]['anzahl'] += 1
         if k.payment_status == 'bezahlt' or k.payment_received_at:
