@@ -1208,7 +1208,8 @@ def _send_due_telegram_posts():
     """Prüft jede Minute ob Posts fällig sind und sendet sie an Telegram."""
     with app.app_context():
         try:
-            token = get_setting('telegram_bot_token')
+            _row = AppSettings.query.filter_by(key='telegram_bot_token').first()
+            token = _row.value if _row else None
             if not token:
                 return
             now = datetime.utcnow()
