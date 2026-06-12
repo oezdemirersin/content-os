@@ -33,53 +33,28 @@
 
 <!-- ── KPIs ── -->
 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px">
-  <div class="stat-card">
-    <div class="stat-label">Gesamt</div>
-    <div class="stat-value blue" id="kpi-total">—</div>
-    <div class="stat-sub">Kooperationen</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Aktiv</div>
-    <div class="stat-value green" id="kpi-active">—</div>
-    <div class="stat-sub">laufend</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Ausstehend</div>
-    <div class="stat-value" id="kpi-pending" style="color:var(--warning)">—</div>
-    <div class="stat-sub">nicht bezahlt</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Einnahmen</div>
-    <div class="stat-value green" id="kpi-revenue">—</div>
-    <div class="stat-sub">bezahlt</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Fällig bald</div>
-    <div class="stat-value" id="kpi-due" style="color:#ef4444">—</div>
-    <div class="stat-sub">in 7 Tagen</div>
-  </div>
+  <div class="stat-card"><div class="stat-label">Gesamt</div><div class="stat-value blue" id="kpi-total">—</div><div class="stat-sub">Kooperationen</div></div>
+  <div class="stat-card"><div class="stat-label">Aktiv</div><div class="stat-value green" id="kpi-active">—</div><div class="stat-sub">laufend</div></div>
+  <div class="stat-card"><div class="stat-label">Ausstehend</div><div class="stat-value" id="kpi-pending" style="color:var(--warning)">—</div><div class="stat-sub">nicht bezahlt</div></div>
+  <div class="stat-card"><div class="stat-label">Einnahmen</div><div class="stat-value green" id="kpi-revenue">—</div><div class="stat-sub">bezahlt</div></div>
+  <div class="stat-card"><div class="stat-label">Rechnung fällig</div><div class="stat-value" id="kpi-invoice" style="color:#f97316">—</div><div class="stat-sub">Rechnung offen</div></div>
 </div>
 
 <!-- ── Revenue Chart ── -->
 <div class="card" style="padding:0;overflow:hidden;margin-bottom:20px">
   <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
     <span class="card-title">EINNAHMEN-VERLAUF <span style="font-weight:400;font-size:10px;color:var(--muted)">ab Jan 2025</span></span>
-    <div style="display:flex;gap:12px;font-size:11px">
-      <span style="display:flex;align-items:center;gap:5px">
-        <span style="width:10px;height:10px;border-radius:2px;background:#22c55e;display:inline-block"></span>Bezahlt</span>
-      <span style="display:flex;align-items:center;gap:5px">
-        <span style="width:10px;height:10px;border-radius:2px;background:#f97316;display:inline-block"></span>Ausstehend</span>
+    <div style="display:flex;gap:12px;font-size:11px;color:rgba(255,255,255,.6)">
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:#22c55e;display:inline-block"></span>Bezahlt</span>
+      <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:#f97316;display:inline-block"></span>Ausstehend</span>
     </div>
   </div>
-  <div style="padding:16px 20px">
-    <canvas id="revenueChart" height="80"></canvas>
-  </div>
+  <div style="padding:16px 20px"><canvas id="revenueChart" height="75"></canvas></div>
 </div>
 
-<!-- ══ LISTE-VIEW ══════════════════════════════════════════════ -->
+<!-- ══ LISTE ════════════════════════════════════════════════════ -->
 <div id="view-liste">
   <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
-    <!-- Status-Filter -->
     {% for val,label in [('all','Alle'),('anfrage','Anfrage'),('aktiv','Aktiv'),('abgeschlossen','Abgeschlossen'),('storniert','Storniert')] %}
     <button onclick="filterStatus('{{ val }}',this)" data-filter="{{ val }}"
             style="padding:6px 14px;border-radius:18px;border:1px solid var(--border);
@@ -87,52 +62,39 @@
                    color:{% if val=='all' %}white{% else %}var(--muted){% endif %};
                    font-family:var(--font-body);font-size:11px;font-weight:700;cursor:pointer;transition:all .15s">{{ label }}</button>
     {% endfor %}
-
-    <!-- Account-Filter -->
     <select id="accountFilter" onchange="renderKoops()"
-            style="margin-left:4px;background:var(--surface2);border:1px solid var(--border);
-                   border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:11px;
-                   padding:6px 10px">
+            style="margin-left:4px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                   color:var(--text);font-family:var(--font-body);font-size:11px;padding:6px 10px">
       <option value="">Alle Seiten</option>
-      {% for acc in accounts %}
-      <option value="{{ acc.id }}">{{ acc.name }}</option>
-      {% endfor %}
+      {% for acc in accounts %}<option value="{{ acc.id }}">{{ acc.name }}</option>{% endfor %}
     </select>
-
-    <!-- Sortierung -->
     <select id="sortSelect" onchange="renderKoops()"
-            style="background:var(--surface2);border:1px solid var(--border);
-                   border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:11px;
-                   padding:6px 10px">
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                   color:var(--text);font-family:var(--font-body);font-size:11px;padding:6px 10px">
       <option value="newest">Neueste zuerst</option>
       <option value="amount_desc">Betrag ↓</option>
       <option value="amount_asc">Betrag ↑</option>
-      <option value="deadline">Deadline</option>
     </select>
-
-    <!-- Suche -->
     <input id="searchInput" oninput="renderKoops()" type="text" placeholder="Partner suchen…"
-           style="margin-left:auto;background:var(--surface2);border:1px solid var(--border);
-                  border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:11px;
-                  padding:6px 11px;width:160px">
+           style="margin-left:auto;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                  color:var(--text);font-family:var(--font-body);font-size:11px;padding:6px 11px;width:160px">
   </div>
   <div id="koopList" style="display:flex;flex-direction:column;gap:8px">
     <div style="text-align:center;color:var(--muted);padding:80px 20px;font-size:13px">
-      <i class="fa-solid fa-handshake" style="font-size:32px;opacity:.25;display:block;margin-bottom:14px"></i>
-      Noch keine Kooperationen erfasst.
+      <i class="fa-solid fa-handshake" style="font-size:32px;opacity:.25;display:block;margin-bottom:14px"></i>Noch keine Kooperationen.
     </div>
   </div>
 </div>
 
-<!-- ══ PIPELINE-VIEW ══════════════════════════════════════════ -->
+<!-- ══ PIPELINE ════════════════════════════════════════════════ -->
 <div id="view-pipeline" style="display:none">
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
     {% for status,label,icon in [('anfrage','Anfrage','fa-envelope'),('aktiv','Aktiv','fa-play'),('abgeschlossen','Abgeschlossen','fa-check'),('storniert','Storniert','fa-xmark')] %}
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:12px;min-height:280px">
-      <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);
-                  margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:12px;min-height:260px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:12px;
+                  display:flex;align-items:center;justify-content:space-between">
         <span><i class="fa-solid {{ icon }}"></i> {{ label.upper() }}</span>
-        <span id="pipe-count-{{ status }}" style="font-size:11px;background:var(--surface);border-radius:8px;padding:2px 8px">0</span>
+        <span id="pipe-count-{{ status }}" style="background:var(--surface);border-radius:8px;padding:2px 8px">0</span>
       </div>
       <div id="pipe-{{ status }}" style="display:flex;flex-direction:column;gap:8px"></div>
     </div>
@@ -140,16 +102,16 @@
   </div>
 </div>
 
-<!-- ══ TIMELINE-VIEW ══════════════════════════════════════════ -->
+<!-- ══ TIMELINE ════════════════════════════════════════════════ -->
 <div id="view-timeline" style="display:none">
   <div id="timelineWrap" style="overflow-x:auto"></div>
 </div>
 
-<!-- ══ DETAIL PANEL ══════════════════════════════════════════ -->
+<!-- ══ DETAIL PANEL ════════════════════════════════════════════ -->
 <div id="detailOverlay" onclick="closeDetail()"
      style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:8000"></div>
 <div id="detailPanel"
-     style="display:none;position:fixed;top:0;right:0;bottom:0;width:460px;max-width:96vw;
+     style="display:none;position:fixed;top:0;right:0;bottom:0;width:440px;max-width:96vw;
             background:var(--bg);border-left:1px solid var(--border);z-index:8001;
             overflow-y:auto;padding:24px;transform:translateX(100%);transition:transform .25s ease">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
@@ -163,29 +125,20 @@
   <div id="dpContent"></div>
 </div>
 
-<!-- ══ MODAL ══════════════════════════════════════════════════ -->
+<!-- ══ MODAL ═══════════════════════════════════════════════════ -->
 <div id="koopModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);
      z-index:9000;align-items:center;justify-content:center">
   <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;
-              padding:24px 28px;width:660px;max-width:96vw;max-height:92vh;overflow-y:auto">
+              padding:24px 28px;width:600px;max-width:96vw;max-height:92vh;overflow-y:auto">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
       <div style="font-family:var(--font-display);font-size:18px;letter-spacing:1px" id="koopModalTitle">NEUE KOOP</div>
       <button onclick="closeKoopModal()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">✕</button>
     </div>
     <input type="hidden" id="koopId">
 
-    <!-- Tabs -->
-    <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:18px;gap:0">
-      <button onclick="switchTab('base',this)" id="tab-base"
-              style="padding:8px 16px;border:none;background:none;cursor:pointer;font-family:var(--font-body);
-                     font-size:11px;font-weight:700;color:var(--accent);border-bottom:2px solid var(--accent)">KOOP-DETAILS</button>
-      <button onclick="switchTab('payment',this)" id="tab-payment"
-              style="padding:8px 16px;border:none;background:none;cursor:pointer;font-family:var(--font-body);
-                     font-size:11px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent">ZAHLUNGSABWICKLUNG</button>
-    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
 
-    <!-- Tab: Basis -->
-    <div id="tabPane-base" style="display:flex;flex-direction:column;gap:13px">
+      <!-- Reihe 1 -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div><label class="flabel">ACCOUNT *</label>
           <select id="koopAccount" class="finput">
@@ -198,12 +151,16 @@
             <option value="product">Produkt-Kooperation</option><option value="other">Sonstiges</option>
           </select></div>
       </div>
+
+      <!-- Partner + Ansprechpartner -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div><label class="flabel">PARTNER / BRAND *</label>
           <input id="koopPartner" type="text" placeholder="Marke oder Agentur" class="finput"></div>
         <div><label class="flabel">ANSPRECHPARTNER</label>
           <input id="koopContact" type="text" placeholder="Name, E-Mail" class="finput"></div>
       </div>
+
+      <!-- Status + Betrag -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div><label class="flabel">STATUS</label>
           <select id="koopStatus" class="finput">
@@ -213,76 +170,81 @@
         <div><label class="flabel">BETRAG (€)</label>
           <input id="koopAmount" type="number" step="0.01" min="0" placeholder="0.00" class="finput"></div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div><label class="flabel">STARTDATUM</label>
-          <input id="koopStart" type="date" class="finput"></div>
-        <div><label class="flabel">DEADLINE</label>
-          <input id="koopDeadline" type="date" class="finput"></div>
+
+      <!-- ── Posting-Daten (mehrere) ── -->
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label class="flabel" style="margin-bottom:0">POSTING-DATUM/DATEN</label>
+          <button type="button" onclick="addPostingDate()"
+                  style="font-size:11px;padding:3px 10px;border-radius:6px;border:1px dashed var(--border);
+                         background:transparent;color:var(--accent2);cursor:pointer;font-family:var(--font-body)">
+            + Datum</button>
+        </div>
+        <div id="postingDateList" style="display:flex;flex-direction:column;gap:6px"></div>
+        <div id="postingDateEmpty" style="font-size:12px;color:var(--muted);opacity:.5;padding:4px 0">Noch kein Datum eingetragen</div>
       </div>
-      <div><label class="flabel">LIEFERUMFANG <span style="opacity:.5;font-weight:400">(eine Zeile = ein Punkt)</span></label>
-        <textarea id="koopDeliverables" rows="3" class="finput"
-                  placeholder="1 Reel&#10;3 Stories&#10;1 Feed-Post"></textarea></div>
-      <div><label class="flabel">NOTIZEN</label>
-        <textarea id="koopNotes" rows="2" class="finput" placeholder="Briefing, Besonderheiten…"></textarea></div>
-      <div><label class="flabel">BEWERTUNG</label>
-        <div id="ratingStars" style="display:flex;gap:6px;margin-top:4px">
-          {% for i in range(1,6) %}
-          <button type="button" onclick="setRating({{ i }})" data-star="{{ i }}"
-                  style="font-size:22px;background:none;border:none;cursor:pointer;color:var(--border);line-height:1">★</button>
+
+      <!-- ── Lieferumfang als Format-Chips ── -->
+      <div>
+        <label class="flabel">LIEFERUMFANG</label>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px" id="formatChips">
+          {% for key,label,icon in [('feed','Feed-Beitrag','fa-image'),('reel','Reel','fa-film'),('carousel','Karussell','fa-images'),('story','Story','fa-circle-half-stroke')] %}
+          <button type="button" onclick="toggleFormat('{{ key }}')" id="fc-{{ key }}"
+                  style="padding:8px 4px;border-radius:10px;border:1px solid var(--border);
+                         background:var(--surface2);color:var(--muted);font-family:var(--font-body);
+                         font-size:11px;font-weight:700;cursor:pointer;transition:all .15s;text-align:center">
+            <i class="fa-solid {{ icon }}" style="display:block;font-size:16px;margin-bottom:4px"></i>{{ label }}</button>
           {% endfor %}
         </div>
-        <input type="hidden" id="koopRating" value=""></div>
-    </div>
+        <!-- Mengen-Anzeige für aktivierte Formate -->
+        <div id="formatCounts" style="display:flex;flex-direction:column;gap:5px"></div>
+      </div>
 
-    <!-- Tab: Zahlung -->
-    <div id="tabPane-payment" style="display:none;flex-direction:column;gap:13px">
-      <div><label class="flabel">ZAHLUNGSVEREINBARUNG</label>
-        <textarea id="koopPayNotes" rows="3" class="finput"
-                  placeholder="z.B. Zahlung innerhalb 14 Tage nach Posting, 50% Vorauszahlung…"></textarea></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div><label class="flabel">ZAHLUNGSZIEL</label>
-          <input id="koopPayDue" type="date" class="finput"></div>
-        <div><label class="flabel">RECHNUNGSNUMMER</label>
-          <input id="koopInvoiceNr" type="text" placeholder="RE-2025-001" class="finput"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div><label class="flabel">RECHNUNG GESENDET AM</label>
-          <input id="koopInvoiceSent" type="date" class="finput"></div>
-        <div><label class="flabel">ZAHLUNG ERHALTEN AM</label>
-          <input id="koopPaidAt" type="date" class="finput"></div>
-      </div>
-      <!-- Status-Visual -->
-      <div style="background:var(--surface2);border-radius:10px;padding:14px;margin-top:4px">
-        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:12px">ZAHLUNGSSTATUS</div>
-        <div style="display:flex;align-items:center;gap:0">
-          <div class="pay-step" id="ps-offen" style="flex:1;text-align:center">
-            <div style="width:28px;height:28px;border-radius:50%;border:2px solid var(--border);
-                        background:var(--surface);margin:0 auto 5px;display:flex;align-items:center;justify-content:center;
-                        font-size:11px;color:var(--muted)">1</div>
+      <!-- Notizen -->
+      <div><label class="flabel">NOTIZEN</label>
+        <textarea id="koopNotes" rows="2" class="finput" placeholder="Briefing, Besonderheiten…"></textarea></div>
+
+      <!-- ── Zahlungsabwicklung ── -->
+      <div style="border-top:1px solid var(--border);padding-top:14px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:12px">
+          <i class="fa-solid fa-file-invoice-dollar"></i> ZAHLUNGSABWICKLUNG</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label class="flabel">RECHNUNG GESENDET AM</label>
+            <input id="koopInvoiceSent" type="date" class="finput" oninput="updatePayProgress()"></div>
+          <div><label class="flabel">ZAHLUNG ERHALTEN AM</label>
+            <input id="koopPaidAt" type="date" class="finput" oninput="updatePayProgress()"></div>
+        </div>
+        <!-- Fortschrittsanzeige -->
+        <div style="display:flex;align-items:center;margin-top:12px;gap:0" id="payProgress">
+          <div id="pp1" style="flex:1;text-align:center">
+            <div style="width:26px;height:26px;border-radius:50%;border:2px solid var(--border);background:var(--surface);
+                        margin:0 auto 4px;font-size:11px;color:var(--muted);display:flex;align-items:center;justify-content:center">1</div>
             <div style="font-size:10px;color:var(--muted)">Offen</div>
           </div>
-          <div style="flex:2;height:2px;background:var(--border);margin-bottom:20px" id="pay-line-1"></div>
-          <div class="pay-step" id="ps-rechnung" style="flex:1;text-align:center">
-            <div style="width:28px;height:28px;border-radius:50%;border:2px solid var(--border);
-                        background:var(--surface);margin:0 auto 5px;display:flex;align-items:center;justify-content:center;
-                        font-size:11px;color:var(--muted)">2</div>
+          <div id="pp-line1" style="flex:2;height:2px;background:var(--border);margin-bottom:20px"></div>
+          <div id="pp2" style="flex:1;text-align:center">
+            <div style="width:26px;height:26px;border-radius:50%;border:2px solid var(--border);background:var(--surface);
+                        margin:0 auto 4px;font-size:11px;color:var(--muted);display:flex;align-items:center;justify-content:center">2</div>
             <div style="font-size:10px;color:var(--muted)">Rechnung</div>
           </div>
-          <div style="flex:2;height:2px;background:var(--border);margin-bottom:20px" id="pay-line-2"></div>
-          <div class="pay-step" id="ps-bezahlt" style="flex:1;text-align:center">
-            <div style="width:28px;height:28px;border-radius:50%;border:2px solid var(--border);
-                        background:var(--surface);margin:0 auto 5px;display:flex;align-items:center;justify-content:center;
-                        font-size:11px;color:var(--muted)">3</div>
+          <div id="pp-line2" style="flex:2;height:2px;background:var(--border);margin-bottom:20px"></div>
+          <div id="pp3" style="flex:1;text-align:center">
+            <div style="width:26px;height:26px;border-radius:50%;border:2px solid var(--border);background:var(--surface);
+                        margin:0 auto 4px;font-size:11px;color:var(--muted);display:flex;align-items:center;justify-content:center">3</div>
             <div style="font-size:10px;color:var(--muted)">Bezahlt</div>
           </div>
         </div>
+        <div style="margin-top:8px">
+          <label class="flabel">ZAHLUNGSNOTIZ</label>
+          <input id="koopPayNotes" type="text" placeholder="z.B. 30 Tage Zahlungsziel, 50% Vorauszahlung…" class="finput">
+        </div>
       </div>
-    </div>
 
-    <div style="display:flex;gap:10px;margin-top:18px">
-      <button onclick="closeKoopModal()" class="btn btn-ghost" style="flex:1">Abbrechen</button>
-      <button onclick="saveKoop()" class="btn btn-primary" style="flex:2">
-        <i class="fa-solid fa-check"></i> Speichern</button>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button onclick="closeKoopModal()" class="btn btn-ghost" style="flex:1">Abbrechen</button>
+        <button onclick="saveKoop()" class="btn btn-primary" style="flex:2">
+          <i class="fa-solid fa-check"></i> Speichern</button>
+      </div>
     </div>
   </div>
 </div>
@@ -290,14 +252,15 @@
 <style>
 .flabel { font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:5px }
 .finput  { width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-           color:var(--text);font-family:var(--font-body);font-size:13px;
-           padding:9px 11px;box-sizing:border-box;line-height:1.4;resize:vertical }
+           color:var(--text);font-family:var(--font-body);font-size:13px;padding:9px 11px;
+           box-sizing:border-box;line-height:1.4;resize:vertical }
 .koop-card { background:var(--surface);border:1px solid var(--border);border-radius:12px;
              padding:14px 18px;cursor:pointer;transition:border-color .15s,box-shadow .15s }
-.koop-card:hover { border-color:var(--accent);box-shadow:0 2px 12px rgba(0,0,0,.1) }
+.koop-card:hover { border-color:var(--accent);box-shadow:0 2px 12px rgba(0,0,0,.12) }
 .pipe-card { background:var(--surface);border:1px solid var(--border);border-radius:10px;
              padding:12px;cursor:pointer;transition:border-color .15s }
 .pipe-card:hover { border-color:var(--accent) }
+.fc-active { background:rgba(59,130,246,.15) !important;border-color:var(--accent) !important;color:var(--accent2) !important }
 </style>
 {% endblock %}
 
@@ -310,6 +273,15 @@ let activeView   = 'liste';
 let detailKoopId = null;
 let revenueChart = null;
 
+// Format-Picker State
+const FORMAT_DEF = [
+  { key:'feed',     label:'Feed-Beitrag', icon:'fa-image' },
+  { key:'reel',     label:'Reel',         icon:'fa-film' },
+  { key:'carousel', label:'Karussell',    icon:'fa-images' },
+  { key:'story',    label:'Story',        icon:'fa-circle-half-stroke' },
+];
+let formatCounts = { feed:0, reel:0, carousel:0, story:0 };
+
 const STATUS_CFG = {
   anfrage:       { bg:'rgba(245,158,11,.12)',  text:'var(--warning)', label:'Anfrage' },
   aktiv:         { bg:'rgba(34,197,94,.12)',   text:'var(--success)', label:'Aktiv' },
@@ -317,9 +289,9 @@ const STATUS_CFG = {
   storniert:     { bg:'rgba(239,68,68,.1)',    text:'#ef4444',        label:'Storniert' },
 };
 const PAY_CFG = {
-  offen:             { text:'Offen',             color:'var(--muted)',    step:1 },
-  rechnungsgestellt: { text:'Rechnung gestellt', color:'var(--warning)',  step:2 },
-  bezahlt:           { text:'Bezahlt',           color:'var(--success)',  step:3 },
+  offen:             { text:'Offen',             color:'var(--muted)',   step:1 },
+  rechnungsgestellt: { text:'Rechnung gestellt', color:'var(--warning)', step:2 },
+  bezahlt:           { text:'Bezahlt',           color:'var(--success)', step:3 },
 };
 const TYPE_LABELS = { paid_post:'Paid Post',ugc:'UGC',collab:'Collab',
                       sponsoring:'Sponsoring',product:'Produkt-Koop',other:'Sonstiges' };
@@ -333,7 +305,6 @@ async function loadKoops() {
   koops = await r.json();
   updateKPIs(); renderAll();
 }
-
 function renderAll() { renderKoops(); renderPipeline(); renderTimeline(); }
 
 // ── Chart ──────────────────────────────────────────────────────
@@ -343,157 +314,136 @@ async function loadChart() {
     const d = await r.json();
     const ctx = document.getElementById('revenueChart').getContext('2d');
     if (revenueChart) revenueChart.destroy();
+    Chart.defaults.color = '#ffffff';
     revenueChart = new Chart(ctx, {
       type: 'bar',
       data: {
         labels: d.labels,
         datasets: [
-          { label: 'Bezahlt', data: d.bezahlt, backgroundColor: 'rgba(34,197,94,.7)', borderRadius: 4, stack: 'a' },
-          { label: 'Ausstehend', data: d.ausstehend, backgroundColor: 'rgba(249,115,22,.5)', borderRadius: 4, stack: 'a' },
+          { label:'Bezahlt',    data:d.bezahlt,    backgroundColor:'rgba(34,197,94,.75)',  borderRadius:4, stack:'a' },
+          { label:'Ausstehend', data:d.ausstehend, backgroundColor:'rgba(249,115,22,.55)', borderRadius:4, stack:'a' },
         ]
       },
       options: {
-        responsive: true, maintainAspectRatio: true,
-        plugins: { legend: { display: false }, tooltip: {
-          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.raw.toLocaleString('de-DE',{style:'currency',currency:'EUR'})}` }
+        responsive:true, maintainAspectRatio:true,
+        plugins: { legend:{ display:false }, tooltip:{
+          callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${ctx.raw.toLocaleString('de-DE',{style:'currency',currency:'EUR'})}` }
         }},
         scales: {
-          x: { stacked: true, grid: { display: false },
-               ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 10 } } },
-          y: { stacked: true, grid: { color: 'rgba(255,255,255,0.07)' },
-               ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 10 },
-                        callback: v => v.toLocaleString('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}) } }
+          x: { stacked:true, grid:{ display:false }, ticks:{ color:'#ffffff', font:{ size:10 } } },
+          y: { stacked:true, grid:{ color:'rgba(255,255,255,.08)' },
+               ticks:{ color:'#ffffff', font:{ size:10 },
+                 callback: v => v.toLocaleString('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}) } }
         }
       }
     });
-  } catch(e) { console.warn('Chart-Fehler:', e); }
+  } catch(e) { console.warn('Chart:', e); }
 }
 
-// ── KPIs ────────────────────────────────────────────────────────
+// ── KPIs ──────────────────────────────────────────────────────
 function updateKPIs() {
-  const total  = koops.length;
-  const active = koops.filter(k => k.status === 'aktiv').length;
-  const pending = koops.filter(k => k.amount && k.payment_status !== 'bezahlt' && k.status !== 'storniert')
-    .reduce((s,k) => s + k.amount, 0);
-  const paid = koops.filter(k => k.amount && k.payment_status === 'bezahlt')
-    .reduce((s,k) => s + k.amount, 0);
-  const due = koops.filter(k =>
-    k.deadline && k.status !== 'abgeschlossen' && k.status !== 'storniert' &&
-    (new Date(k.deadline) - Date.now()) < 7*86400000 && new Date(k.deadline) > Date.now()
-  ).length;
-  document.getElementById('kpi-total').textContent  = total || '—';
-  document.getElementById('kpi-active').textContent = active || '—';
+  document.getElementById('kpi-total').textContent  = koops.length || '—';
+  document.getElementById('kpi-active').textContent = koops.filter(k=>k.status==='aktiv').length || '—';
+  const pending = koops.filter(k=>k.amount && k.payment_status!=='bezahlt' && k.status!=='storniert').reduce((s,k)=>s+k.amount,0);
+  const paid    = koops.filter(k=>k.amount && k.payment_status==='bezahlt').reduce((s,k)=>s+k.amount,0);
+  const today   = new Date().toISOString().slice(0,10);
+  // Koops wo erstes Posting > 21 Tage und keine Rechnung
+  const invoiceDue = koops.filter(k => {
+    if (k.invoice_sent_at || k.payment_received_at || !k.posting_dates?.length) return false;
+    const first = k.posting_dates.sort()[0];
+    return first && Math.ceil((Date.now() - new Date(first)) / 86400000) >= 21;
+  }).length;
   document.getElementById('kpi-pending').textContent = pending > 0 ? fmt(pending) : '—';
   document.getElementById('kpi-revenue').textContent = paid > 0 ? fmt(paid) : '—';
-  document.getElementById('kpi-due').textContent = due || '—';
+  document.getElementById('kpi-invoice').textContent = invoiceDue || '—';
 }
-
 function fmt(n) { return n.toLocaleString('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}); }
 
-// ── View Toggle ─────────────────────────────────────────────────
+// ── View ──────────────────────────────────────────────────────
 function setView(v) {
   activeView = v;
   ['liste','pipeline','timeline'].forEach(vv => {
-    document.getElementById(`view-${vv}`).style.display = vv === v ? 'block' : 'none';
+    document.getElementById(`view-${vv}`).style.display = vv===v ? 'block' : 'none';
     const b = document.getElementById(`viewBtn-${vv}`);
-    b.style.background = vv === v ? 'var(--accent)' : 'var(--surface2)';
-    b.style.color      = vv === v ? 'white' : 'var(--muted)';
+    b.style.background = vv===v ? 'var(--accent)' : 'var(--surface2)';
+    b.style.color      = vv===v ? 'white' : 'var(--muted)';
   });
 }
 
-// ── Filter & Sort ────────────────────────────────────────────────
+// ── Filter/Sort ────────────────────────────────────────────────
 function filterStatus(f, btn) {
   activeFilter = f;
-  document.querySelectorAll('[data-filter]').forEach(b => {
-    b.style.background = 'var(--surface)'; b.style.color = 'var(--muted)';
-  });
-  btn.style.background = 'var(--accent)'; btn.style.color = 'white';
+  document.querySelectorAll('[data-filter]').forEach(b => { b.style.background='var(--surface)'; b.style.color='var(--muted)'; });
+  btn.style.background='var(--accent)'; btn.style.color='white';
   renderKoops();
 }
-
 function getFiltered() {
-  const q   = (document.getElementById('searchInput')?.value || '').toLowerCase();
-  const acc = document.getElementById('accountFilter')?.value || '';
+  const q   = (document.getElementById('searchInput')?.value||'').toLowerCase();
+  const acc = document.getElementById('accountFilter')?.value||'';
   let list  = koops.filter(k =>
-    (activeFilter === 'all' || k.status === activeFilter) &&
-    (!acc || String(k.account_id) === acc) &&
+    (activeFilter==='all' || k.status===activeFilter) &&
+    (!acc || String(k.account_id)===acc) &&
     (!q || k.partner_name.toLowerCase().includes(q) || (k.account_name||'').toLowerCase().includes(q))
   );
-  const sort = document.getElementById('sortSelect')?.value || 'newest';
-  if (sort === 'amount_desc') list = list.sort((a,b) => (b.amount||0) - (a.amount||0));
-  else if (sort === 'amount_asc') list = list.sort((a,b) => (a.amount||0) - (b.amount||0));
-  else if (sort === 'deadline') list = list.sort((a,b) => (a.deadline||'9999') < (b.deadline||'9999') ? -1 : 1);
-  // newest: already server-sorted by created_at desc
+  const sort = document.getElementById('sortSelect')?.value||'newest';
+  if (sort==='amount_desc') list = list.sort((a,b)=>(b.amount||0)-(a.amount||0));
+  else if (sort==='amount_asc') list = list.sort((a,b)=>(a.amount||0)-(b.amount||0));
   return list;
 }
 
 // ════════════════════════════════════════════════════════════
-// LISTE-VIEW
+// LISTE
 // ════════════════════════════════════════════════════════════
 function renderKoops() {
   const list = document.getElementById('koopList');
   const filtered = getFiltered();
-  if (!filtered.length) {
-    list.innerHTML = `<div style="text-align:center;color:var(--muted);padding:50px 20px;font-size:13px">Keine Einträge.</div>`;
-    return;
-  }
-  const today = new Date().toISOString().slice(0,10);
-  list.innerHTML = filtered.map(k => koopCard(k, today)).join('');
+  if (!filtered.length) { list.innerHTML=`<div style="text-align:center;color:var(--muted);padding:50px;font-size:13px">Keine Einträge.</div>`; return; }
+  list.innerHTML = filtered.map(k => koopCard(k)).join('');
 }
 
-function koopCard(k, today) {
-  const sc      = STATUS_CFG[k.status] || STATUS_CFG.anfrage;
-  const pc      = PAY_CFG[k.payment_status] || PAY_CFG.offen;
-  const overdue = k.deadline && k.deadline < today && k.status !== 'abgeschlossen' && k.status !== 'storniert';
-  const daysLeft= k.deadline ? Math.ceil((new Date(k.deadline) - Date.now()) / 86400000) : null;
-  const done    = (k.deliverables||[]).filter(d=>d.done).length;
-  const total_d = (k.deliverables||[]).length;
-  const stars   = k.partner_rating ? '★'.repeat(k.partner_rating)+'☆'.repeat(5-k.partner_rating) : '';
+function deliverablesSummary(k) {
+  if (!k.deliverables?.length) return '';
+  const parts = [];
+  k.deliverables.forEach(d => {
+    if (d.count && d.type) parts.push(`${d.count}× ${d.label||d.type}`);
+    else if (d.text) parts.push(d.text);
+  });
+  return parts.join(', ');
+}
 
-  // Zahlungs-Indikator
+function koopCard(k) {
+  const sc = STATUS_CFG[k.status]||STATUS_CFG.anfrage;
+  const pc = PAY_CFG[k.payment_status]||PAY_CFG.offen;
+  const dSummary = deliverablesSummary(k);
+  const firstPosting = k.posting_dates?.length ? k.posting_dates.sort()[0] : null;
   let payIcon = '';
   if (k.amount) {
-    if (k.payment_status === 'bezahlt') payIcon = `<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:rgba(34,197,94,.12);color:var(--success)">✓ Bezahlt</span>`;
-    else if (k.payment_status === 'rechnungsgestellt') payIcon = `<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:rgba(245,158,11,.12);color:var(--warning)">Rechnung gestellt</span>`;
-    else payIcon = `<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:var(--surface2);color:var(--muted)">Offen</span>`;
+    if (k.payment_status==='bezahlt') payIcon=`<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:rgba(34,197,94,.12);color:var(--success)">✓ Bezahlt</span>`;
+    else if (k.payment_status==='rechnungsgestellt') payIcon=`<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:rgba(245,158,11,.12);color:var(--warning)">Rechnung gestellt</span>`;
+    else payIcon=`<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:var(--surface2);color:var(--muted)">Offen</span>`;
   }
-
-  return `<div class="koop-card" onclick="openDetail(${k.id})"
-               style="border-color:${overdue?'rgba(239,68,68,.4)':'var(--border)'}">
+  return `<div class="koop-card" onclick="openDetail(${k.id})">
     <div style="display:flex;align-items:flex-start;gap:14px">
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap">
           <span style="font-size:15px;font-weight:700">${esc(k.partner_name)}</span>
-          <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;
-                       background:${sc.bg};color:${sc.text}">${sc.label}</span>
-          <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;
-                       background:var(--surface2);color:var(--muted)">${TYPE_LABELS[k.koop_type]||k.koop_type}</span>
+          <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;background:${sc.bg};color:${sc.text}">${sc.label}</span>
+          <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;background:var(--surface2);color:var(--muted)">${TYPE_LABELS[k.koop_type]||k.koop_type}</span>
           ${k.account_name ? `<span style="font-size:10px;color:var(--muted)">${esc(k.account_name)}</span>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--muted)">
           ${k.contact_name ? `<span><i class="fa-solid fa-user fa-xs"></i> ${esc(k.contact_name)}</span>` : ''}
-          ${total_d ? `<span><i class="fa-solid fa-list-check fa-xs"></i> ${done}/${total_d}</span>` : ''}
-          ${stars ? `<span style="color:#eab308;letter-spacing:1px">${stars}</span>` : ''}
+          ${firstPosting ? `<span><i class="fa-regular fa-calendar fa-xs"></i> ${firstPosting}${k.posting_dates.length>1?' +'+((k.posting_dates.length-1)+'×'):''}</span>` : ''}
+          ${dSummary ? `<span><i class="fa-solid fa-list-check fa-xs"></i> ${esc(dSummary)}</span>` : ''}
           ${payIcon}
         </div>
-        ${k.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;overflow:hidden;
-                                  white-space:nowrap;text-overflow:ellipsis;max-width:380px">${esc(k.notes)}</div>` : ''}
+        ${k.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:380px">${esc(k.notes)}</div>` : ''}
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
         ${k.amount ? `<div style="font-size:15px;font-weight:700;color:var(--success)">${fmt(k.amount)}</div>` : ''}
-        ${k.deadline ? `<div style="font-size:11px;padding:3px 10px;border-radius:8px;font-weight:700;
-                              background:${overdue?'rgba(239,68,68,.12)':daysLeft<=3?'rgba(245,158,11,.12)':'var(--surface2)'};
-                              color:${overdue?'#ef4444':daysLeft<=3?'var(--warning)':'var(--muted)'}">
-          ${overdue?'⚠ Überfällig':daysLeft===0?'Heute!':daysLeft>0?`noch ${daysLeft}T`:''} · ${k.deadline}</div>` : ''}
-        <div style="display:flex;gap:5px;margin-top:2px" onclick="event.stopPropagation()">
-          <button onclick="editKoop(${k.id})"
-                  style="padding:5px 9px;border-radius:7px;border:1px solid var(--border);
-                         background:var(--surface2);color:var(--muted);cursor:pointer;font-size:11px">
-            <i class="fa-solid fa-pen"></i></button>
-          <button onclick="deleteKoop(${k.id})"
-                  style="padding:5px 9px;border-radius:7px;border:1px solid var(--border);
-                         background:var(--surface2);color:var(--muted);cursor:pointer;font-size:11px">
-            <i class="fa-solid fa-trash"></i></button>
+        <div style="display:flex;gap:5px;margin-top:4px" onclick="event.stopPropagation()">
+          <button onclick="editKoop(${k.id})" style="padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:11px"><i class="fa-solid fa-pen"></i></button>
+          <button onclick="deleteKoop(${k.id})" style="padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:11px"><i class="fa-solid fa-trash"></i></button>
         </div>
       </div>
     </div>
@@ -504,46 +454,35 @@ function koopCard(k, today) {
 // PIPELINE
 // ════════════════════════════════════════════════════════════
 function renderPipeline() {
-  const cols = { anfrage:[], aktiv:[], abgeschlossen:[], storniert:[] };
-  koops.forEach(k => { if (cols[k.status]) cols[k.status].push(k); });
-  Object.entries(cols).forEach(([status, items]) => {
+  const cols = { anfrage:[],aktiv:[],abgeschlossen:[],storniert:[] };
+  koops.forEach(k => { if(cols[k.status]) cols[k.status].push(k); });
+  Object.entries(cols).forEach(([status,items]) => {
     document.getElementById(`pipe-count-${status}`).textContent = items.length;
     const col = document.getElementById(`pipe-${status}`);
-    if (!items.length) { col.innerHTML = `<div style="text-align:center;color:var(--muted);font-size:11px;padding:20px 0;opacity:.4">Leer</div>`; return; }
-    col.innerHTML = items.map(k => pipeCard(k)).join('');
+    if (!items.length) { col.innerHTML=`<div style="text-align:center;color:var(--muted);font-size:11px;padding:20px 0;opacity:.4">Leer</div>`; return; }
+    col.innerHTML = items.map(k => {
+      const sc  = STATUS_CFG[k.status]||STATUS_CFG.anfrage;
+      const idx = STATUS_ORDER.indexOf(k.status);
+      const prevS = idx>0 ? STATUS_ORDER[idx-1] : null;
+      const nextS = idx<2 ? STATUS_ORDER[idx+1] : null;
+      const firstPosting = k.posting_dates?.length ? k.posting_dates.sort()[0] : null;
+      return `<div class="pipe-card" onclick="openDetail(${k.id})">
+        <div style="font-size:13px;font-weight:700;margin-bottom:2px">${esc(k.partner_name)}</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px">${esc(k.account_name||'')} · ${TYPE_LABELS[k.koop_type]||''}</div>
+        ${k.amount ? `<div style="font-size:13px;font-weight:700;color:var(--success);margin-bottom:3px">${fmt(k.amount)}</div>` : ''}
+        ${firstPosting ? `<div style="font-size:10px;color:var(--muted)"><i class="fa-regular fa-calendar fa-xs"></i> ${firstPosting}</div>` : ''}
+        <div style="display:flex;gap:4px;margin-top:8px" onclick="event.stopPropagation()">
+          ${prevS ? `<button onclick="quickStatus(${k.id},'${prevS}')" style="flex:1;padding:4px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:10px">← ${STATUS_CFG[prevS].label}</button>` : '<div style="flex:1"></div>'}
+          ${nextS ? `<button onclick="quickStatus(${k.id},'${nextS}')" style="flex:1;padding:4px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:${STATUS_CFG[nextS].text};cursor:pointer;font-size:10px">${STATUS_CFG[nextS].label} →</button>` : '<div style="flex:1"></div>'}
+          <button onclick="quickStatus(${k.id},'storniert')" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:10px" title="Stornieren">✕</button>
+        </div>
+      </div>`;
+    }).join('');
   });
-}
-
-function pipeCard(k) {
-  const sc  = STATUS_CFG[k.status] || STATUS_CFG.anfrage;
-  const idx = STATUS_ORDER.indexOf(k.status);
-  const prevS = idx > 0 ? STATUS_ORDER[idx-1] : null;
-  const nextS = idx < 2 ? STATUS_ORDER[idx+1] : null;
-  const daysLeft = k.deadline ? Math.ceil((new Date(k.deadline)-Date.now())/86400000) : null;
-  return `<div class="pipe-card" onclick="openDetail(${k.id})">
-    <div style="font-size:13px;font-weight:700;margin-bottom:2px">${esc(k.partner_name)}</div>
-    <div style="font-size:10px;color:var(--muted);margin-bottom:6px">${esc(k.account_name||'')} · ${TYPE_LABELS[k.koop_type]||''}</div>
-    ${k.amount ? `<div style="font-size:13px;font-weight:700;color:var(--success);margin-bottom:3px">${fmt(k.amount)}</div>` : ''}
-    ${k.deadline ? `<div style="font-size:10px;color:${daysLeft!==null&&daysLeft<0?'#ef4444':daysLeft!==null&&daysLeft<=3?'var(--warning)':'var(--muted)'}">
-      <i class="fa-regular fa-calendar fa-xs"></i> ${k.deadline}${daysLeft!==null&&daysLeft<0?' ⚠':''}</div>` : ''}
-    <div style="display:flex;gap:4px;margin-top:8px" onclick="event.stopPropagation()">
-      ${prevS ? `<button onclick="quickStatus(${k.id},'${prevS}')"
-        style="flex:1;padding:4px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);
-               color:var(--muted);cursor:pointer;font-size:10px">← ${STATUS_CFG[prevS].label}</button>` : '<div style="flex:1"></div>'}
-      ${nextS ? `<button onclick="quickStatus(${k.id},'${nextS}')"
-        style="flex:1;padding:4px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);
-               color:${STATUS_CFG[nextS].text};cursor:pointer;font-size:10px">${STATUS_CFG[nextS].label} →</button>` : '<div style="flex:1"></div>'}
-      <button onclick="quickStatus(${k.id},'storniert')"
-        style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);
-               color:var(--muted);cursor:pointer;font-size:10px" title="Stornieren">✕</button>
-    </div>
-  </div>`;
 }
 
 async function quickStatus(id, status) {
-  await fetch(`/api/kooperationen/${id}/status`, {
-    method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status})
-  });
+  await fetch(`/api/kooperationen/${id}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status}) });
   await loadKoops(); loadChart();
 }
 
@@ -555,20 +494,19 @@ function renderTimeline() {
   const today = new Date(); today.setHours(0,0,0,0);
   const WEEKS = 8;
   const weeks = [];
-  for (let w=0; w<WEEKS; w++) {
-    const s = new Date(today); s.setDate(s.getDate() + w*7);
-    const e = new Date(s);     e.setDate(e.getDate() + 6);
-    weeks.push({ start:s, end:e, label: w===0?'Diese Woche':`+${w}W` });
+  for (let w=0;w<WEEKS;w++) {
+    const s=new Date(today); s.setDate(s.getDate()+w*7);
+    const e=new Date(s); e.setDate(e.getDate()+6);
+    weeks.push({ start:s, end:e, label:w===0?'Diese Woche':`+${w}W` });
   }
   const todayStr = today.toISOString().slice(0,10);
-  const active   = koops.filter(k => k.deadline && k.status !== 'storniert')
-    .sort((a,b) => a.deadline.localeCompare(b.deadline));
-  const overdue  = active.filter(k => k.deadline < todayStr && k.status !== 'abgeschlossen');
-  const inRange  = active.filter(k => k.deadline >= todayStr);
-  const noDeadl  = koops.filter(k => !k.deadline && k.status !== 'storniert');
+  const withDate = koops.filter(k=>k.posting_dates?.length && k.status!=='storniert')
+    .sort((a,b)=>(a.posting_dates.sort()[0]||'').localeCompare(b.posting_dates.sort()[0]||''));
+  const noDate   = koops.filter(k=>!k.posting_dates?.length && k.status!=='storniert');
+  const overdue  = withDate.filter(k=>k.posting_dates.sort()[0] < todayStr && k.status!=='abgeschlossen');
+  const inRange  = withDate.filter(k=>k.posting_dates.sort()[0] >= todayStr);
 
   let html = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden">`;
-  // Header
   html += `<div style="display:grid;grid-template-columns:160px repeat(${WEEKS},1fr);border-bottom:1px solid var(--border)">
     <div style="padding:10px 14px;font-size:10px;font-weight:700;color:var(--muted)">KOOPERATION</div>`;
   weeks.forEach((w,i) => {
@@ -579,58 +517,31 @@ function renderTimeline() {
   });
   html += `</div>`;
 
-  const makeRow = (k, isOverdue) => {
-    const sc = STATUS_CFG[k.status] || STATUS_CFG.anfrage;
-    const deadlineDate = new Date(k.deadline);
-    const startDate    = k.start_date ? new Date(k.start_date) : null;
+  const makeRow = (k, isPast) => {
+    const sc = STATUS_CFG[k.status]||STATUS_CFG.anfrage;
+    const dates = (k.posting_dates||[]).sort();
     const cells = weeks.map((w,wi) => {
-      const inWeek = deadlineDate >= w.start && deadlineDate <= w.end;
-      const span   = startDate && startDate <= w.end && deadlineDate >= w.start;
-      const dL = Math.ceil((deadlineDate - today) / 86400000);
-      let inner = '';
-      if (inWeek) inner = `<div style="text-align:center;padding:2px">
-          <div style="width:24px;height:24px;border-radius:50%;
-               background:${isOverdue?'#ef4444':dL<=3?'var(--warning)':sc.text};
-               margin:0 auto 2px;display:flex;align-items:center;justify-content:center">
-            <i class="fa-solid fa-flag" style="color:white;font-size:9px"></i></div>
-          <div style="font-size:8px;color:${isOverdue?'#ef4444':'var(--muted)'}">${isOverdue?'überfällig':dL===0?'heute':dL+'T'}</div>
-        </div>`;
-      else if (span) inner = `<div style="height:3px;border-radius:2px;background:${sc.text};opacity:.25;margin:11px 4px"></div>`;
-      return `<div style="border-left:1px solid var(--border);background:${wi===0?'rgba(59,130,246,.03)':''}">${inner}</div>`;
+      const inWeek = dates.some(d => { const dd=new Date(d); return dd>=w.start&&dd<=w.end; });
+      return `<div style="border-left:1px solid var(--border);background:${wi===0?'rgba(59,130,246,.03)':''};
+                          padding:4px;display:flex;align-items:center;justify-content:center">
+        ${inWeek ? `<div style="width:22px;height:22px;border-radius:50%;
+                                background:${isPast?'#ef4444':sc.text};
+                                display:flex;align-items:center;justify-content:center">
+          <i class="fa-solid fa-camera" style="color:white;font-size:9px"></i></div>` : ''}
+      </div>`;
     }).join('');
     return `<div style="display:grid;grid-template-columns:160px repeat(${WEEKS},1fr);
                         border-top:1px solid var(--border);cursor:pointer" onclick="openDetail(${k.id})">
       <div style="padding:9px 14px">
         <div style="font-size:12px;font-weight:700;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(k.partner_name)}</div>
-        <div style="font-size:10px;margin-top:1px">
-          <span style="padding:1px 5px;border-radius:5px;background:${sc.bg};color:${sc.text}">${sc.label}</span>
-        </div>
-      </div>${cells}
-    </div>`;
+        <div style="font-size:10px;margin-top:2px"><span style="padding:1px 5px;border-radius:5px;background:${sc.bg};color:${sc.text}">${sc.label}</span></div>
+      </div>${cells}</div>`;
   };
 
-  if (overdue.length) {
-    html += `<div style="padding:7px 14px;font-size:10px;font-weight:700;color:#ef4444;
-                         background:rgba(239,68,68,.05);border-bottom:1px solid var(--border)">⚠ ÜBERFÄLLIG</div>`;
-    overdue.forEach(k => { html += makeRow(k, true); });
-  }
-  inRange.forEach(k => { html += makeRow(k, false); });
-  if (noDeadl.length) {
-    html += `<div style="padding:7px 14px;font-size:10px;font-weight:700;color:var(--muted);
-                         border-top:1px solid var(--border)">OHNE DEADLINE (${noDeadl.length})</div>`;
-    noDeadl.forEach(k => {
-      const sc = STATUS_CFG[k.status] || STATUS_CFG.anfrage;
-      html += `<div style="display:grid;grid-template-columns:160px repeat(${WEEKS},1fr);
-                           border-top:1px solid var(--border);cursor:pointer" onclick="openDetail(${k.id})">
-        <div style="padding:9px 14px">
-          <div style="font-size:12px;font-weight:700">${esc(k.partner_name)}</div>
-          <div style="font-size:10px"><span style="padding:1px 5px;border-radius:5px;background:${sc.bg};color:${sc.text}">${sc.label}</span></div>
-        </div>${weeks.map(()=>`<div style="border-left:1px solid var(--border)"></div>`).join('')}
-      </div>`;
-    });
-  }
-  if (!active.length && !noDeadl.length)
-    html += `<div style="text-align:center;color:var(--muted);padding:50px;font-size:13px">Noch keine Kooperationen.</div>`;
+  if (overdue.length) { html+=`<div style="padding:7px 14px;font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,.05);border-bottom:1px solid var(--border)">⚠ VERGANGENE POSTINGS</div>`; overdue.forEach(k=>{ html+=makeRow(k,true); }); }
+  inRange.forEach(k=>{ html+=makeRow(k,false); });
+  if (noDate.length) { html+=`<div style="padding:7px 14px;font-size:10px;font-weight:700;color:var(--muted);border-top:1px solid var(--border)">OHNE POSTING-DATUM (${noDate.length})</div>`; noDate.forEach(k=>{ const sc=STATUS_CFG[k.status]||STATUS_CFG.anfrage; html+=`<div style="display:grid;grid-template-columns:160px repeat(${WEEKS},1fr);border-top:1px solid var(--border);cursor:pointer" onclick="openDetail(${k.id})"><div style="padding:9px 14px"><div style="font-size:12px;font-weight:700">${esc(k.partner_name)}</div><div style="font-size:10px;margin-top:2px"><span style="padding:1px 5px;border-radius:5px;background:${sc.bg};color:${sc.text}">${sc.label}</span></div></div>${weeks.map(()=>`<div style="border-left:1px solid var(--border)"></div>`).join('')}</div>`; }); }
+  if (!withDate.length && !noDate.length) html+=`<div style="text-align:center;color:var(--muted);padding:50px;font-size:13px">Noch keine Kooperationen.</div>`;
   html += `</div>`;
   wrap.innerHTML = html;
 }
@@ -639,55 +550,22 @@ function renderTimeline() {
 // DETAIL PANEL
 // ════════════════════════════════════════════════════════════
 function openDetail(id) {
-  const k = koops.find(x => x.id === id);
-  if (!k) return;
+  const k = koops.find(x=>x.id===id); if(!k) return;
   detailKoopId = id;
-  const sc  = STATUS_CFG[k.status] || STATUS_CFG.anfrage;
-  const pc  = PAY_CFG[k.payment_status] || PAY_CFG.offen;
-  const stars = k.partner_rating
-    ? `<span style="color:#eab308;font-size:16px;letter-spacing:2px">${'★'.repeat(k.partner_rating)}${'☆'.repeat(5-k.partner_rating)}</span>` : '';
-  const deliverables = k.deliverables || [];
-  const delHTML = deliverables.length
-    ? deliverables.map((d,i) =>
-      `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 0;border-bottom:1px solid var(--border)">
-        <input type="checkbox" ${d.done?'checked':''} onchange="toggleDeliverable(${id},${i},this.checked)"
-               style="accent-color:var(--accent);width:14px;height:14px">
-        <span style="font-size:12px;${d.done?'text-decoration:line-through;opacity:.5':''}">${esc(d.text)}</span>
-      </label>`).join('')
-    : `<div style="font-size:12px;color:var(--muted);opacity:.5">Kein Lieferumfang eingetragen.</div>`;
-
-  // Zahlungs-Timeline
+  const sc = STATUS_CFG[k.status]||STATUS_CFG.anfrage;
+  const pc = PAY_CFG[k.payment_status]||PAY_CFG.offen;
+  const dSummary = deliverablesSummary(k);
+  const dates = (k.posting_dates||[]).sort();
   const step = pc.step;
-  const payTimelineHTML = `
-    <div style="background:var(--surface2);border-radius:10px;padding:14px 16px">
-      <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:14px">ZAHLUNGS-STATUS</div>
-      <div style="display:flex;align-items:center">
-        ${[
-          {key:'offen', label:'Offen', date:''},
-          null,
-          {key:'rechnungsgestellt', label:'Rechnung', date: k.invoice_sent_at ? `<br><span style="font-size:9px;opacity:.7">${k.invoice_sent_at}</span>` : ''},
-          null,
-          {key:'bezahlt', label:'Bezahlt', date: k.payment_received_at ? `<br><span style="font-size:9px;opacity:.7">${k.payment_received_at}</span>` : ''},
-        ].map((s,i) => {
-          if (s === null) return `<div style="flex:2;height:2px;background:${step>Math.floor(i/2)?'var(--accent)':'var(--border)'};margin-bottom:22px"></div>`;
-          const sIdx = {offen:1,rechnungsgestellt:2,bezahlt:3}[s.key];
-          const active = step >= sIdx;
-          return `<div style="flex:1;text-align:center">
-            <div style="width:28px;height:28px;border-radius:50%;border:2px solid ${active?'var(--accent)':'var(--border)'};
-                        background:${active?'var(--accent)':'var(--surface)'};margin:0 auto 5px;
-                        display:flex;align-items:center;justify-content:center;font-size:11px;
-                        color:${active?'white':'var(--muted)'}">${active?'✓':sIdx}</div>
-            <div style="font-size:10px;color:${active?'var(--text)':'var(--muted)'};line-height:1.3">${s.label}${s.date}</div>
-          </div>`;
-        }).join('')}
-      </div>
-      ${k.payment_notes ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)">
-        <i class="fa-solid fa-quote-left fa-xs"></i> ${esc(k.payment_notes)}</div>` : ''}
-      ${k.payment_due_date ? `<div style="margin-top:8px;font-size:11px;color:var(--warning)">
-        <i class="fa-regular fa-clock fa-xs"></i> Zahlungsziel: <strong>${k.payment_due_date}</strong></div>` : ''}
-      ${k.invoice_number ? `<div style="margin-top:4px;font-size:11px;color:var(--muted)">
-        <i class="fa-solid fa-file-invoice fa-xs"></i> Rechnungsnr.: <strong>${esc(k.invoice_number)}</strong></div>` : ''}
-    </div>`;
+
+  const payLine = (active) => `<div style="flex:2;height:2px;background:${active?'var(--accent)':'var(--border)'};margin-bottom:18px"></div>`;
+  const payStep = (n, label, active) => `<div style="flex:1;text-align:center">
+    <div style="width:26px;height:26px;border-radius:50%;border:2px solid ${active?'var(--accent)':'var(--border)'};
+         background:${active?'var(--accent)':'var(--surface)'};margin:0 auto 4px;
+         font-size:11px;color:${active?'white':'var(--muted)'};display:flex;align-items:center;justify-content:center">
+      ${active?'✓':n}</div>
+    <div style="font-size:10px;color:${active?'var(--text)':'var(--muted)'}">${label}</div>
+  </div>`;
 
   document.getElementById('dpTitle').textContent = k.partner_name;
   document.getElementById('dpContent').innerHTML = `
@@ -698,26 +576,36 @@ function openDetail(id) {
         ${k.account_name ? `<span style="padding:4px 12px;border-radius:12px;font-size:11px;background:var(--surface2);color:var(--muted)">${esc(k.account_name)}</span>` : ''}
       </div>
 
-      ${k.amount ? `<div style="background:var(--surface2);border-radius:10px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:2px">BETRAG</div>
-          <div style="font-size:22px;font-weight:700;color:var(--success)">${fmt(k.amount)}</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:2px">STATUS</div>
-          <div style="font-size:13px;font-weight:700;color:${pc.color}">${pc.text}</div>
-        </div>
+      ${k.amount ? `<div style="background:var(--surface2);border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center">
+        <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">BETRAG</div>
+          <div style="font-size:22px;font-weight:700;color:var(--success)">${fmt(k.amount)}</div></div>
+        <div style="text-align:right"><div style="font-size:11px;color:var(--muted);margin-bottom:2px">ZAHLUNG</div>
+          <div style="font-size:13px;font-weight:700;color:${pc.color}">${pc.text}</div></div>
       </div>` : ''}
 
-      ${payTimelineHTML}
+      <!-- Zahlungs-Timeline -->
+      <div style="background:var(--surface2);border-radius:10px;padding:14px 16px">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:12px">ZAHLUNGSVERLAUF</div>
+        <div style="display:flex;align-items:center">
+          ${payStep(1,'Offen',step>=1)}
+          ${payLine(step>=2)}
+          ${payStep(2,'Rechnung',step>=2)}
+          ${payLine(step>=3)}
+          ${payStep(3,'Bezahlt',step>=3)}
+        </div>
+        ${k.invoice_sent_at ? `<div style="margin-top:6px;font-size:11px;color:var(--muted)"><i class="fa-solid fa-paper-plane fa-xs"></i> Rechnung: ${k.invoice_sent_at}</div>` : ''}
+        ${k.payment_received_at ? `<div style="margin-top:4px;font-size:11px;color:var(--success)"><i class="fa-solid fa-check fa-xs"></i> Erhalten: ${k.payment_received_at}</div>` : ''}
+        ${k.payment_notes ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)">${esc(k.payment_notes)}</div>` : ''}
+      </div>
 
-      ${(k.start_date || k.deadline) ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        ${k.start_date ? `<div style="background:var(--surface2);border-radius:8px;padding:10px 12px">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:2px">START</div>
-          <div style="font-size:13px;font-weight:700">${k.start_date}</div></div>` : ''}
-        ${k.deadline ? `<div style="background:var(--surface2);border-radius:8px;padding:10px 12px">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:2px">DEADLINE</div>
-          <div style="font-size:13px;font-weight:700">${k.deadline}</div></div>` : ''}
+      ${dates.length ? `<div>
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px">POSTING-DATUM${dates.length>1?'EN':''}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${dates.map(d=>`<span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:8px;background:var(--surface2)">${d}</span>`).join('')}</div>
+      </div>` : ''}
+
+      ${dSummary ? `<div>
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px">LIEFERUMFANG</div>
+        <div style="font-size:13px;font-weight:600">${esc(dSummary)}</div>
       </div>` : ''}
 
       ${k.contact_name ? `<div>
@@ -725,29 +613,14 @@ function openDetail(id) {
         <div style="font-size:13px">${esc(k.contact_name)}</div>
       </div>` : ''}
 
-      <div>
-        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:7px">
-          LIEFERUMFANG ${deliverables.length ? `<span style="font-weight:400;opacity:.6">— ${deliverables.filter(d=>d.done).length}/${deliverables.length}</span>` : ''}
-        </div>
-        <div id="deliverablesPanel">${delHTML}</div>
-      </div>
-
       ${k.notes ? `<div>
         <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:5px">NOTIZEN</div>
-        <div style="font-size:12px;color:var(--text);line-height:1.6;white-space:pre-wrap;
-                    background:var(--surface2);border-radius:8px;padding:12px">${esc(k.notes)}</div>
-      </div>` : ''}
-
-      ${stars ? `<div>
-        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:5px">BEWERTUNG</div>
-        ${stars}
+        <div style="font-size:12px;color:var(--text);line-height:1.6;white-space:pre-wrap;background:var(--surface2);border-radius:8px;padding:12px">${esc(k.notes)}</div>
       </div>` : ''}
 
       <div style="display:flex;gap:8px;padding-top:8px;border-top:1px solid var(--border)">
-        <button onclick="deleteKoop(${k.id})" class="btn btn-ghost" style="font-size:11px;color:#ef4444">
-          <i class="fa-solid fa-trash"></i> Löschen</button>
-        <button onclick="editKoopFromDetail()" class="btn btn-primary" style="font-size:11px;flex:1">
-          <i class="fa-solid fa-pen"></i> Bearbeiten</button>
+        <button onclick="deleteKoop(${k.id})" class="btn btn-ghost" style="font-size:11px;color:#ef4444"><i class="fa-solid fa-trash"></i> Löschen</button>
+        <button onclick="editKoopFromDetail()" class="btn btn-primary" style="font-size:11px;flex:1"><i class="fa-solid fa-pen"></i> Bearbeiten</button>
       </div>
     </div>`;
 
@@ -760,140 +633,176 @@ function openDetail(id) {
 function closeDetail() {
   const panel = document.getElementById('detailPanel');
   panel.style.transform = 'translateX(100%)';
-  setTimeout(() => {
-    panel.style.display = 'none';
-    document.getElementById('detailOverlay').style.display = 'none';
-  }, 260);
+  setTimeout(() => { panel.style.display='none'; document.getElementById('detailOverlay').style.display='none'; }, 260);
   detailKoopId = null;
 }
 
-async function toggleDeliverable(koopId, idx, done) {
-  const k = koops.find(x => x.id === koopId); if (!k) return;
-  k.deliverables[idx].done = done;
-  await fetch(`/api/kooperationen/${koopId}/deliverables`, {
-    method:'PUT', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ deliverables: k.deliverables })
-  });
-}
-
 function editKoopFromDetail() {
-  const k = koops.find(x => x.id === detailKoopId);
-  if (k) { closeDetail(); setTimeout(() => openKoopModal(k), 280); }
+  const k = koops.find(x=>x.id===detailKoopId);
+  if (k) { closeDetail(); setTimeout(()=>openKoopModal(k), 280); }
 }
 
 // ════════════════════════════════════════════════════════════
-// MODAL + Tab-Handling
+// POSTING DATES UI
 // ════════════════════════════════════════════════════════════
-function switchTab(tab, btn) {
-  ['base','payment'].forEach(t => {
-    document.getElementById(`tabPane-${t}`).style.display = t===tab ? 'flex' : 'none';
-    const b = document.getElementById(`tab-${t}`);
-    b.style.color       = t===tab ? 'var(--accent)' : 'var(--muted)';
-    b.style.borderBottomColor = t===tab ? 'var(--accent)' : 'transparent';
+function addPostingDate(value='') {
+  const container = document.getElementById('postingDateList');
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:6px;align-items:center';
+  div.innerHTML = `<input type="date" value="${value}"
+    style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+           color:var(--text);font-family:var(--font-body);font-size:13px;padding:7px 10px;box-sizing:border-box">
+    <button type="button" onclick="this.parentElement.remove();updatePostingDatesUI()"
+            style="padding:6px 9px;border-radius:7px;border:1px solid var(--border);
+                   background:var(--surface2);color:var(--muted);cursor:pointer;font-size:12px">✕</button>`;
+  container.appendChild(div);
+  updatePostingDatesUI();
+}
+function updatePostingDatesUI() {
+  const count = document.getElementById('postingDateList').querySelectorAll('input').length;
+  document.getElementById('postingDateEmpty').style.display = count ? 'none' : 'block';
+}
+function getPostingDates() {
+  return [...document.getElementById('postingDateList').querySelectorAll('input[type=date]')]
+    .map(i=>i.value).filter(Boolean);
+}
+
+// ════════════════════════════════════════════════════════════
+// FORMAT CHIPS
+// ════════════════════════════════════════════════════════════
+function toggleFormat(key) {
+  formatCounts[key] = formatCounts[key] > 0 ? 0 : 1;
+  renderFormatCounts();
+  updateFormatChips();
+}
+function renderFormatCounts() {
+  const container = document.getElementById('formatCounts');
+  const active = FORMAT_DEF.filter(f => formatCounts[f.key] > 0);
+  container.innerHTML = active.map(f => `
+    <div style="display:flex;align-items:center;justify-content:space-between;
+                padding:7px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+      <span style="font-size:12px;font-weight:700"><i class="fa-solid ${f.icon} fa-xs"></i> ${f.label}</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <button type="button" onclick="changeCount('${f.key}',-1)"
+                style="width:24px;height:24px;border-radius:6px;border:1px solid var(--border);
+                       background:var(--surface);color:var(--text);cursor:pointer;font-size:14px;line-height:1">−</button>
+        <span id="cnt-${f.key}" style="font-size:14px;font-weight:700;min-width:20px;text-align:center">${formatCounts[f.key]}</span>
+        <button type="button" onclick="changeCount('${f.key}',+1)"
+                style="width:24px;height:24px;border-radius:6px;border:1px solid var(--border);
+                       background:var(--surface);color:var(--text);cursor:pointer;font-size:14px;line-height:1">+</button>
+      </div>
+    </div>`).join('');
+}
+function changeCount(key, delta) {
+  formatCounts[key] = Math.max(0, (formatCounts[key]||0) + delta);
+  if (formatCounts[key] === 0) updateFormatChips();
+  renderFormatCounts();
+}
+function updateFormatChips() {
+  FORMAT_DEF.forEach(f => {
+    const btn = document.getElementById(`fc-${f.key}`);
+    if (btn) btn.classList.toggle('fc-active', formatCounts[f.key] > 0);
   });
 }
+function getDeliverables() {
+  return FORMAT_DEF
+    .filter(f => formatCounts[f.key] > 0)
+    .map(f => ({ key:f.key, type:f.key, label:f.label, count:formatCounts[f.key], text:`${formatCounts[f.key]}× ${f.label}`, done:false }));
+}
+function loadDeliverablesToPicker(delivs) {
+  formatCounts = { feed:0, reel:0, carousel:0, story:0 };
+  (delivs||[]).forEach(d => {
+    if (d.type && d.type in formatCounts) formatCounts[d.type] = d.count || 1;
+    else if (d.text) {
+      // Versuche "2× Reel" zu parsen
+      const m = d.text.match(/^(\d+)×\s*(.+)$/);
+      if (m) {
+        const found = FORMAT_DEF.find(f => f.label.toLowerCase() === m[2].toLowerCase().trim());
+        if (found) formatCounts[found.key] = parseInt(m[1]);
+      }
+    }
+  });
+  renderFormatCounts();
+  updateFormatChips();
+}
 
-function updatePaySteps() {
-  const sentDate   = document.getElementById('koopInvoiceSent').value;
-  const paidDate   = document.getElementById('koopPaidAt').value;
-  const step       = paidDate ? 3 : sentDate ? 2 : 1;
-  const STEPS      = ['offen','rechnung','bezahlt'];
-  const STEP_NAMES = ['ps-offen','ps-rechnung','ps-bezahlt'];
-  STEP_NAMES.forEach((id, i) => {
-    const el = document.getElementById(id);
-    if (!el) return;
+// ════════════════════════════════════════════════════════════
+// PAY PROGRESS (Modal)
+// ════════════════════════════════════════════════════════════
+function updatePayProgress() {
+  const sent = document.getElementById('koopInvoiceSent')?.value;
+  const paid = document.getElementById('koopPaidAt')?.value;
+  const step = paid ? 3 : sent ? 2 : 1;
+  for (let i=1;i<=3;i++) {
+    const el = document.getElementById(`pp${i}`);
+    if (!el) continue;
     const circle = el.querySelector('div');
-    const isActive = (i+1) <= step;
-    circle.style.borderColor  = isActive ? 'var(--accent)' : 'var(--border)';
-    circle.style.background   = isActive ? 'var(--accent)' : 'var(--surface)';
-    circle.style.color        = isActive ? 'white' : 'var(--muted)';
-    circle.textContent        = isActive ? '✓' : String(i+1);
-    const lines = ['pay-line-1','pay-line-2'];
-    if (i < 2 && document.getElementById(lines[i]))
-      document.getElementById(lines[i]).style.background = (i+1) < step ? 'var(--accent)' : 'var(--border)';
+    const on = i <= step;
+    circle.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
+    circle.style.background  = on ? 'var(--accent)' : 'var(--surface)';
+    circle.style.color       = on ? 'white' : 'var(--muted)';
+    circle.textContent       = on ? '✓' : String(i);
+  }
+  [1,2].forEach(i => {
+    const line = document.getElementById(`pp-line${i}`);
+    if (line) line.style.background = step>i ? 'var(--accent)' : 'var(--border)';
   });
 }
 
-function setRating(n) {
-  document.getElementById('koopRating').value = n;
-  document.querySelectorAll('#ratingStars button').forEach((b,i) => {
-    b.style.color = i < n ? '#eab308' : 'var(--border)';
-  });
-}
-
+// ════════════════════════════════════════════════════════════
+// MODAL
+// ════════════════════════════════════════════════════════════
 function openKoopModal(koop=null) {
-  document.getElementById('koopId').value         = koop?.id || '';
+  document.getElementById('koopId').value        = koop?.id || '';
   document.getElementById('koopModalTitle').textContent = koop ? 'KOOP BEARBEITEN' : 'NEUE KOOP';
-  document.getElementById('koopPartner').value    = koop?.partner_name || '';
-  document.getElementById('koopContact').value    = koop?.contact_name || '';
-  document.getElementById('koopType').value       = koop?.koop_type || 'paid_post';
-  document.getElementById('koopStatus').value     = koop?.status || 'anfrage';
-  document.getElementById('koopAmount').value     = koop?.amount || '';
-  document.getElementById('koopStart').value      = koop?.start_date || '';
-  document.getElementById('koopDeadline').value   = koop?.deadline || '';
-  document.getElementById('koopNotes').value      = koop?.notes || '';
-  document.getElementById('koopRating').value     = koop?.partner_rating || '';
-  // Zahlung
-  document.getElementById('koopPayNotes').value   = koop?.payment_notes || '';
-  document.getElementById('koopPayDue').value     = koop?.payment_due_date || '';
-  document.getElementById('koopInvoiceNr').value  = koop?.invoice_number || '';
-  document.getElementById('koopInvoiceSent').value= koop?.invoice_sent_at || '';
-  document.getElementById('koopPaidAt').value     = koop?.payment_received_at || '';
-  // Lieferumfang
-  document.getElementById('koopDeliverables').value =
-    (koop?.deliverables||[]).map(d=>d.text||d).join('\n');
-  // Sterne
-  const r = koop?.partner_rating || 0;
-  document.querySelectorAll('#ratingStars button').forEach((b,i) => { b.style.color = i < r ? '#eab308' : 'var(--border)'; });
+  document.getElementById('koopPartner').value   = koop?.partner_name || '';
+  document.getElementById('koopContact').value   = koop?.contact_name || '';
+  document.getElementById('koopType').value      = koop?.koop_type || 'paid_post';
+  document.getElementById('koopStatus').value    = koop?.status || 'anfrage';
+  document.getElementById('koopAmount').value    = koop?.amount || '';
+  document.getElementById('koopNotes').value     = koop?.notes || '';
+  document.getElementById('koopInvoiceSent').value = koop?.invoice_sent_at || '';
+  document.getElementById('koopPaidAt').value    = koop?.payment_received_at || '';
+  document.getElementById('koopPayNotes').value  = koop?.payment_notes || '';
+
+  // Posting-Daten
+  document.getElementById('postingDateList').innerHTML = '';
+  (koop?.posting_dates||[]).sort().forEach(d => addPostingDate(d));
+  updatePostingDatesUI();
+
+  // Format-Picker
+  loadDeliverablesToPicker(koop?.deliverables||[]);
+
   if (koop?.account_id) document.getElementById('koopAccount').value = koop.account_id;
-  switchTab('base', document.getElementById('tab-base'));
+  updatePayProgress();
   document.getElementById('koopModal').style.display = 'flex';
-  // Live-Update Zahlungsschritte
-  ['koopInvoiceSent','koopPaidAt'].forEach(id => {
-    document.getElementById(id).addEventListener('change', updatePaySteps);
-  });
-  updatePaySteps();
 }
 
-function closeKoopModal() { document.getElementById('koopModal').style.display = 'none'; }
-function editKoop(id) { const k = koops.find(x => x.id===id); if (k) openKoopModal(k); }
+function closeKoopModal() { document.getElementById('koopModal').style.display='none'; }
+function editKoop(id) { const k=koops.find(x=>x.id===id); if(k) openKoopModal(k); }
 
 async function saveKoop() {
   const id      = document.getElementById('koopId').value;
   const partner = document.getElementById('koopPartner').value.trim();
   if (!partner) { showToast('Partner-Name erforderlich','error'); return; }
-
-  const existingKoop = id ? koops.find(k => k.id == id) : null;
-  const delivLines = document.getElementById('koopDeliverables').value.split('\n').map(l=>l.trim()).filter(Boolean);
-  const deliverables = delivLines.map(text => {
-    const ex = existingKoop?.deliverables?.find(d=>d.text===text);
-    return { text, done: ex?.done || false };
-  });
-
   const body = {
     account_id:          parseInt(document.getElementById('koopAccount').value),
     partner_name:        partner,
     koop_type:           document.getElementById('koopType').value,
     status:              document.getElementById('koopStatus').value,
     amount:              document.getElementById('koopAmount').value || null,
-    start_date:          document.getElementById('koopStart').value || null,
-    deadline:            document.getElementById('koopDeadline').value || null,
     notes:               document.getElementById('koopNotes').value,
     contact_name:        document.getElementById('koopContact').value,
-    deliverables,
-    partner_rating:      document.getElementById('koopRating').value || null,
-    payment_notes:       document.getElementById('koopPayNotes').value,
-    payment_due_date:    document.getElementById('koopPayDue').value || null,
-    invoice_number:      document.getElementById('koopInvoiceNr').value,
+    deliverables:        getDeliverables(),
+    posting_dates:       getPostingDates(),
     invoice_sent_at:     document.getElementById('koopInvoiceSent').value || null,
     payment_received_at: document.getElementById('koopPaidAt').value || null,
+    payment_notes:       document.getElementById('koopPayNotes').value,
   };
   const url = id ? `/api/kooperationen/${id}` : '/api/kooperationen';
-  const r = await fetch(url, { method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  if (r.ok) {
-    closeKoopModal(); await loadKoops(); loadChart();
-    showToast(id ? 'Koop aktualisiert' : 'Koop gespeichert', 'success');
-  } else { showToast('Fehler beim Speichern','error'); }
+  const r = await fetch(url, { method:id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  if (r.ok) { closeKoopModal(); await loadKoops(); loadChart(); showToast(id?'Koop aktualisiert':'Koop gespeichert','success'); }
+  else showToast('Fehler beim Speichern','error');
 }
 
 async function deleteKoop(id) {
@@ -903,8 +812,6 @@ async function deleteKoop(id) {
   showToast('Gelöscht','info');
 }
 
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 </script>
 {% endblock %}
