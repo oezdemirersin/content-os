@@ -217,6 +217,53 @@
       </div>
     </div>
 
+    <!-- KI-CAPTION & HASHTAGS -->
+    <div class="card" style="padding:20px">
+      <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.5px;margin-bottom:4px;
+                  display:flex;align-items:center;gap:8px">
+        <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent)"></i> KI-CAPTION & HASHTAGS
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">
+        Nur für Stadtmeme- und Stadtnachrichtenaccounts relevant. Leer lassen = keine Hashtags.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <label class="form-label">Standard-Hashtags dieser Seite</label>
+          <input type="text" name="default_hashtags"
+                 value="{{ account.default_hashtags if account else '' }}"
+                 class="input-field"
+                 placeholder="#Frankfurt #Frankfurtmemes #Stadtmemes">
+          <div style="font-size:10px;color:var(--muted);margin-top:4px">
+            Diese Hashtags werden automatisch an jede KI-generierte Caption angehängt.
+          </div>
+        </div>
+        <div>
+          <label class="form-label">
+            Fußball-Hashtag <span style="color:var(--muted);font-weight:400">— optional</span>
+          </label>
+          <input type="text" name="sports_hashtag"
+                 value="{{ account.sports_hashtag if account else '' }}"
+                 class="input-field"
+                 placeholder="#EintrachtFrankfurt">
+          <div style="font-size:10px;color:var(--muted);margin-top:4px">
+            Wird nur angehängt wenn Claude Fußball im Bild erkennt.
+          </div>
+        </div>
+        <div>
+          <label class="form-label">
+            Wetter-Stadt <span style="color:var(--muted);font-weight:400">— für Wetter-Trigger</span>
+          </label>
+          <input type="text" name="weather_city"
+                 value="{{ account.weather_city if account else '' }}"
+                 class="input-field"
+                 placeholder="Frankfurt">
+          <div style="font-size:10px;color:var(--muted);margin-top:4px">
+            Stadt für OpenWeatherMap — z.B. „Frankfurt", „Darmstadt", „Mainz". Leer = Wetter-Trigger deaktiviert.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- NOTIZEN -->
     <div class="card" style="padding:20px">
       <label class="form-label">Notizen</label>
