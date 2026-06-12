@@ -267,8 +267,7 @@ async function autoArchive() {
     const last = d.last_backup
       ? d.last_backup.replace('content_os_','').replace('.db','').replace('_',' ')
       : 'noch keins';
-    line.innerHTML = `Letztes Backup: <strong>${last}</strong> · ${d.db_size_kb} KB · `
-      + `${d.local_backups.length} lokal · ${d.icloud_backups.length} in iCloud`;
+    line.innerHTML = `Letztes Backup: <strong>${last}</strong> · ${d.db_size_kb} KB · ${d.local_backups.length} Kopien gespeichert`;
     list.innerHTML = d.local_backups.slice(0,5).map(f => {
       const label = f.replace('content_os_','').replace('.db','');
       return `<span style="font-size:10px;padding:3px 9px;border-radius:10px;

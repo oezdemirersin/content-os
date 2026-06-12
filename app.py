@@ -33,51 +33,32 @@ app = Flask(__name__, template_folder='templates/cms')
 # ══════════════════════════════════════════════════════════════════════════════
 # DB-BACKUP-SYSTEM — 5 Schutzschichten
 # ══════════════════════════════════════════════════════════════════════════════
-_ICLOUD = os.path.expanduser(
-    '~/Library/Mobile Documents/com~apple~CloudDocs/ContentOS-Backups')
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _DB_PATH  = os.path.join(_BASE_DIR, 'instance', 'content_os.db')
 _LOCAL_BACKUP_DIR = os.path.join(_BASE_DIR, 'db_backups')
 
 
 def _do_backup(label='auto'):
-    """Kopiert die DB in lokales db_backups/ UND iCloud. Gibt Pfad zurück."""
+    """Lokales DB-Backup in db_backups/. Niemals bei Postgres."""
     import shutil, glob
     if 'postgresql' in os.environ.get('DATABASE_URL', ''):
         return None
     if not os.path.exists(_DB_PATH) or os.path.getsize(_DB_PATH) < 4096:
         return None
-    stamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    fname = f'content_os_{label}_{stamp}.db'
-
-    # Schicht 1: Lokales Backup
     os.makedirs(_LOCAL_BACKUP_DIR, exist_ok=True)
-    local_dst = os.path.join(_LOCAL_BACKUP_DIR, fname)
-    shutil.copy2(_DB_PATH, local_dst)
-
-    # Schicht 2: iCloud Backup
-    try:
-        os.makedirs(_ICLOUD, exist_ok=True)
-        shutil.copy2(_DB_PATH, os.path.join(_ICLOUD, fname))
-        # iCloud: max 60 Backups behalten
-        old = sorted(glob.glob(os.path.join(_ICLOUD, '*.db')))[:-60]
-        for f in old:
-            try: os.remove(f)
-            except: pass
-    except Exception:
-        pass  # iCloud optional — nie crashen
-
-    # Lokal: max 30 Backups behalten
+    stamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    dst = os.path.join(_LOCAL_BACKUP_DIR, f'content_os_{label}_{stamp}.db')
+    shutil.copy2(_DB_PATH, dst)
+    # Max 30 Backups behalten
     old = sorted(glob.glob(os.path.join(_LOCAL_BACKUP_DIR, '*.db')))[:-30]
     for f in old:
         try: os.remove(f)
         except: pass
+    return dst
 
-    return local_dst
 
-
-# Schicht 3: Backup beim App-Start
-_auto_backup_result = _do_backup('startup')
+# Backup beim App-Start
+_do_backup('startup')
 
 # ── Emergency-Pause Cache ─────────────────────────────────────────────────────
 # Shared by inject_globals() (every request) AND the scheduler (every 60 s).
@@ -4920,18 +4901,15 @@ def backup_download():
 @app.route('/api/backup/status')
 @login_required
 def backup_status():
-    """Gibt Info über letzte Backups zurück."""
     import glob
     if 'postgresql' in os.environ.get('DATABASE_URL', ''):
         return jsonify({'mode': 'postgres', 'backups': []})
     local_files = sorted(glob.glob(os.path.join(_LOCAL_BACKUP_DIR, '*.db')), reverse=True)[:5]
-    icloud_files = sorted(glob.glob(os.path.join(_ICLOUD, '*.db')), reverse=True)[:3]
     db_size = os.path.getsize(_DB_PATH) if os.path.exists(_DB_PATH) else 0
     return jsonify({
         'mode': 'sqlite',
         'db_size_kb': round(db_size / 1024, 1),
         'local_backups': [os.path.basename(f) for f in local_files],
-        'icloud_backups': [os.path.basename(f) for f in icloud_files],
         'last_backup': os.path.basename(local_files[0]) if local_files else None,
     })
 
