@@ -1595,10 +1595,10 @@ def allowed_file(filename):
 
 # ── App-Einstellungen ─────────────────────────────────────────
 def get_setting(key, default=None):
-    """Liest einen Wert aus AppSettings. Gibt default zurück wenn nicht gesetzt."""
-    with app.app_context():
-        s = AppSettings.query.filter_by(key=key).first()
-        return s.value if s and s.value else default
+    """Liest einen Wert aus AppSettings. Gibt default zurück wenn nicht gesetzt.
+    Muss innerhalb eines App- oder Request-Kontexts aufgerufen werden."""
+    s = AppSettings.query.filter_by(key=key).first()
+    return s.value if s and s.value else default
 
 def set_setting(key, value):
     """Speichert einen Wert in AppSettings (upsert)."""
@@ -1699,9 +1699,21 @@ def get_dashboard_stats(active_accounts=None, days_map=None):
     warning_accounts  = [a for a in active_accounts if _days_to_status(days_map[a.id]) in ('orange', 'yellow')]
     active_alerts = SystemAlert.query.filter_by(resolved=False).count()
 
-    week_ago = datetime.utcnow() - timedelta(days=7)
-    old_snap = db.session.query(func.sum(AnalyticsSnapshot.followers))\
-        .filter(AnalyticsSnapshot.recorded_at <= week_ago).scalar() or 0
+    # Korrektur: nur den letzten Snapshot pro Account für exakt den Stichtag vor 7
+    # Tagen nehmen — nicht alle historischen Snapshots aufsummieren (wäre falsch)
+    week_ago_date = (datetime.utcnow() - timedelta(days=7)).date()
+    _latest_7d = db.session.query(
+        AnalyticsSnapshot.account_id,
+        func.max(AnalyticsSnapshot.recorded_at).label('latest_at')
+    ).filter(
+        func.date(AnalyticsSnapshot.recorded_at) == week_ago_date
+    ).group_by(AnalyticsSnapshot.account_id).subquery()
+    old_snap = db.session.query(func.sum(AnalyticsSnapshot.followers)).join(
+        _latest_7d, db.and_(
+            AnalyticsSnapshot.account_id == _latest_7d.c.account_id,
+            AnalyticsSnapshot.recorded_at == _latest_7d.c.latest_at
+        )
+    ).scalar() or 0
     growth_7d = total_followers - old_snap
 
     return {
@@ -1745,43 +1757,45 @@ def dashboard():
     # NICHT mehr bei jedem Seitenaufruf (war ~30 Extra-Queries pro Load).
     now = datetime.utcnow()
 
-    # ── 1× Accounts laden + 1× Batch-Stock-Query (ersetzt N×6 Queries) ──
-    all_active = Account.query.filter_by(status='active').all()
+    # ── 1× Accounts mit Kategorie laden (verhindert N lazy-loads im Template) ─
+    all_active = Account.query.filter_by(status='active')\
+        .options(joinedload(Account.category)).all()
     days_map   = _get_planned_days_batch(all_active)
 
     # stats nutzt die bereits geladenen Daten (keine eigenen Account-Queries)
     stats = get_dashboard_stats(active_accounts=all_active, days_map=days_map)
 
-    # stock_summary: kein einziger DB-Aufruf mehr (uses days_map)
+    # stock_summary: kein einziger DB-Aufruf (uses days_map)
     stock_summary = {'green': 0, 'yellow': 0, 'orange': 0, 'red': 0}
     for a in all_active:
         stock_summary[_days_to_status(days_map[a.id])] += 1
 
-    # ── Chart: 1 GROUP-BY-Query statt 30 Einzel-Queries ──────────────
-    chart_cutoff = now - timedelta(days=29)
-    snap_rows = db.session.query(
-        func.date(AnalyticsSnapshot.recorded_at).label('d'),
-        func.sum(AnalyticsSnapshot.followers).label('total')
-    ).filter(AnalyticsSnapshot.recorded_at >= chart_cutoff)\
-     .group_by(func.date(AnalyticsSnapshot.recorded_at)).all()
-    snap_dict = {str(r.d): int(r.total or 0) for r in snap_rows}
-    chart_labels, chart_data = [], []
-    for i in range(29, -1, -1):
-        day = now - timedelta(days=i)
-        chart_labels.append(day.strftime('%d.%m'))
-        chart_data.append(snap_dict.get(day.date().isoformat(), 0))
+    # ── Top-10 Accounts für Dashboard-Card: separate Query mit eager-loaded
+    # Thumbnails (scheduled_posts → content_item → media_items), um N+1 zu vermeiden
+    _priority = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+    top_ids = [a.id for a in sorted(
+        all_active,
+        key=lambda a: (_priority.get(a.priority, 2), -(a.follower_count or 0))
+    )[:10]]
+    if top_ids:
+        _acc_q = Account.query.filter(Account.id.in_(top_ids)).options(
+            joinedload(Account.category),
+            selectinload(Account.scheduled_posts)
+                .joinedload(ScheduledPost.content_item)
+                .selectinload(ContentItem.media_items)
+        ).all()
+        _order = {aid: i for i, aid in enumerate(top_ids)}
+        accounts = sorted(_acc_q, key=lambda a: _order.get(a.id, 99))
+    else:
+        accounts = []
 
-    forecast = linear_forecast(chart_data, 14)
-
-    # ── Restliche Queries (nicht weiter optimierbar) ──────────────────
-    accounts       = sorted(all_active, key=lambda a: (
-        {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}.get(a.priority, 2),
-        -(a.follower_count or 0)
-    ))[:10]
     recent_content = ContentItem.query.order_by(ContentItem.created_at.desc()).limit(8).all()
     alerts         = SystemAlert.query.filter_by(resolved=False)\
                          .order_by(SystemAlert.severity.desc()).limit(10).all()
-    recent_activity = ActivityLog.query.order_by(ActivityLog.created_at.desc()).limit(15).all()
+    # joinedload verhindert 15 N+1 Queries für log.user
+    recent_activity = ActivityLog.query\
+        .options(joinedload(ActivityLog.user))\
+        .order_by(ActivityLog.created_at.desc()).limit(15).all()
 
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     posts_today = ScheduledPost.query.filter(
@@ -1789,6 +1803,8 @@ def dashboard():
         ScheduledPost.scheduled_at < today_start + timedelta(days=1),
         ScheduledPost.status.in_(['scheduled', 'published'])
     ).order_by(ScheduledPost.scheduled_at).all()
+    # posts_today-Count aus der bereits gefetchten Liste (kein zweiter COUNT-Query)
+    stats['posts_today'] = len(posts_today)
 
     categories = Category.query.order_by(Category.name).all()
 
@@ -1799,12 +1815,11 @@ def dashboard():
         InspirationPost.suggested_folder_id.isnot(None)
     ).count()
     classify_stats = {'total_new': _total_new, 'classified': _classified,
-                      'pending': _total_new - _classified}
+                      'pending': max(0, _total_new - _classified)}
 
     return render_template('dashboard.html',
         stats=stats, accounts=accounts, recent_content=recent_content, alerts=alerts,
-        chart_labels=json.dumps(chart_labels), chart_data=json.dumps(chart_data),
-        forecast=json.dumps(forecast), stock_summary=stock_summary,
+        stock_summary=stock_summary, days_map=days_map,
         recent_activity=recent_activity, posts_today=posts_today,
         all_accounts=all_active, categories=categories,
         auto_classify_on=auto_classify_on, classify_stats=classify_stats,
@@ -3165,15 +3180,24 @@ def analytics_growth():
     account_id = request.args.get('account_id', type=int)
     include_forecast = request.args.get('forecast', '0') == '1'
 
+    today = datetime.utcnow().date()
+    start_date = today - timedelta(days=days - 1)
+
+    # Eine einzige GROUP-BY-Query statt N Einzel-Queries (war: 30–90 Queries pro Klick)
+    q = db.session.query(
+        func.date(AnalyticsSnapshot.recorded_at).label('d'),
+        func.sum(AnalyticsSnapshot.followers).label('total')
+    ).filter(func.date(AnalyticsSnapshot.recorded_at) >= start_date)
+    if account_id:
+        q = q.filter(AnalyticsSnapshot.account_id == account_id)
+    rows = q.group_by(func.date(AnalyticsSnapshot.recorded_at)).all()
+    snap_dict = {str(r.d): int(r.total or 0) for r in rows}
+
     labels, data = [], []
     for i in range(days - 1, -1, -1):
-        day = datetime.utcnow() - timedelta(days=i)
+        day = today - timedelta(days=i)
         labels.append(day.strftime('%d.%m'))
-        total = db.session.query(func.sum(AnalyticsSnapshot.followers))\
-            .filter(func.date(AnalyticsSnapshot.recorded_at) == day.date())
-        if account_id:
-            total = total.filter(AnalyticsSnapshot.account_id == account_id)
-        data.append(total.scalar() or 0)
+        data.append(snap_dict.get(day.isoformat(), 0))
 
     result = {'labels': labels, 'data': data}
     if include_forecast:
@@ -4091,14 +4115,19 @@ def accounts_export_csv():
 @app.route('/api/stats/streak')
 def posting_streak():
     today = datetime.utcnow().date()
+    cutoff = today - timedelta(days=364)
+    # Eine einzige GROUP-BY-Query statt bis zu 365 Einzel-COUNT-Queries
+    rows = db.session.query(
+        func.date(ScheduledPost.scheduled_at).label('d')
+    ).filter(
+        ScheduledPost.status.in_(['scheduled', 'published']),
+        func.date(ScheduledPost.scheduled_at) >= cutoff
+    ).group_by(func.date(ScheduledPost.scheduled_at)).all()
+    active_dates = {r.d for r in rows}
     streak = 0
     for i in range(365):
         day = today - timedelta(days=i)
-        count = ScheduledPost.query.filter(
-            func.date(ScheduledPost.scheduled_at) == day,
-            ScheduledPost.status.in_(['scheduled', 'published'])
-        ).count()
-        if count > 0:
+        if day in active_dates:
             streak += 1
         elif i > 0:
             break

@@ -36,8 +36,8 @@
        style="color:{{ _color }};flex-shrink:0"></i>
     <span style="flex:1;color:var(--text)">{{ al.message }}</span>
     {% if al.alert_type == 'overcapacity' %}
-    <a href="{{ url_for('kategorien') }}" style="font-size:11px;color:{{ _color }};text-decoration:none;white-space:nowrap">
-      Planer → </a>
+    <a href="{{ url_for('calendar_view') }}" style="font-size:11px;color:{{ _color }};text-decoration:none;white-space:nowrap">
+      Kalender → </a>
     {% endif %}
     <button onclick="resolveAlert({{ al.id }}, document.querySelector('[data-alert=\'{{ al.id }}\']'))"
             style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px"
@@ -158,7 +158,7 @@
 <!-- ── Streak ── -->
 <div id="streakBanner" style="display:none;margin-bottom:16px;padding:12px 20px;
      border-radius:10px;background:linear-gradient(90deg,rgba(245,158,11,.1),rgba(249,115,22,.06));
-     border:1px solid rgba(245,158,11,.25);display:flex;align-items:center;gap:12px">
+     border:1px solid rgba(245,158,11,.25);align-items:center;gap:12px">
   <span style="font-size:24px">🔥</span>
   <div>
     <span id="streakCount" style="font-family:var(--font-display);font-size:22px;color:var(--warning)"></span>
@@ -366,7 +366,7 @@
         <a href="{{ url_for('account_detail', account_id=acc.id) }}"
            style="display:flex;justify-content:space-between;padding:5px 0;text-decoration:none;border-bottom:1px solid var(--border)">
           <span style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">{{ acc.name }}</span>
-          <span style="font-size:12px;font-weight:700;color:var(--danger)">{{ acc.stock_days_display() }}T</span>
+          <span style="font-size:12px;font-weight:700;color:var(--danger)">{{ days_map.get(acc.id, 0) | round(1) }}T</span>
         </a>
         {% endfor %}
       </div>
@@ -490,10 +490,11 @@
     </div>
     <div id="topAccountsList">
       {% for acc in accounts %}
+      {% set _ad = days_map.get(acc.id, 0) %}
       <a href="{{ url_for('account_detail', account_id=acc.id) }}"
          data-name="{{ acc.name }}"
          data-followers="{{ acc.follower_count }}"
-         data-stock="{{ acc.stock_days_display() }}"
+         data-stock="{{ _ad | round(1) }}"
          style="display:flex;align-items:center;gap:12px;padding:11px 20px;
                 border-bottom:1px solid var(--border);text-decoration:none;transition:background .1s"
          onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
@@ -510,7 +511,7 @@
           <div style="font-family:var(--font-display);font-size:15px;color:var(--text)">
             {{ acc.follower_count | fmt_followers }}
           </div>
-          <div style="font-size:10px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
+          <div style="font-size:10px;font-weight:700" class="stock-{% if _ad >= 14 %}green{% elif _ad >= 7 %}yellow{% elif _ad >= 3 %}orange{% else %}red{% endif %}">{{ _ad | round(1) }}T</div>
         </div>
 
         <!-- Nächste Post-Thumbnails -->
@@ -574,6 +575,14 @@
             <i class="fa-solid fa-copy"></i>
           </button>
         </form>
+      </div>
+      {% else %}
+      <div style="padding:36px;text-align:center">
+        <i class="fa-solid fa-photo-film" style="font-size:26px;color:var(--border);margin-bottom:10px;display:block"></i>
+        <div style="font-size:13px;color:var(--muted)">Noch kein Content erstellt</div>
+        <a href="{{ url_for('content_hub') }}" class="btn btn-ghost" style="margin-top:12px;font-size:12px">
+          <i class="fa-solid fa-plus"></i> Content erstellen
+        </a>
       </div>
       {% endfor %}
     </div>
@@ -698,8 +707,8 @@ async function toggleAutoClassify(checkbox) {
 
 // ── Alert schließen ───────────────────────────────────────────
 async function resolveAlert(alertId, el) {
-  await fetch(`/api/alerts/resolve/${alertId}`, { method: 'POST' });
-  if (el) el.remove();
+  const r = await fetch(`/api/alerts/resolve/${alertId}`, { method: 'POST' });
+  if (r.ok && el) el.remove();
 }
 
 // ── Portfolio-Gesamt-Chart ──────────────────────────────────────
@@ -840,9 +849,10 @@ async function loadChart(days, btn) {
       plugins:{
         legend:{display:false},
         tooltip:{
-          backgroundColor:'var(--surface)',
-          borderColor:'var(--border)', borderWidth:1,
-          titleColor:'var(--muted)', bodyColor:'var(--text)',
+          backgroundColor:'#1e2640',
+          borderColor:'rgba(59,130,246,.3)', borderWidth:1,
+          titleColor:'#94a3b8', bodyColor:'#e2e8f0',
+          padding:10, displayColors:false,
           callbacks:{label:c=>(c.dataset.label==='Prognose'?'~ ':' ')+c.raw?.toLocaleString('de-DE')+' Follower'}
         }
       },
