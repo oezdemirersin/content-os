@@ -591,6 +591,18 @@ def init_db():
                 safe_alter('ALTER TABLE account ADD COLUMN layout_notes TEXT')
             if 'page_persona' not in account_cols:
                 safe_alter('ALTER TABLE account ADD COLUMN page_persona TEXT')
+            sp_cols2 = [c['name'] for c in inspector.get_columns('scheduled_post')]
+            if 'telegram_sent_at' not in sp_cols2:
+                safe_alter('ALTER TABLE scheduled_post ADD COLUMN telegram_sent_at DATETIME')
+            ci_cols3 = [c['name'] for c in inspector.get_columns('content_item')]
+            if 'approval_status' not in ci_cols3:
+                safe_alter("ALTER TABLE content_item ADD COLUMN approval_status VARCHAR(20) DEFAULT 'pending'")
+            if 'reviewed_by_id' not in ci_cols3:
+                safe_alter('ALTER TABLE content_item ADD COLUMN reviewed_by_id INTEGER')
+            if 'reviewed_at' not in ci_cols3:
+                safe_alter('ALTER TABLE content_item ADD COLUMN reviewed_at DATETIME')
+            if 'review_note' not in ci_cols3:
+                safe_alter('ALTER TABLE content_item ADD COLUMN review_note TEXT')
             # content_series, kooperation, account_ideen_context (SQLite)
             safe_alter('''CREATE TABLE IF NOT EXISTS content_series (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
