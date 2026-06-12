@@ -4,31 +4,40 @@
 {% set active_page = 'kooperationen' %}
 
 {% block content %}
-<div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between">
+
+<!-- ── Header ── -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
   <div>
     <div style="font-family:var(--font-display);font-size:22px;letter-spacing:1px">KOOPERATIONS-TRACKER</div>
-    <div style="font-size:12px;color:var(--muted);margin-top:3px">Paid Posts, UGC, Deals — alles auf einen Blick.</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:3px">Deals, Paid Posts, UGC — Pipeline, Timeline und alles auf einen Blick.</div>
   </div>
-  <button onclick="openKoopModal()" class="btn btn-primary">
-    <i class="fa-solid fa-plus"></i> Neue Koop
-  </button>
+  <div style="display:flex;gap:8px;align-items:center">
+    <!-- View Toggle -->
+    <div style="display:flex;border:1px solid var(--border);border-radius:10px;overflow:hidden">
+      <button onclick="setView('liste', this)" id="viewBtn-liste"
+              style="padding:7px 14px;border:none;background:var(--accent);color:white;
+                     font-family:var(--font-body);font-size:11px;font-weight:700;letter-spacing:.5px;cursor:pointer">
+        <i class="fa-solid fa-list"></i> LISTE
+      </button>
+      <button onclick="setView('pipeline', this)" id="viewBtn-pipeline"
+              style="padding:7px 14px;border:none;background:var(--surface2);color:var(--muted);
+                     font-family:var(--font-body);font-size:11px;font-weight:700;letter-spacing:.5px;cursor:pointer;border-left:1px solid var(--border)">
+        <i class="fa-solid fa-columns"></i> PIPELINE
+      </button>
+      <button onclick="setView('timeline', this)" id="viewBtn-timeline"
+              style="padding:7px 14px;border:none;background:var(--surface2);color:var(--muted);
+                     font-family:var(--font-body);font-size:11px;font-weight:700;letter-spacing:.5px;cursor:pointer;border-left:1px solid var(--border)">
+        <i class="fa-solid fa-calendar-days"></i> TIMELINE
+      </button>
+    </div>
+    <button onclick="openKoopModal()" class="btn btn-primary">
+      <i class="fa-solid fa-plus"></i> Neue Koop
+    </button>
+  </div>
 </div>
 
-<!-- ── Filter-Bar ── -->
-<div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
-  {% for val,label in [('all','Alle'),('anfrage','Anfrage'),('aktiv','Aktiv'),('abgeschlossen','Abgeschlossen'),('storniert','Storniert')] %}
-  <button onclick="filterKoops('{{ val }}', this)"
-          data-filter="{{ val }}"
-          style="padding:7px 16px;border-radius:20px;border:1px solid var(--border);
-                 background:{% if val=='all' %}var(--accent){% else %}var(--surface){% endif %};
-                 color:{% if val=='all' %}white{% else %}var(--muted){% endif %};
-                 font-family:var(--font-body);font-size:12px;font-weight:700;
-                 letter-spacing:.5px;cursor:pointer;transition:all .15s">{{ label }}</button>
-  {% endfor %}
-</div>
-
-<!-- ── KPI Summary ── -->
-<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px" id="koopKPIs">
+<!-- ── KPIs ── -->
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px">
   <div class="stat-card">
     <div class="stat-label">Gesamt</div>
     <div class="stat-value blue" id="kpi-total">—</div>
@@ -40,30 +49,93 @@
     <div class="stat-sub">laufend</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">Umsatz</div>
-    <div class="stat-value yellow" id="kpi-revenue">—</div>
-    <div class="stat-sub">abgeschlossen</div>
+    <div class="stat-label">Ausstehend</div>
+    <div class="stat-value" id="kpi-pending" style="color:var(--warning)">—</div>
+    <div class="stat-sub">noch nicht bezahlt</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Einnahmen</div>
+    <div class="stat-value green" id="kpi-revenue">—</div>
+    <div class="stat-sub">bezahlt</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Fällig bald</div>
-    <div class="stat-value" id="kpi-due" style="color:var(--warning)">—</div>
-    <div class="stat-sub">innerhalb 7 Tage</div>
+    <div class="stat-value" id="kpi-due" style="color:#ef4444">—</div>
+    <div class="stat-sub">in 7 Tagen</div>
   </div>
 </div>
 
-<!-- ── Koops Liste ── -->
-<div id="koopList" style="display:flex;flex-direction:column;gap:10px">
-  <div style="text-align:center;color:var(--muted);padding:80px 20px;font-size:13px">
-    <i class="fa-solid fa-handshake" style="font-size:32px;opacity:.25;display:block;margin-bottom:14px"></i>
-    Noch keine Kooperationen erfasst.
+<!-- ══ LISTE-VIEW ══════════════════════════════════════════════════════════════ -->
+<div id="view-liste">
+  <!-- Filter-Bar -->
+  <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+    {% for val,label in [('all','Alle'),('anfrage','Anfrage'),('aktiv','Aktiv'),('abgeschlossen','Abgeschlossen'),('storniert','Storniert')] %}
+    <button onclick="filterKoops('{{ val }}', this)" data-filter="{{ val }}"
+            style="padding:6px 14px;border-radius:18px;border:1px solid var(--border);
+                   background:{% if val=='all' %}var(--accent){% else %}var(--surface){% endif %};
+                   color:{% if val=='all' %}white{% else %}var(--muted){% endif %};
+                   font-family:var(--font-body);font-size:11px;font-weight:700;cursor:pointer;transition:all .15s">{{ label }}</button>
+    {% endfor %}
+    <input id="searchInput" oninput="renderKoops()" type="text" placeholder="Partner suchen…"
+           style="margin-left:auto;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                  color:var(--text);font-family:var(--font-body);font-size:12px;padding:6px 12px;width:180px">
+  </div>
+  <div id="koopList" style="display:flex;flex-direction:column;gap:8px">
+    <div style="text-align:center;color:var(--muted);padding:80px 20px;font-size:13px">
+      <i class="fa-solid fa-handshake" style="font-size:32px;opacity:.25;display:block;margin-bottom:14px"></i>
+      Noch keine Kooperationen erfasst.
+    </div>
   </div>
 </div>
 
-<!-- ── Modal ── -->
-<div id="koopModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);
-     z-index:9000;align-items:center;justify-content:center">
+<!-- ══ PIPELINE-VIEW ═══════════════════════════════════════════════════════════ -->
+<div id="view-pipeline" style="display:none">
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;overflow-x:auto">
+    {% for status, label, color, icon in [
+      ('anfrage','Anfrage','rgba(245,158,11,.15)','fa-envelope'),
+      ('aktiv','Aktiv','rgba(34,197,94,.12)','fa-play'),
+      ('abgeschlossen','Abgeschlossen','rgba(99,102,241,.12)','fa-check'),
+      ('storniert','Storniert','rgba(239,68,68,.08)','fa-xmark')
+    ] %}
+    <div style="background:{{ color }};border-radius:14px;padding:12px;min-height:300px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);
+                  margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
+        <span><i class="fa-solid {{ icon }}"></i> {{ label.upper() }}</span>
+        <span id="pipe-count-{{ status }}" style="font-size:11px;background:var(--surface);
+              border-radius:8px;padding:2px 8px;color:var(--muted)">0</span>
+      </div>
+      <div id="pipe-{{ status }}" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ══ TIMELINE-VIEW ════════════════════════════════════════════════════════════ -->
+<div id="view-timeline" style="display:none">
+  <div id="timelineWrap" style="overflow-x:auto"></div>
+</div>
+
+<!-- ══ DETAIL PANEL ═════════════════════════════════════════════════════════════ -->
+<div id="detailOverlay" onclick="closeDetail()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:8000"></div>
+<div id="detailPanel" style="display:none;position:fixed;top:0;right:0;bottom:0;width:420px;max-width:95vw;
+     background:var(--bg);border-left:1px solid var(--border);z-index:8001;overflow-y:auto;padding:24px;
+     transform:translateX(100%);transition:transform .25s ease">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <div style="font-family:var(--font-display);font-size:16px;letter-spacing:1px" id="dpTitle">DETAIL</div>
+    <div style="display:flex;gap:8px">
+      <button onclick="editKoopFromDetail()" class="btn btn-ghost" style="font-size:11px;padding:6px 12px">
+        <i class="fa-solid fa-pen"></i> Bearbeiten
+      </button>
+      <button onclick="closeDetail()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">✕</button>
+    </div>
+  </div>
+  <div id="dpContent"></div>
+</div>
+
+<!-- ══ MODAL ════════════════════════════════════════════════════════════════════ -->
+<div id="koopModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;align-items:center;justify-content:center">
   <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;
-              padding:28px;width:540px;max-width:95vw;max-height:90vh;overflow-y:auto">
+              padding:28px;width:600px;max-width:95vw;max-height:90vh;overflow-y:auto">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px">
       <div style="font-family:var(--font-display);font-size:18px;letter-spacing:1px" id="koopModalTitle">NEUE KOOP</div>
       <button onclick="closeKoopModal()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">✕</button>
@@ -71,22 +143,17 @@
     <input type="hidden" id="koopId">
 
     <div style="display:flex;flex-direction:column;gap:14px">
+      <!-- Reihe 1: Account + Typ -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div>
-          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">ACCOUNT *</label>
-          <select id="koopAccount" style="width:100%;background:var(--surface2);border:1px solid var(--border);
-                  border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:13px;
-                  padding:10px 12px;box-sizing:border-box">
-            {% for acc in accounts %}
-            <option value="{{ acc.id }}">{{ acc.name }}</option>
-            {% endfor %}
+          <label class="flabel">ACCOUNT *</label>
+          <select id="koopAccount" class="finput">
+            {% for acc in accounts %}<option value="{{ acc.id }}">{{ acc.name }}</option>{% endfor %}
           </select>
         </div>
         <div>
-          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">TYP *</label>
-          <select id="koopType" style="width:100%;background:var(--surface2);border:1px solid var(--border);
-                  border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:13px;
-                  padding:10px 12px;box-sizing:border-box">
+          <label class="flabel">TYP *</label>
+          <select id="koopType" class="finput">
             <option value="paid_post">Paid Post</option>
             <option value="ugc">UGC</option>
             <option value="collab">Collab</option>
@@ -97,20 +164,23 @@
         </div>
       </div>
 
-      <div>
-        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">PARTNER / BRAND *</label>
-        <input id="koopPartner" type="text" placeholder="Name des Partners oder der Marke"
-               style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-                      color:var(--text);font-family:var(--font-body);font-size:13px;
-                      padding:10px 12px;box-sizing:border-box">
+      <!-- Partner + Ansprechpartner -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="flabel">PARTNER / BRAND *</label>
+          <input id="koopPartner" type="text" placeholder="Name der Marke oder Agentur" class="finput">
+        </div>
+        <div>
+          <label class="flabel">ANSPRECHPARTNER</label>
+          <input id="koopContact" type="text" placeholder="Name + E-Mail" class="finput">
+        </div>
       </div>
 
+      <!-- Status + Bezahlung + Betrag -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
         <div>
-          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">STATUS</label>
-          <select id="koopStatus" style="width:100%;background:var(--surface2);border:1px solid var(--border);
-                  border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:13px;
-                  padding:10px 12px;box-sizing:border-box">
+          <label class="flabel">STATUS</label>
+          <select id="koopStatus" class="finput">
             <option value="anfrage">Anfrage</option>
             <option value="aktiv">Aktiv</option>
             <option value="abgeschlossen">Abgeschlossen</option>
@@ -118,27 +188,56 @@
           </select>
         </div>
         <div>
-          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">BETRAG (€)</label>
-          <input id="koopAmount" type="number" step="0.01" min="0" placeholder="0.00"
-                 style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-                        color:var(--text);font-family:var(--font-body);font-size:13px;
-                        padding:10px 12px;box-sizing:border-box">
+          <label class="flabel">BEZAHLUNG</label>
+          <select id="koopPayment" class="finput">
+            <option value="offen">Offen</option>
+            <option value="rechnungsgestellt">Rechnung gestellt</option>
+            <option value="bezahlt">Bezahlt</option>
+          </select>
         </div>
         <div>
-          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">DEADLINE</label>
-          <input id="koopDeadline" type="date"
-                 style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-                        color:var(--text);font-family:var(--font-body);font-size:13px;
-                        padding:10px 12px;box-sizing:border-box">
+          <label class="flabel">BETRAG (€)</label>
+          <input id="koopAmount" type="number" step="0.01" min="0" placeholder="0.00" class="finput">
         </div>
       </div>
 
+      <!-- Start + Deadline -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label class="flabel">STARTDATUM</label>
+          <input id="koopStart" type="date" class="finput">
+        </div>
+        <div>
+          <label class="flabel">DEADLINE</label>
+          <input id="koopDeadline" type="date" class="finput">
+        </div>
+      </div>
+
+      <!-- Lieferumfang -->
       <div>
-        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">NOTIZEN</label>
-        <textarea id="koopNotes" rows="3" placeholder="Briefing, Lieferumfang, Ansprechpartner, Besonderheiten..."
-                  style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-                         color:var(--text);font-family:var(--font-body);font-size:13px;
-                         padding:10px 12px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+        <label class="flabel">LIEFERUMFANG <span style="opacity:.5;font-weight:400">(eine Zeile pro Punkt)</span></label>
+        <textarea id="koopDeliverables" rows="3" class="finput"
+                  placeholder="1 Reel&#10;3 Stories&#10;1 Feed-Post mit Swipe-Up"></textarea>
+      </div>
+
+      <!-- Notizen -->
+      <div>
+        <label class="flabel">NOTIZEN</label>
+        <textarea id="koopNotes" rows="3" class="finput"
+                  placeholder="Briefing, Besonderheiten, Do's & Don'ts…"></textarea>
+      </div>
+
+      <!-- Bewertung (nur bei Abgeschlossen sinnvoll) -->
+      <div>
+        <label class="flabel">BEWERTUNG DES PARTNERS</label>
+        <div id="ratingStars" style="display:flex;gap:6px;margin-top:4px">
+          {% for i in range(1,6) %}
+          <button type="button" onclick="setRating({{ i }})" data-star="{{ i }}"
+                  style="font-size:22px;background:none;border:none;cursor:pointer;
+                         color:var(--border);transition:color .1s;line-height:1">★</button>
+          {% endfor %}
+        </div>
+        <input type="hidden" id="koopRating" value="">
       </div>
 
       <div style="display:flex;gap:10px;margin-top:4px">
@@ -151,157 +250,573 @@
   </div>
 </div>
 
+<style>
+.flabel { font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:5px }
+.finput  { width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+           color:var(--text);font-family:var(--font-body);font-size:13px;
+           padding:9px 11px;box-sizing:border-box;line-height:1.4;resize:vertical }
+.koop-card { background:var(--surface);border:1px solid var(--border);border-radius:12px;
+             padding:14px 18px;cursor:pointer;transition:border-color .15s,transform .1s }
+.koop-card:hover { border-color:var(--accent);transform:translateY(-1px) }
+.pipe-card { background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;cursor:pointer;transition:border-color .15s }
+.pipe-card:hover { border-color:var(--accent) }
+</style>
 {% endblock %}
 
 {% block scripts %}
 <script>
 let koops = [];
 let activeFilter = 'all';
+let activeView = 'liste';
+let detailKoopId = null;
 
-const STATUS_COLORS = {
-  anfrage:       { bg: 'rgba(245,158,11,.12)',  text: 'var(--warning)',  label: 'Anfrage' },
-  aktiv:         { bg: 'rgba(34,197,94,.12)',   text: 'var(--success)', label: 'Aktiv' },
-  abgeschlossen: { bg: 'rgba(99,102,241,.12)',  text: '#818cf8',        label: 'Fertig' },
-  storniert:     { bg: 'rgba(239,68,68,.1)',    text: '#ef4444',        label: 'Storniert' },
+const STATUS_CFG = {
+  anfrage:       { bg:'rgba(245,158,11,.12)',  text:'var(--warning)', label:'Anfrage',       next:'aktiv' },
+  aktiv:         { bg:'rgba(34,197,94,.12)',   text:'var(--success)', label:'Aktiv',         next:'abgeschlossen' },
+  abgeschlossen: { bg:'rgba(99,102,241,.12)',  text:'#818cf8',        label:'Abgeschlossen', next:null },
+  storniert:     { bg:'rgba(239,68,68,.1)',    text:'#ef4444',        label:'Storniert',     next:null },
 };
-const TYPE_LABELS = {
-  paid_post: 'Paid Post', ugc: 'UGC', collab: 'Collab',
-  sponsoring: 'Sponsoring', product: 'Produkt-Koop', other: 'Sonstiges'
+const PAY_CFG = {
+  offen:             { text:'Offen',             color:'var(--muted)' },
+  rechnungsgestellt: { text:'Rechnung gestellt', color:'var(--warning)' },
+  bezahlt:           { text:'Bezahlt',           color:'var(--success)' },
 };
+const TYPE_LABELS = { paid_post:'Paid Post', ugc:'UGC', collab:'Collab',
+                      sponsoring:'Sponsoring', product:'Produkt-Koop', other:'Sonstiges' };
 
 document.addEventListener('DOMContentLoaded', loadKoops);
 
+// ── Laden ─────────────────────────────────────────────────────
 async function loadKoops() {
   const r = await fetch('/api/kooperationen');
   koops = await r.json();
   updateKPIs();
-  renderKoops();
+  renderAll();
 }
 
+function renderAll() {
+  renderKoops();
+  renderPipeline();
+  renderTimeline();
+}
+
+// ── KPIs ──────────────────────────────────────────────────────
 function updateKPIs() {
-  const total = koops.length;
+  const total  = koops.length;
   const active = koops.filter(k => k.status === 'aktiv').length;
-  const revenue = koops.filter(k => k.status === 'abgeschlossen' && k.amount)
-    .reduce((s, k) => s + parseFloat(k.amount), 0);
-  const now = Date.now();
-  const week = 7 * 86400 * 1000;
-  const dueSoon = koops.filter(k => k.deadline && k.status !== 'abgeschlossen' && k.status !== 'storniert' &&
-    new Date(k.deadline) - now < week && new Date(k.deadline) > now).length;
-  document.getElementById('kpi-total').textContent = total;
-  document.getElementById('kpi-active').textContent = active;
-  document.getElementById('kpi-revenue').textContent = revenue > 0
-    ? revenue.toLocaleString('de-DE', {style:'currency', currency:'EUR', maximumFractionDigits:0})
-    : '—';
+  const now    = Date.now();
+  const week   = 7 * 86400000;
+
+  // Ausstehend: aktive + abgeschlossen aber noch nicht bezahlt
+  const pendingAmt = koops
+    .filter(k => k.amount && k.payment_status !== 'bezahlt' && k.status !== 'storniert')
+    .reduce((s, k) => s + k.amount, 0);
+
+  // Bezahlt (Einnahmen)
+  const paidAmt = koops
+    .filter(k => k.amount && k.payment_status === 'bezahlt')
+    .reduce((s, k) => s + k.amount, 0);
+
+  const dueSoon = koops.filter(k =>
+    k.deadline && k.status !== 'abgeschlossen' && k.status !== 'storniert' &&
+    (new Date(k.deadline) - now) < week && new Date(k.deadline) > now
+  ).length;
+
+  document.getElementById('kpi-total').textContent  = total || '—';
+  document.getElementById('kpi-active').textContent = active || '—';
+  document.getElementById('kpi-pending').textContent = pendingAmt > 0
+    ? pendingAmt.toLocaleString('de-DE', {style:'currency',currency:'EUR',maximumFractionDigits:0}) : '—';
+  document.getElementById('kpi-revenue').textContent = paidAmt > 0
+    ? paidAmt.toLocaleString('de-DE', {style:'currency',currency:'EUR',maximumFractionDigits:0}) : '—';
   document.getElementById('kpi-due').textContent = dueSoon || '—';
 }
 
-function filterKoops(filter, btn) {
-  activeFilter = filter;
-  document.querySelectorAll('[data-filter]').forEach(b => {
-    b.style.background = 'var(--surface)';
-    b.style.color = 'var(--muted)';
+// ── View Toggle ───────────────────────────────────────────────
+function setView(v, btn) {
+  activeView = v;
+  ['liste','pipeline','timeline'].forEach(vv => {
+    document.getElementById(`view-${vv}`).style.display = vv === v ? 'block' : 'none';
+    const b = document.getElementById(`viewBtn-${vv}`);
+    b.style.background = vv === v ? 'var(--accent)' : 'var(--surface2)';
+    b.style.color      = vv === v ? 'white' : 'var(--muted)';
   });
-  btn.style.background = 'var(--accent)';
-  btn.style.color = 'white';
+}
+
+// ── Filter ────────────────────────────────────────────────────
+function filterKoops(f, btn) {
+  activeFilter = f;
+  document.querySelectorAll('[data-filter]').forEach(b => {
+    b.style.background = 'var(--surface)'; b.style.color = 'var(--muted)';
+  });
+  btn.style.background = 'var(--accent)'; btn.style.color = 'white';
   renderKoops();
 }
 
+function getFiltered() {
+  const q = (document.getElementById('searchInput')?.value || '').toLowerCase();
+  return koops.filter(k =>
+    (activeFilter === 'all' || k.status === activeFilter) &&
+    (!q || k.partner_name.toLowerCase().includes(q) || (k.account_name||'').toLowerCase().includes(q))
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// LISTE-VIEW
+// ════════════════════════════════════════════════════════════
 function renderKoops() {
   const list = document.getElementById('koopList');
-  const filtered = activeFilter === 'all' ? koops : koops.filter(k => k.status === activeFilter);
+  const filtered = getFiltered();
   if (!filtered.length) {
-    list.innerHTML = `<div style="text-align:center;color:var(--muted);padding:60px 20px;font-size:13px">
+    list.innerHTML = `<div style="text-align:center;color:var(--muted);padding:50px 20px;font-size:13px">
       Keine Einträge für diesen Filter.</div>`;
     return;
   }
-  const today = new Date().toISOString().slice(0, 10);
-  list.innerHTML = filtered.map(k => {
-    const sc = STATUS_COLORS[k.status] || STATUS_COLORS.anfrage;
-    const overdue = k.deadline && k.deadline < today && k.status !== 'abgeschlossen' && k.status !== 'storniert';
-    const daysLeft = k.deadline ? Math.ceil((new Date(k.deadline) - Date.now()) / 86400000) : null;
-    return `<div style="background:var(--surface);border:1px solid ${overdue ? '#ef444440' : 'var(--border)'};
-                        border-radius:14px;padding:16px 20px;transition:border-color .15s"
-                onmouseover="this.style.borderColor='var(--accent)'"
-                onmouseout="this.style.borderColor='${overdue ? '#ef444440' : 'var(--border)'}'">
-      <div style="display:flex;align-items:flex-start;gap:14px">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
-            <span style="font-size:15px;font-weight:700;color:var(--text)">${k.partner_name}</span>
-            <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;
-                         background:${sc.bg};color:${sc.text}">${sc.label}</span>
-            <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;
-                         background:var(--surface2);color:var(--muted)">${TYPE_LABELS[k.koop_type] || k.koop_type}</span>
-          </div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:6px">${k.account_name || ''}</div>
-          ${k.notes ? `<div style="font-size:12px;color:var(--muted);line-height:1.5">${k.notes}</div>` : ''}
+  const today = new Date().toISOString().slice(0,10);
+  list.innerHTML = filtered.map(k => koopCard(k, today)).join('');
+}
+
+function koopCard(k, today) {
+  const sc       = STATUS_CFG[k.status] || STATUS_CFG.anfrage;
+  const pc       = PAY_CFG[k.payment_status] || PAY_CFG.offen;
+  const overdue  = k.deadline && k.deadline < today && k.status !== 'abgeschlossen' && k.status !== 'storniert';
+  const daysLeft = k.deadline ? Math.ceil((new Date(k.deadline) - Date.now()) / 86400000) : null;
+  const done     = (k.deliverables||[]).filter(d=>d.done).length;
+  const total_d  = (k.deliverables||[]).length;
+  const stars    = k.partner_rating ? '★'.repeat(k.partner_rating) + '☆'.repeat(5-k.partner_rating) : '';
+
+  return `<div class="koop-card" onclick="openDetail(${k.id})"
+               style="border-color:${overdue ? 'rgba(239,68,68,.4)' : 'var(--border)'}">
+    <div style="display:flex;align-items:flex-start;gap:14px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap">
+          <span style="font-size:15px;font-weight:700">${esc(k.partner_name)}</span>
+          <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;
+                       background:${sc.bg};color:${sc.text}">${sc.label}</span>
+          <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;
+                       background:var(--surface2);color:var(--muted)">${TYPE_LABELS[k.koop_type]||k.koop_type}</span>
+          ${k.account_name ? `<span style="font-size:10px;color:var(--muted)">${esc(k.account_name)}</span>` : ''}
         </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
-          ${k.amount ? `<div style="font-size:16px;font-weight:700;color:var(--success)">
-            ${parseFloat(k.amount).toLocaleString('de-DE', {style:'currency',currency:k.currency||'EUR'})}
-          </div>` : ''}
-          ${k.deadline ? `<div style="font-size:11px;padding:3px 10px;border-radius:10px;font-weight:700;
-                                       background:${overdue ? 'rgba(239,68,68,.12)' : daysLeft <= 3 ? 'rgba(245,158,11,.12)' : 'var(--surface2)'};
-                                       color:${overdue ? '#ef4444' : daysLeft <= 3 ? 'var(--warning)' : 'var(--muted)'}">
-            ${overdue ? '⚠ Überfällig' : daysLeft === 0 ? 'Heute!' : daysLeft > 0 ? `noch ${daysLeft}T` : ''} · ${k.deadline}
-          </div>` : ''}
-          <div style="display:flex;gap:6px">
-            <button onclick="editKoop(${k.id})"
-                    style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);
-                           background:var(--surface2);color:var(--muted);cursor:pointer">
-              <i class="fa-solid fa-pen" style="font-size:11px"></i>
-            </button>
-            <button onclick="deleteKoop(${k.id})"
-                    style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);
-                           background:var(--surface2);color:var(--muted);cursor:pointer">
-              <i class="fa-solid fa-trash" style="font-size:11px"></i>
-            </button>
-          </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          ${k.contact_name ? `<span style="font-size:11px;color:var(--muted)"><i class="fa-solid fa-user fa-xs"></i> ${esc(k.contact_name)}</span>` : ''}
+          ${total_d ? `<span style="font-size:11px;color:var(--muted)"><i class="fa-solid fa-list-check fa-xs"></i> ${done}/${total_d} geliefert</span>` : ''}
+          ${stars ? `<span style="font-size:11px;color:#eab308;letter-spacing:1px">${stars}</span>` : ''}
+        </div>
+        ${k.notes ? `<div style="font-size:12px;color:var(--muted);margin-top:5px;
+                                  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:400px">${esc(k.notes)}</div>` : ''}
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+        ${k.amount ? `<div style="font-size:15px;font-weight:700;color:var(--success)">
+          ${k.amount.toLocaleString('de-DE',{style:'currency',currency:k.currency||'EUR'})}</div>` : ''}
+        ${k.amount ? `<span style="font-size:10px;padding:2px 8px;border-radius:8px;font-weight:700;
+                           background:var(--surface2);color:${pc.color}">${pc.text}</span>` : ''}
+        ${k.deadline ? `<div style="font-size:11px;padding:3px 10px;border-radius:8px;font-weight:700;
+                              background:${overdue?'rgba(239,68,68,.12)':daysLeft<=3?'rgba(245,158,11,.12)':'var(--surface2)'};
+                              color:${overdue?'#ef4444':daysLeft<=3?'var(--warning)':'var(--muted)'}">
+          ${overdue ? '⚠ Überfällig' : daysLeft===0 ? 'Heute!' : daysLeft>0 ? `noch ${daysLeft}T` : ''} · ${k.deadline}</div>` : ''}
+        <div style="display:flex;gap:5px;margin-top:2px" onclick="event.stopPropagation()">
+          <button onclick="editKoop(${k.id})"
+                  style="padding:5px 9px;border-radius:7px;border:1px solid var(--border);
+                         background:var(--surface2);color:var(--muted);cursor:pointer;font-size:11px">
+            <i class="fa-solid fa-pen"></i></button>
+          <button onclick="deleteKoop(${k.id})"
+                  style="padding:5px 9px;border-radius:7px;border:1px solid var(--border);
+                         background:var(--surface2);color:var(--muted);cursor:pointer;font-size:11px">
+            <i class="fa-solid fa-trash"></i></button>
         </div>
       </div>
+    </div>
+  </div>`;
+}
+
+// ════════════════════════════════════════════════════════════
+// PIPELINE-VIEW (Kanban)
+// ════════════════════════════════════════════════════════════
+function renderPipeline() {
+  const cols = { anfrage:[], aktiv:[], abgeschlossen:[], storniert:[] };
+  koops.forEach(k => { if (cols[k.status]) cols[k.status].push(k); });
+
+  Object.entries(cols).forEach(([status, items]) => {
+    document.getElementById(`pipe-count-${status}`).textContent = items.length;
+    const col = document.getElementById(`pipe-${status}`);
+    if (!items.length) {
+      col.innerHTML = `<div style="text-align:center;color:var(--muted);font-size:11px;padding:20px 0;opacity:.5">Leer</div>`;
+      return;
+    }
+    col.innerHTML = items.map(k => pipeCard(k)).join('');
+  });
+}
+
+const STATUS_ORDER = ['anfrage','aktiv','abgeschlossen','storniert'];
+
+function pipeCard(k) {
+  const sc  = STATUS_CFG[k.status] || STATUS_CFG.anfrage;
+  const idx = STATUS_ORDER.indexOf(k.status);
+  const prevStatus = idx > 0 ? STATUS_ORDER[idx-1] : null;
+  const nextStatus = idx < 2 ? STATUS_ORDER[idx+1] : null;  // nicht auf storniert schieben via Arrow
+
+  const daysLeft = k.deadline ? Math.ceil((new Date(k.deadline) - Date.now()) / 86400000) : null;
+  const deadlineStr = k.deadline
+    ? `<div style="font-size:10px;color:${daysLeft !== null && daysLeft < 0 ? '#ef4444' : daysLeft !== null && daysLeft <= 3 ? 'var(--warning)' : 'var(--muted)'}">
+        <i class="fa-regular fa-calendar fa-xs"></i> ${k.deadline}
+       </div>` : '';
+
+  return `<div class="pipe-card" onclick="openDetail(${k.id})">
+    <div style="font-size:13px;font-weight:700;margin-bottom:3px">${esc(k.partner_name)}</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:6px">${esc(k.account_name||'')} · ${TYPE_LABELS[k.koop_type]||''}</div>
+    ${k.amount ? `<div style="font-size:13px;font-weight:700;color:var(--success);margin-bottom:4px">
+      ${k.amount.toLocaleString('de-DE',{style:'currency',currency:k.currency||'EUR'})}</div>` : ''}
+    ${deadlineStr}
+    <div style="display:flex;gap:4px;margin-top:8px" onclick="event.stopPropagation()">
+      ${prevStatus ? `<button onclick="quickStatus(${k.id},'${prevStatus}')"
+        style="flex:1;padding:4px;border-radius:6px;border:1px solid var(--border);
+               background:var(--surface2);color:var(--muted);cursor:pointer;font-size:10px">← ${STATUS_CFG[prevStatus].label}</button>` : '<div style="flex:1"></div>'}
+      ${nextStatus ? `<button onclick="quickStatus(${k.id},'${nextStatus}')"
+        style="flex:1;padding:4px;border-radius:6px;border:1px solid var(--border);
+               background:var(--surface2);color:${STATUS_CFG[nextStatus].text};cursor:pointer;font-size:10px">${STATUS_CFG[nextStatus].label} →</button>` : '<div style="flex:1"></div>'}
+      <button onclick="quickStatus(${k.id},'storniert')"
+        style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);
+               background:var(--surface2);color:var(--muted);cursor:pointer;font-size:10px"
+        title="Stornieren">✕</button>
+    </div>
+  </div>`;
+}
+
+async function quickStatus(id, status) {
+  await fetch(`/api/kooperationen/${id}/status`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ status })
+  });
+  await loadKoops();
+}
+
+// ════════════════════════════════════════════════════════════
+// TIMELINE-VIEW
+// ════════════════════════════════════════════════════════════
+function renderTimeline() {
+  const wrap = document.getElementById('timelineWrap');
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const WEEKS = 8;
+  const DAYS  = WEEKS * 7;
+
+  // Spalten: Vergangen + Woche 1–8
+  const weeks = [];
+  for (let w = 0; w < WEEKS; w++) {
+    const start = new Date(today); start.setDate(start.getDate() + w * 7);
+    const end   = new Date(start); end.setDate(end.getDate() + 6);
+    weeks.push({ start, end, label: w === 0 ? 'Diese Woche' : `Woche ${w+1}` });
+  }
+
+  // Koops mit Deadline, sortiert
+  const active = koops.filter(k => k.deadline && k.status !== 'storniert')
+    .sort((a,b) => a.deadline.localeCompare(b.deadline));
+  const overdue = koops.filter(k => k.deadline && k.deadline < today.toISOString().slice(0,10) && k.status !== 'storniert' && k.status !== 'abgeschlossen');
+  const noDeadline = koops.filter(k => !k.deadline && k.status !== 'storniert');
+
+  let html = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden">`;
+
+  // Header
+  html += `<div style="display:grid;grid-template-columns:180px repeat(${WEEKS},1fr);border-bottom:1px solid var(--border)">
+    <div style="padding:10px 14px;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px">KOOPERATION</div>`;
+  weeks.forEach((w,i) => {
+    const isNow = i === 0;
+    html += `<div style="padding:10px 8px;text-align:center;font-size:10px;font-weight:700;
+                         color:${isNow?'var(--accent)':'var(--muted)'};letter-spacing:.3px;
+                         border-left:1px solid var(--border);background:${isNow?'rgba(59,130,246,.05)':''}">
+      ${w.label}<br><span style="font-weight:400;opacity:.6">${w.start.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})}</span>
+    </div>`;
+  });
+  html += `</div>`;
+
+  // Überfällige
+  if (overdue.length) {
+    html += `<div style="padding:8px 14px;font-size:10px;font-weight:700;color:#ef4444;letter-spacing:.5px;
+                         background:rgba(239,68,68,.05);border-bottom:1px solid var(--border)">
+      ⚠ ÜBERFÄLLIG (${overdue.length})</div>`;
+    overdue.forEach(k => {
+      html += timelineRow(k, weeks, today, true);
+    });
+  }
+
+  // Aktive mit Deadline
+  const inRange = active.filter(k => k.deadline >= today.toISOString().slice(0,10));
+  inRange.forEach(k => { html += timelineRow(k, weeks, today, false); });
+
+  // Ohne Deadline
+  if (noDeadline.length) {
+    html += `<div style="padding:8px 14px;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;
+                         border-top:1px solid var(--border)">OHNE DEADLINE (${noDeadline.length})</div>`;
+    noDeadline.forEach(k => {
+      const sc = STATUS_CFG[k.status] || STATUS_CFG.anfrage;
+      html += `<div style="display:grid;grid-template-columns:180px repeat(${WEEKS},1fr);border-top:1px solid var(--border);
+                          cursor:pointer" onclick="openDetail(${k.id})">
+        <div style="padding:10px 14px">
+          <div style="font-size:12px;font-weight:700;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(k.partner_name)}</div>
+          <div style="font-size:10px;color:var(--muted)">${esc(k.account_name||'')}</div>
+        </div>
+        ${weeks.map(()=>`<div style="border-left:1px solid var(--border)"></div>`).join('')}
+      </div>`;
+    });
+  }
+
+  if (!active.length && !overdue.length && !noDeadline.length) {
+    html += `<div style="text-align:center;color:var(--muted);padding:50px 20px;font-size:13px">
+      Noch keine Kooperationen.</div>`;
+  }
+
+  html += `</div>`;
+  wrap.innerHTML = html;
+}
+
+function timelineRow(k, weeks, today, isOverdue) {
+  const sc = STATUS_CFG[k.status] || STATUS_CFG.anfrage;
+  const deadlineDate = new Date(k.deadline);
+  const startDate = k.start_date ? new Date(k.start_date) : null;
+
+  const cells = weeks.map((w, wi) => {
+    const isNow = wi === 0;
+    const deadlineInWeek = deadlineDate >= w.start && deadlineDate <= w.end;
+    const activeInWeek   = startDate && startDate <= w.end && deadlineDate >= w.start;
+
+    let content = '';
+    if (deadlineInWeek) {
+      const daysLeft = Math.ceil((deadlineDate - today) / 86400000);
+      content = `<div style="text-align:center">
+        <div style="width:28px;height:28px;border-radius:50%;
+                    background:${isOverdue?'#ef4444':daysLeft<=3?'var(--warning)':sc.text};
+                    margin:0 auto 2px;display:flex;align-items:center;justify-content:center">
+          <i class="fa-solid fa-flag" style="color:white;font-size:11px"></i>
+        </div>
+        <div style="font-size:9px;color:${isOverdue?'#ef4444':'var(--muted)'}">
+          ${isOverdue?'Überfällig':daysLeft===0?'Heute':daysLeft+'T'}</div>
+      </div>`;
+    } else if (activeInWeek) {
+      content = `<div style="height:4px;border-radius:2px;background:${sc.text};opacity:.3;margin:12px 4px"></div>`;
+    }
+    return `<div style="padding:6px 4px;border-left:1px solid var(--border);
+                         background:${isNow?'rgba(59,130,246,.04)':''}">
+      ${content}
     </div>`;
   }).join('');
+
+  return `<div style="display:grid;grid-template-columns:180px repeat(${weeks.length},1fr);
+                      border-top:1px solid var(--border);cursor:pointer" onclick="openDetail(${k.id})">
+    <div style="padding:10px 14px">
+      <div style="font-size:12px;font-weight:700;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(k.partner_name)}</div>
+      <div style="font-size:10px;color:var(--muted);display:flex;gap:4px;align-items:center;margin-top:2px">
+        <span style="padding:1px 5px;border-radius:6px;background:${sc.bg};color:${sc.text}">${sc.label}</span>
+        <span>${esc(k.account_name||'')}</span>
+      </div>
+    </div>
+    ${cells}
+  </div>`;
+}
+
+// ════════════════════════════════════════════════════════════
+// DETAIL PANEL
+// ════════════════════════════════════════════════════════════
+function openDetail(id) {
+  const k = koops.find(x => x.id === id);
+  if (!k) return;
+  detailKoopId = id;
+
+  const sc = STATUS_CFG[k.status] || STATUS_CFG.anfrage;
+  const pc = PAY_CFG[k.payment_status] || PAY_CFG.offen;
+  const stars = k.partner_rating
+    ? `<span style="color:#eab308;font-size:16px;letter-spacing:2px">${'★'.repeat(k.partner_rating)}${'☆'.repeat(5-k.partner_rating)}</span>` : '';
+
+  const deliverables = k.deliverables || [];
+  const delHTML = deliverables.length ? deliverables.map((d,i) =>
+    `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 0;border-bottom:1px solid var(--border)">
+      <input type="checkbox" ${d.done?'checked':''} onchange="toggleDeliverable(${id},${i},this.checked)"
+             style="accent-color:var(--accent);width:14px;height:14px">
+      <span style="font-size:12px;color:var(--text);${d.done?'text-decoration:line-through;opacity:.5':''}">${esc(d.text)}</span>
+    </label>`
+  ).join('') : `<div style="font-size:12px;color:var(--muted);opacity:.5">Kein Lieferumfang eingetragen.</div>`;
+
+  document.getElementById('dpTitle').textContent = k.partner_name;
+  document.getElementById('dpContent').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <!-- Status + Typ -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;
+                     background:${sc.bg};color:${sc.text}">${sc.label}</span>
+        <span style="padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;
+                     background:var(--surface2);color:var(--muted)">${TYPE_LABELS[k.koop_type]||k.koop_type}</span>
+        ${k.account_name ? `<span style="padding:4px 12px;border-radius:12px;font-size:11px;
+                               background:var(--surface2);color:var(--muted)">${esc(k.account_name)}</span>` : ''}
+      </div>
+
+      <!-- Finanzen -->
+      ${k.amount ? `<div style="background:var(--surface2);border-radius:10px;padding:14px;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:3px">BETRAG</div>
+          <div style="font-size:22px;font-weight:700;color:var(--success)">
+            ${k.amount.toLocaleString('de-DE',{style:'currency',currency:k.currency||'EUR'})}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:3px">BEZAHLUNG</div>
+          <div style="font-size:13px;font-weight:700;color:${pc.color}">${pc.text}</div>
+        </div>
+      </div>` : ''}
+
+      <!-- Daten -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        ${k.start_date ? `<div style="background:var(--surface2);border-radius:8px;padding:10px 12px">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:3px">START</div>
+          <div style="font-size:13px;font-weight:700">${k.start_date}</div>
+        </div>` : ''}
+        ${k.deadline ? `<div style="background:var(--surface2);border-radius:8px;padding:10px 12px">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:3px">DEADLINE</div>
+          <div style="font-size:13px;font-weight:700">${k.deadline}</div>
+        </div>` : ''}
+      </div>
+
+      <!-- Ansprechpartner -->
+      ${k.contact_name ? `<div>
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px">ANSPRECHPARTNER</div>
+        <div style="font-size:13px;color:var(--text)">${esc(k.contact_name)}</div>
+      </div>` : ''}
+
+      <!-- Lieferumfang -->
+      <div>
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:8px">
+          LIEFERUMFANG
+          ${deliverables.length ? `<span style="font-weight:400;font-size:10px;opacity:.7"> — ${deliverables.filter(d=>d.done).length}/${deliverables.length}</span>` : ''}
+        </div>
+        <div id="deliverablesPanel">${delHTML}</div>
+      </div>
+
+      <!-- Notizen -->
+      ${k.notes ? `<div>
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px">NOTIZEN</div>
+        <div style="font-size:12px;color:var(--text);line-height:1.6;white-space:pre-wrap;
+                    background:var(--surface2);border-radius:8px;padding:12px">${esc(k.notes)}</div>
+      </div>` : ''}
+
+      <!-- Bewertung -->
+      ${stars ? `<div>
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px">BEWERTUNG</div>
+        ${stars}
+      </div>` : ''}
+
+      <!-- Aktionen -->
+      <div style="display:flex;gap:8px;padding-top:8px;border-top:1px solid var(--border)">
+        <button onclick="deleteKoop(${k.id})" class="btn btn-ghost" style="font-size:11px;color:#ef4444">
+          <i class="fa-solid fa-trash"></i> Löschen
+        </button>
+        <button onclick="editKoopFromDetail()" class="btn btn-primary" style="font-size:11px;flex:1">
+          <i class="fa-solid fa-pen"></i> Bearbeiten
+        </button>
+      </div>
+    </div>`;
+
+  document.getElementById('detailOverlay').style.display = 'block';
+  const panel = document.getElementById('detailPanel');
+  panel.style.display = 'block';
+  requestAnimationFrame(() => { panel.style.transform = 'translateX(0)'; });
+}
+
+function closeDetail() {
+  const panel = document.getElementById('detailPanel');
+  panel.style.transform = 'translateX(100%)';
+  setTimeout(() => {
+    panel.style.display = 'none';
+    document.getElementById('detailOverlay').style.display = 'none';
+  }, 260);
+  detailKoopId = null;
+}
+
+async function toggleDeliverable(koopId, idx, done) {
+  const k = koops.find(x => x.id === koopId);
+  if (!k) return;
+  k.deliverables[idx].done = done;
+  await fetch(`/api/kooperationen/${koopId}/deliverables`, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ deliverables: k.deliverables })
+  });
+}
+
+function editKoopFromDetail() {
+  const k = koops.find(x => x.id === detailKoopId);
+  if (k) { closeDetail(); setTimeout(() => openKoopModal(k), 280); }
+}
+
+// ════════════════════════════════════════════════════════════
+// MODAL
+// ════════════════════════════════════════════════════════════
+function setRating(n) {
+  document.getElementById('koopRating').value = n;
+  document.querySelectorAll('#ratingStars button').forEach((b, i) => {
+    b.style.color = i < n ? '#eab308' : 'var(--border)';
+  });
 }
 
 function openKoopModal(koop = null) {
-  document.getElementById('koopId').value = koop?.id || '';
+  document.getElementById('koopId').value          = koop?.id || '';
   document.getElementById('koopModalTitle').textContent = koop ? 'KOOP BEARBEITEN' : 'NEUE KOOP';
-  document.getElementById('koopPartner').value = koop?.partner_name || '';
-  document.getElementById('koopType').value = koop?.koop_type || 'paid_post';
-  document.getElementById('koopStatus').value = koop?.status || 'anfrage';
-  document.getElementById('koopAmount').value = koop?.amount || '';
-  document.getElementById('koopDeadline').value = koop?.deadline || '';
-  document.getElementById('koopNotes').value = koop?.notes || '';
+  document.getElementById('koopPartner').value     = koop?.partner_name || '';
+  document.getElementById('koopContact').value     = koop?.contact_name || '';
+  document.getElementById('koopType').value        = koop?.koop_type || 'paid_post';
+  document.getElementById('koopStatus').value      = koop?.status || 'anfrage';
+  document.getElementById('koopPayment').value     = koop?.payment_status || 'offen';
+  document.getElementById('koopAmount').value      = koop?.amount || '';
+  document.getElementById('koopStart').value       = koop?.start_date || '';
+  document.getElementById('koopDeadline').value    = koop?.deadline || '';
+  document.getElementById('koopNotes').value       = koop?.notes || '';
+  document.getElementById('koopRating').value      = koop?.partner_rating || '';
+
+  // Lieferumfang: Array → Textarea (eine Zeile pro Punkt)
+  const delivs = (koop?.deliverables || []).map(d => d.text || d).join('\n');
+  document.getElementById('koopDeliverables').value = delivs;
+
+  // Bewertung-Sterne
+  const r = koop?.partner_rating || 0;
+  document.querySelectorAll('#ratingStars button').forEach((b,i) => {
+    b.style.color = i < r ? '#eab308' : 'var(--border)';
+  });
+
   if (koop?.account_id) document.getElementById('koopAccount').value = koop.account_id;
   document.getElementById('koopModal').style.display = 'flex';
 }
 
-function closeKoopModal() {
-  document.getElementById('koopModal').style.display = 'none';
-}
+function closeKoopModal() { document.getElementById('koopModal').style.display = 'none'; }
 
-function editKoop(id) {
-  const k = koops.find(x => x.id === id);
-  if (k) openKoopModal(k);
-}
+function editKoop(id) { const k = koops.find(x => x.id === id); if (k) openKoopModal(k); }
 
 async function saveKoop() {
-  const id = document.getElementById('koopId').value;
+  const id      = document.getElementById('koopId').value;
   const partner = document.getElementById('koopPartner').value.trim();
   if (!partner) { showToast('Partner-Name erforderlich', 'error'); return; }
+
+  // Lieferumfang: Textarea → Array of {text, done}
+  const existingKoop = id ? koops.find(k => k.id == id) : null;
+  const delivLines = document.getElementById('koopDeliverables').value
+    .split('\n').map(l => l.trim()).filter(Boolean);
+  const deliverables = delivLines.map(text => {
+    const existing = existingKoop?.deliverables?.find(d => d.text === text);
+    return { text, done: existing?.done || false };
+  });
+
   const body = {
-    account_id: parseInt(document.getElementById('koopAccount').value),
-    partner_name: partner,
-    koop_type: document.getElementById('koopType').value,
-    status: document.getElementById('koopStatus').value,
-    amount: document.getElementById('koopAmount').value || null,
-    deadline: document.getElementById('koopDeadline').value || null,
-    notes: document.getElementById('koopNotes').value,
+    account_id:     parseInt(document.getElementById('koopAccount').value),
+    partner_name:   partner,
+    koop_type:      document.getElementById('koopType').value,
+    status:         document.getElementById('koopStatus').value,
+    payment_status: document.getElementById('koopPayment').value,
+    amount:         document.getElementById('koopAmount').value || null,
+    start_date:     document.getElementById('koopStart').value || null,
+    deadline:       document.getElementById('koopDeadline').value || null,
+    notes:          document.getElementById('koopNotes').value,
+    contact_name:   document.getElementById('koopContact').value,
+    deliverables,
+    partner_rating: document.getElementById('koopRating').value || null,
   };
   const url = id ? `/api/kooperationen/${id}` : '/api/kooperationen';
-  const r = await fetch(url, { method: id ? 'PUT' : 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const r = await fetch(url, { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
   if (r.ok) {
     closeKoopModal();
-    loadKoops();
+    await loadKoops();
     showToast(id ? 'Koop aktualisiert' : 'Koop gespeichert', 'success');
   } else {
     showToast('Fehler beim Speichern', 'error');
@@ -310,8 +825,15 @@ async function saveKoop() {
 
 async function deleteKoop(id) {
   if (!confirm('Kooperation wirklich löschen?')) return;
-  const r = await fetch(`/api/kooperationen/${id}`, { method: 'DELETE' });
-  if (r.ok) { loadKoops(); showToast('Gelöscht', 'info'); }
+  await fetch(`/api/kooperationen/${id}`, { method:'DELETE' });
+  closeDetail();
+  await loadKoops();
+  showToast('Gelöscht', 'info');
+}
+
+// ── Hilfsfunktionen ────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 {% endblock %}

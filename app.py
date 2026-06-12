@@ -655,7 +655,19 @@ def init_db():
                 deadline DATE, amount FLOAT, currency VARCHAR(3) DEFAULT 'EUR',
                 notes TEXT, content_item_id INTEGER REFERENCES content_item(id),
                 reminder_sent BOOLEAN DEFAULT 0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                contact_name VARCHAR(200), payment_status VARCHAR(20) DEFAULT 'offen',
+                start_date DATE, deliverables TEXT, partner_rating INTEGER)''')
+            koop_cols = [c['name'] for c in inspector.get_columns('kooperation')]
+            for _col, _ddl in [
+                ('contact_name',   'ALTER TABLE kooperation ADD COLUMN contact_name VARCHAR(200)'),
+                ('payment_status', "ALTER TABLE kooperation ADD COLUMN payment_status VARCHAR(20) DEFAULT 'offen'"),
+                ('start_date',     'ALTER TABLE kooperation ADD COLUMN start_date DATE'),
+                ('deliverables',   'ALTER TABLE kooperation ADD COLUMN deliverables TEXT'),
+                ('partner_rating', 'ALTER TABLE kooperation ADD COLUMN partner_rating INTEGER'),
+            ]:
+                if _col not in koop_cols:
+                    safe_alter(_ddl)
             safe_alter('''CREATE TABLE IF NOT EXISTS account_ideen_context (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 account_id INTEGER NOT NULL UNIQUE REFERENCES account(id),
@@ -9512,6 +9524,10 @@ def koop_list():
     koops = Kooperation.query.order_by(Kooperation.created_at.desc()).all()
     out = []
     for k in koops:
+        delivs = []
+        if k.deliverables:
+            try: delivs = json.loads(k.deliverables)
+            except: pass
         out.append({
             'id': k.id,
             'account_id': k.account_id,
@@ -9520,9 +9536,14 @@ def koop_list():
             'koop_type': k.koop_type,
             'status': k.status,
             'deadline': k.deadline.isoformat() if k.deadline else None,
+            'start_date': k.start_date.isoformat() if k.start_date else None,
             'amount': float(k.amount) if k.amount else None,
-            'currency': k.currency,
-            'notes': k.notes,
+            'currency': k.currency or 'EUR',
+            'notes': k.notes or '',
+            'contact_name': k.contact_name or '',
+            'payment_status': k.payment_status or 'offen',
+            'deliverables': delivs,
+            'partner_rating': k.partner_rating,
             'created_at': k.created_at.isoformat() if k.created_at else None,
         })
     return jsonify(out)
@@ -9538,9 +9559,14 @@ def koop_create():
         koop_type=d.get('koop_type', 'paid_post'),
         status=d.get('status', 'anfrage'),
         deadline=datetime.strptime(d['deadline'], '%Y-%m-%d').date() if d.get('deadline') else None,
+        start_date=datetime.strptime(d['start_date'], '%Y-%m-%d').date() if d.get('start_date') else None,
         amount=float(d['amount']) if d.get('amount') else None,
         currency=d.get('currency', 'EUR'),
         notes=d.get('notes', '').strip(),
+        contact_name=d.get('contact_name', '').strip() or None,
+        payment_status=d.get('payment_status', 'offen'),
+        deliverables=json.dumps(d.get('deliverables', []), ensure_ascii=False) if d.get('deliverables') else None,
+        partner_rating=int(d['partner_rating']) if d.get('partner_rating') else None,
     )
     db.session.add(k)
     db.session.commit()
@@ -9556,15 +9582,44 @@ def koop_update(kid):
         db.session.commit()
         return jsonify({'ok': True})
     d = request.get_json() or {}
-    k.partner_name = d.get('partner_name', k.partner_name).strip()
-    k.koop_type    = d.get('koop_type', k.koop_type)
-    k.status       = d.get('status', k.status)
-    k.amount       = float(d['amount']) if d.get('amount') else k.amount
-    k.currency     = d.get('currency', k.currency)
-    k.notes        = d.get('notes', k.notes or '').strip()
-    k.account_id   = d.get('account_id') or k.account_id
+    k.partner_name    = d.get('partner_name', k.partner_name).strip()
+    k.koop_type       = d.get('koop_type', k.koop_type)
+    k.status          = d.get('status', k.status)
+    k.amount          = float(d['amount']) if d.get('amount') else k.amount
+    k.currency        = d.get('currency', k.currency)
+    k.notes           = d.get('notes', k.notes or '').strip()
+    k.account_id      = d.get('account_id') or k.account_id
+    k.contact_name    = d.get('contact_name', k.contact_name or '').strip() or None
+    k.payment_status  = d.get('payment_status', k.payment_status or 'offen')
+    k.partner_rating  = int(d['partner_rating']) if d.get('partner_rating') else k.partner_rating
     if d.get('deadline'):
         k.deadline = datetime.strptime(d['deadline'], '%Y-%m-%d').date()
+    if 'deadline' in d and not d['deadline']:
+        k.deadline = None
+    if d.get('start_date'):
+        k.start_date = datetime.strptime(d['start_date'], '%Y-%m-%d').date()
+    if 'start_date' in d and not d['start_date']:
+        k.start_date = None
+    if 'deliverables' in d:
+        k.deliverables = json.dumps(d['deliverables'], ensure_ascii=False)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/kooperationen/<int:kid>/status', methods=['PATCH'])
+@login_required
+def koop_quick_status(kid):
+    k = Kooperation.query.get_or_404(kid)
+    k.status = request.get_json().get('status', k.status)
+    db.session.commit()
+    return jsonify({'ok': True, 'status': k.status})
+
+
+@app.route('/api/kooperationen/<int:kid>/deliverables', methods=['PUT'])
+@login_required
+def koop_save_deliverables(kid):
+    k = Kooperation.query.get_or_404(kid)
+    k.deliverables = json.dumps(request.get_json().get('deliverables', []), ensure_ascii=False)
     db.session.commit()
     return jsonify({'ok': True})
 
