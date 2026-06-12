@@ -9516,7 +9516,9 @@ def save_idea_to_vorrat(account_id):
 @app.route('/kooperationen')
 @login_required
 def kooperationen():
-    koops = Kooperation.query.order_by(Kooperation.created_at.desc()).all()
+    from datetime import date as _date
+    koops = Kooperation.query.all()
+    koops.sort(key=lambda k: k.start_date or k.deadline or (k.created_at.date() if k.created_at else _date.min), reverse=True)
     accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
     today = datetime.utcnow().date()
     return render_template('kooperationen.html', koops=koops,
@@ -9526,7 +9528,9 @@ def kooperationen():
 @app.route('/api/kooperationen', methods=['GET'])
 @login_required
 def koop_list():
-    koops = Kooperation.query.order_by(Kooperation.created_at.desc()).all()
+    from datetime import date as _date
+    koops = Kooperation.query.all()
+    koops.sort(key=lambda k: k.start_date or k.deadline or (k.created_at.date() if k.created_at else _date.min), reverse=True)
     out = []
     for k in koops:
         delivs = []
@@ -9656,7 +9660,8 @@ def koop_chart():
     for k in koops:
         if not k.amount:
             continue
-        month = k.created_at.strftime('%Y-%m') if k.created_at else None
+        ref_date = k.start_date or k.deadline or (k.created_at.date() if k.created_at else None)
+        month = ref_date.strftime('%Y-%m') if ref_date else None
         if month not in bucket:
             continue
         bucket[month]['anzahl'] += 1

@@ -359,9 +359,9 @@ async function loadChart() {
         }},
         scales: {
           x: { stacked: true, grid: { display: false },
-               ticks: { color: 'var(--muted)', font: { size: 10 } } },
-          y: { stacked: true, grid: { color: 'rgba(128,128,128,.1)' },
-               ticks: { color: 'var(--muted)', font: { size: 10 },
+               ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 10 } } },
+          y: { stacked: true, grid: { color: 'rgba(255,255,255,0.07)' },
+               ticks: { color: 'rgba(255,255,255,0.7)', font: { size: 10 },
                         callback: v => v.toLocaleString('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}) } }
         }
       }
