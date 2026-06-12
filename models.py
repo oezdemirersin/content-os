@@ -722,11 +722,15 @@ class Kooperation(db.Model):
     start_date           = db.Column(db.Date, nullable=True)
     deliverables         = db.Column(db.Text)              # JSON: [{text, done}, ...]
     partner_rating       = db.Column(db.Integer)           # 1–5 Sterne nach Abschluss
-    payment_due_date     = db.Column(db.Date, nullable=True)   # Zahlungsziel
-    invoice_number       = db.Column(db.String(100))            # Rechnungsnummer
-    invoice_sent_at      = db.Column(db.Date, nullable=True)   # Rechnung gesendet am
-    payment_received_at  = db.Column(db.Date, nullable=True)   # Zahlung erhalten am
-    payment_notes        = db.Column(db.Text)                   # Was wurde vereinbart
+    payment_due_date     = db.Column(db.Date, nullable=True)
+    invoice_number       = db.Column(db.String(100))
+    invoice_sent_at      = db.Column(db.Date, nullable=True)
+    payment_received_at  = db.Column(db.Date, nullable=True)
+    payment_notes        = db.Column(db.Text)
+    posting_dates        = db.Column(db.Text)     # JSON: ["2025-03-15", "2025-03-17"]
+    invoice_reminder_sent   = db.Column(db.Boolean, default=False)
+    payment_reminder_sent   = db.Column(db.Boolean, default=False)
+    campaign_name           = db.Column(db.String(200))
     account         = db.relationship('Account', backref='kooperationen')
     content_item    = db.relationship('ContentItem', backref=db.backref('kooperation', uselist=False))
 

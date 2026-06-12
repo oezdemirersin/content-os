@@ -669,7 +669,11 @@ def init_db():
                 ('invoice_number',      'ALTER TABLE kooperation ADD COLUMN invoice_number VARCHAR(100)'),
                 ('invoice_sent_at',     'ALTER TABLE kooperation ADD COLUMN invoice_sent_at DATE'),
                 ('payment_received_at', 'ALTER TABLE kooperation ADD COLUMN payment_received_at DATE'),
-                ('payment_notes',       'ALTER TABLE kooperation ADD COLUMN payment_notes TEXT'),
+                ('payment_notes',            'ALTER TABLE kooperation ADD COLUMN payment_notes TEXT'),
+                ('posting_dates',            'ALTER TABLE kooperation ADD COLUMN posting_dates TEXT'),
+                ('invoice_reminder_sent',    'ALTER TABLE kooperation ADD COLUMN invoice_reminder_sent BOOLEAN DEFAULT 0'),
+                ('payment_reminder_sent',    'ALTER TABLE kooperation ADD COLUMN payment_reminder_sent BOOLEAN DEFAULT 0'),
+                ('campaign_name',            'ALTER TABLE kooperation ADD COLUMN campaign_name VARCHAR(200)'),
             ]:
                 if _col not in koop_cols:
                     safe_alter(_ddl)
@@ -1730,6 +1734,7 @@ def schedule_automations():
             # Wetter-Check 4× täglich (alle 360 Ticks = 6 Stunden)
             if tick % 360 == 0:
                 threading.Thread(target=_check_all_weather, daemon=True).start()
+                threading.Thread(target=_check_koop_reminders, daemon=True).start()
             # KI-Auto-Klassifizierung alle 10 Minuten
             if tick % 10 == 0:
                 threading.Thread(target=_auto_classify_batch, daemon=True).start()
@@ -9513,12 +9518,71 @@ def save_idea_to_vorrat(account_id):
 # KOOPERATIONS-TRACKER
 # ═══════════════════════════════════════════════════════════════
 
+def _koop_ref_date(k):
+    """Primäres Datum einer Koop: frühestes Posting → start_date → created_at."""
+    from datetime import date as _d
+    if k.posting_dates:
+        try:
+            dates = [_d.fromisoformat(x) for x in json.loads(k.posting_dates) if x]
+            if dates: return min(dates)
+        except: pass
+    return k.start_date or (k.created_at.date() if k.created_at else _d.min)
+
+
+def _check_koop_reminders():
+    """Erinnerungen: Rechnung schicken (3W nach Posting) + Zahlung prüfen (2W nach Rechnung)."""
+    from datetime import date as _d
+    try:
+        with app.app_context():
+            today = _d.today()
+            koops = Kooperation.query.filter(
+                Kooperation.status.in_(['aktiv', 'abgeschlossen'])
+            ).all()
+            changed = False
+            for k in koops:
+                # Erinnerung 1: Rechnung noch nicht gesendet, 3 Wochen nach erstem Posting
+                if (not k.invoice_reminder_sent and not k.invoice_sent_at
+                        and not k.payment_received_at and k.posting_dates):
+                    try:
+                        dates = [_d.fromisoformat(x) for x in json.loads(k.posting_dates) if x]
+                        first = min(dates) if dates else None
+                    except: first = None
+                    if first and (today - first).days >= 21:
+                        db.session.add(SystemAlert(
+                            account_id=k.account_id,
+                            alert_type='koop_invoice_due',
+                            severity='warning',
+                            message=f'💼 Koop {k.partner_name}: Rechnung noch nicht gesendet! '
+                                    f'Erstes Posting war {first} (vor {(today-first).days} Tagen).',
+                        ))
+                        k.invoice_reminder_sent = True
+                        changed = True
+
+                # Erinnerung 2: Rechnung gesendet, Zahlung nach 2 Wochen noch ausstehend
+                if (not k.payment_reminder_sent and k.invoice_sent_at
+                        and not k.payment_received_at):
+                    if (today - k.invoice_sent_at).days >= 14:
+                        db.session.add(SystemAlert(
+                            account_id=k.account_id,
+                            alert_type='koop_payment_due',
+                            severity='warning',
+                            message=f'💰 Koop {k.partner_name}: Zahlung noch nicht eingegangen! '
+                                    f'Rechnung wurde am {k.invoice_sent_at} gesendet '
+                                    f'({(today - k.invoice_sent_at).days} Tage her).',
+                        ))
+                        k.payment_reminder_sent = True
+                        changed = True
+            if changed:
+                db.session.commit()
+    except Exception as e:
+        pass
+
+
 @app.route('/kooperationen')
 @login_required
 def kooperationen():
-    from datetime import date as _date
     koops = Kooperation.query.all()
-    koops.sort(key=lambda k: k.start_date or k.deadline or (k.created_at.date() if k.created_at else _date.min), reverse=True)
+    koops.sort(key=_koop_ref_date, reverse=True)
     accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
     today = datetime.utcnow().date()
     return render_template('kooperationen.html', koops=koops,
@@ -9528,9 +9592,8 @@ def kooperationen():
 @app.route('/api/kooperationen', methods=['GET'])
 @login_required
 def koop_list():
-    from datetime import date as _date
     koops = Kooperation.query.all()
-    koops.sort(key=lambda k: k.start_date or k.deadline or (k.created_at.date() if k.created_at else _date.min), reverse=True)
+    koops.sort(key=_koop_ref_date, reverse=True)
     out = []
     for k in koops:
         delivs = []
@@ -9559,6 +9622,8 @@ def koop_list():
             'invoice_sent_at':     k.invoice_sent_at.isoformat() if k.invoice_sent_at else None,
             'payment_received_at': k.payment_received_at.isoformat() if k.payment_received_at else None,
             'payment_notes':       k.payment_notes or '',
+            'posting_dates':       json.loads(k.posting_dates) if k.posting_dates else [],
+            'campaign_name':       k.campaign_name or '',
         })
     return jsonify(out)
 
@@ -9586,6 +9651,8 @@ def koop_create():
         invoice_sent_at=datetime.strptime(d['invoice_sent_at'], '%Y-%m-%d').date() if d.get('invoice_sent_at') else None,
         payment_received_at=datetime.strptime(d['payment_received_at'], '%Y-%m-%d').date() if d.get('payment_received_at') else None,
         payment_notes=d.get('payment_notes', '').strip() or None,
+        posting_dates=json.dumps([x for x in d.get('posting_dates', []) if x], ensure_ascii=False) if d.get('posting_dates') else None,
+        campaign_name=d.get('campaign_name', '').strip() or None,
     )
     db.session.add(k)
     db.session.commit()
@@ -9610,6 +9677,8 @@ def koop_update(kid):
     k.account_id      = d.get('account_id') or k.account_id
     k.contact_name    = d.get('contact_name', k.contact_name or '').strip() or None
     k.payment_status  = d.get('payment_status', k.payment_status or 'offen')
+    if 'campaign_name' in d:
+        k.campaign_name = d['campaign_name'].strip() or None
     k.partner_rating  = int(d['partner_rating']) if d.get('partner_rating') else k.partner_rating
     if d.get('deadline'):
         k.deadline = datetime.strptime(d['deadline'], '%Y-%m-%d').date()
@@ -9623,6 +9692,12 @@ def koop_update(kid):
         k.deliverables = json.dumps(d['deliverables'], ensure_ascii=False)
     if 'payment_notes' in d:
         k.payment_notes = d['payment_notes'].strip() or None
+    if 'posting_dates' in d:
+        dates = [x for x in (d['posting_dates'] or []) if x]
+        k.posting_dates = json.dumps(dates, ensure_ascii=False) if dates else None
+        # Wenn neue Posting-Daten gesetzt werden, Reminder zurücksetzen falls noch nicht gesendet
+        if dates and not k.invoice_sent_at:
+            k.invoice_reminder_sent = False
     if 'invoice_number' in d:
         k.invoice_number = d['invoice_number'].strip() or None
     for _date_field in ('payment_due_date', 'invoice_sent_at', 'payment_received_at'):
@@ -9660,8 +9735,9 @@ def koop_chart():
     for k in koops:
         if not k.amount:
             continue
-        ref_date = k.start_date or k.deadline or (k.created_at.date() if k.created_at else None)
-        month = ref_date.strftime('%Y-%m') if ref_date else None
+        ref_date = _koop_ref_date(k)
+        from datetime import date as _d2
+        month = ref_date.strftime('%Y-%m') if ref_date and ref_date != _d2.min else None
         if month not in bucket:
             continue
         bucket[month]['anzahl'] += 1
@@ -9686,6 +9762,34 @@ def koop_quick_status(kid):
     k.status = request.get_json().get('status', k.status)
     db.session.commit()
     return jsonify({'ok': True, 'status': k.status})
+
+
+@app.route('/api/kooperationen/<int:kid>/payment', methods=['PATCH'])
+@login_required
+def koop_quick_payment(kid):
+    from datetime import date as _date
+    k = Kooperation.query.get_or_404(kid)
+    action = request.get_json().get('action')  # 'invoice' | 'paid' | 'reset'
+    today = _date.today().isoformat()
+    if action == 'invoice':
+        k.invoice_sent_at = _date.today()
+        k.payment_status  = 'rechnungsgestellt'
+    elif action == 'paid':
+        if not k.invoice_sent_at:
+            k.invoice_sent_at = _date.today()
+        k.payment_received_at = _date.today()
+        k.payment_status      = 'bezahlt'
+    elif action == 'reset':
+        k.invoice_sent_at     = None
+        k.payment_received_at = None
+        k.payment_status      = 'offen'
+    db.session.commit()
+    return jsonify({
+        'ok': True,
+        'payment_status':      k.payment_status,
+        'invoice_sent_at':     k.invoice_sent_at.isoformat() if k.invoice_sent_at else None,
+        'payment_received_at': k.payment_received_at.isoformat() if k.payment_received_at else None,
+    })
 
 
 @app.route('/api/kooperationen/<int:kid>/deliverables', methods=['PUT'])

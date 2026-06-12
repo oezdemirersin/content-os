@@ -160,6 +160,10 @@
           <input id="koopContact" type="text" placeholder="Name, E-Mail" class="finput"></div>
       </div>
 
+      <!-- Kampagnenname -->
+      <div><label class="flabel">KAMPAGNENNAME</label>
+        <input id="koopCampaign" type="text" placeholder="z.B. Sommer-Kollektion 2025, Black Friday, …" class="finput"></div>
+
       <!-- Status + Betrag -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div><label class="flabel">STATUS</label>
@@ -427,6 +431,7 @@ function koopCard(k) {
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap">
           <span style="font-size:15px;font-weight:700">${esc(k.partner_name)}</span>
+          ${k.campaign_name ? `<span style="font-size:11px;color:var(--accent2);font-weight:600">${esc(k.campaign_name)}</span>` : ''}
           <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;background:${sc.bg};color:${sc.text}">${sc.label}</span>
           <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;background:var(--surface2);color:var(--muted)">${TYPE_LABELS[k.koop_type]||k.koop_type}</span>
           ${k.account_name ? `<span style="font-size:10px;color:var(--muted)">${esc(k.account_name)}</span>` : ''}
@@ -484,6 +489,19 @@ function renderPipeline() {
 async function quickStatus(id, status) {
   await fetch(`/api/kooperationen/${id}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status}) });
   await loadKoops(); loadChart();
+}
+
+async function quickPayment(id, action) {
+  const r = await fetch(`/api/kooperationen/${id}/payment`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action})
+  });
+  if (r.ok) {
+    await loadKoops(); loadChart();
+    // Detail-Panel aktualisieren
+    openDetail(id);
+    const label = action==='invoice' ? 'Rechnung als gesendet markiert' : action==='paid' ? 'Zahlung als erhalten markiert' : 'Zahlungsstatus zurückgesetzt';
+    showToast(label, action==='paid' ? 'success' : 'info');
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -576,12 +594,33 @@ function openDetail(id) {
         ${k.account_name ? `<span style="padding:4px 12px;border-radius:12px;font-size:11px;background:var(--surface2);color:var(--muted)">${esc(k.account_name)}</span>` : ''}
       </div>
 
+      ${k.campaign_name ? `<div style="font-size:13px;font-weight:600;color:var(--accent2)"><i class="fa-solid fa-tag fa-xs"></i> ${esc(k.campaign_name)}</div>` : ''}
+
       ${k.amount ? `<div style="background:var(--surface2);border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center">
         <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">BETRAG</div>
           <div style="font-size:22px;font-weight:700;color:var(--success)">${fmt(k.amount)}</div></div>
         <div style="text-align:right"><div style="font-size:11px;color:var(--muted);margin-bottom:2px">ZAHLUNG</div>
           <div style="font-size:13px;font-weight:700;color:${pc.color}">${pc.text}</div></div>
       </div>` : ''}
+
+      <!-- Quick-Payment-Buttons -->
+      ${k.amount && k.payment_status !== 'bezahlt' ? `<div style="display:flex;gap:8px">
+        ${k.payment_status === 'offen' ? `<button onclick="quickPayment(${k.id},'invoice')"
+          style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--warning);
+                 background:rgba(245,158,11,.1);color:var(--warning);font-family:var(--font-body);
+                 font-size:12px;font-weight:700;cursor:pointer">
+          <i class="fa-solid fa-paper-plane"></i> Rechnung gesendet</button>` : ''}
+        <button onclick="quickPayment(${k.id},'paid')"
+          style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--success);
+                 background:rgba(34,197,94,.1);color:var(--success);font-family:var(--font-body);
+                 font-size:12px;font-weight:700;cursor:pointer">
+          <i class="fa-solid fa-circle-check"></i> Zahlung erhalten</button>
+      </div>` : ''}
+      ${k.amount && k.payment_status !== 'offen' ? `<button onclick="quickPayment(${k.id},'reset')"
+        style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);
+               background:transparent;color:var(--muted);font-family:var(--font-body);
+               font-size:11px;cursor:pointer">
+        <i class="fa-solid fa-rotate-left fa-xs"></i> Zahlungsstatus zurücksetzen</button>` : ''}
 
       <!-- Zahlungs-Timeline -->
       <div style="background:var(--surface2);border-radius:10px;padding:14px 16px">
@@ -765,9 +804,16 @@ function openKoopModal(koop=null) {
   document.getElementById('koopPaidAt').value    = koop?.payment_received_at || '';
   document.getElementById('koopPayNotes').value  = koop?.payment_notes || '';
 
-  // Posting-Daten
+  // Kampagnenname
+  document.getElementById('koopCampaign').value = koop?.campaign_name || '';
+
+  // Posting-Daten — bei Neu: heute als Vorschlag
   document.getElementById('postingDateList').innerHTML = '';
-  (koop?.posting_dates||[]).sort().forEach(d => addPostingDate(d));
+  if (koop) {
+    (koop.posting_dates||[]).sort().forEach(d => addPostingDate(d));
+  } else {
+    addPostingDate(new Date().toISOString().slice(0,10));
+  }
   updatePostingDatesUI();
 
   // Format-Picker
@@ -793,6 +839,7 @@ async function saveKoop() {
     amount:              document.getElementById('koopAmount').value || null,
     notes:               document.getElementById('koopNotes').value,
     contact_name:        document.getElementById('koopContact').value,
+    campaign_name:       document.getElementById('koopCampaign').value,
     deliverables:        getDeliverables(),
     posting_dates:       getPostingDates(),
     invoice_sent_at:     document.getElementById('koopInvoiceSent').value || null,
