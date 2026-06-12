@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+{% block title %}Kooperationen — Content OS{% endblock %}
+{% block page_title %}KOOPERATIONEN{% endblock %}
+{% set active_page = 'kooperationen' %}
+
+{% block content %}
+<div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between">
+  <div>
+    <div style="font-family:var(--font-display);font-size:22px;letter-spacing:1px">KOOPERATIONS-TRACKER</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:3px">Paid Posts, UGC, Deals — alles auf einen Blick.</div>
+  </div>
+  <button onclick="openKoopModal()" class="btn btn-primary">
+    <i class="fa-solid fa-plus"></i> Neue Koop
+  </button>
+</div>
+
+<!-- ── Filter-Bar ── -->
+<div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+  {% for val,label in [('all','Alle'),('anfrage','Anfrage'),('aktiv','Aktiv'),('abgeschlossen','Abgeschlossen'),('storniert','Storniert')] %}
+  <button onclick="filterKoops('{{ val }}', this)"
+          data-filter="{{ val }}"
+          style="padding:7px 16px;border-radius:20px;border:1px solid var(--border);
+                 background:{% if val=='all' %}var(--accent){% else %}var(--surface){% endif %};
+                 color:{% if val=='all' %}white{% else %}var(--muted){% endif %};
+                 font-family:var(--font-body);font-size:12px;font-weight:700;
+                 letter-spacing:.5px;cursor:pointer;transition:all .15s">{{ label }}</button>
+  {% endfor %}
+</div>
+
+<!-- ── KPI Summary ── -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px" id="koopKPIs">
+  <div class="stat-card">
+    <div class="stat-label">Gesamt</div>
+    <div class="stat-value blue" id="kpi-total">—</div>
+    <div class="stat-sub">Kooperationen</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Aktiv</div>
+    <div class="stat-value green" id="kpi-active">—</div>
+    <div class="stat-sub">laufend</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Umsatz</div>
+    <div class="stat-value yellow" id="kpi-revenue">—</div>
+    <div class="stat-sub">abgeschlossen</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Fällig bald</div>
+    <div class="stat-value" id="kpi-due" style="color:var(--warning)">—</div>
+    <div class="stat-sub">innerhalb 7 Tage</div>
+  </div>
+</div>
+
+<!-- ── Koops Liste ── -->
+<div id="koopList" style="display:flex;flex-direction:column;gap:10px">
+  <div style="text-align:center;color:var(--muted);padding:80px 20px;font-size:13px">
+    <i class="fa-solid fa-handshake" style="font-size:32px;opacity:.25;display:block;margin-bottom:14px"></i>
+    Noch keine Kooperationen erfasst.
+  </div>
+</div>
+
+<!-- ── Modal ── -->
+<div id="koopModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);
+     z-index:9000;align-items:center;justify-content:center">
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;
+              padding:28px;width:540px;max-width:95vw;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px">
+      <div style="font-family:var(--font-display);font-size:18px;letter-spacing:1px" id="koopModalTitle">NEUE KOOP</div>
+      <button onclick="closeKoopModal()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <input type="hidden" id="koopId">
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">ACCOUNT *</label>
+          <select id="koopAccount" style="width:100%;background:var(--surface2);border:1px solid var(--border);
+                  border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:13px;
+                  padding:10px 12px;box-sizing:border-box">
+            {% for acc in accounts %}
+            <option value="{{ acc.id }}">{{ acc.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">TYP *</label>
+          <select id="koopType" style="width:100%;background:var(--surface2);border:1px solid var(--border);
+                  border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:13px;
+                  padding:10px 12px;box-sizing:border-box">
+            <option value="paid_post">Paid Post</option>
+            <option value="ugc">UGC</option>
+            <option value="collab">Collab</option>
+            <option value="sponsoring">Sponsoring</option>
+            <option value="product">Produkt-Kooperation</option>
+            <option value="other">Sonstiges</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">PARTNER / BRAND *</label>
+        <input id="koopPartner" type="text" placeholder="Name des Partners oder der Marke"
+               style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                      color:var(--text);font-family:var(--font-body);font-size:13px;
+                      padding:10px 12px;box-sizing:border-box">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">STATUS</label>
+          <select id="koopStatus" style="width:100%;background:var(--surface2);border:1px solid var(--border);
+                  border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:13px;
+                  padding:10px 12px;box-sizing:border-box">
+            <option value="anfrage">Anfrage</option>
+            <option value="aktiv">Aktiv</option>
+            <option value="abgeschlossen">Abgeschlossen</option>
+            <option value="storniert">Storniert</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">BETRAG (€)</label>
+          <input id="koopAmount" type="number" step="0.01" min="0" placeholder="0.00"
+                 style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                        color:var(--text);font-family:var(--font-body);font-size:13px;
+                        padding:10px 12px;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">DEADLINE</label>
+          <input id="koopDeadline" type="date"
+                 style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                        color:var(--text);font-family:var(--font-body);font-size:13px;
+                        padding:10px 12px;box-sizing:border-box">
+        </div>
+      </div>
+
+      <div>
+        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">NOTIZEN</label>
+        <textarea id="koopNotes" rows="3" placeholder="Briefing, Lieferumfang, Ansprechpartner, Besonderheiten..."
+                  style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                         color:var(--text);font-family:var(--font-body);font-size:13px;
+                         padding:10px 12px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button onclick="closeKoopModal()" class="btn btn-ghost" style="flex:1">Abbrechen</button>
+        <button onclick="saveKoop()" class="btn btn-primary" style="flex:2">
+          <i class="fa-solid fa-check"></i> Speichern
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let koops = [];
+let activeFilter = 'all';
+
+const STATUS_COLORS = {
+  anfrage:       { bg: 'rgba(245,158,11,.12)',  text: 'var(--warning)',  label: 'Anfrage' },
+  aktiv:         { bg: 'rgba(34,197,94,.12)',   text: 'var(--success)', label: 'Aktiv' },
+  abgeschlossen: { bg: 'rgba(99,102,241,.12)',  text: '#818cf8',        label: 'Fertig' },
+  storniert:     { bg: 'rgba(239,68,68,.1)',    text: '#ef4444',        label: 'Storniert' },
+};
+const TYPE_LABELS = {
+  paid_post: 'Paid Post', ugc: 'UGC', collab: 'Collab',
+  sponsoring: 'Sponsoring', product: 'Produkt-Koop', other: 'Sonstiges'
+};
+
+document.addEventListener('DOMContentLoaded', loadKoops);
+
+async function loadKoops() {
+  const r = await fetch('/api/kooperationen');
+  koops = await r.json();
+  updateKPIs();
+  renderKoops();
+}
+
+function updateKPIs() {
+  const total = koops.length;
+  const active = koops.filter(k => k.status === 'aktiv').length;
+  const revenue = koops.filter(k => k.status === 'abgeschlossen' && k.amount)
+    .reduce((s, k) => s + parseFloat(k.amount), 0);
+  const now = Date.now();
+  const week = 7 * 86400 * 1000;
+  const dueSoon = koops.filter(k => k.deadline && k.status !== 'abgeschlossen' && k.status !== 'storniert' &&
+    new Date(k.deadline) - now < week && new Date(k.deadline) > now).length;
+  document.getElementById('kpi-total').textContent = total;
+  document.getElementById('kpi-active').textContent = active;
+  document.getElementById('kpi-revenue').textContent = revenue > 0
+    ? revenue.toLocaleString('de-DE', {style:'currency', currency:'EUR', maximumFractionDigits:0})
+    : '—';
+  document.getElementById('kpi-due').textContent = dueSoon || '—';
+}
+
+function filterKoops(filter, btn) {
+  activeFilter = filter;
+  document.querySelectorAll('[data-filter]').forEach(b => {
+    b.style.background = 'var(--surface)';
+    b.style.color = 'var(--muted)';
+  });
+  btn.style.background = 'var(--accent)';
+  btn.style.color = 'white';
+  renderKoops();
+}
+
+function renderKoops() {
+  const list = document.getElementById('koopList');
+  const filtered = activeFilter === 'all' ? koops : koops.filter(k => k.status === activeFilter);
+  if (!filtered.length) {
+    list.innerHTML = `<div style="text-align:center;color:var(--muted);padding:60px 20px;font-size:13px">
+      Keine Einträge für diesen Filter.</div>`;
+    return;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  list.innerHTML = filtered.map(k => {
+    const sc = STATUS_COLORS[k.status] || STATUS_COLORS.anfrage;
+    const overdue = k.deadline && k.deadline < today && k.status !== 'abgeschlossen' && k.status !== 'storniert';
+    const daysLeft = k.deadline ? Math.ceil((new Date(k.deadline) - Date.now()) / 86400000) : null;
+    return `<div style="background:var(--surface);border:1px solid ${overdue ? '#ef444440' : 'var(--border)'};
+                        border-radius:14px;padding:16px 20px;transition:border-color .15s"
+                onmouseover="this.style.borderColor='var(--accent)'"
+                onmouseout="this.style.borderColor='${overdue ? '#ef444440' : 'var(--border)'}'">
+      <div style="display:flex;align-items:flex-start;gap:14px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+            <span style="font-size:15px;font-weight:700;color:var(--text)">${k.partner_name}</span>
+            <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;
+                         background:${sc.bg};color:${sc.text}">${sc.label}</span>
+            <span style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;
+                         background:var(--surface2);color:var(--muted)">${TYPE_LABELS[k.koop_type] || k.koop_type}</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px">${k.account_name || ''}</div>
+          ${k.notes ? `<div style="font-size:12px;color:var(--muted);line-height:1.5">${k.notes}</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+          ${k.amount ? `<div style="font-size:16px;font-weight:700;color:var(--success)">
+            ${parseFloat(k.amount).toLocaleString('de-DE', {style:'currency',currency:k.currency||'EUR'})}
+          </div>` : ''}
+          ${k.deadline ? `<div style="font-size:11px;padding:3px 10px;border-radius:10px;font-weight:700;
+                                       background:${overdue ? 'rgba(239,68,68,.12)' : daysLeft <= 3 ? 'rgba(245,158,11,.12)' : 'var(--surface2)'};
+                                       color:${overdue ? '#ef4444' : daysLeft <= 3 ? 'var(--warning)' : 'var(--muted)'}">
+            ${overdue ? '⚠ Überfällig' : daysLeft === 0 ? 'Heute!' : daysLeft > 0 ? `noch ${daysLeft}T` : ''} · ${k.deadline}
+          </div>` : ''}
+          <div style="display:flex;gap:6px">
+            <button onclick="editKoop(${k.id})"
+                    style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);
+                           background:var(--surface2);color:var(--muted);cursor:pointer">
+              <i class="fa-solid fa-pen" style="font-size:11px"></i>
+            </button>
+            <button onclick="deleteKoop(${k.id})"
+                    style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);
+                           background:var(--surface2);color:var(--muted);cursor:pointer">
+              <i class="fa-solid fa-trash" style="font-size:11px"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openKoopModal(koop = null) {
+  document.getElementById('koopId').value = koop?.id || '';
+  document.getElementById('koopModalTitle').textContent = koop ? 'KOOP BEARBEITEN' : 'NEUE KOOP';
+  document.getElementById('koopPartner').value = koop?.partner_name || '';
+  document.getElementById('koopType').value = koop?.koop_type || 'paid_post';
+  document.getElementById('koopStatus').value = koop?.status || 'anfrage';
+  document.getElementById('koopAmount').value = koop?.amount || '';
+  document.getElementById('koopDeadline').value = koop?.deadline || '';
+  document.getElementById('koopNotes').value = koop?.notes || '';
+  if (koop?.account_id) document.getElementById('koopAccount').value = koop.account_id;
+  document.getElementById('koopModal').style.display = 'flex';
+}
+
+function closeKoopModal() {
+  document.getElementById('koopModal').style.display = 'none';
+}
+
+function editKoop(id) {
+  const k = koops.find(x => x.id === id);
+  if (k) openKoopModal(k);
+}
+
+async function saveKoop() {
+  const id = document.getElementById('koopId').value;
+  const partner = document.getElementById('koopPartner').value.trim();
+  if (!partner) { showToast('Partner-Name erforderlich', 'error'); return; }
+  const body = {
+    account_id: parseInt(document.getElementById('koopAccount').value),
+    partner_name: partner,
+    koop_type: document.getElementById('koopType').value,
+    status: document.getElementById('koopStatus').value,
+    amount: document.getElementById('koopAmount').value || null,
+    deadline: document.getElementById('koopDeadline').value || null,
+    notes: document.getElementById('koopNotes').value,
+  };
+  const url = id ? `/api/kooperationen/${id}` : '/api/kooperationen';
+  const r = await fetch(url, { method: id ? 'PUT' : 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  if (r.ok) {
+    closeKoopModal();
+    loadKoops();
+    showToast(id ? 'Koop aktualisiert' : 'Koop gespeichert', 'success');
+  } else {
+    showToast('Fehler beim Speichern', 'error');
+  }
+}
+
+async function deleteKoop(id) {
+  if (!confirm('Kooperation wirklich löschen?')) return;
+  const r = await fetch(`/api/kooperationen/${id}`, { method: 'DELETE' });
+  if (r.ok) { loadKoops(); showToast('Gelöscht', 'info'); }
+}
+</script>
+{% endblock %}

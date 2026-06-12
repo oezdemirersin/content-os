@@ -396,6 +396,16 @@
       {% endif %}
     </a>
 
+    <a href="{{ url_for('content_ideen') }}" class="nav-sub {% if active_page == 'content_ideen' %}active{% endif %}">
+      <i class="fa-solid fa-lightbulb"></i> Content-Ideen
+    </a>
+    <a href="{{ url_for('content_serien') }}" class="nav-sub {% if active_page == 'serien' %}active{% endif %}">
+      <i class="fa-solid fa-rotate"></i> Serien-Planer
+    </a>
+    <a href="{{ url_for('kooperationen') }}" class="nav-item {% if active_page == 'kooperationen' %}active{% endif %}">
+      <i class="fa-solid fa-handshake"></i> Kooperationen
+    </a>
+
     <div class="nav-section">System</div>
     <a href="{{ url_for('alerts_center') }}" class="nav-item {% if active_page == 'alerts' %}active{% endif %}">
       <i class="fa-solid fa-bell"></i> Alerts
@@ -555,6 +565,10 @@
           </div>
         </div>
       </div>
+      <!-- Feature-Toggles Button -->
+      <button class="icon-btn" onclick="openFeatureToggles()" title="KI-Features an/aus (F)" id="featureToggleBtn">
+        <i class="fa-solid fa-sliders"></i>
+      </button>
       <button class="icon-btn" onclick="document.getElementById('shortcutsPanel').style.display='flex'" title="Shortcuts (?)">
         <i class="fa-solid fa-keyboard"></i>
       </button>
@@ -732,6 +746,16 @@ document.addEventListener('keydown', e => {
     document.getElementById('shortcutsPanel').style.display='flex'; return;
   }
 
+  // ⌘K / Ctrl+K = Suche fokussieren
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    const inp = document.querySelector('.search-input');
+    if (inp) { inp.focus(); inp.select(); }
+    return;
+  }
+  // "f" = Feature-Toggles öffnen
+  if (e.key === 'f' && !e.ctrlKey && !e.metaKey) { openFeatureToggles(); return; }
+
   clearTimeout(keyTimer);
   keySeq = keySeq ? keySeq+' '+e.key.toLowerCase() : e.key.toLowerCase();
   const url = shortcuts[keySeq];
@@ -739,6 +763,72 @@ document.addEventListener('keydown', e => {
   if (!Object.keys(shortcuts).some(k=>k.startsWith(keySeq))) keySeq='';
   keyTimer = setTimeout(()=>{keySeq='';}, 1000);
 });
+
+// ── Feature-Toggles Panel ─────────────────────────────────────
+const _FT_LABELS = {
+  ki_caption:      { label: 'KI-Caption-Generator', icon: 'fa-solid fa-sparkles', desc: 'Caption + Hashtags aus Bild generieren' },
+  smart_refill:    { label: 'Smart-Refill',          icon: 'fa-solid fa-rotate',   desc: 'Vorrat automatisch auffüllen wenn unter Schwellwert' },
+  duplicate_check: { label: 'Duplikat-Warnung',      icon: 'fa-solid fa-copy',     desc: 'Warnt bei ähnlichen Bildern in der Mediathek' },
+  auto_watermark:  { label: 'Auto-Wasserzeichen',    icon: 'fa-solid fa-stamp',    desc: 'Logo automatisch auf Uploads einblenden' },
+};
+let _ftState = {};
+
+async function openFeatureToggles() {
+  document.getElementById('featureTogglesPanel').style.display = 'flex';
+  const r = await fetch('/api/settings/feature-toggles');
+  _ftState = await r.json();
+  renderFtRows();
+  if (_ftState.refill_days) document.getElementById('ftRefillDays').value = _ftState.refill_days;
+}
+
+function renderFtRows() {
+  const container = document.getElementById('ftRows');
+  container.innerHTML = Object.entries(_FT_LABELS).map(([key, meta]) => {
+    const on = !!_ftState[key];
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;
+                         border-bottom:1px solid var(--border)">
+      <div style="width:34px;height:34px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;
+                  justify-content:center;font-size:14px;
+                  background:${on ? 'rgba(59,130,246,.15)' : 'var(--surface2)'};
+                  color:${on ? 'var(--accent2)' : 'var(--muted)'}">
+        <i class="${meta.icon}"></i>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--text)">${meta.label}</div>
+        <div style="font-size:11px;color:var(--muted)">${meta.desc}</div>
+      </div>
+      <button onclick="toggleFt('${key}', this)"
+              style="flex-shrink:0;width:44px;height:24px;border-radius:12px;border:none;cursor:pointer;
+                     transition:background .2s;position:relative;
+                     background:${on ? 'var(--accent)' : 'var(--surface2)'}">
+        <span style="position:absolute;top:3px;width:18px;height:18px;border-radius:50%;
+                     background:white;transition:left .2s;
+                     left:${on ? '23px' : '3px'}"></span>
+      </button>
+    </div>`;
+  }).join('');
+}
+
+async function toggleFt(key, btn) {
+  _ftState[key] = !_ftState[key];
+  await fetch('/api/settings/feature-toggles', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({[key]: _ftState[key]})
+  });
+  renderFtRows();
+  showToast(_FT_LABELS[key].label + (_ftState[key] ? ' aktiviert' : ' deaktiviert'),
+            _ftState[key] ? 'success' : 'info');
+}
+
+async function saveRefillDays(val) {
+  await fetch('/api/settings/feature-toggles', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({refill_days: parseInt(val)})
+  });
+  showToast('Smart-Refill Schwellwert: ' + val + ' Tage', 'success');
+}
 </script>
 {% block scripts %}{% endblock %}
 
@@ -789,6 +879,42 @@ document.addEventListener('keydown', e => {
     </div>
     <div style="padding:14px 24px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);text-align:center">
       Drücke <span class="kbd">?</span> jederzeit um dieses Panel zu öffnen
+    </div>
+  </div>
+</div>
+
+<!-- ── Feature-Toggles Panel ── -->
+<div id="featureTogglesPanel"
+     style="display:none;position:fixed;inset:0;z-index:610;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.7);backdrop-filter:blur(6px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:420px;margin:16px;box-shadow:0 24px 80px rgba(0,0,0,.6)">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">KI-FEATURES</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">je nach Laune an/aus schalten</div>
+      </div>
+      <button onclick="document.getElementById('featureTogglesPanel').style.display='none'"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <div style="padding:16px 22px;display:flex;flex-direction:column;gap:4px" id="ftRows">
+      <!-- befüllt per JS -->
+      <div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Lädt…</div>
+    </div>
+    <div style="padding:12px 22px;border-top:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--muted)">Smart-Refill Schwellwert:</span>
+        <input type="number" id="ftRefillDays" min="3" max="30" value="7"
+               style="width:60px;background:var(--surface2);border:1px solid var(--border);
+                      border-radius:6px;padding:4px 8px;color:var(--text);font-size:12px;
+                      font-family:var(--font-body);outline:none"
+               onchange="saveRefillDays(this.value)">
+        <span style="font-size:11px;color:var(--muted)">Tage</span>
+      </div>
     </div>
   </div>
 </div>

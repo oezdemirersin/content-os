@@ -19,7 +19,9 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     HashtagSet, NotificationSettings, AppNotification, RecurringPost,
                     AccountAutomationProfile, AppSettings,
                     MemeTemplate, MemeVariant,
-                    InspirationSource, InspirationPost)
+                    InspirationSource, InspirationPost,
+                    WeatherCache, WeatherTriggerLog,
+                    ContentSeries, Kooperation, AccountIdeenContext)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -64,6 +66,15 @@ def inject_globals():
         'emergency_pause_active': _is_emergency_paused(),
         'vorrat_total': vorrat_total,
     }
+
+@app.template_filter('from_json')
+def from_json_filter(s):
+    """Jinja2-Filter: JSON-String → Python-Objekt."""
+    try:
+        return json.loads(s) if s else []
+    except Exception:
+        return []
+
 
 @app.template_filter('fmt_followers')
 def fmt_followers(n):
@@ -417,6 +428,83 @@ def init_db():
                 created_at TIMESTAMP DEFAULT NOW()
             )''')
             safe_alter('ALTER TABLE content_item ADD COLUMN IF NOT EXISTS folder_id INTEGER REFERENCES content_folder(id)')
+            # ── inspiration_post: Likes / Comments / is_saved ────────────
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS like_count INTEGER')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS comment_count INTEGER')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS is_saved BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS carousel_urls TEXT')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS video_url VARCHAR(1000)')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS suggested_folder_id INTEGER REFERENCES content_folder(id)')
+            safe_alter('ALTER TABLE inspiration_post ADD COLUMN IF NOT EXISTS folder_locked BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS valid_from DATE')
+            safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS valid_until DATE')
+            safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS recurring_yearly BOOLEAN DEFAULT FALSE')
+            # Bestehende status='saved' Posts migrieren → is_saved=True
+            safe_alter("UPDATE inspiration_post SET is_saved=TRUE WHERE status='saved'")
+            # ── account: KI-Caption Felder ───────────────────────────────
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS default_hashtags TEXT')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS sports_hashtag VARCHAR(200)')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS weather_city VARCHAR(100)')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS hide_in_analytics BOOLEAN DEFAULT FALSE')
+            # ── Wasserzeichen + Smart-Refill ─────────────────────────────
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS watermark_url VARCHAR(500)')
+            safe_alter("ALTER TABLE account ADD COLUMN IF NOT EXISTS watermark_position VARCHAR(10) DEFAULT 'br'")
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS watermark_opacity FLOAT DEFAULT 0.7')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS watermark_enabled BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS smart_refill_threshold INTEGER DEFAULT 0')
+            # ── Content-Serien ────────────────────────────────────────────
+            safe_alter('''CREATE TABLE IF NOT EXISTS content_series (
+                id SERIAL PRIMARY KEY,
+                account_id INTEGER NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+                folder_id INTEGER REFERENCES content_folder(id),
+                name VARCHAR(200) NOT NULL,
+                description TEXT,
+                days_of_week TEXT DEFAULT '[]',
+                preferred_time VARCHAR(5) DEFAULT '09:00',
+                post_type VARCHAR(20) DEFAULT 'feed',
+                active BOOLEAN DEFAULT TRUE,
+                last_scheduled TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW())''')
+            # ── Kooperationen ─────────────────────────────────────────────
+            safe_alter('''CREATE TABLE IF NOT EXISTS kooperation (
+                id SERIAL PRIMARY KEY,
+                account_id INTEGER REFERENCES account(id),
+                partner_name VARCHAR(200) NOT NULL,
+                koop_type VARCHAR(30) DEFAULT 'paid_post',
+                status VARCHAR(20) DEFAULT 'anfrage',
+                deadline DATE,
+                amount FLOAT,
+                currency VARCHAR(3) DEFAULT 'EUR',
+                notes TEXT,
+                content_item_id INTEGER REFERENCES content_item(id),
+                reminder_sent BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW())''')
+            # ── Content-Ideen-Kontext ─────────────────────────────────────
+            safe_alter('''CREATE TABLE IF NOT EXISTS account_ideen_context (
+                id SERIAL PRIMARY KEY,
+                account_id INTEGER NOT NULL UNIQUE REFERENCES account(id) ON DELETE CASCADE,
+                konzept TEXT, zielgruppe TEXT, tonalitaet TEXT, themen TEXT,
+                last_generated TIMESTAMP, generated_ideas TEXT,
+                updated_at TIMESTAMP DEFAULT NOW())''')
+            # ── Wetter-System ────────────────────────────────────────────
+            safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS trigger_condition VARCHAR(50)')
+            safe_alter('''CREATE TABLE IF NOT EXISTS weather_cache (
+                id SERIAL PRIMARY KEY,
+                account_id INTEGER NOT NULL UNIQUE REFERENCES account(id),
+                city_name VARCHAR(100), temperature FLOAT, weather_code INTEGER,
+                wind_speed FLOAT, description VARCHAR(200), forecast_json TEXT,
+                checked_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS weather_trigger_log (
+                id SERIAL PRIMARY KEY,
+                account_id INTEGER NOT NULL REFERENCES account(id),
+                trigger_type VARCHAR(50) NOT NULL,
+                fired_at TIMESTAMP DEFAULT NOW(),
+                post_id INTEGER REFERENCES scheduled_post(id),
+                city_name VARCHAR(100), temperature FLOAT)''')
+            safe_alter('CREATE INDEX IF NOT EXISTS ix_weather_trigger_log_acc ON weather_trigger_log(account_id, trigger_type, fired_at DESC)')
+            # ── media_item: Duplikat-Hash ────────────────────────────────
+            safe_alter('ALTER TABLE media_item ADD COLUMN IF NOT EXISTS image_hash VARCHAR(64)')
+            safe_alter('CREATE INDEX IF NOT EXISTS ix_media_item_image_hash ON media_item(image_hash)')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -452,6 +540,99 @@ def init_db():
             ci_cols2 = [c['name'] for c in inspector.get_columns('content_item')]
             if 'folder_id' not in ci_cols2:
                 safe_alter('ALTER TABLE content_item ADD COLUMN folder_id INTEGER REFERENCES content_folder(id)')
+            # inspiration_post: Likes / Comments / is_saved
+            ip_cols = [c['name'] for c in inspector.get_columns('inspiration_post')]
+            if 'like_count' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN like_count INTEGER')
+            if 'comment_count' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN comment_count INTEGER')
+            if 'is_saved' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN is_saved BOOLEAN DEFAULT 0')
+                safe_alter("UPDATE inspiration_post SET is_saved=1 WHERE status='saved'")
+            if 'carousel_urls' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN carousel_urls TEXT')
+            if 'video_url' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN video_url VARCHAR(1000)')
+            if 'suggested_folder_id' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN suggested_folder_id INTEGER REFERENCES content_folder(id)')
+            if 'folder_locked' not in ip_cols:
+                safe_alter('ALTER TABLE inspiration_post ADD COLUMN folder_locked BOOLEAN DEFAULT 0')
+            cf_cols = [c['name'] for c in inspector.get_columns('content_folder')]
+            if 'valid_from' not in cf_cols:
+                safe_alter('ALTER TABLE content_folder ADD COLUMN valid_from DATE')
+            if 'valid_until' not in cf_cols:
+                safe_alter('ALTER TABLE content_folder ADD COLUMN valid_until DATE')
+            if 'recurring_yearly' not in cf_cols:
+                safe_alter('ALTER TABLE content_folder ADD COLUMN recurring_yearly BOOLEAN DEFAULT 0')
+            # account: KI-Caption Felder
+            if 'default_hashtags' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN default_hashtags TEXT')
+            if 'sports_hashtag' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN sports_hashtag VARCHAR(200)')
+            if 'weather_city' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN weather_city VARCHAR(100)')
+            if 'hide_in_analytics' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN hide_in_analytics BOOLEAN DEFAULT 0')
+            if 'watermark_url' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN watermark_url VARCHAR(500)')
+            if 'watermark_position' not in account_cols:
+                safe_alter("ALTER TABLE account ADD COLUMN watermark_position VARCHAR(10) DEFAULT 'br'")
+            if 'watermark_opacity' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN watermark_opacity FLOAT DEFAULT 0.7')
+            if 'watermark_enabled' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN watermark_enabled BOOLEAN DEFAULT 0')
+            if 'smart_refill_threshold' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN smart_refill_threshold INTEGER DEFAULT 0')
+            # content_series, kooperation, account_ideen_context (SQLite)
+            safe_alter('''CREATE TABLE IF NOT EXISTS content_series (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL REFERENCES account(id),
+                folder_id INTEGER REFERENCES content_folder(id),
+                name VARCHAR(200) NOT NULL,
+                description TEXT,
+                days_of_week TEXT DEFAULT '[]',
+                preferred_time VARCHAR(5) DEFAULT '09:00',
+                post_type VARCHAR(20) DEFAULT 'feed',
+                active BOOLEAN DEFAULT 1,
+                last_scheduled DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS kooperation (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER REFERENCES account(id),
+                partner_name VARCHAR(200) NOT NULL,
+                koop_type VARCHAR(30) DEFAULT 'paid_post',
+                status VARCHAR(20) DEFAULT 'anfrage',
+                deadline DATE, amount FLOAT, currency VARCHAR(3) DEFAULT 'EUR',
+                notes TEXT, content_item_id INTEGER REFERENCES content_item(id),
+                reminder_sent BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS account_ideen_context (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL UNIQUE REFERENCES account(id),
+                konzept TEXT, zielgruppe TEXT, tonalitaet TEXT, themen TEXT,
+                last_generated DATETIME, generated_ideas TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            # content_folder: Wetter-Trigger
+            if 'trigger_condition' not in cf_cols:
+                safe_alter('ALTER TABLE content_folder ADD COLUMN trigger_condition VARCHAR(50)')
+            # weather tables (SQLite: CREATE IF NOT EXISTS)
+            safe_alter('''CREATE TABLE IF NOT EXISTS weather_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL UNIQUE REFERENCES account(id),
+                city_name VARCHAR(100), temperature FLOAT, weather_code INTEGER,
+                wind_speed FLOAT, description VARCHAR(200), forecast_json TEXT,
+                checked_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS weather_trigger_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL REFERENCES account(id),
+                trigger_type VARCHAR(50) NOT NULL,
+                fired_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                post_id INTEGER REFERENCES scheduled_post(id),
+                city_name VARCHAR(100), temperature FLOAT)''')
+            # media_item: Duplikat-Hash
+            mi_cols = [c['name'] for c in inspector.get_columns('media_item')]
+            if 'image_hash' not in mi_cols:
+                safe_alter('ALTER TABLE media_item ADD COLUMN image_hash VARCHAR(64)')
 
             try:
                 ct_cols = [c['name'] for c in inspector.get_columns('content_template')]
@@ -489,6 +670,32 @@ def init_db():
 
         seed_data()
 
+        # ── Auto-Wetter-Stadt aus Account-Namen befüllen ─────────────
+        # Alle deutschen Städte die im CityBot-Netzwerk vorkommen
+        _KNOWN_CITIES = [
+            'Frankfurt', 'Darmstadt', 'Mainz', 'Wiesbaden', 'Mannheim',
+            'Heidelberg', 'Offenbach', 'Hanau', 'Braunschweig', 'Kaiserslautern',
+            'Halle', 'Leipzig', 'Berlin', 'Hamburg', 'München', 'Köln',
+            'Düsseldorf', 'Stuttgart', 'Nürnberg', 'Bremen', 'Hannover',
+            'Freiburg', 'Augsburg', 'Karlsruhe', 'Bonn', 'Münster',
+            'Wuppertal', 'Bielefeld', 'Bochum', 'Dortmund', 'Essen',
+            'Duisburg', 'Aachen', 'Kiel', 'Lübeck', 'Erfurt', 'Rostock',
+            'Kassel', 'Magdeburg', 'Saarbrücken', 'Würzburg', 'Ulm',
+        ]
+        try:
+            _accounts_no_city = Account.query.filter(
+                Account.weather_city.is_(None)
+            ).all()
+            for _acc in _accounts_no_city:
+                _name = (_acc.name or '').lower()
+                for _city in _KNOWN_CITIES:
+                    if _city.lower() in _name:
+                        _acc.weather_city = _city
+                        break
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
         # Memes-Kategorie anlegen falls nicht vorhanden
         if not Category.query.filter_by(name='Memes').first():
             db.session.add(Category(name='Memes', color='#f59e0b', icon='face-laugh'))
@@ -522,7 +729,7 @@ def generate_alerts():
     """Auto-generate system alerts based on current state."""
     # Clear old unresolved automated alerts
     SystemAlert.query.filter_by(resolved=False).filter(
-        SystemAlert.alert_type.in_(['low_stock', 'no_posts', 'empty_stock'])
+        SystemAlert.alert_type.in_(['low_stock', 'no_posts', 'empty_stock', 'overcapacity'])
     ).delete()
     db.session.flush()  # sicherstellen dass deletes durch sind bevor neue eingefügt werden
 
@@ -586,6 +793,31 @@ def generate_alerts():
                     f'⏰ Posting-Lücke: {acc.name}',
                     'Kein Post in den nächsten 48 Stunden geplant.',
                     link=f'/accounts/{acc.id}/planer', account_id=acc.id)
+
+        # Überkapazitäts-Prüfung: Wochen mit zu vielen geplanten Posts
+        ppw = getattr(acc, 'posts_per_week', 0) or 0
+        if ppw > 0:
+            from collections import defaultdict as _dd
+            _wc = _dd(int)
+            _fps = ScheduledPost.query.filter(
+                ScheduledPost.account_id == acc.id,
+                ScheduledPost.scheduled_at >= now,
+                ScheduledPost.status.in_(['pending', 'scheduled'])
+            ).all()
+            for _sp in _fps:
+                _iso = _sp.scheduled_at.isocalendar()
+                _wc[(_iso[0], _iso[1])] += 1
+            _over = [(w, c) for w, c in _wc.items() if c > ppw]
+            if _over:
+                _over.sort()
+                _msg = ', '.join(
+                    f'KW {w[1]}/{w[0]} ({c} Posts, Limit: {ppw})'
+                    for w, c in _over[:3]
+                )
+                db.session.add(SystemAlert(
+                    account_id=acc.id, alert_type='overcapacity', severity='warning',
+                    message=f'„{acc.name}" Überkapazität in {len(_over)} Woche(n): {_msg}'
+                ))
 
     # Automation errors
     broken_rules = AutomationRule.query.filter(AutomationRule.error_count > 3, AutomationRule.active == True).all()
@@ -1001,6 +1233,388 @@ def _send_due_telegram_posts():
             except: pass
 
 
+# ─────────────────── WETTER-SYSTEM ────────────────────────────
+
+# Trigger-Konfiguration: Cooldown-Tage + Beschreibung
+WEATHER_TRIGGERS = {
+    'weather_hot':    {'cooldown': 14, 'label': '🌡️ Hitzewelle (>33°C)'},
+    'weather_storm':  {'cooldown':  7, 'label': '🌩️ Unwetter'},
+    'weather_snow':   {'cooldown': 30, 'label': '❄️ Erster Schnee'},
+    'weather_spring': {'cooldown': 21, 'label': '🌸 Frühlings-Opening'},
+    'weather_frost':  {'cooldown': 14, 'label': '🌫️ Extremfrost (<-10°C)'},
+}
+
+# Maximale Wetter-Posts pro Woche (globale Sperre)
+WEATHER_MAX_PER_WEEK = 1
+
+
+_KNOWN_CITIES_WEATHER = [
+    'Frankfurt', 'Darmstadt', 'Mainz', 'Wiesbaden', 'Mannheim',
+    'Heidelberg', 'Offenbach', 'Hanau', 'Braunschweig', 'Kaiserslautern',
+    'Halle', 'Leipzig', 'Berlin', 'Hamburg', 'München', 'Köln',
+    'Düsseldorf', 'Stuttgart', 'Nürnberg', 'Bremen', 'Hannover',
+    'Freiburg', 'Augsburg', 'Karlsruhe', 'Bonn', 'Münster',
+    'Wuppertal', 'Bielefeld', 'Bochum', 'Dortmund', 'Essen',
+    'Duisburg', 'Aachen', 'Kiel', 'Lübeck', 'Erfurt', 'Rostock',
+    'Kassel', 'Magdeburg', 'Saarbrücken', 'Würzburg', 'Ulm',
+]
+
+
+def _get_weather_city(account):
+    """Gibt den Stadtnamen für die Wetter-API zurück.
+    Reihenfolge: gesetztes Feld → Stadtname im Account-Namen → erstes Wort."""
+    if account.weather_city:
+        return account.weather_city.strip()
+    name = (account.name or '').lower()
+    # Bekannte Stadt im Namen suchen
+    for city in _KNOWN_CITIES_WEATHER:
+        if city.lower() in name:
+            return city
+    # Letzter Fallback: erstes Wort
+    parts = (account.name or '').strip().split()
+    return parts[0] if parts else None
+
+
+def _classify_post_folder(post, folders, api_key):
+    """Kern-Logik: analysiert einen InspirationPost via Claude Vision und gibt
+    das beste Folder-Match zurück: {'folder_id': int, 'confidence': float, ...}
+    Wird von suggest-folder-Endpoint UND vom Batch-Prozess genutzt.
+    """
+    import base64 as _b64
+    import requests as _req
+    import anthropic as _ant
+    import re as _re
+
+    caption_text = (post.caption or '').strip()[:600]
+    folder_lines = [
+        f'  - ID {f.id}: "{f.name}"' + (f' — {(f.notes or "").strip()}' if f.notes else '')
+        for f in folders
+    ]
+
+    prompt_text = f"""Analysiere diesen deutschen Instagram-Post und ordne ihn dem passenden Inhaltskategorie-Ordner zu.
+
+VERFÜGBARE ORDNER:
+{chr(10).join(folder_lines)}
+
+POST-CAPTION: "{caption_text or '(keine Caption)'}"
+
+INHALTSKATEGORIEN — Erkennungsmerkmale (zur Orientierung, ordne in die ORDNER oben ein):
+• Starterpacks      → Collage aus mehreren Bildern/Symbolen, Text "Der/Die Starter Pack für...", typische Klischees
+• Wetter            → Wetterextreme (Hitze, Schnee, Sturm, Gewitter), Wetter-Screenshots, Thermometer
+• Events            → Konzerte, Festivals, Stadtfeste, Volksfeste, Messen, Veranstaltungs-Flyer, Bühnen
+• Weihnachten       → Weihnachtsmarkt, Advent, Christbaum, Geschenke, Nikolaus, Glühwein, Krippe
+• Silvester/Neujahr → Feuerwerk, Raketen, "Frohes neues Jahr", Sektflöten, Countdown
+• Frühling          → Kirschblüte, Ostern, erste Sonne, Frühlingsblumen, "endlich Frühling"
+• Sommer            → Freibad, Hitzewelle, Eis, Grillen, See/Strand, Sonnenbad
+• Herbst            → Blätterfärben, Oktoberfest, Ernte, Kürbis, Nebel, "Herbststimmung"
+• Winter            → Schnee, Eislaufen, heiße Schokolade, Frost, Winterlandschaft
+• Stadtleben/Memes  → Alltagssituationen, Erkennungszeichen der Stadt, "typisch [Stadt]", lokale Klischees
+• Essen & Trinken   → Restaurants, Gerichte, Streetfood, Cafés, lokale Spezialitäten
+• Sport/Fußball     → Stadion, Trikots, Spieler, Sportereignisse, Vereinslogo
+• Nostalgie         → Alte Fotos, Throwback, "früher war...", historische Bilder, Vergleich alt/neu
+• Natur             → Parks, Flüsse, Wälder, Naturlandschaften, Sonnenuntergang
+• Humor & Memes     → Witzbilder, Reaktionsbilder, Textmemes, absurde Situationen
+
+Erkenne anhand von: Bild-Motive, Text auf dem Bild (OCR), Caption-Text, Hashtags, Emojis.
+
+Antworte NUR mit diesem JSON (kein anderer Text):
+{{"folder_id": <Zahl oder null>, "folder_name": "<Name>", "detected_type": "<erkannter Typ>", "confidence": <0.0-1.0>, "reason": "<1-2 Sätze auf Deutsch>"}}"""
+
+    # Bild laden
+    img_b64, img_mtype = None, 'image/jpeg'
+    if post.thumbnail_url:
+        try:
+            _r = _req.get(post.thumbnail_url, timeout=(6, 18),
+                          headers={'User-Agent': 'Mozilla/5.0',
+                                    'Referer': 'https://www.instagram.com/'})
+            if _r.ok:
+                img_mtype = _r.headers.get('content-type', 'image/jpeg').split(';')[0].strip()
+                if img_mtype not in ('image/jpeg', 'image/png', 'image/gif', 'image/webp'):
+                    img_mtype = 'image/jpeg'
+                img_b64 = _b64.standard_b64encode(_r.content).decode()
+        except Exception:
+            pass
+
+    client  = _ant.Anthropic(api_key=api_key)
+    content = ([{'type': 'image', 'source': {'type': 'base64',
+                                              'media_type': img_mtype,
+                                              'data': img_b64}},
+                {'type': 'text', 'text': prompt_text}]
+               if img_b64 else prompt_text)
+    resp = client.messages.create(
+        model='claude-haiku-4-5', max_tokens=300,
+        system='Du bist ein Content-Klassifizierer für deutsche Instagram-Seiten. Antworte AUSSCHLIESSLICH mit dem JSON-Objekt.',
+        messages=[{'role': 'user', 'content': content}]
+    )
+    raw = resp.content[0].text.strip()
+    if '```' in raw:
+        _m = _re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', raw)
+        raw = _m.group(1) if _m else raw
+    result = json.loads(raw)
+
+    folder_id = result.get('folder_id')
+    allowed   = {f.id for f in folders}
+    if folder_id and int(folder_id) not in allowed:
+        folder_id = None
+
+    return {
+        'folder_id':     int(folder_id) if folder_id else None,
+        'folder_name':   result.get('folder_name', ''),
+        'detected_type': result.get('detected_type', ''),
+        'confidence':    round(float(result.get('confidence', 0)), 2),
+        'reason':        result.get('reason', ''),
+        'image_analyzed': img_b64 is not None,
+    }
+
+
+def _auto_classify_batch():
+    """Klassifiziert neue InspirationPosts via KI — läuft im Hintergrund.
+    Verarbeitet max. 20 Posts pro Durchlauf. Überspringt:
+    - Posts mit status != 'new' (bereits in Vorrat oder ignoriert)
+    - Posts mit folder_locked=True (manuell kategorisiert)
+    - Posts die bereits einen suggested_folder_id haben
+    """
+    with app.app_context():
+        # Einstellung prüfen
+        setting = get_setting('auto_classify_inspirationen')
+        if setting != 'true':
+            return
+
+        api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+        if not api_key:
+            return
+
+        # Nur frische, unkategorisierte, nicht-gesperrte Posts
+        posts = InspirationPost.query.filter(
+            InspirationPost.status == 'new',
+            InspirationPost.folder_locked == False,
+            InspirationPost.suggested_folder_id.is_(None),
+        ).order_by(InspirationPost.created_at.desc()).limit(20).all()
+
+        if not posts:
+            return
+
+        # Alle Ordner vorladen (nach Account gruppiert)
+        from collections import defaultdict as _dd
+        all_folders   = ContentFolder.query.all()
+        global_folders = [f for f in all_folders if f.account_id is None]
+        acc_folders    = _dd(list)
+        for f in all_folders:
+            if f.account_id:
+                acc_folders[f.account_id].append(f)
+
+        for post in posts:
+            try:
+                source     = db.session.get(InspirationSource, post.source_id)
+                account_id = source.account_id if source else None
+                folders    = (acc_folders.get(account_id, []) + global_folders) if account_id else global_folders
+                if not folders:
+                    continue
+
+                result = _classify_post_folder(post, folders, api_key)
+                if result and result.get('folder_id'):
+                    post.suggested_folder_id = result['folder_id']
+                    db.session.commit()
+                    app.logger.debug(f'[AutoClassify] Post {post.id} → {result["folder_name"]} ({result["confidence"]})')
+            except Exception as e:
+                app.logger.debug(f'[AutoClassify] Post {post.id} Fehler: {e}')
+                db.session.rollback()
+
+
+def _check_all_weather():
+    """Hauptfunktion: prüft Wetter für alle aktiven Accounts — wird 4× täglich aufgerufen."""
+    import requests as _req
+
+    api_key = os.environ.get('OPENWEATHERMAP_API_KEY', '')
+    if not api_key:
+        return
+
+    with app.app_context():
+        accounts = Account.query.filter_by(status='active').all()
+        # Nur Stadt-Meme Accounts (weather_city gesetzt ODER Name enthält erkennbare Stadt)
+        for acc in accounts:
+            city = _get_weather_city(acc)
+            if not city:
+                continue
+            try:
+                _process_weather_account(acc, city, api_key)
+            except Exception as e:
+                app.logger.debug(f'[Weather] Fehler für {acc.name}: {e}')
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+
+def _process_weather_account(account, city, api_key):
+    """Wetter für einen Account holen und Trigger auslösen."""
+    import requests as _req, json as _js
+
+    now = datetime.utcnow()
+
+    # ── Cache prüfen: kein neuer Call wenn < 6h alt ──────────────
+    cache = WeatherCache.query.filter_by(account_id=account.id).first()
+    if cache and (now - cache.checked_at).total_seconds() < 6 * 3600:
+        try:
+            forecast = _js.loads(cache.forecast_json or '{}')
+        except Exception:
+            forecast = {}
+    else:
+        # ── API-Call: 5-Tage-Forecast (1 Call) ───────────────────
+        url = (f'https://api.openweathermap.org/data/2.5/forecast'
+               f'?q={city},DE&appid={api_key}&units=metric&lang=de&cnt=16')
+        try:
+            resp = _req.get(url, timeout=10)
+        except Exception as e:
+            app.logger.debug(f'[Weather] API-Timeout für {city}: {e}')
+            return
+        if resp.status_code != 200:
+            app.logger.debug(f'[Weather] API-Fehler {resp.status_code} für {city}')
+            return
+        forecast = resp.json()
+
+        if 'list' not in forecast or not forecast['list']:
+            return
+
+        cur = forecast['list'][0]
+        if not cache:
+            cache = WeatherCache(account_id=account.id)
+            db.session.add(cache)
+        cache.city_name    = city
+        cache.temperature  = cur['main']['temp']
+        cache.weather_code = cur['weather'][0]['id']
+        cache.wind_speed   = cur['wind']['speed']
+        cache.description  = cur['weather'][0]['description']
+        cache.forecast_json = _js.dumps(forecast)
+        cache.checked_at   = now
+        db.session.flush()
+
+    if 'list' not in forecast:
+        return
+
+    cur   = forecast['list'][0]
+    temp  = cur['main']['temp']
+    code  = cur['weather'][0]['id']
+    month = now.month
+
+    # ── Globale Wochenbremse: max. 1 Wetter-Post/Woche ───────────
+    week_start = now - timedelta(days=now.weekday())
+    week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    weather_this_week = WeatherTriggerLog.query.filter(
+        WeatherTriggerLog.account_id == account.id,
+        WeatherTriggerLog.fired_at   >= week_start,
+    ).count()
+    if weather_this_week >= WEATHER_MAX_PER_WEEK:
+        return  # Diese Woche wurde schon gepostet
+
+    # ── Aktive Trigger bestimmen ──────────────────────────────────
+    active = []
+    if temp >= 33:
+        active.append('weather_hot')
+    if 200 <= code <= 232:          # Gewitter
+        active.append('weather_storm')
+    if 600 <= code <= 622:          # Schnee
+        active.append('weather_snow')
+    if month in [2, 3, 4] and temp >= 18:   # Frühling
+        active.append('weather_spring')
+    if temp <= -10:                 # Extremfrost
+        active.append('weather_frost')
+
+    # Priorität: storm > snow > frost > hot > spring
+    priority_order = ['weather_storm', 'weather_snow', 'weather_frost',
+                      'weather_hot', 'weather_spring']
+    active = [t for t in priority_order if t in active]
+
+    for trigger in active:
+        fired = _maybe_fire_weather(account, trigger, temp, city)
+        if fired:
+            break  # Pro Prüfung nur 1 Trigger feuern
+
+
+def _maybe_fire_weather(account, trigger, temp, city):
+    """Prüft Cooldown, sucht Content und plant Post ein. Gibt True zurück wenn gefeuert."""
+    now          = datetime.utcnow()
+    cooldown_days = WEATHER_TRIGGERS[trigger]['cooldown']
+
+    # ── Cooldown-Prüfung ─────────────────────────────────────────
+    last = WeatherTriggerLog.query.filter_by(
+        account_id=account.id, trigger_type=trigger
+    ).order_by(WeatherTriggerLog.fired_at.desc()).first()
+
+    if last and (now - last.fired_at).days < cooldown_days:
+        return False
+
+    # ── Ordner mit diesem Trigger suchen ─────────────────────────
+    folder = ContentFolder.query.filter_by(
+        trigger_condition=trigger, account_id=account.id
+    ).first()
+    if not folder:
+        # Globaler Fallback-Ordner
+        folder = ContentFolder.query.filter_by(
+            trigger_condition=trigger, account_id=None
+        ).first()
+    if not folder:
+        return False  # Kein Ordner konfiguriert → nichts zu tun
+
+    # ── Zufälligen Content aus dem Ordner holen ──────────────────
+    item = ContentItem.query.filter(
+        ContentItem.folder_id == folder.id,
+        ContentItem.status.in_(['draft', 'ready']),
+        ContentItem.accounts.any(id=account.id)
+    ).order_by(db.func.random()).first()
+
+    if not item:
+        app.logger.info(f'[Weather] Kein Content für {trigger} / {account.name}')
+        return False
+
+    # ── Nächsten freien Slot finden (18:00 Uhr, heute oder morgen) ─
+    post_time = now.replace(hour=18, minute=0, second=0, microsecond=0)
+    if post_time <= now:
+        post_time += timedelta(days=1)
+    # Slot belegt? → +1 Tag
+    if ScheduledPost.query.filter_by(
+        account_id=account.id, scheduled_at=post_time
+    ).filter(ScheduledPost.status.in_(['pending', 'scheduled'])).first():
+        post_time += timedelta(days=1)
+
+    # ── Scheduled Post anlegen ────────────────────────────────────
+    media = item.media_items[0] if item.media_items else None
+    sp = ScheduledPost(
+        account_id      = account.id,
+        content_item_id = item.id,
+        media_item_id   = media.id if media else None,
+        caption         = item.caption or '',
+        scheduled_at    = post_time,
+        status          = 'pending',
+        post_type       = 'feed',
+    )
+    db.session.add(sp)
+    item.status = 'scheduled'
+    db.session.flush()
+
+    # ── Trigger-Log ───────────────────────────────────────────────
+    db.session.add(WeatherTriggerLog(
+        account_id   = account.id,
+        trigger_type = trigger,
+        fired_at     = now,
+        post_id      = sp.id,
+        city_name    = city,
+        temperature  = temp,
+    ))
+
+    label = WEATHER_TRIGGERS[trigger]['label']
+    app.logger.info(f'[Weather] ✓ {label} → {account.name} → Post {post_time:%d.%m %H:%M}')
+
+    # SystemAlert für Dashboard
+    db.session.add(SystemAlert(
+        account_id = account.id,
+        alert_type = 'weather_post',
+        severity   = 'info',
+        message    = f'{label} erkannt für „{account.name}" — Wetter-Post {post_time:%d.%m.%Y} eingeplant',
+    ))
+    return True
+
+
 def schedule_automations():
     """Background thread that runs automation rules and housekeeping."""
     tick = 0
@@ -1039,6 +1653,18 @@ def schedule_automations():
             # Housekeeping every 60 ticks (~1 hour)
             if tick % 60 == 0:
                 auto_archive_old_content()
+            # Wetter-Check 4× täglich (alle 360 Ticks = 6 Stunden)
+            if tick % 360 == 0:
+                threading.Thread(target=_check_all_weather, daemon=True).start()
+            # KI-Auto-Klassifizierung alle 10 Minuten
+            if tick % 10 == 0:
+                threading.Thread(target=_auto_classify_batch, daemon=True).start()
+            # Smart-Refill alle 30 Minuten
+            if tick % 30 == 0:
+                threading.Thread(target=_smart_refill_check, daemon=True).start()
+            # Content-Serien stündlich planen
+            if tick % 60 == 0:
+                threading.Thread(target=_process_series, daemon=True).start()
 
         except Exception:
             pass
@@ -1058,10 +1684,10 @@ def allowed_file(filename):
 
 # ── App-Einstellungen ─────────────────────────────────────────
 def get_setting(key, default=None):
-    """Liest einen Wert aus AppSettings. Gibt default zurück wenn nicht gesetzt."""
-    with app.app_context():
-        s = AppSettings.query.filter_by(key=key).first()
-        return s.value if s and s.value else default
+    """Liest einen Wert aus AppSettings. Gibt default zurück wenn nicht gesetzt.
+    Muss innerhalb eines App- oder Request-Kontexts aufgerufen werden."""
+    s = AppSettings.query.filter_by(key=key).first()
+    return s.value if s and s.value else default
 
 def set_setting(key, value):
     """Speichert einen Wert in AppSettings (upsert)."""
@@ -1162,9 +1788,21 @@ def get_dashboard_stats(active_accounts=None, days_map=None):
     warning_accounts  = [a for a in active_accounts if _days_to_status(days_map[a.id]) in ('orange', 'yellow')]
     active_alerts = SystemAlert.query.filter_by(resolved=False).count()
 
-    week_ago = datetime.utcnow() - timedelta(days=7)
-    old_snap = db.session.query(func.sum(AnalyticsSnapshot.followers))\
-        .filter(AnalyticsSnapshot.recorded_at <= week_ago).scalar() or 0
+    # Korrektur: nur den letzten Snapshot pro Account für exakt den Stichtag vor 7
+    # Tagen nehmen — nicht alle historischen Snapshots aufsummieren (wäre falsch)
+    week_ago_date = (datetime.utcnow() - timedelta(days=7)).date()
+    _latest_7d = db.session.query(
+        AnalyticsSnapshot.account_id,
+        func.max(AnalyticsSnapshot.recorded_at).label('latest_at')
+    ).filter(
+        func.date(AnalyticsSnapshot.recorded_at) == week_ago_date
+    ).group_by(AnalyticsSnapshot.account_id).subquery()
+    old_snap = db.session.query(func.sum(AnalyticsSnapshot.followers)).join(
+        _latest_7d, db.and_(
+            AnalyticsSnapshot.account_id == _latest_7d.c.account_id,
+            AnalyticsSnapshot.recorded_at == _latest_7d.c.latest_at
+        )
+    ).scalar() or 0
     growth_7d = total_followers - old_snap
 
     return {
@@ -1208,43 +1846,45 @@ def dashboard():
     # NICHT mehr bei jedem Seitenaufruf (war ~30 Extra-Queries pro Load).
     now = datetime.utcnow()
 
-    # ── 1× Accounts laden + 1× Batch-Stock-Query (ersetzt N×6 Queries) ──
-    all_active = Account.query.filter_by(status='active').all()
+    # ── 1× Accounts mit Kategorie laden (verhindert N lazy-loads im Template) ─
+    all_active = Account.query.filter_by(status='active')\
+        .options(joinedload(Account.category)).all()
     days_map   = _get_planned_days_batch(all_active)
 
     # stats nutzt die bereits geladenen Daten (keine eigenen Account-Queries)
     stats = get_dashboard_stats(active_accounts=all_active, days_map=days_map)
 
-    # stock_summary: kein einziger DB-Aufruf mehr (uses days_map)
+    # stock_summary: kein einziger DB-Aufruf (uses days_map)
     stock_summary = {'green': 0, 'yellow': 0, 'orange': 0, 'red': 0}
     for a in all_active:
         stock_summary[_days_to_status(days_map[a.id])] += 1
 
-    # ── Chart: 1 GROUP-BY-Query statt 30 Einzel-Queries ──────────────
-    chart_cutoff = now - timedelta(days=29)
-    snap_rows = db.session.query(
-        func.date(AnalyticsSnapshot.recorded_at).label('d'),
-        func.sum(AnalyticsSnapshot.followers).label('total')
-    ).filter(AnalyticsSnapshot.recorded_at >= chart_cutoff)\
-     .group_by(func.date(AnalyticsSnapshot.recorded_at)).all()
-    snap_dict = {str(r.d): int(r.total or 0) for r in snap_rows}
-    chart_labels, chart_data = [], []
-    for i in range(29, -1, -1):
-        day = now - timedelta(days=i)
-        chart_labels.append(day.strftime('%d.%m'))
-        chart_data.append(snap_dict.get(day.date().isoformat(), 0))
+    # ── Top-10 Accounts für Dashboard-Card: separate Query mit eager-loaded
+    # Thumbnails (scheduled_posts → content_item → media_items), um N+1 zu vermeiden
+    _priority = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+    top_ids = [a.id for a in sorted(
+        all_active,
+        key=lambda a: (_priority.get(a.priority, 2), -(a.follower_count or 0))
+    )[:10]]
+    if top_ids:
+        _acc_q = Account.query.filter(Account.id.in_(top_ids)).options(
+            joinedload(Account.category),
+            selectinload(Account.scheduled_posts)
+                .joinedload(ScheduledPost.content_item)
+                .selectinload(ContentItem.media_items)
+        ).all()
+        _order = {aid: i for i, aid in enumerate(top_ids)}
+        accounts = sorted(_acc_q, key=lambda a: _order.get(a.id, 99))
+    else:
+        accounts = []
 
-    forecast = linear_forecast(chart_data, 14)
-
-    # ── Restliche Queries (nicht weiter optimierbar) ──────────────────
-    accounts       = sorted(all_active, key=lambda a: (
-        {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}.get(a.priority, 2),
-        -(a.follower_count or 0)
-    ))[:10]
     recent_content = ContentItem.query.order_by(ContentItem.created_at.desc()).limit(8).all()
     alerts         = SystemAlert.query.filter_by(resolved=False)\
                          .order_by(SystemAlert.severity.desc()).limit(10).all()
-    recent_activity = ActivityLog.query.order_by(ActivityLog.created_at.desc()).limit(15).all()
+    # joinedload verhindert 15 N+1 Queries für log.user
+    recent_activity = ActivityLog.query\
+        .options(joinedload(ActivityLog.user))\
+        .order_by(ActivityLog.created_at.desc()).limit(15).all()
 
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     posts_today = ScheduledPost.query.filter(
@@ -1252,15 +1892,26 @@ def dashboard():
         ScheduledPost.scheduled_at < today_start + timedelta(days=1),
         ScheduledPost.status.in_(['scheduled', 'published'])
     ).order_by(ScheduledPost.scheduled_at).all()
+    # posts_today-Count aus der bereits gefetchten Liste (kein zweiter COUNT-Query)
+    stats['posts_today'] = len(posts_today)
 
     categories = Category.query.order_by(Category.name).all()
 
+    auto_classify_on = get_setting('auto_classify_inspirationen') == 'true'
+    _total_new   = InspirationPost.query.filter_by(status='new').count()
+    _classified  = InspirationPost.query.filter(
+        InspirationPost.status == 'new',
+        InspirationPost.suggested_folder_id.isnot(None)
+    ).count()
+    classify_stats = {'total_new': _total_new, 'classified': _classified,
+                      'pending': max(0, _total_new - _classified)}
+
     return render_template('dashboard.html',
         stats=stats, accounts=accounts, recent_content=recent_content, alerts=alerts,
-        chart_labels=json.dumps(chart_labels), chart_data=json.dumps(chart_data),
-        forecast=json.dumps(forecast), stock_summary=stock_summary,
+        stock_summary=stock_summary, days_map=days_map,
         recent_activity=recent_activity, posts_today=posts_today,
         all_accounts=all_active, categories=categories,
+        auto_classify_on=auto_classify_on, classify_stats=classify_stats,
         active_page='dashboard')
 
 
@@ -1414,6 +2065,9 @@ def account_new():
             canva_url=d.get('canva_url', '').strip() or None,
             layout_notes=d.get('layout_notes', '').strip() or None,
             page_persona=d.get('page_persona', '').strip() or None,
+            default_hashtags=d.get('default_hashtags', '').strip() or None,
+            sports_hashtag=d.get('sports_hashtag', '').strip() or None,
+            weather_city=d.get('weather_city', '').strip() or None,
         )
         db.session.add(acc)
         db.session.flush()
@@ -1507,9 +2161,12 @@ def account_edit(account_id):
         account.min_stock_days = int(d.get('min_stock_days') or 3)
         account.optimal_stock_days = int(d.get('optimal_stock_days') or 14)
         account.telegram_chat_id = d.get('telegram_chat_id', '').strip() or None
-        account.canva_url    = d.get('canva_url', '').strip() or None
-        account.layout_notes = d.get('layout_notes', '').strip() or None
-        account.page_persona = d.get('page_persona', '').strip() or None
+        account.canva_url         = d.get('canva_url', '').strip() or None
+        account.layout_notes      = d.get('layout_notes', '').strip() or None
+        account.page_persona      = d.get('page_persona', '').strip() or None
+        account.default_hashtags  = d.get('default_hashtags', '').strip() or None
+        account.sports_hashtag    = d.get('sports_hashtag', '').strip() or None
+        account.weather_city      = d.get('weather_city', '').strip() or None
         db.session.commit()
         flash('Account aktualisiert.', 'success')
         return redirect(url_for('account_detail', account_id=account_id))
@@ -2419,6 +3076,20 @@ def media_upload():
 
             # Datei in Bytes lesen (für Cloudinary + Fallback)
             file_bytes = file.read()
+
+            # Duplikat-Prüfung (nur Bilder)
+            file_hash = _compute_image_hash(file_bytes) if ftype == 'image' else None
+            if file_hash:
+                dup, _ = _find_duplicate(file_hash)
+                if dup:
+                    flash(
+                        f'⚠️ Duplikat übersprungen: "{original}" existiert bereits '
+                        f'als "{dup.original_filename or dup.filename}" '
+                        f'(vom {dup.created_at.strftime("%d.%m.%Y") if dup.created_at else "?"}).',
+                        'warning'
+                    )
+                    continue  # diese Datei überspringen
+
             cl = _cloudinary_upload(io.BytesIO(file_bytes), original)
 
             if cl:
@@ -2433,6 +3104,7 @@ def media_upload():
                     url=cl['secure_url'],
                     storage_source='cloudinary',
                     category_id=category_id,
+                    image_hash=file_hash,
                 )
             else:
                 # Fallback: lokaler Speicher
@@ -2449,6 +3121,7 @@ def media_upload():
                     url=f'/media/file/{unique_name}',
                     storage_source='local',
                     category_id=category_id,
+                    image_hash=file_hash,
                 )
             db.session.add(media)
             uploaded += 1
@@ -2569,13 +3242,23 @@ def calendar_events():
 
 @app.route('/analytics')
 def analytics():
-    all_accounts = Account.query.filter_by(status='active').order_by(Account.follower_count.desc()).all()
-    categories = Category.query.all()
-    total_followers = sum(a.follower_count for a in all_accounts)
+    all_accounts = Account.query\
+        .filter_by(status='active')\
+        .options(joinedload(Account.category))\
+        .order_by(Account.follower_count.desc()).all()
 
+    # Sichtbare Accounts (ohne Test-/Hidden-Accounts) für Gesamt-KPIs
+    visible = [a for a in all_accounts if not a.hide_in_analytics]
+    hidden  = [a for a in all_accounts if a.hide_in_analytics]
+    total_followers = sum(a.follower_count for a in visible)
+
+    # days_map für Account-Ranking (verhindert N+1 Queries im Template)
+    days_map = _get_planned_days_batch(all_accounts)
+
+    categories = Category.query.all()
     cat_stats = []
     for cat in categories:
-        accs = Account.query.filter_by(category_id=cat.id, status='active').all()
+        accs = [a for a in visible if a.category_id == cat.id]
         if accs:
             followers = sum(a.follower_count for a in accs)
             cat_stats.append({
@@ -2586,8 +3269,9 @@ def analytics():
     cat_stats.sort(key=lambda x: x['followers'], reverse=True)
 
     return render_template('analytics.html',
-        accounts=all_accounts, cat_stats=cat_stats, total_followers=total_followers,
-        active_page='analytics')
+        accounts=visible, hidden_accounts=hidden,
+        cat_stats=cat_stats, total_followers=total_followers,
+        days_map=days_map, active_page='analytics')
 
 
 @app.route('/api/analytics/growth')
@@ -2596,17 +3280,54 @@ def analytics_growth():
     account_id = request.args.get('account_id', type=int)
     include_forecast = request.args.get('forecast', '0') == '1'
 
+    today = datetime.utcnow().date()
+    start_date = today - timedelta(days=days - 1)
+
+    # Eine einzige GROUP-BY-Query statt N Einzel-Queries
+    q = db.session.query(
+        func.date(AnalyticsSnapshot.recorded_at).label('d'),
+        func.sum(AnalyticsSnapshot.followers).label('total')
+    ).filter(func.date(AnalyticsSnapshot.recorded_at) >= start_date)
+
+    if account_id:
+        q = q.filter(AnalyticsSnapshot.account_id == account_id)
+    else:
+        # Whitelist: nur Snapshots von aktuell aktiven + nicht-versteckten Accounts.
+        # Verhindert, dass gelöschte/inaktive Test-Accounts die Charts verfälschen —
+        # Blacklist (nur hide_in_analytics) reicht nicht, weil Orphan-Snapshots
+        # von längst gelöschten Accounts weiterhin in der DB liegen können.
+        valid_ids = db.session.query(Account.id).filter(
+            Account.status == 'active',
+            Account.hide_in_analytics == False
+        ).subquery()
+        q = q.filter(AnalyticsSnapshot.account_id.in_(valid_ids))
+
+    rows = q.group_by(func.date(AnalyticsSnapshot.recorded_at)).all()
+    snap_dict = {str(r.d): int(r.total or 0) for r in rows}
+
     labels, data = [], []
     for i in range(days - 1, -1, -1):
-        day = datetime.utcnow() - timedelta(days=i)
+        day = today - timedelta(days=i)
         labels.append(day.strftime('%d.%m'))
-        total = db.session.query(func.sum(AnalyticsSnapshot.followers))\
-            .filter(func.date(AnalyticsSnapshot.recorded_at) == day.date())
-        if account_id:
-            total = total.filter(AnalyticsSnapshot.account_id == account_id)
-        data.append(total.scalar() or 0)
+        data.append(snap_dict.get(day.isoformat(), 0))
 
-    result = {'labels': labels, 'data': data}
+    # Wachstums-Statistiken berechnen
+    non_zero = [v for v in data if v > 0]
+    start_val = non_zero[0] if non_zero else 0
+    end_val   = data[-1] or 0
+    growth    = end_val - start_val
+    growth_pct = round(growth / start_val * 100, 1) if start_val else 0
+    # Tägliches Delta (nur Tage mit Daten)
+    daily_deltas = [data[i] - data[i-1] for i in range(1, len(data)) if data[i] > 0 and data[i-1] > 0]
+    daily_avg = round(sum(daily_deltas) / len(daily_deltas), 0) if daily_deltas else 0
+
+    result = {
+        'labels': labels, 'data': data,
+        'stats': {
+            'start': start_val, 'end': end_val,
+            'growth': growth, 'growth_pct': growth_pct, 'daily_avg': int(daily_avg),
+        }
+    }
     if include_forecast:
         forecast_vals = linear_forecast(data, 14)
         forecast_labels = [(datetime.utcnow() + timedelta(days=i+1)).strftime('%d.%m') for i in range(14)]
@@ -2626,21 +3347,26 @@ def analytics_portfolio():
     days = request.args.get('days', 30, type=int)
     today = datetime.utcnow().date()
 
-    # Aktuelles Portfolio-Total aus Account.follower_count
+    # Aktuelles Portfolio-Total (nur sichtbare Accounts)
     current_total = db.session.query(func.sum(Account.follower_count))\
-        .filter(Account.status == 'active').scalar() or 0
+        .filter(Account.status == 'active', Account.hide_in_analytics == False).scalar() or 0
 
-    # Pro Account + Tag: nur den NEUESTEN Snapshot nehmen, dann über alle Accounts summieren.
-    # So werden mehrfache Updates am selben Tag nicht aufsummiert.
     start_date = today - timedelta(days=days - 1)
 
-    # Subquery: spätester recorded_at pro (account_id, tag)
+    # Whitelist: nur aktive + sichtbare Accounts (schließt Orphan-Snapshots aus)
+    valid_ids = db.session.query(Account.id).filter(
+        Account.status == 'active',
+        Account.hide_in_analytics == False
+    ).subquery()
+
+    # Subquery: spätester recorded_at pro (account_id, tag) — nur valide Accounts
     latest_per_acc_day = db.session.query(
         AnalyticsSnapshot.account_id,
         func.date(AnalyticsSnapshot.recorded_at).label('snap_day'),
         func.max(AnalyticsSnapshot.recorded_at).label('latest_at')
     ).filter(
-        func.date(AnalyticsSnapshot.recorded_at) >= start_date
+        func.date(AnalyticsSnapshot.recorded_at) >= start_date,
+        AnalyticsSnapshot.account_id.in_(valid_ids)
     ).group_by(
         AnalyticsSnapshot.account_id,
         func.date(AnalyticsSnapshot.recorded_at)
@@ -2688,6 +3414,67 @@ def analytics_portfolio():
         'current': current_total,
         'delta':   delta,
         'days':    days,
+    })
+
+
+@app.route('/api/analytics/cleanup-snapshots', methods=['POST'])
+def cleanup_orphan_snapshots():
+    """Löscht AnalyticsSnapshots von nicht-aktiven oder ausgeblendeten Accounts."""
+    valid_ids = [r.id for r in db.session.query(Account.id).filter(
+        Account.status == 'active',
+        Account.hide_in_analytics == False
+    ).all()]
+    if valid_ids:
+        deleted = AnalyticsSnapshot.query.filter(
+            ~AnalyticsSnapshot.account_id.in_(valid_ids)
+        ).delete(synchronize_session='fetch')
+    else:
+        deleted = 0
+    db.session.commit()
+    return jsonify({'ok': True, 'deleted': deleted,
+                    'msg': f'{deleted} veraltete Snapshots gelöscht'})
+
+
+@app.route('/api/analytics/reset-history', methods=['POST'])
+def reset_analytics_history():
+    """Löscht ALLE AnalyticsSnapshots und legt einen sauberen Start-Snapshot
+    mit dem aktuellen follower_count pro Account an.
+    Geeignet nach einer Test-Phase um verfälschte Verlaufsdaten zu entfernen."""
+    # Alles löschen
+    total_deleted = AnalyticsSnapshot.query.delete(synchronize_session='fetch')
+    db.session.flush()
+
+    # Einen frischen Snapshot pro aktivem Account anlegen
+    now = datetime.utcnow()
+    active_accounts = Account.query.filter_by(status='active').all()
+    for acc in active_accounts:
+        if acc.follower_count:
+            db.session.add(AnalyticsSnapshot(
+                account_id=acc.id,
+                followers=acc.follower_count,
+                recorded_at=now,
+            ))
+    db.session.commit()
+    return jsonify({
+        'ok': True,
+        'deleted': total_deleted,
+        'fresh_snapshots': len(active_accounts),
+        'msg': f'Verlauf zurückgesetzt: {total_deleted} alte Snapshots gelöscht, '
+               f'{len(active_accounts)} saubere Start-Snapshots angelegt',
+    })
+
+
+@app.route('/api/accounts/<int:account_id>/toggle-analytics', methods=['POST'])
+def toggle_analytics_visibility(account_id):
+    """Blendet einen Account aus den Analytics-Gesamt-Charts aus / ein."""
+    acc = Account.query.get_or_404(account_id)
+    acc.hide_in_analytics = not acc.hide_in_analytics
+    db.session.commit()
+    return jsonify({
+        'ok': True,
+        'hidden': acc.hide_in_analytics,
+        'name': acc.name,
+        'msg': f'"{acc.name}" {"ausgeblendet" if acc.hide_in_analytics else "wieder eingeblendet"}',
     })
 
 
@@ -3068,27 +3855,49 @@ def analytics_daily_growth():
     days = request.args.get('days', 30, type=int)
     account_id = request.args.get('account_id', type=int)
 
+    today = datetime.utcnow().date()
+    start_date = today - timedelta(days=days - 1)
+
+    # Zwei GROUP-BY-Queries statt N×2 Einzel-Queries
+    fq = db.session.query(
+        func.date(AnalyticsSnapshot.recorded_at).label('d'),
+        func.sum(AnalyticsSnapshot.followers).label('total')
+    ).filter(func.date(AnalyticsSnapshot.recorded_at) >= start_date)
+    eq = db.session.query(
+        func.date(AnalyticsSnapshot.recorded_at).label('d'),
+        func.avg(AnalyticsSnapshot.engagement_rate).label('eng')
+    ).filter(func.date(AnalyticsSnapshot.recorded_at) >= start_date)
+
+    if account_id:
+        fq = fq.filter(AnalyticsSnapshot.account_id == account_id)
+        eq = eq.filter(AnalyticsSnapshot.account_id == account_id)
+    else:
+        # Whitelist: nur aktive + sichtbare Accounts
+        valid_ids = db.session.query(Account.id).filter(
+            Account.status == 'active',
+            Account.hide_in_analytics == False
+        ).subquery()
+        fq = fq.filter(AnalyticsSnapshot.account_id.in_(valid_ids))
+        eq = eq.filter(AnalyticsSnapshot.account_id.in_(valid_ids))
+
+    fq = fq.group_by(func.date(AnalyticsSnapshot.recorded_at))
+    eq = eq.group_by(func.date(AnalyticsSnapshot.recorded_at))
+
+    follower_by_day = {str(r.d): int(r.total or 0) for r in fq.all()}
+    eng_by_day      = {str(r.d): round(float(r.eng or 0), 2) for r in eq.all()}
+
     labels, deltas, eng_rates = [], [], []
     prev = None
-
     for i in range(days - 1, -1, -1):
-        day = datetime.utcnow() - timedelta(days=i)
-        q = db.session.query(func.sum(AnalyticsSnapshot.followers))\
-            .filter(func.date(AnalyticsSnapshot.recorded_at) == day.date())
-        eq = db.session.query(func.avg(AnalyticsSnapshot.engagement_rate))\
-            .filter(func.date(AnalyticsSnapshot.recorded_at) == day.date())
-        if account_id:
-            q = q.filter(AnalyticsSnapshot.account_id == account_id)
-            eq = eq.filter(AnalyticsSnapshot.account_id == account_id)
-
-        total = q.scalar() or 0
-        eng = round(eq.scalar() or 0, 2)
-        delta = (total - prev) if prev is not None else 0
-        prev = total
-
+        day = today - timedelta(days=i)
+        key = day.isoformat()
+        total = follower_by_day.get(key, 0)
+        delta = (total - prev) if prev is not None and total > 0 else 0
+        if total > 0:
+            prev = total
         labels.append(day.strftime('%d.%m'))
         deltas.append(delta)
-        eng_rates.append(eng)
+        eng_rates.append(eng_by_day.get(key, 0))
 
     return jsonify({'labels': labels, 'deltas': deltas, 'engagement': eng_rates})
 
@@ -3522,14 +4331,19 @@ def accounts_export_csv():
 @app.route('/api/stats/streak')
 def posting_streak():
     today = datetime.utcnow().date()
+    cutoff = today - timedelta(days=364)
+    # Eine einzige GROUP-BY-Query statt bis zu 365 Einzel-COUNT-Queries
+    rows = db.session.query(
+        func.date(ScheduledPost.scheduled_at).label('d')
+    ).filter(
+        ScheduledPost.status.in_(['scheduled', 'published']),
+        func.date(ScheduledPost.scheduled_at) >= cutoff
+    ).group_by(func.date(ScheduledPost.scheduled_at)).all()
+    active_dates = {r.d for r in rows}
     streak = 0
     for i in range(365):
         day = today - timedelta(days=i)
-        count = ScheduledPost.query.filter(
-            func.date(ScheduledPost.scheduled_at) == day,
-            ScheduledPost.status.in_(['scheduled', 'published'])
-        ).count()
-        if count > 0:
+        if day in active_dates:
             streak += 1
         elif i > 0:
             break
@@ -6265,19 +7079,66 @@ def meme_variant_notes(template_id, city):
 @login_required
 def inspirationen():
     sources = InspirationSource.query.order_by(InspirationSource.username).all()
-    status_filter = request.args.get('status', 'new')
-    source_filter = request.args.get('source', type=int)
+    status_filter  = request.args.get('status', 'new')
+    source_filter  = request.args.get('source', type=int)
+    account_filter = request.args.get('account', type=int)   # alle Quellen dieses Accounts
+    sort_by        = request.args.get('sort', 'date_desc')
+    min_likes      = request.args.get('min_likes', type=int)
+    date_from_str  = request.args.get('date_from', '')
+    date_to_str    = request.args.get('date_to', '')
+
+    # Quellen nach Account gruppieren (für Sidebar)
+    from collections import defaultdict
+    sources_by_account = defaultdict(list)   # account_id → [sources]
+    for s in sources:
+        sources_by_account[s.account_id].append(s)
+    # Accounts mit Quellen laden (für Gruppen-Header)
+    account_ids_with_sources = [aid for aid in sources_by_account if aid]
+    accounts_with_sources = {
+        a.id: a for a in Account.query.filter(Account.id.in_(account_ids_with_sources)).all()
+    } if account_ids_with_sources else {}
 
     q = InspirationPost.query
-    if status_filter and status_filter != 'all':
-        q = q.filter_by(status=status_filter)
+    if status_filter == 'saved':
+        # Gespeichert = is_saved=True (unabhängig vom status)
+        q = q.filter(InspirationPost.is_saved == True)
+    elif status_filter and status_filter != 'all':
+        q = q.filter(InspirationPost.status == status_filter)
     if source_filter:
         q = q.filter_by(source_id=source_filter)
-    posts = q.order_by(InspirationPost.post_date.desc()).limit(200).all()
+    elif account_filter:
+        # Alle Quellen dieses Accounts
+        src_ids = [s.id for s in sources if s.account_id == account_filter]
+        if src_ids:
+            q = q.filter(InspirationPost.source_id.in_(src_ids))
+        else:
+            q = q.filter(db.false())
+    if min_likes:
+        q = q.filter(InspirationPost.like_count >= min_likes)
+    if date_from_str:
+        try:
+            q = q.filter(InspirationPost.post_date >= datetime.fromisoformat(date_from_str))
+        except Exception:
+            pass
+    if date_to_str:
+        try:
+            q = q.filter(InspirationPost.post_date <= datetime.fromisoformat(date_to_str + 'T23:59:59'))
+        except Exception:
+            pass
+
+    if sort_by == 'likes_desc':
+        q = q.order_by(InspirationPost.like_count.desc().nulls_last(),
+                       InspirationPost.post_date.desc())
+    elif sort_by == 'date_asc':
+        q = q.order_by(InspirationPost.post_date.asc())
+    else:  # date_desc (default)
+        q = q.order_by(InspirationPost.post_date.desc())
+
+    posts = q.limit(300).all()
 
     counts = {
         'new':     InspirationPost.query.filter_by(status='new').count(),
-        'saved':   InspirationPost.query.filter_by(status='saved').count(),
+        'saved':   InspirationPost.query.filter(InspirationPost.is_saved == True).count(),
         'ignored': InspirationPost.query.filter_by(status='ignored').count(),
         'used':    InspirationPost.query.filter_by(status='used').count(),
     }
@@ -6285,9 +7146,42 @@ def inspirationen():
     has_rapidapi_key = bool(get_setting('rapidapi_key'))
     all_accounts = Account.query.order_by(Account.name).all()
     all_folders  = ContentFolder.query.order_by(ContentFolder.sort_order, ContentFolder.name).all()
+
+    # ── Status-Zählungen pro Quelle (eine einzige Query) ─────────────
+    _st_rows = db.session.query(
+        InspirationPost.source_id,
+        InspirationPost.status,
+        func.count(InspirationPost.id)
+    ).group_by(InspirationPost.source_id, InspirationPost.status).all()
+    source_counts = defaultdict(lambda: {'new': 0, 'saved': 0, 'ignored': 0, 'used': 0})
+    for _sid, _st, _cnt in _st_rows:
+        if _st in ('new', 'ignored', 'used'):
+            source_counts[_sid][_st] = _cnt
+    # saved = is_saved=True (unabhängig vom status)
+    _sv_rows = db.session.query(
+        InspirationPost.source_id,
+        func.count(InspirationPost.id)
+    ).filter(InspirationPost.is_saved == True).group_by(InspirationPost.source_id).all()
+    for _sid, _cnt in _sv_rows:
+        source_counts[_sid]['saved'] = _cnt
+
+    # ── Gruppen-Counts (aggregiert aus Quellen-Counts) ────────────────
+    account_src_counts = defaultdict(lambda: {'new': 0, 'saved': 0, 'ignored': 0, 'used': 0})
+    for _src in sources:
+        if _src.account_id:
+            for _st in ('new', 'saved', 'ignored', 'used'):
+                account_src_counts[_src.account_id][_st] += source_counts[_src.id][_st]
+
     return render_template('inspirationen.html',
         sources=sources, posts=posts, counts=counts,
+        sources_by_account=dict(sources_by_account),
+        accounts_with_sources=accounts_with_sources,
+        source_counts={k: dict(v) for k, v in source_counts.items()},
+        account_src_counts={k: dict(v) for k, v in account_src_counts.items()},
         status_filter=status_filter, source_filter=source_filter,
+        account_filter=account_filter,
+        sort_by=sort_by, min_likes=min_likes or '',
+        date_from=date_from_str, date_to=date_to_str,
         has_rapidapi_key=has_rapidapi_key,
         all_accounts=all_accounts,
         all_folders=all_folders,
@@ -6457,6 +7351,30 @@ def inspiration_fetch(src_id):
                         'error': f'Keine Posts geladen. Bitte prüfe ob du auf RapidAPI '
                                  f'einen Instagram-Scraper abonniert hast. ({last_err})'})
 
+    # ── Hilfsfunktion: Video-URL extrahieren ──────────────────
+    def _extract_video_url(item):
+        # scraper21: video = [{url, width, height}]
+        v = item.get('video')
+        if isinstance(v, list) and v:
+            first = v[0]
+            if isinstance(first, dict):
+                u = first.get('url') or first.get('videoUrl')
+                if u and u.startswith('http'): return u
+            elif isinstance(first, str) and first.startswith('http'):
+                return first
+        if isinstance(v, str) and v.startswith('http'):
+            return v
+        # Andere API-Formate
+        for key in ('video_url', 'videoUrl', 'video_versions', 'video_resources'):
+            vv = item.get(key)
+            if isinstance(vv, str) and vv.startswith('http'):
+                return vv
+            if isinstance(vv, list) and vv:
+                first = vv[0]
+                u = first.get('url') if isinstance(first, dict) else str(first)
+                if u.startswith('http'): return u
+        return None
+
     # ── Hilfsfunktion: Bild-URL extrahieren ───────────────────
     def _extract_img(item):
         # instagram-scraper21: image = [{url, height, width}, ...]
@@ -6497,16 +7415,50 @@ def inspiration_fetch(src_id):
                    item.get('shortcode') or item.get('id') or '')
         if not code:
             continue
-        if InspirationPost.query.filter_by(instagram_code=code).first():
+        # Likes / Kommentare — verschiedene API-Feldnamen abdecken
+        def _int_or_none(val):
+            try: return int(val) if val is not None else None
+            except: return None
+
+        raw_likes = (item.get('likeCount') or item.get('like_count') or
+                     item.get('likes') or item.get('likes_count') or
+                     (item.get('edge_media_to_like') or {}).get('count'))
+        raw_comments = (item.get('commentsCount') or item.get('comment_count') or
+                        item.get('comments') or
+                        (item.get('edge_media_to_comment') or {}).get('count'))
+        like_val    = _int_or_none(raw_likes)
+        comment_val = _int_or_none(raw_comments)
+
+        existing = InspirationPost.query.filter_by(instagram_code=code).first()
+        if existing:
+            # Likes/Kommentare bei bestehenden Posts aktualisieren (falls neu verfügbar)
+            if like_val is not None:
+                existing.like_count    = like_val
+            if comment_val is not None:
+                existing.comment_count = comment_val
             continue
 
         img_url, thumb_url = _extract_img(item)
         if not img_url:
             continue
 
-        # Caption — Apify liefert 'caption' als String, RapidAPI als Dict
-        cap_raw = item.get('caption') or ''
-        caption = cap_raw.get('text') if isinstance(cap_raw, dict) else str(cap_raw)
+        # Karussel: alle Bild-URLs sammeln
+        carousel_urls_json = None
+        if media_type == 'carousel':
+            cm = item.get('carousel_media') or item.get('images') or []
+            all_urls = []
+            for slide in cm:
+                if isinstance(slide, str) and slide.startswith('http'):
+                    all_urls.append(slide)
+                elif isinstance(slide, dict):
+                    u, _ = _extract_img(slide)
+                    if u:
+                        all_urls.append(u)
+            if all_urls:
+                carousel_urls_json = json.dumps(all_urls)
+
+        # Caption wird bewusst NICHT gespeichert (nur eigene Texte verwenden)
+        caption = ''
 
         # Datum — Apify liefert ISO-String, RapidAPI Unix-Timestamp
         post_date = None
@@ -6532,11 +7484,17 @@ def inspiration_fetch(src_id):
         else:
             media_type = 'image'
 
+        video_url = _extract_video_url(item) if media_type == 'video' else None
+
         post = InspirationPost(
             source_id=src.id, instagram_code=code,
             image_url=img_url, thumbnail_url=thumb_url or img_url,
             caption=caption, post_date=post_date,
             media_type=media_type, status='new',
+            carousel_urls=carousel_urls_json,
+            video_url=video_url,
+            like_count=like_val,
+            comment_count=comment_val,
         )
         db.session.add(post)
         new_count += 1
@@ -6550,14 +7508,95 @@ def inspiration_fetch(src_id):
 @app.route('/api/inspirationen/<int:post_id>/status', methods=['POST'])
 @login_required
 def inspiration_post_status(post_id):
-    """Status eines Inspirations-Posts ändern: new | saved | ignored | used."""
+    """Status eines Inspirations-Posts ändern: new | ignored | used.
+    'saved' wird über /save gehandelt (is_saved-Flag).
+    """
     post   = InspirationPost.query.get_or_404(post_id)
     status = (request.get_json() or {}).get('status', 'new')
     if status not in ('new', 'saved', 'ignored', 'used'):
         return jsonify({'ok': False, 'error': 'Ungültiger Status'})
-    post.status = status
+    if status == 'saved':
+        # Legacy: als Bookmark behandeln
+        post.is_saved = True
+    else:
+        post.status = status
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/inspirationen/<int:post_id>/save', methods=['POST'])
+@login_required
+def inspiration_post_save(post_id):
+    """Inspo-Lesezeichen togglen (is_saved). Unabhängig vom status."""
+    post = InspirationPost.query.get_or_404(post_id)
+    post.is_saved = not post.is_saved
+    db.session.commit()
+    return jsonify({'ok': True, 'is_saved': post.is_saved})
+
+
+@app.route('/api/inspirationen/<int:post_id>/lock-folder', methods=['POST'])
+@login_required
+def inspiration_post_lock_folder(post_id):
+    """Setzt folder_locked=True + speichert manuell gewählten Ordner als suggested_folder_id.
+    Damit überschreibt der KI-Batch-Prozess diesen Post nicht mehr.
+    """
+    post = InspirationPost.query.get_or_404(post_id)
+    d    = request.get_json() or {}
+    folder_id = d.get('folder_id')
+    post.folder_locked       = True
+    post.suggested_folder_id = int(folder_id) if folder_id else None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/inspirationen/<int:post_id>', methods=['DELETE'])
+@login_required
+def inspiration_post_delete(post_id):
+    """Einen Inspirations-Post dauerhaft löschen."""
+    post = InspirationPost.query.get_or_404(post_id)
+    db.session.delete(post)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/inspirationen/<int:post_id>/suggest-folder', methods=['POST'])
+@login_required
+def inspiration_suggest_folder(post_id):
+    """KI-gestützte Ordner-Zuordnung via _classify_post_folder() Hilfsfunktion.
+    Body: { account_id: int|null }
+    """
+    post = InspirationPost.query.get_or_404(post_id)
+    d    = request.get_json() or {}
+    account_id = d.get('account_id')
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert.'})
+
+    if account_id:
+        folders = ContentFolder.query.filter(
+            db.or_(ContentFolder.account_id == int(account_id),
+                   ContentFolder.account_id.is_(None))
+        ).order_by(ContentFolder.name).all()
+    else:
+        folders = ContentFolder.query.order_by(ContentFolder.name).all()
+
+    if not folders:
+        return jsonify({'ok': False, 'error': 'Keine Ordner vorhanden. Lege zuerst Ordner an.'})
+
+    try:
+        result = _classify_post_folder(post, folders, api_key)
+    except json.JSONDecodeError:
+        return jsonify({'ok': False, 'error': 'KI-Antwort konnte nicht geparst werden.'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Claude-Fehler: {e}'})
+
+    # Vorschlag speichern wenn noch nicht gesetzt und nicht gesperrt
+    if result.get('folder_id') and not post.folder_locked and not post.suggested_folder_id:
+        post.suggested_folder_id = result['folder_id']
+        db.session.commit()
+
+    return jsonify({'ok': True, **result})
 
 
 @app.route('/api/inspirationen/<int:post_id>/use', methods=['POST'])
@@ -6588,62 +7627,120 @@ def inspiration_post_use(post_id):
         except Exception:
             pass
 
-    # Bild von Instagram CDN laden
-    img_bytes = None
-    try:
-        r = req_lib.get(post.image_url, timeout=(10, 20),
-                        headers={'User-Agent': 'Mozilla/5.0',
-                                 'Referer': 'https://www.instagram.com/'})
-        r.raise_for_status()
-        img_bytes = r.content
-    except Exception as e:
-        # CDN-URL abgelaufen? Thumbnail als Fallback versuchen
-        if post.thumbnail_url and post.thumbnail_url != post.image_url:
+    # ── Datei(en) laden und hochladen ────────────────────────────
+    def _fetch_bytes(url):
+        try:
+            resp = req_lib.get(url, timeout=(15, 60),
+                               headers={'User-Agent': 'Mozilla/5.0',
+                                        'Referer': 'https://www.instagram.com/'})
+            resp.raise_for_status()
+            return resp.content
+        except Exception:
+            return None
+
+    force_dup = bool(data.get('force_duplicate'))
+
+    # ── VIDEO ─────────────────────────────────────────────────────
+    if post.media_type == 'video':
+        vid_url = post.video_url or post.image_url
+        if not vid_url:
+            return jsonify({'ok': False, 'error': 'Keine Video-URL gespeichert. '
+                                                   'Bitte Quelle neu laden (↓ Laden).'})
+        vid_bytes = _fetch_bytes(vid_url)
+        if not vid_bytes:
+            return jsonify({'ok': False, 'error': 'Video nicht mehr abrufbar (CDN abgelaufen). '
+                                                   'Bitte Quelle neu laden (↓ Laden).'})
+        fname = f'insp_{post.instagram_code}.mp4'
+        cl = _cloudinary_upload(io.BytesIO(vid_bytes), fname)
+        if cl:
+            media = MediaItem(
+                filename=cl['public_id'], original_filename=fname,
+                file_type='video', mime_type='video/mp4',
+                file_size=cl.get('bytes', len(vid_bytes)),
+                width=cl.get('width'), height=cl.get('height'),
+                url=cl['secure_url'], storage_source='cloudinary',
+            )
+        else:
+            uname = f"{uuid.uuid4().hex}.mp4"
+            with open(os.path.join(app.config['UPLOAD_FOLDER'], uname), 'wb') as _f:
+                _f.write(vid_bytes)
+            media = MediaItem(
+                filename=uname, original_filename=fname,
+                file_type='video', mime_type='video/mp4',
+                file_size=len(vid_bytes), url=f'/media/file/{uname}',
+                storage_source='local',
+            )
+        db.session.add(media)
+        db.session.flush()
+        media_items = [media]
+
+    # ── BILD / KARUSSEL ───────────────────────────────────────────
+    else:
+        carousel_urls_list = []
+        if post.media_type == 'carousel' and post.carousel_urls:
             try:
-                r2 = req_lib.get(post.thumbnail_url, timeout=(10, 20),
-                                 headers={'User-Agent': 'Mozilla/5.0',
-                                          'Referer': 'https://www.instagram.com/'})
-                r2.raise_for_status()
-                img_bytes = r2.content
+                carousel_urls_list = json.loads(post.carousel_urls)
             except Exception:
                 pass
-        if not img_bytes:
+        if not carousel_urls_list:
+            carousel_urls_list = [post.image_url]
+
+        img_bytes_first = _fetch_bytes(carousel_urls_list[0])
+        if not img_bytes_first and post.thumbnail_url != carousel_urls_list[0]:
+            img_bytes_first = _fetch_bytes(post.thumbnail_url)
+        if not img_bytes_first:
             return jsonify({'ok': False,
-                            'error': f'Bild nicht mehr abrufbar (CDN-Link abgelaufen). '
-                                     f'Bitte die Quelle neu laden (↓ Laden). Fehler: {e}'})
+                            'error': 'Bild nicht mehr abrufbar (CDN-Link abgelaufen). '
+                                     'Bitte die Quelle neu laden (↓ Laden).'})
 
-    # Zu Cloudinary hochladen
-    fname = f'insp_{post.instagram_code}.jpg'
-    cl = _cloudinary_upload(io.BytesIO(img_bytes), fname)
+        # Duplikat-Prüfung (erstes Bild)
+        img_hash = _compute_image_hash(img_bytes_first)
+        if img_hash and not force_dup:
+            dup, diff = _find_duplicate(img_hash)
+            if dup:
+                dup_info = f'"{dup.original_filename or dup.filename}" (vom {dup.created_at.strftime("%d.%m.%Y") if dup.created_at else "?"})'
+                return jsonify({
+                    'ok': False, 'duplicate': True,
+                    'error': f'⚠️ Dieses Bild existiert bereits in deiner Medienbibliothek: {dup_info}. '
+                             f'Trotzdem übernehmen? Dann erneut klicken.',
+                    'dup_media_id': dup.id, 'dup_info': dup_info,
+                })
 
-    if cl:
-        media = MediaItem(
-            filename=cl['public_id'],
-            original_filename=fname,
-            file_type='image',
-            mime_type='image/jpeg',
-            file_size=cl.get('bytes', len(img_bytes)),
-            width=cl.get('width'),
-            height=cl.get('height'),
-            url=cl['secure_url'],
-            storage_source='cloudinary',
-        )
-    else:
-        unique_name = f"{uuid.uuid4().hex}.jpg"
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-        with open(filepath, 'wb') as f:
-            f.write(img_bytes)
-        media = MediaItem(
-            filename=unique_name,
-            original_filename=fname,
-            file_type='image',
-            mime_type='image/jpeg',
-            file_size=len(img_bytes),
-            url=f'/media/file/{unique_name}',
-            storage_source='local',
-        )
-    db.session.add(media)
-    db.session.flush()
+        def _upload_one(img_bytes, idx):
+            fname = f'insp_{post.instagram_code}_{idx}.jpg'
+            h     = _compute_image_hash(img_bytes) if idx > 0 else img_hash
+            cl    = _cloudinary_upload(io.BytesIO(img_bytes), fname)
+            if cl:
+                return MediaItem(
+                    filename=cl['public_id'], original_filename=fname,
+                    file_type='image', mime_type='image/jpeg',
+                    file_size=cl.get('bytes', len(img_bytes)),
+                    width=cl.get('width'), height=cl.get('height'),
+                    url=cl['secure_url'], storage_source='cloudinary', image_hash=h,
+                )
+            uname = f"{uuid.uuid4().hex}.jpg"
+            with open(os.path.join(app.config['UPLOAD_FOLDER'], uname), 'wb') as _f:
+                _f.write(img_bytes)
+            return MediaItem(
+                filename=uname, original_filename=fname,
+                file_type='image', mime_type='image/jpeg',
+                file_size=len(img_bytes), url=f'/media/file/{uname}',
+                storage_source='local', image_hash=h,
+            )
+
+        all_bytes = [img_bytes_first]
+        for url in carousel_urls_list[1:]:
+            b = _fetch_bytes(url)
+            if b:
+                all_bytes.append(b)
+
+        media_items = []
+        for idx, byt in enumerate(all_bytes):
+            m = _upload_one(byt, idx)
+            db.session.add(m)
+            media_items.append(m)
+        db.session.flush()
+        media = media_items[0]
 
     content_status = 'draft' if mode == 'reserve' else 'scheduled' if (mode == 'schedule' and scheduled_at) else 'ready'
     ci = ContentItem(
@@ -6660,9 +7757,11 @@ def inspiration_post_use(post_id):
         acc = db.session.get(Account, account_id)
         if acc:
             ci.accounts.append(acc)
-    media.content_item_id = ci.id
-    post.status           = 'used'
-    post.content_item_id  = ci.id
+    # Alle Karussel-Bilder mit ContentItem verknüpfen
+    for m in media_items:
+        m.content_item_id = ci.id
+    post.status          = 'used'
+    post.content_item_id = ci.id
 
     # Direkt einplanen wenn Datum gewählt
     sched_post = None
@@ -6750,19 +7849,100 @@ def kategorien():
     folders = q.order_by(ContentFolder.account_id.nullslast(),
                          ContentFolder.sort_order, ContentFolder.name).all()
 
-    # Anzahl Posts pro Ordner im Vorrat (draft/ready)
-    folder_counts = {}
+    # ── Anzahl Posts pro Ordner (mit Status-Aufschlüsselung) ─────
+    folder_counts   = {}   # fid → Gesamt (aktiv)
+    folder_statuses = {}   # fid → {status: count}
     for f in folders:
-        folder_counts[f.id] = ContentItem.query\
-            .filter(ContentItem.folder_id == f.id,
-                    ContentItem.status.in_(['draft', 'ready', 'in_progress', 'scheduled']))\
-            .count()
+        rows = db.session.query(ContentItem.status, func.count(ContentItem.id))\
+            .filter(ContentItem.folder_id == f.id)\
+            .group_by(ContentItem.status).all()
+        sc = {s: c for s, c in rows}
+        active = sum(sc.get(s, 0) for s in ['draft', 'ready', 'in_progress', 'scheduled'])
+        folder_counts[f.id]   = active
+        folder_statuses[f.id] = sc
 
+    # ── Pipeline-Zahlen ──────────────────────────────────────────
+    base_ci = ContentItem.query
+    base_ip = InspirationPost.query
+    if account_id:
+        base_ci = base_ci.filter(ContentItem.accounts.any(id=account_id))
+
+    pipeline = {
+        'insp_new':       base_ip.filter_by(status='new').count(),
+        'insp_saved':     base_ip.filter_by(is_saved=True).count(),
+        'vorrat_draft':   base_ci.filter_by(status='draft').count(),
+        'vorrat_ready':   base_ci.filter_by(status='ready').count(),
+        'vorrat_sched':   base_ci.filter_by(status='scheduled').count(),
+        'published':      base_ci.filter_by(status='published').count(),
+    }
+
+    # ── Verlorene Posts (kein Ordner ODER kein Account) ──────────
+    orphan_no_folder = ContentItem.query.filter(
+        ContentItem.folder_id.is_(None),
+        ContentItem.status.in_(['draft', 'ready'])
+    ).count()
+    orphan_no_account = db.session.query(func.count(ContentItem.id)).filter(
+        ContentItem.status.in_(['draft', 'ready']),
+        ~ContentItem.accounts.any()
+    ).scalar() or 0
+
+    from datetime import date as _date_today
     return render_template('kategorien.html',
         folders=folders, accounts=accounts,
         folder_counts=folder_counts,
+        folder_statuses=folder_statuses,
+        pipeline=pipeline,
+        orphan_no_folder=orphan_no_folder,
+        orphan_no_account=orphan_no_account,
         sel_account=account_id,
+        today=_date_today.today(),
         active_page='kategorien')
+
+
+@app.route('/api/weather/check-now', methods=['POST'])
+@login_required
+def weather_check_now():
+    """Manueller Wetter-Check — für Tests und sofortiges Auslösen."""
+    threading.Thread(target=_check_all_weather, daemon=True).start()
+    return jsonify({'ok': True, 'message': 'Wetter-Check gestartet'})
+
+
+@app.route('/api/weather/status')
+@login_required
+def weather_status():
+    """Übersicht: letzter Check, letzte Trigger, Cooldown-Status."""
+    accounts = Account.query.filter_by(status='active').all()
+    result = []
+    now = datetime.utcnow()
+    for acc in accounts:
+        city = _get_weather_city(acc)
+        if not city:
+            continue
+        cache = WeatherCache.query.filter_by(account_id=acc.id).first()
+        triggers_info = {}
+        for tkey, tconf in WEATHER_TRIGGERS.items():
+            last = WeatherTriggerLog.query.filter_by(
+                account_id=acc.id, trigger_type=tkey
+            ).order_by(WeatherTriggerLog.fired_at.desc()).first()
+            if last:
+                days_ago  = (now - last.fired_at).days
+                remaining = max(0, tconf['cooldown'] - days_ago)
+                triggers_info[tkey] = {
+                    'last_fired': last.fired_at.strftime('%d.%m.%Y'),
+                    'cooldown_remaining': remaining,
+                    'on_cooldown': remaining > 0,
+                }
+            else:
+                triggers_info[tkey] = {'last_fired': None, 'cooldown_remaining': 0, 'on_cooldown': False}
+        result.append({
+            'account': acc.name,
+            'city': city,
+            'last_check': cache.checked_at.strftime('%d.%m.%Y %H:%M') if cache else None,
+            'temperature': cache.temperature if cache else None,
+            'description': cache.description if cache else None,
+            'triggers': triggers_info,
+        })
+    return jsonify(result)
 
 
 @app.route('/api/folders', methods=['GET'])
@@ -6789,18 +7969,31 @@ def folder_create():
     if not name:
         return jsonify({'ok': False, 'error': 'Name darf nicht leer sein.'})
     account_id = d.get('account_id') or None
-    f = ContentFolder(
-        name           = name,
-        color          = d.get('color', '#6366f1'),
-        icon           = d.get('icon', 'fa-folder'),
-        account_id     = account_id,
-        sort_order     = d.get('sort_order', 0),
-        posts_per_week = int(d.get('posts_per_week', 0) or 0),
-        notes          = d.get('notes', ''),
-    )
-    db.session.add(f)
-    db.session.commit()
-    return jsonify({'ok': True, 'id': f.id, 'name': f.name})
+    def _parse_date(s):
+        try: return datetime.strptime(s, '%Y-%m-%d').date() if s else None
+        except: return None
+
+    try:
+        f = ContentFolder(
+            name             = name,
+            color            = d.get('color', '#6366f1'),
+            icon             = d.get('icon', 'fa-folder'),
+            account_id       = account_id,
+            sort_order       = int(d.get('sort_order', 0) or 0),
+            posts_per_week   = int(d.get('posts_per_week', 0) or 0),
+            notes            = d.get('notes', '') or '',
+            valid_from        = _parse_date(d.get('valid_from')),
+            valid_until       = _parse_date(d.get('valid_until')),
+            recurring_yearly  = bool(d.get('recurring_yearly', False)),
+            trigger_condition = d.get('trigger_condition') or None,
+        )
+        db.session.add(f)
+        db.session.commit()
+        return jsonify({'ok': True, 'id': f.id, 'name': f.name, 'color': f.color, 'icon': f.icon})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'folder_create error: {e}')
+        return jsonify({'ok': False, 'error': f'Datenbankfehler: {str(e)}'})
 
 
 @app.route('/api/folders/<int:fid>', methods=['PUT'])
@@ -6808,13 +8001,20 @@ def folder_create():
 def folder_update(fid):
     f = ContentFolder.query.get_or_404(fid)
     d = request.get_json() or {}
-    if 'name'           in d: f.name           = (d['name'] or '').strip() or f.name
-    if 'color'          in d: f.color          = d['color']
-    if 'icon'           in d: f.icon           = d['icon']
-    if 'account_id'     in d: f.account_id     = d['account_id'] or None
-    if 'sort_order'     in d: f.sort_order      = int(d['sort_order'] or 0)
-    if 'posts_per_week' in d: f.posts_per_week  = int(d['posts_per_week'] or 0)
-    if 'notes'          in d: f.notes           = d['notes']
+    def _pd(s):
+        try: return datetime.strptime(s, '%Y-%m-%d').date() if s else None
+        except: return None
+    if 'name'             in d: f.name             = (d['name'] or '').strip() or f.name
+    if 'color'            in d: f.color            = d['color']
+    if 'icon'             in d: f.icon             = d['icon']
+    if 'account_id'       in d: f.account_id       = d['account_id'] or None
+    if 'sort_order'       in d: f.sort_order        = int(d['sort_order'] or 0)
+    if 'posts_per_week'   in d: f.posts_per_week    = int(d['posts_per_week'] or 0)
+    if 'notes'            in d: f.notes             = d['notes']
+    if 'valid_from'       in d: f.valid_from        = _pd(d['valid_from'])
+    if 'valid_until'      in d: f.valid_until       = _pd(d['valid_until'])
+    if 'recurring_yearly'  in d: f.recurring_yearly  = bool(d['recurring_yearly'])
+    if 'trigger_condition' in d: f.trigger_condition = d['trigger_condition'] or None
     db.session.commit()
     return jsonify({'ok': True})
 
@@ -6828,6 +8028,150 @@ def folder_delete(fid):
     db.session.delete(f)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+# ── Standard-Ordner-Templates für deutsche Stadt-Instagram-Seiten ────────────
+_STANDARD_FOLDER_TEMPLATES = [
+    {'name': 'Starterpacks',     'icon': 'fa-grip',              'color': '#6366f1',
+     'notes': 'Starter Pack Memes — Collage-Format "Der Starter Pack für..."',
+     'posts_per_week': 1},
+    {'name': 'Wetter',           'icon': 'fa-cloud-sun-rain',    'color': '#38bdf8',
+     'notes': 'Wetterextreme, Hitze, Schnee, Sturm, Wetter-Screenshots',
+     'posts_per_week': 1},
+    {'name': 'Events',           'icon': 'fa-calendar-star',     'color': '#f59e0b',
+     'notes': 'Konzerte, Festivals, Stadtfeste, Messen, Veranstaltungs-Flyer',
+     'posts_per_week': 1},
+    {'name': 'Weihnachten',      'icon': 'fa-snowflake',         'color': '#ef4444',
+     'notes': 'Weihnachtsmarkt, Advent, Christbaum, Glühwein, Winterzauber',
+     'posts_per_week': 2, 'valid_from_md': '12-01', 'valid_until_md': '01-06', 'recurring': True},
+    {'name': 'Frühling',         'icon': 'fa-seedling',          'color': '#22c55e',
+     'notes': 'Kirschblüte, Ostern, erste Sonne, Frühlingsblumen',
+     'posts_per_week': 1, 'valid_from_md': '03-01', 'valid_until_md': '05-31', 'recurring': True},
+    {'name': 'Sommer',           'icon': 'fa-sun',               'color': '#fbbf24',
+     'notes': 'Freibad, Hitzewelle, Eis essen, Grillen, See/Strand',
+     'posts_per_week': 2, 'valid_from_md': '06-01', 'valid_until_md': '08-31', 'recurring': True},
+    {'name': 'Herbst',           'icon': 'fa-leaf',              'color': '#f97316',
+     'notes': 'Blätterfärben, Oktoberfest, Kürbis, Ernte, Nebelstimmung',
+     'posts_per_week': 1, 'valid_from_md': '09-01', 'valid_until_md': '11-30', 'recurring': True},
+    {'name': 'Winter',           'icon': 'fa-icicles',           'color': '#93c5fd',
+     'notes': 'Schnee, Eislaufen, Frost, Winterlandschaft (außerhalb Weihnachten)',
+     'posts_per_week': 1, 'valid_from_md': '12-01', 'valid_until_md': '02-28', 'recurring': True},
+    {'name': 'Stadtleben',       'icon': 'fa-city',              'color': '#8b5cf6',
+     'notes': 'Alltagsmemes, Erkennungszeichen, "typisch [Stadt]", lokale Klischees',
+     'posts_per_week': 2},
+    {'name': 'Essen & Trinken',  'icon': 'fa-utensils',          'color': '#d97706',
+     'notes': 'Restaurants, Gerichte, Streetfood, Cafés, lokale Spezialitäten',
+     'posts_per_week': 1},
+    {'name': 'Sport',            'icon': 'fa-futbol',            'color': '#10b981',
+     'notes': 'Sport, Fußball, lokale Vereine, Sportereignisse',
+     'posts_per_week': 1},
+    {'name': 'Nostalgie',        'icon': 'fa-clock-rotate-left', 'color': '#9ca3af',
+     'notes': 'Throwbacks, alte Fotos, "früher war...", Vergleich alt/neu',
+     'posts_per_week': 1},
+    {'name': 'Humor & Memes',    'icon': 'fa-face-laugh',        'color': '#ec4899',
+     'notes': 'Allgemeine Witzbilder, Reaktionsbilder, Textmemes',
+     'posts_per_week': 1},
+    {'name': 'Natur',            'icon': 'fa-tree',              'color': '#16a34a',
+     'notes': 'Parks, Flüsse, Wälder, Sonnenuntergänge, Naturlandschaften',
+     'posts_per_week': 1},
+    {'name': 'Silvester',        'icon': 'fa-champagne-glasses', 'color': '#c084fc',
+     'notes': 'Feuerwerk, Jahreswechsel, "Frohes neues Jahr", Countdown',
+     'posts_per_week': 2, 'valid_from_md': '12-27', 'valid_until_md': '01-03', 'recurring': True},
+]
+
+
+@app.route('/api/settings/auto-classify', methods=['POST'])
+@login_required
+def toggle_auto_classify():
+    """Schaltet KI-Auto-Kategorisierung ein oder aus.
+    Body: { enabled: true|false }  ODER leerer Body → togglet den aktuellen Wert.
+    """
+    d       = request.get_json() or {}
+    current = get_setting('auto_classify_inspirationen') == 'true'
+    enabled = d.get('enabled', not current)   # toggle wenn nicht angegeben
+
+    _set = AppSettings.query.filter_by(key='auto_classify_inspirationen').first()
+    if _set:
+        _set.value = 'true' if enabled else 'false'
+    else:
+        db.session.add(AppSettings(key='auto_classify_inspirationen',
+                                   value='true' if enabled else 'false'))
+    db.session.commit()
+
+    # Stats für die UI
+    total_new   = InspirationPost.query.filter_by(status='new').count()
+    classified  = InspirationPost.query.filter(
+        InspirationPost.status == 'new',
+        InspirationPost.suggested_folder_id.isnot(None)
+    ).count()
+    return jsonify({'ok': True, 'enabled': enabled,
+                    'total_new': total_new, 'classified': classified,
+                    'pending': total_new - classified})
+
+
+@app.route('/api/folders/create-standard', methods=['POST'])
+@login_required
+def folders_create_standard():
+    """Legt Standard-Inhaltskategorien als Ordner an.
+    Body: { account_id: int|null, skip_existing: bool (default true) }
+    Gibt zurück: { created: [Namen], skipped: [Namen] }
+    """
+    from datetime import date as _date
+    d          = request.get_json() or {}
+    account_id = d.get('account_id') or None
+    skip_ex    = d.get('skip_existing', True)
+
+    # Vorhandene Namen für diesen Account
+    existing_q = ContentFolder.query
+    if account_id:
+        existing_q = existing_q.filter(
+            db.or_(ContentFolder.account_id == int(account_id),
+                   ContentFolder.account_id.is_(None))
+        )
+    existing_names = {f.name.lower() for f in existing_q.all()}
+
+    created, skipped = [], []
+    year = datetime.utcnow().year
+
+    for t in _STANDARD_FOLDER_TEMPLATES:
+        if skip_ex and t['name'].lower() in existing_names:
+            skipped.append(t['name'])
+            continue
+
+        valid_from  = None
+        valid_until = None
+        if t.get('valid_from_md'):
+            try:
+                m, day = t['valid_from_md'].split('-')
+                valid_from = _date(year, int(m), int(day))
+            except Exception:
+                pass
+        if t.get('valid_until_md'):
+            try:
+                m, day = t['valid_until_md'].split('-')
+                # Dezember→Januar: valid_until im nächsten Jahr
+                y = year + 1 if t.get('valid_from_md', '').startswith('12') and m == '01' else year
+                valid_until = _date(y, int(m), int(day))
+            except Exception:
+                pass
+
+        f = ContentFolder(
+            name             = t['name'],
+            icon             = t['icon'],
+            color            = t['color'],
+            notes            = t.get('notes', ''),
+            posts_per_week   = t.get('posts_per_week', 1),
+            account_id       = int(account_id) if account_id else None,
+            valid_from       = valid_from,
+            valid_until      = valid_until,
+            recurring_yearly = t.get('recurring', False),
+        )
+        db.session.add(f)
+        created.append(t['name'])
+
+    db.session.commit()
+    return jsonify({'ok': True, 'created': created, 'skipped': skipped,
+                    'total_created': len(created)})
 
 
 @app.route('/api/autoplan', methods=['POST'])
@@ -6855,8 +8199,13 @@ def autoplan():
     posts_per_week = int(d.get('posts_per_week', 7) or 7)
     day_mode       = d.get('day_mode', 'fixed')
     post_days      = [int(x) for x in (d.get('post_days') or [0,1,2,3,4,5,6])]
-    days_per_week  = max(1, min(7, int(d.get('days_per_week', 5) or 5)))
     min_gap_days   = max(0, int(d.get('min_gap_days', 0) or 0))
+    # days_per_week wird automatisch aus posts_per_week abgeleitet (kein separates UI-Feld)
+    # Frontend schickt es vorsichtshalber mit, Fallback: ppw / posts_per_day
+    _ppd_hint = max(1, int(d.get('posts_per_day', 1) or 1)) if d.get('time_mode') == 'random' \
+                else max(1, len(d.get('post_times') or ['18:00']))
+    days_per_week  = max(1, min(7, int(d.get('days_per_week') or 0) or
+                                   -(-posts_per_week // _ppd_hint)))  # ceil ohne math
     folder_rules   = {int(k): int(v) for k, v in (d.get('folder_rules') or {}).items() if int(v) > 0}
     time_mode      = d.get('time_mode', 'fixed')
 
@@ -6936,20 +8285,148 @@ def autoplan():
                 last_day = s.date()
         slots = filtered
 
-    # Vorhandene Belegung prüfen → nur freie Slots verwenden
-    existing = {sp.scheduled_at for sp in ScheduledPost.query.filter(
+    # ── Prioritäts-Ordner: Zeitfenster laden ─────────────────────
+    from datetime import date as _date
+    import random as _rand
+    today = _date.today()
+
+    def _folder_is_active(folder):
+        if not folder.valid_from or not folder.valid_until:
+            return False
+        vf, vu = folder.valid_from, folder.valid_until
+        if folder.recurring_yearly:
+            vf = vf.replace(year=today.year)
+            vu = vu.replace(year=today.year)
+            if vf <= vu:
+                return vf <= today <= vu
+            else:
+                return today >= vf or today <= vu
+        return vf <= today <= vu
+
+    def _slot_in_window(slot_dt, vf, vu, recurring):
+        """Prüft ob ein Slot innerhalb eines Zeitfensters liegt."""
+        sd = slot_dt.date()
+        if recurring:
+            vf2 = vf.replace(year=sd.year)
+            vu2 = vu.replace(year=sd.year)
+            if vf2 <= vu2:
+                return vf2 <= sd <= vu2
+            else:
+                return sd >= vf2 or sd <= vu2
+        return vf <= sd <= vu
+
+    all_content_folders = ContentFolder.query.all()
+    active_priority_folders = [f for f in all_content_folders if _folder_is_active(f)]
+    active_priority_fids    = [f.id for f in active_priority_folders]
+
+    # Slots die in mindestens einem Prioritätsfenster liegen
+    def _is_priority_slot(slot_dt):
+        for pf in active_priority_folders:
+            if _slot_in_window(slot_dt, pf.valid_from, pf.valid_until, pf.recurring_yearly):
+                return True
+        return False
+
+    priority_slot_set = {s for s in slots if _is_priority_slot(s)}
+
+    # ── Alle bestehenden Posts im Zeitraum laden ───────────────────
+    existing_sps = ScheduledPost.query.filter(
         ScheduledPost.account_id == account_id,
         ScheduledPost.scheduled_at >= date_from,
         ScheduledPost.scheduled_at <= date_to,
         ScheduledPost.status.in_(['pending', 'scheduled'])
-    ).all()}
-    free_slots = [s for s in slots if s not in existing]
+    ).all()
+    existing_map = {sp.scheduled_at: sp for sp in existing_sps}  # zeit → ScheduledPost
+    existing_times = set(existing_map.keys())
 
-    if not free_slots:
+    # ── Überschneidende Zeitfenster erkennen ─────────────────────
+    warnings = []
+    overlap_split = {}   # fid → Anteil der Priority-Slots (0.0–1.0)
+    if len(active_priority_folders) > 1:
+        # Berechne Slots pro Ordner innerhalb des Planungszeitraums
+        folder_slot_sets = {}
+        for pf in active_priority_folders:
+            folder_slot_sets[pf.id] = {
+                s for s in slots
+                if _slot_in_window(s, pf.valid_from, pf.valid_until, pf.recurring_yearly)
+            }
+        # Überschneidungspaare finden
+        fids = list(folder_slot_sets.keys())
+        for i in range(len(fids)):
+            for j in range(i + 1, len(fids)):
+                a, b = fids[i], fids[j]
+                overlap = folder_slot_sets[a] & folder_slot_sets[b]
+                if overlap:
+                    fa = next(f for f in active_priority_folders if f.id == a)
+                    fb = next(f for f in active_priority_folders if f.id == b)
+                    warnings.append(
+                        f'⚠ Zeitfenster-Überschneidung: „{fa.name}" und „{fb.name}" '
+                        f'teilen sich {len(overlap)} Slot(s) — werden proportional aufgeteilt.'
+                    )
+        # Proportionale Aufteilung: jeder Ordner bekommt Anteil basierend auf Posts-Pool-Größe
+        for pf in active_priority_folders:
+            pool_size = ContentItem.query.filter(
+                ContentItem.status.in_(['draft', 'ready']),
+                ContentItem.accounts.any(id=account_id),
+                ContentItem.folder_id == pf.id
+            ).count()
+            overlap_split[pf.id] = max(pool_size, 1)
+        total_weight = sum(overlap_split.values())
+        for fid in overlap_split:
+            overlap_split[fid] /= total_weight   # → 0.0–1.0
+
+    # ── Randoms aus Priority-Slots rauswerfen ─────────────────────
+    moved_count  = 0
+    freed_slots  = []   # Slots die durch Verschiebung frei wurden
+
+    if active_priority_folders and priority_slot_set:
+        # Nicht-Prioritäts-Posts die in Priority-Slots liegen
+        to_move = []
+        for t, sp in existing_map.items():
+            if t in priority_slot_set:
+                ci = sp.content_item
+                if ci and ci.folder_id not in active_priority_fids:
+                    to_move.append(sp)
+                elif ci is None:
+                    to_move.append(sp)  # unbekannte Posts auch verschieben
+
+        # Freie Slots außerhalb des Prioritätsfensters suchen
+        non_priority_free = sorted(
+            [s for s in slots if s not in priority_slot_set and s not in existing_times],
+            key=lambda x: x
+        )
+        # Zusätzliche Slots nach dem Planungszeitraum generieren (Puffer)
+        extra_start = date_to + timedelta(days=1)
+        extra_cur   = extra_start.replace(hour=18, minute=0, second=0, microsecond=0)
+        for _ in range(len(to_move) * 3):
+            if extra_cur.weekday() in post_days:
+                non_priority_free.append(extra_cur)
+            extra_cur += timedelta(days=1)
+
+        for sp in to_move:
+            if non_priority_free:
+                new_slot = non_priority_free.pop(0)
+                old_slot = sp.scheduled_at
+                sp.scheduled_at = new_slot
+                existing_times.discard(old_slot)
+                existing_times.add(new_slot)
+                freed_slots.append(old_slot)
+                moved_count += 1
+            else:
+                # Kein freier Platz → Post auf status='pending' zurücksetzen (entplanen)
+                sp.status = 'pending'
+                if sp.content_item:
+                    sp.content_item.status = 'ready'
+                freed_slots.append(sp.scheduled_at)
+                existing_times.discard(sp.scheduled_at)
+                moved_count += 1
+
+    # ── Freie Slots berechnen (nach Verschiebungen) ───────────────
+    free_slots = sorted([s for s in slots if s not in existing_times])
+
+    if not free_slots and not active_priority_folders:
         return jsonify({'ok': False, 'error': 'Alle Slots im Zeitraum sind bereits belegt.'})
 
-    # Posts aus Vorrat holen — nach Ordner-Regeln aufteilen
-    # Sentinel: folder_id=-1 bedeutet "alle Posts egal welcher Ordner"
+    # ── Post-Pool-Hilfsfunktion ───────────────────────────────────
     ALL_FOLDERS = -1
 
     def _get_pool(folder_id=None):
@@ -6960,44 +8437,66 @@ def autoplan():
         if folder_id and folder_id != ALL_FOLDERS:
             q = q.filter(ContentItem.folder_id == folder_id)
         elif folder_id is None:
-            # Nur Posts ohne Ordner
             q = q.filter(ContentItem.folder_id.is_(None))
-        # folder_id == ALL_FOLDERS → kein Filter → alle Posts
         return q.order_by(db.func.random()).all()
 
-    # Slot-Budget pro Ordner berechnen
-    total_slots = len(free_slots)
-    slot_idx    = 0
-    created     = 0
+    # ── Slot-Aufteilung nach Ordner-Priorität ────────────────────
+    total_slots   = len(free_slots)
+    slot_idx      = 0
+    created       = 0
     used_item_ids = set()
+    assignments   = []
 
-    # Folder-Anteile: proportional zu posts_per_week
-    # folder_rules kann folder_id='' (leer = kein Ordner) oder echte IDs enthalten
-    assignments = []  # [(folder_id_or_sentinel, n_slots)]
-    if folder_rules:
+    if active_priority_folders:
+        if len(active_priority_folders) > 1 and overlap_split:
+            # Überschneidung: proportional aufteilen
+            for pf in active_priority_folders:
+                # Slots die speziell diesem Ordner gehören
+                pf_slots = [s for s in free_slots
+                            if _slot_in_window(s, pf.valid_from, pf.valid_until, pf.recurring_yearly)]
+                # Bei Überschneidungen: proportionaler Anteil der geteilten Slots
+                shared = [s for s in pf_slots if any(
+                    _slot_in_window(s, other.valid_from, other.valid_until, other.recurring_yearly)
+                    for other in active_priority_folders if other.id != pf.id
+                )]
+                exclusive = [s for s in pf_slots if s not in shared]
+                n = len(exclusive) + round(len(shared) * overlap_split.get(pf.id, 0.5))
+                assignments.append((pf.id, max(n, 1)))
+        else:
+            for pf in active_priority_folders:
+                n = len([s for s in free_slots
+                         if _slot_in_window(s, pf.valid_from, pf.valid_until, pf.recurring_yearly)])
+                assignments.append((pf.id, max(n, 1)))
+
+    # Normale Ordner für verbleibende Slots
+    priority_n = sum(n for _, n in assignments)
+    remaining  = max(0, total_slots - priority_n)
+    if folder_rules and remaining > 0:
         total_ppw = sum(folder_rules.values())
         for fid, ppw in folder_rules.items():
-            n = max(1, round(total_slots * ppw / total_ppw))
-            # fid=0 oder leer → Posts ohne Ordner
+            n = max(1, round(remaining * ppw / total_ppw))
             assignments.append((fid if fid else None, n))
-        assigned = sum(n for _, n in assignments)
-        if assigned < total_slots:
-            assignments.append((ALL_FOLDERS, total_slots - assigned))
-    else:
-        # Keine Regeln → alle Posts aus dem gesamten Vorrat mischen
-        assignments = [(ALL_FOLDERS, total_slots)]
+        extra = remaining - sum(n for _, n in assignments[len(active_priority_folders):])
+        if extra > 0:
+            assignments.append((ALL_FOLDERS, extra))
+    elif remaining > 0:
+        assignments.append((ALL_FOLDERS, remaining))
 
-    import random
+    # ── Scheduling-Loop ───────────────────────────────────────────
+    overflow_by_folder = {}   # fid → [leftover ContentItems] für nächstes Jahr
+
     for folder_id, n_slots in assignments:
         pool = _get_pool(folder_id)
         pool = [p for p in pool if p.id not in used_item_ids]
-        random.shuffle(pool)
-        for i in range(min(n_slots, len(pool))):
+        _rand.shuffle(pool)
+        scheduled_this_round = 0
+        for item in pool:
+            if scheduled_this_round >= n_slots:
+                break
             if slot_idx >= len(free_slots):
                 break
-            item     = pool[i]
-            slot     = free_slots[slot_idx]
-            media    = item.media_items[0] if item.media_items else None
+            slot  = free_slots[slot_idx]
+            media = item.media_items[0] if item.media_items else None
             sp = ScheduledPost(
                 account_id      = account_id,
                 content_item_id = item.id,
@@ -7010,15 +8509,984 @@ def autoplan():
             db.session.add(sp)
             item.status = 'scheduled'
             used_item_ids.add(item.id)
-            slot_idx += 1
-            created  += 1
+            slot_idx             += 1
+            created              += 1
+            scheduled_this_round += 1
+
+        # Überlauf bei jährlich-wiederkehrenden Ordnern sammeln
+        if folder_id in active_priority_fids:
+            pf = next((f for f in active_priority_folders if f.id == folder_id), None)
+            if pf and pf.recurring_yearly:
+                leftover = [p for p in pool[scheduled_this_round:] if p.id not in used_item_ids]
+                if leftover:
+                    overflow_by_folder[pf] = leftover
+
+    # ── Überlauf → nächstes Jahr einplanen ───────────────────────
+    overflow_created = 0
+    for pf, leftover in overflow_by_folder.items():
+        try:
+            next_vf = pf.valid_from.replace(year=today.year + 1)
+            next_vu = pf.valid_until.replace(year=today.year + 1)
+            # Einfache Slot-Generierung: jeden Tag im nächsten Fenster mit 18:00 Uhr
+            ny_slots = []
+            ny_cur = datetime(next_vf.year, next_vf.month, next_vf.day, 18, 0)
+            ny_end = datetime(next_vu.year, next_vu.month, next_vu.day, 23, 59)
+            while ny_cur <= ny_end and len(ny_slots) < len(leftover):
+                if ny_cur.weekday() in post_days:
+                    ny_slots.append(ny_cur)
+                ny_cur += timedelta(days=1)
+            # Schon belegte nächstjährige Slots ausschließen
+            ny_existing = {sp.scheduled_at for sp in ScheduledPost.query.filter(
+                ScheduledPost.account_id == account_id,
+                ScheduledPost.scheduled_at >= ny_slots[0] if ny_slots else date_from,
+                ScheduledPost.scheduled_at <= ny_slots[-1] if ny_slots else date_to,
+                ScheduledPost.status.in_(['pending', 'scheduled'])
+            ).all()} if ny_slots else set()
+            ny_free = [s for s in ny_slots if s not in ny_existing]
+            for item, slot in zip(leftover, ny_free):
+                media = item.media_items[0] if item.media_items else None
+                sp = ScheduledPost(
+                    account_id      = account_id,
+                    content_item_id = item.id,
+                    media_item_id   = media.id if media else None,
+                    caption         = item.caption or item.title or '',
+                    scheduled_at    = slot,
+                    status          = 'pending',
+                    post_type       = item.content_type or 'feed',
+                )
+                db.session.add(sp)
+                item.status = 'scheduled'
+                overflow_created += 1
+        except Exception:
+            pass
 
     db.session.commit()
+
+    # ── Überkapazitäts-Warnung: Wochen mit zu vielen Posts ────────
+    overcapacity_weeks = []
+    if posts_per_week > 0:
+        from collections import defaultdict as _dd
+        week_counts = _dd(int)
+        future_posts = ScheduledPost.query.filter(
+            ScheduledPost.account_id == account_id,
+            ScheduledPost.scheduled_at >= datetime.utcnow(),
+            ScheduledPost.status.in_(['pending', 'scheduled'])
+        ).all()
+        for sp in future_posts:
+            iso = sp.scheduled_at.isocalendar()
+            week_counts[(iso[0], iso[1])] += 1
+        overcapacity_weeks = [
+            f'KW {w[1]}/{w[0]} ({cnt} Posts, Limit: {posts_per_week})'
+            for w, cnt in sorted(week_counts.items()) if cnt > posts_per_week
+        ]
+        # SystemAlert erstellen wenn Überkapazität
+        if overcapacity_weeks:
+            existing_alert = SystemAlert.query.filter_by(
+                alert_type='overcapacity', account_id=account_id, resolved=False
+            ).first()
+            if not existing_alert:
+                db.session.add(SystemAlert(
+                    alert_type='overcapacity',
+                    severity='warning',
+                    account_id=account_id,
+                    message=f'Überkapazität in {len(overcapacity_weeks)} Woche(n): '
+                            + ', '.join(overcapacity_weeks[:3]),
+                ))
+                db.session.commit()
+
+    # ── Ergebnis zusammenbauen ────────────────────────────────────
+    msg_parts = [f'{created} Posts eingeplant ✓']
+    if moved_count:
+        msg_parts.append(f'{moved_count} Random-Post(s) verschoben')
+    if overflow_created:
+        msg_parts.append(f'{overflow_created} Überlauf-Posts für {today.year + 1} vorgemerkt')
+    if overcapacity_weeks:
+        msg_parts.append(f'⚠ Überkapazität in {len(overcapacity_weeks)} Woche(n)')
+
     return jsonify({
         'ok': True,
         'created': created,
-        'message': f'{created} Posts wurden automatisch eingeplant ✓'
+        'moved': moved_count,
+        'overflow': overflow_created,
+        'warnings': warnings + (
+            [f'⚠ Überkapazität: ' + '; '.join(overcapacity_weeks[:5])]
+            if overcapacity_weeks else []
+        ),
+        'message': ' · '.join(msg_parts),
     })
+
+
+# ─────────────── KI-CAPTION + DUPLIKAT-ERKENNUNG ──────────────
+
+def _compute_image_hash(img_bytes):
+    """Perceptual Hash für Duplikat-Erkennung (imagehash pHash)."""
+    try:
+        import imagehash
+        from PIL import Image
+        import io as _io
+        img = Image.open(_io.BytesIO(img_bytes)).convert('RGB')
+        return str(imagehash.phash(img))
+    except Exception:
+        return None
+
+
+def _find_duplicate(hash_str, tolerance=8):
+    """Sucht ein ähnliches Bild in der Medienbibliothek.
+    Gibt (MediaItem, diff) zurück oder (None, None)."""
+    if not hash_str:
+        return None, None
+    try:
+        import imagehash
+        new_h = imagehash.hex_to_hash(hash_str)
+        existing = (MediaItem.query
+                    .filter(MediaItem.image_hash.isnot(None))
+                    .order_by(MediaItem.created_at.desc())
+                    .limit(1000).all())
+        best, best_diff = None, tolerance + 1
+        for m in existing:
+            try:
+                diff = abs(new_h - imagehash.hex_to_hash(m.image_hash))
+                if diff <= tolerance and diff < best_diff:
+                    best, best_diff = m, diff
+            except Exception:
+                continue
+        return (best, best_diff) if best else (None, None)
+    except Exception:
+        return None, None
+
+
+@app.route('/api/caption/generate', methods=['POST'])
+@login_required
+def caption_generate():
+    """KI-Caption aus Bild via Claude Vision.
+    Body: { image_url, account_id (optional) }
+    Gibt caption + hashtags (aus Account-Einstellungen) zurück.
+    """
+    import base64 as _b64
+    import requests as _req
+    import anthropic as _ant
+
+    d = request.get_json() or {}
+    image_url  = (d.get('image_url') or '').strip()
+    account_id = d.get('account_id')
+
+    if not image_url:
+        return jsonify({'ok': False, 'error': 'Kein Bild-URL angegeben.'})
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert.'})
+
+    # Bild laden
+    try:
+        r = _req.get(image_url, timeout=(10, 25),
+                     headers={'User-Agent': 'Mozilla/5.0',
+                               'Referer': 'https://www.instagram.com/'})
+        r.raise_for_status()
+        img_bytes   = r.content
+        media_type  = r.headers.get('content-type', 'image/jpeg').split(';')[0].strip()
+        if media_type not in ('image/jpeg', 'image/png', 'image/gif', 'image/webp'):
+            media_type = 'image/jpeg'
+        img_b64 = _b64.standard_b64encode(img_bytes).decode()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Bild nicht abrufbar: {e}'})
+
+    # Account-Hashtags laden
+    default_hashtags = ''
+    sports_hashtag   = ''
+    acc_persona      = ''
+    if account_id:
+        acc = db.session.get(Account, int(account_id))
+        if acc:
+            default_hashtags = (acc.default_hashtags or '').strip()
+            sports_hashtag   = (acc.sports_hashtag   or '').strip()
+            acc_persona      = (acc.page_persona      or '').strip()
+
+    persona_hint = f'\nSeitencharakter: {acc_persona}' if acc_persona else ''
+
+    prompt = f"""Analysiere dieses Bild und erstelle eine Instagram-Caption auf Deutsch.{persona_hint}
+
+Regeln:
+- 2–4 Sätze, ansprechend und zum Bild passend
+- Keine Hashtags in der Caption selbst
+- Zuletzt: Ist Fußball das Hauptthema? (nur wenn eindeutig erkennbar)
+
+Antworte exakt in diesem Format:
+CAPTION: [deine Caption]
+FUSSBALL: [Ja / Nein]"""
+
+    try:
+        client = _ant.Anthropic(api_key=api_key)
+        resp   = client.messages.create(
+            model='claude-opus-4-5',
+            max_tokens=500,
+            system='Du bist ein Social-Media-Manager für deutschsprachige Instagram-Seiten.',
+            messages=[{'role': 'user', 'content': [
+                {'type': 'image', 'source': {'type': 'base64',
+                                              'media_type': media_type,
+                                              'data': img_b64}},
+                {'type': 'text', 'text': prompt}
+            ]}]
+        )
+        text = resp.content[0].text.strip()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Claude-Fehler: {e}'})
+
+    # Parsen
+    caption     = ''
+    is_football = False
+    for line in text.splitlines():
+        if line.startswith('CAPTION:'):
+            caption = line[8:].strip()
+        elif line.startswith('FUSSBALL:'):
+            is_football = 'ja' in line.lower()
+
+    # Hashtags zusammenbauen
+    hashtags = default_hashtags
+    if is_football and sports_hashtag:
+        hashtags = (hashtags + ' ' + sports_hashtag).strip() if hashtags else sports_hashtag
+
+    return jsonify({
+        'ok':          True,
+        'caption':     caption,
+        'hashtags':    hashtags,
+        'is_football': is_football,
+    })
+
+
+# ═══════════════════════════════════════════════════════════════
+# SMART-REFILL
+# ═══════════════════════════════════════════════════════════════
+
+def _smart_refill_check():
+    """Prüft alle aktiven Accounts; füllt Vorrat auf wenn unter Schwellwert."""
+    with app.app_context():
+        if get_setting('smart_refill_enabled') != 'true':
+            return
+        global_threshold = int(get_setting('smart_refill_threshold_days') or 7)
+        accounts = Account.query.filter_by(status='active').all()
+        for acc in accounts:
+            try:
+                threshold = acc.smart_refill_threshold or global_threshold
+                days = acc.feed_stock_days()
+                if days >= threshold:
+                    continue
+                # Passende InspirationPosts suchen (status='new', noch nicht verwendet)
+                folder_ids = [f.id for f in ContentFolder.query.filter(
+                    db.or_(ContentFolder.account_id == acc.id,
+                           ContentFolder.account_id.is_(None))
+                ).all()]
+                candidates = InspirationPost.query.filter(
+                    InspirationPost.status == 'new',
+                    InspirationPost.is_saved == True,
+                ).order_by(
+                    InspirationPost.like_count.desc().nullslast(),
+                    InspirationPost.created_at.desc()
+                ).limit(5).all()
+                if not candidates:
+                    # Auch nicht-gespeicherte nehmen wenn keine gespeicherten da
+                    candidates = InspirationPost.query.filter_by(status='new').order_by(
+                        InspirationPost.like_count.desc().nullslast()
+                    ).limit(5).all()
+                added = 0
+                for post in candidates:
+                    if added >= 3:
+                        break
+                    folder_id = post.suggested_folder_id
+                    if not folder_id and folder_ids:
+                        folder_id = folder_ids[0]
+                    item = ContentItem(
+                        account_id=acc.id,
+                        folder_id=folder_id,
+                        title=f'Auto-Refill: {(post.caption or "")[:60]}',
+                        caption=post.caption or '',
+                        status='ready',
+                        content_type='feed',
+                        source_url=post.thumbnail_url,
+                        created_at=datetime.utcnow(),
+                    )
+                    db.session.add(item)
+                    post.status = 'used'
+                    added += 1
+                if added:
+                    db.session.commit()
+                    app.logger.info('Smart-Refill: %d Posts für %s nachgefüllt', added, acc.name)
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error('Smart-Refill Fehler für %s: %s', acc.name, e)
+
+
+@app.route('/api/settings/smart-refill', methods=['POST'])
+@login_required
+def toggle_smart_refill():
+    d = request.get_json() or {}
+    enabled = d.get('enabled')
+    if enabled is None:
+        enabled = get_setting('smart_refill_enabled') != 'true'
+    else:
+        enabled = bool(enabled)
+    set_setting('smart_refill_enabled', 'true' if enabled else 'false')
+    if 'threshold_days' in d:
+        set_setting('smart_refill_threshold_days', str(int(d['threshold_days'])))
+    return jsonify({'ok': True, 'enabled': enabled,
+                    'threshold_days': int(get_setting('smart_refill_threshold_days') or 7)})
+
+
+# ═══════════════════════════════════════════════════════════════
+# FOLLOWER-MEILENSTEIN-TRACKER
+# ═══════════════════════════════════════════════════════════════
+
+_MILESTONES = [1000, 2000, 5000, 10000, 25000, 50000, 100000,
+               250000, 500000, 1000000, 2000000, 5000000]
+
+
+def _next_milestone(followers):
+    for m in _MILESTONES:
+        if followers < m:
+            return m
+    return None
+
+
+def _milestone_eta(account):
+    """Berechnet ETA zum nächsten Milestone basierend auf 7-Tage-Wachstum."""
+    target = _next_milestone(account.follower_count or 0)
+    if not target:
+        return None, None, None
+    remaining = target - (account.follower_count or 0)
+    # Wachstum letzte 7 Tage
+    week_ago = datetime.utcnow() - timedelta(days=7)
+    latest_7d_sub = db.session.query(
+        func.max(AnalyticsSnapshot.recorded_at).label('lat')
+    ).filter(
+        AnalyticsSnapshot.account_id == account.id,
+        func.date(AnalyticsSnapshot.recorded_at) == func.date(week_ago)
+    ).subquery()
+    old_snap = db.session.query(AnalyticsSnapshot.followers).filter(
+        AnalyticsSnapshot.account_id == account.id,
+        AnalyticsSnapshot.recorded_at == db.session.query(latest_7d_sub.c.lat).scalar_subquery()
+    ).scalar()
+    if old_snap and account.follower_count:
+        weekly_growth = account.follower_count - old_snap
+        daily_growth = weekly_growth / 7
+    else:
+        daily_growth = 0
+    if daily_growth <= 0:
+        return target, remaining, None
+    days_needed = remaining / daily_growth
+    eta_date = (datetime.utcnow() + timedelta(days=days_needed)).strftime('%d.%m.%Y')
+    return target, remaining, eta_date
+
+
+@app.route('/api/milestones')
+@login_required
+def get_milestones():
+    accounts = Account.query.filter_by(status='active').all()
+    result = []
+    for acc in accounts:
+        target, remaining, eta = _milestone_eta(acc)
+        if target:
+            result.append({
+                'id': acc.id,
+                'account_name': acc.name,
+                'followers': acc.follower_count or 0,
+                'next_milestone': target,
+                'remaining': remaining,
+                'eta_days': eta,
+                'just_reached': False,
+                'pct': round((acc.follower_count or 0) / target * 100, 1) if target else 0,
+            })
+    result.sort(key=lambda x: x['pct'], reverse=True)
+    return jsonify({'milestones': result})
+
+
+# ═══════════════════════════════════════════════════════════════
+# CONTENT-SERIEN-PLANER
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/serien')
+@login_required
+def content_serien():
+    series = ContentSeries.query.order_by(ContentSeries.created_at.desc()).all()
+    accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
+    folders = ContentFolder.query.order_by(ContentFolder.name).all()
+    return render_template('cms/serien.html', series=series,
+                           accounts=accounts, folders=folders, active_page='serien')
+
+
+@app.route('/api/serien', methods=['GET'])
+@login_required
+def serie_list():
+    series = ContentSeries.query.order_by(ContentSeries.created_at.desc()).all()
+    out = []
+    for s in series:
+        out.append({
+            'id': s.id,
+            'account_id': s.account_id,
+            'account_name': s.account.name if s.account else '',
+            'folder_id': s.folder_id,
+            'name': s.name,
+            'description': s.description,
+            'days_of_week': json.loads(s.days_of_week or '[]'),
+            'preferred_time': s.preferred_time,
+            'post_type': s.post_type,
+            'active': s.active,
+            'last_scheduled': s.last_scheduled.isoformat() if s.last_scheduled else None,
+        })
+    return jsonify(out)
+
+
+@app.route('/api/serien', methods=['POST'])
+@login_required
+def serie_create():
+    d = request.get_json() or {}
+    s = ContentSeries(
+        account_id=int(d['account_id']),
+        folder_id=d.get('folder_id') or None,
+        name=d['name'].strip(),
+        description=d.get('description', '').strip(),
+        days_of_week=json.dumps(d.get('days_of_week', [])),
+        preferred_time=d.get('preferred_time', '09:00'),
+        post_type=d.get('post_type', 'feed'),
+        active=d.get('active', True),
+    )
+    db.session.add(s)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': s.id})
+
+
+@app.route('/api/serien/<int:sid>', methods=['PUT', 'DELETE'])
+@login_required
+def serie_update(sid):
+    s = ContentSeries.query.get_or_404(sid)
+    if request.method == 'DELETE':
+        db.session.delete(s)
+        db.session.commit()
+        return jsonify({'ok': True})
+    d = request.get_json() or {}
+    s.name = d.get('name', s.name).strip()
+    s.description = d.get('description', s.description or '').strip()
+    s.account_id = int(d.get('account_id', s.account_id))
+    s.folder_id = d.get('folder_id') or None
+    s.days_of_week = json.dumps(d.get('days_of_week', json.loads(s.days_of_week or '[]')))
+    s.preferred_time = d.get('preferred_time', s.preferred_time)
+    s.post_type = d.get('post_type', s.post_type)
+    s.active = d.get('active', s.active)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/serien/<int:sid>/toggle', methods=['POST'])
+@login_required
+def serie_toggle(sid):
+    s = ContentSeries.query.get_or_404(sid)
+    s.active = not s.active
+    db.session.commit()
+    return jsonify({'ok': True, 'active': s.active})
+
+
+def _process_series():
+    """Stündlich: legt ScheduledPosts für fällige Serien an."""
+    with app.app_context():
+        now = datetime.utcnow()
+        today_weekday = now.weekday()  # 0=Mo .. 6=So
+        for s in ContentSeries.query.filter_by(active=True).all():
+            try:
+                days = json.loads(s.days_of_week or '[]')
+                if today_weekday not in days:
+                    continue
+                # Schon heute eingeplant?
+                h, m_str = s.preferred_time.split(':')
+                scheduled_dt = now.replace(hour=int(h), minute=int(m_str), second=0, microsecond=0)
+                if scheduled_dt < now:
+                    continue
+                already = ScheduledPost.query.filter(
+                    ScheduledPost.account_id == s.account_id,
+                    func.date(ScheduledPost.scheduled_at) == now.date(),
+                ).filter(
+                    ScheduledPost.notes.like(f'%[SERIE:{s.id}]%')
+                ).first()
+                if already:
+                    continue
+                # Post aus Vorrat holen
+                q = ContentItem.query.filter(
+                    ContentItem.account_id == s.account_id,
+                    ContentItem.status == 'ready',
+                )
+                if s.folder_id:
+                    q = q.filter(ContentItem.folder_id == s.folder_id)
+                item = q.order_by(ContentItem.created_at.asc()).first()
+                if not item:
+                    continue
+                sp = ScheduledPost(
+                    account_id=s.account_id,
+                    content_item_id=item.id,
+                    scheduled_at=scheduled_dt,
+                    post_type=s.post_type,
+                    status='scheduled',
+                    notes=f'Auto-Serie: {s.name} [SERIE:{s.id}]',
+                )
+                item.status = 'scheduled'
+                db.session.add(sp)
+                s.last_scheduled = now
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error('Serie %d Fehler: %s', s.id, e)
+
+
+# ═══════════════════════════════════════════════════════════════
+# CONTENT-IDEEN
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/content-ideen')
+@login_required
+def content_ideen():
+    accounts = Account.query.filter_by(status='active').options(
+        joinedload(Account.category)
+    ).order_by(Account.follower_count.desc()).all()
+    # IdeenContext pro Account laden/anlegen
+    for acc in accounts:
+        if not acc.ideen_context:
+            ctx = AccountIdeenContext(account_id=acc.id)
+            db.session.add(ctx)
+    db.session.commit()
+    return render_template('cms/content_ideen.html', accounts=accounts, active_page='content_ideen')
+
+
+@app.route('/api/content-ideen/context/<int:account_id>', methods=['GET'])
+@login_required
+def get_ideen_context(account_id):
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx:
+        return jsonify({})
+    ideas = []
+    if ctx.generated_ideas:
+        try:
+            ideas = json.loads(ctx.generated_ideas)
+        except Exception:
+            ideas = []
+    return jsonify({
+        'konzept':    ctx.konzept or '',
+        'zielgruppe': ctx.zielgruppe or '',
+        'tonalitaet': ctx.tonalitaet or '',
+        'themen':     ctx.themen or '',
+        'updated_at': ctx.updated_at.isoformat() if ctx.updated_at else None,
+        'generated_ideas': ideas,
+    })
+
+
+@app.route('/api/content-ideen/save-context', methods=['POST'])
+@login_required
+def save_ideen_context():
+    d = request.get_json() or {}
+    account_id = int(d['account_id'])
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx:
+        ctx = AccountIdeenContext(account_id=account_id)
+        db.session.add(ctx)
+    ctx.konzept    = d.get('konzept', ctx.konzept or '').strip()
+    ctx.zielgruppe = d.get('zielgruppe', ctx.zielgruppe or '').strip()
+    ctx.tonalitaet = d.get('tonalitaet', ctx.tonalitaet or '').strip()
+    ctx.themen     = d.get('themen', ctx.themen or '').strip()
+    ctx.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/content-ideen/generate', methods=['POST'])
+@login_required
+def generate_content_ideen():
+    import anthropic as _ant
+    d = request.get_json() or {}
+    account_id = int(d['account_id'])
+    count = min(int(d.get('count', 15)), 30)
+    focus = d.get('focus', '').strip()  # optionaler Fokus z.B. "Weihnachten"
+
+    acc = Account.query.get_or_404(account_id)
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert.'})
+
+    konzept    = (ctx.konzept    if ctx else '') or f'Instagram-Seite: {acc.name}'
+    zielgruppe = (ctx.zielgruppe if ctx else '') or 'Allgemein'
+    tonalitaet = (ctx.tonalitaet if ctx else '') or 'Humorvoll, nahbar'
+    themen     = (ctx.themen     if ctx else '') or 'Stadtleben, Humor, lokale Themen'
+    fokus_hint = f'\nAktueller Fokus: {focus}' if focus else ''
+    kategorie  = acc.category.name if acc.category else 'Allgemein'
+
+    prompt = f"""Du bist ein kreativer Social-Media-Stratege für Instagram.
+
+Erstelle genau {count} konkrete Content-Ideen für diese Instagram-Seite:
+
+SEITE: {acc.name}
+KATEGORIE: {kategorie}
+KONZEPT: {konzept}
+ZIELGRUPPE: {zielgruppe}
+TON/STIL: {tonalitaet}
+THEMEN: {themen}{fokus_hint}
+
+Für jede Idee genau dieses Format — eine pro Zeile, durch --- getrennt:
+TITEL: [kurzer Titel, max. 60 Zeichen]
+FORMAT: [Feed / Story / Reel / Karussell]
+IDEE: [2-3 Sätze: Was wird gezeigt? Was macht es besonders?]
+CAPTION: [Beispiel-Caption, 2-3 Sätze, kein Hashtag]
+HASHTAGS: [5-8 passende Hashtags]
+---
+
+Wichtig: Ideen müssen sehr spezifisch und umsetzbar sein. Keine generischen Tipps."""
+
+    try:
+        client = _ant.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=4000,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        raw = resp.content[0].text.strip()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+    # Parsen
+    ideas = []
+    for block in raw.split('---'):
+        block = block.strip()
+        if not block:
+            continue
+        idea = {}
+        for line in block.splitlines():
+            for key, field in [('TITEL:', 'titel'), ('FORMAT:', 'format'),
+                                ('IDEE:', 'idee'), ('CAPTION:', 'caption'),
+                                ('HASHTAGS:', 'hashtags')]:
+                if line.startswith(key):
+                    idea[field] = line[len(key):].strip()
+        if 'titel' in idea and 'idee' in idea:
+            ideas.append(idea)
+
+    # Speichern
+    if ctx:
+        ctx.last_generated = datetime.utcnow()
+        ctx.generated_ideas = json.dumps(ideas, ensure_ascii=False)
+        db.session.commit()
+
+    return jsonify({'ok': True, 'ideas': ideas, 'count': len(ideas)})
+
+
+@app.route('/api/content-ideen/<int:account_id>/save-idea', methods=['POST'])
+@login_required
+def save_idea_to_vorrat(account_id):
+    """Speichert eine einzelne KI-Idee als ContentItem in den Vorrat."""
+    d = request.get_json() or {}
+    acc = Account.query.get_or_404(account_id)
+    folder_id = d.get('folder_id') or None
+    item = ContentItem(
+        account_id=account_id,
+        folder_id=folder_id,
+        title=d.get('titel', 'KI-Idee')[:200],
+        caption=(d.get('caption', '') + '\n\n' + d.get('hashtags', '')).strip(),
+        status='draft',
+        content_type=d.get('format', 'feed').lower(),
+        ai_headline=d.get('titel', ''),
+        ai_caption=d.get('idee', ''),
+        created_at=datetime.utcnow(),
+    )
+    db.session.add(item)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': item.id})
+
+
+# ═══════════════════════════════════════════════════════════════
+# KOOPERATIONS-TRACKER
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/kooperationen')
+@login_required
+def kooperationen():
+    koops = Kooperation.query.order_by(Kooperation.created_at.desc()).all()
+    accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
+    today = datetime.utcnow().date()
+    return render_template('cms/kooperationen.html', koops=koops,
+                           accounts=accounts, today=today, active_page='kooperationen')
+
+
+@app.route('/api/kooperationen', methods=['GET'])
+@login_required
+def koop_list():
+    koops = Kooperation.query.order_by(Kooperation.created_at.desc()).all()
+    out = []
+    for k in koops:
+        out.append({
+            'id': k.id,
+            'account_id': k.account_id,
+            'account_name': k.account.name if k.account else '',
+            'partner_name': k.partner_name,
+            'koop_type': k.koop_type,
+            'status': k.status,
+            'deadline': k.deadline.isoformat() if k.deadline else None,
+            'amount': float(k.amount) if k.amount else None,
+            'currency': k.currency,
+            'notes': k.notes,
+            'created_at': k.created_at.isoformat() if k.created_at else None,
+        })
+    return jsonify(out)
+
+
+@app.route('/api/kooperationen', methods=['POST'])
+@login_required
+def koop_create():
+    d = request.get_json() or {}
+    k = Kooperation(
+        account_id=d.get('account_id') or None,
+        partner_name=d['partner_name'].strip(),
+        koop_type=d.get('koop_type', 'paid_post'),
+        status=d.get('status', 'anfrage'),
+        deadline=datetime.strptime(d['deadline'], '%Y-%m-%d').date() if d.get('deadline') else None,
+        amount=float(d['amount']) if d.get('amount') else None,
+        currency=d.get('currency', 'EUR'),
+        notes=d.get('notes', '').strip(),
+    )
+    db.session.add(k)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': k.id})
+
+
+@app.route('/api/kooperationen/<int:kid>', methods=['PUT', 'DELETE'])
+@login_required
+def koop_update(kid):
+    k = Kooperation.query.get_or_404(kid)
+    if request.method == 'DELETE':
+        db.session.delete(k)
+        db.session.commit()
+        return jsonify({'ok': True})
+    d = request.get_json() or {}
+    k.partner_name = d.get('partner_name', k.partner_name).strip()
+    k.koop_type    = d.get('koop_type', k.koop_type)
+    k.status       = d.get('status', k.status)
+    k.amount       = float(d['amount']) if d.get('amount') else k.amount
+    k.currency     = d.get('currency', k.currency)
+    k.notes        = d.get('notes', k.notes or '').strip()
+    k.account_id   = d.get('account_id') or k.account_id
+    if d.get('deadline'):
+        k.deadline = datetime.strptime(d['deadline'], '%Y-%m-%d').date()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ═══════════════════════════════════════════════════════════════
+# AUTO-WASSERZEICHEN
+# ═══════════════════════════════════════════════════════════════
+
+def _apply_watermark(img_bytes, account):
+    """Blendet Wasserzeichen auf ein Bild ein. Gibt neue img_bytes zurück."""
+    if not account or not account.watermark_enabled or not account.watermark_url:
+        return img_bytes
+    try:
+        import io as _io
+        from PIL import Image
+        import requests as _req
+        base = Image.open(_io.BytesIO(img_bytes)).convert('RGBA')
+        wm_resp = _req.get(account.watermark_url, timeout=5)
+        wm = Image.open(_io.BytesIO(wm_resp.content)).convert('RGBA')
+        # Wasserzeichen: max 20% der Bildbreite
+        max_wm_w = int(base.width * 0.20)
+        if wm.width > max_wm_w:
+            ratio = max_wm_w / wm.width
+            wm = wm.resize((max_wm_w, int(wm.height * ratio)), Image.LANCZOS)
+        # Opazität
+        opacity = int((account.watermark_opacity or 0.7) * 255)
+        r, g, b, a = wm.split()
+        a = a.point(lambda x: min(x, opacity))
+        wm.putalpha(a)
+        # Position
+        pad = 12
+        pos_map = {
+            'tl': (pad, pad),
+            'tr': (base.width - wm.width - pad, pad),
+            'bl': (pad, base.height - wm.height - pad),
+            'br': (base.width - wm.width - pad, base.height - wm.height - pad),
+        }
+        pos = pos_map.get(account.watermark_position or 'br', pos_map['br'])
+        layer = Image.new('RGBA', base.size, (0, 0, 0, 0))
+        layer.paste(wm, pos)
+        result = Image.alpha_composite(base, layer).convert('RGB')
+        buf = _io.BytesIO()
+        result.save(buf, format='JPEG', quality=92)
+        return buf.getvalue()
+    except Exception as e:
+        app.logger.warning('Wasserzeichen-Fehler: %s', e)
+        return img_bytes
+
+
+@app.route('/api/accounts/<int:account_id>/folders', methods=['GET'])
+@login_required
+def account_folders(account_id):
+    folders = ContentFolder.query.filter_by(account_id=account_id).order_by(ContentFolder.name).all()
+    return jsonify([{'id': f.id, 'name': f.name} for f in folders])
+
+
+@app.route('/api/accounts/<int:account_id>/watermark', methods=['POST'])
+@login_required
+def upload_watermark(account_id):
+    """Lädt ein Wasserzeichen-Bild für einen Account hoch."""
+    acc = Account.query.get_or_404(account_id)
+    if 'file' not in request.files:
+        return jsonify({'ok': False, 'error': 'Keine Datei'})
+    file = request.files['file']
+    filename = f'watermark_{account_id}_{int(datetime.utcnow().timestamp())}.png'
+    upload_folder = os.path.join(app.static_folder, 'watermarks')
+    os.makedirs(upload_folder, exist_ok=True)
+    filepath = os.path.join(upload_folder, filename)
+    file.save(filepath)
+    acc.watermark_url = f'/static/watermarks/{filename}'
+    acc.watermark_enabled = True
+    acc.watermark_position = request.form.get('position', 'br')
+    acc.watermark_opacity = float(request.form.get('opacity', 0.7))
+    db.session.commit()
+    return jsonify({'ok': True, 'url': acc.watermark_url})
+
+
+@app.route('/api/accounts/<int:account_id>/watermark-toggle', methods=['POST'])
+@login_required
+def toggle_watermark(account_id):
+    acc = Account.query.get_or_404(account_id)
+    acc.watermark_enabled = not acc.watermark_enabled
+    db.session.commit()
+    return jsonify({'ok': True, 'enabled': acc.watermark_enabled})
+
+
+# ═══════════════════════════════════════════════════════════════
+# TELEGRAM-BOT KOMMANDOS (Webhook für eingehende Nachrichten)
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/telegram/bot-webhook', methods=['POST'])
+def telegram_bot_webhook():
+    """Empfängt Updates vom Telegram-Bot und verarbeitet Kommandos."""
+    data = request.get_json() or {}
+    msg = data.get('message') or data.get('edited_message', {})
+    if not msg:
+        return jsonify({'ok': True})
+    chat_id = msg.get('chat', {}).get('id')
+    text    = (msg.get('text') or '').strip()
+    token   = get_setting('telegram_bot_token')
+    if not token or not chat_id or not text.startswith('/'):
+        return jsonify({'ok': True})
+
+    def _tg_reply(txt):
+        try:
+            import requests as _r
+            _r.post(f'https://api.telegram.org/bot{token}/sendMessage',
+                    json={'chat_id': chat_id, 'text': txt, 'parse_mode': 'HTML'}, timeout=8)
+        except Exception:
+            pass
+
+    cmd = text.split()[0].lower().split('@')[0]
+    args = text.split()[1:]
+
+    if cmd == '/status':
+        accounts = Account.query.filter_by(status='active').all()
+        lines = ['<b>Content OS Status</b>']
+        for acc in accounts[:8]:
+            d = acc.feed_stock_days()
+            emoji = '🟢' if d >= 14 else '🟡' if d >= 7 else '🔴'
+            lines.append(f'{emoji} {acc.name}: {round(d, 1)}T Vorrat | {acc.follower_count or 0:,} Follower')
+        _tg_reply('\n'.join(lines))
+
+    elif cmd == '/vorrat':
+        name = ' '.join(args).lower() if args else ''
+        q = Account.query.filter_by(status='active')
+        if name:
+            q = q.filter(Account.name.ilike(f'%{name}%'))
+        accounts = q.all()
+        lines = ['<b>Vorrat-Status</b>']
+        for acc in accounts[:10]:
+            d = acc.feed_stock_days()
+            lines.append(f'• {acc.name}: {round(d, 1)} Tage ({acc.follower_count or 0:,} Follower)')
+        _tg_reply('\n'.join(lines) if len(lines) > 1 else 'Kein Account gefunden.')
+
+    elif cmd == '/approve':
+        if not args:
+            _tg_reply('Verwendung: /approve [post-id]')
+        else:
+            try:
+                post = ScheduledPost.query.get(int(args[0]))
+                if post and post.status == 'draft':
+                    post.status = 'scheduled'
+                    db.session.commit()
+                    _tg_reply(f'✅ Post #{post.id} freigegeben.')
+                elif post:
+                    _tg_reply(f'Post #{post.id} hat Status "{post.status}" — nicht freigebbar.')
+                else:
+                    _tg_reply(f'Post #{args[0]} nicht gefunden.')
+            except Exception as e:
+                _tg_reply(f'Fehler: {e}')
+
+    elif cmd == '/liste':
+        today = datetime.utcnow().date()
+        posts = ScheduledPost.query.filter(
+            func.date(ScheduledPost.scheduled_at) == today,
+            ScheduledPost.status == 'scheduled'
+        ).order_by(ScheduledPost.scheduled_at).limit(10).all()
+        if posts:
+            lines = [f'<b>Heute geplant ({today.strftime("%d.%m")})</b>']
+            for p in posts:
+                acc_name = p.account.name if p.account else '?'
+                lines.append(f'• #{p.id} {acc_name} – {p.scheduled_at.strftime("%H:%M")}')
+            _tg_reply('\n'.join(lines))
+        else:
+            _tg_reply('Heute keine geplanten Posts.')
+
+    elif cmd == '/hilfe':
+        _tg_reply(
+            '<b>Content OS Bot Kommandos</b>\n\n'
+            '/status — Vorrat-Übersicht aller Accounts\n'
+            '/vorrat [name] — Vorrat eines Accounts\n'
+            '/liste — Heutige geplante Posts\n'
+            '/approve [id] — Post freigeben\n'
+            '/hilfe — Diese Hilfe'
+        )
+    else:
+        _tg_reply('Unbekanntes Kommando. /hilfe für alle Befehle.')
+
+    return jsonify({'ok': True})
+
+
+# ═══════════════════════════════════════════════════════════════
+# FEATURE-TOGGLES (KI-Caption, Smart-Refill, Duplikat, Wasserzeichen)
+# ═══════════════════════════════════════════════════════════════
+
+@app.route('/api/settings/feature-toggles', methods=['GET'])
+@login_required
+def get_feature_toggles():
+    return jsonify({
+        'ki_caption':        get_setting('ki_caption_enabled', 'true') == 'true',
+        'smart_refill':      get_setting('smart_refill_enabled', 'false') == 'true',
+        'duplicate_check':   get_setting('duplicate_check_enabled', 'true') == 'true',
+        'auto_watermark':    get_setting('auto_watermark_global', 'false') == 'true',
+        'refill_days':       int(get_setting('smart_refill_threshold_days') or 7),
+    })
+
+
+@app.route('/api/settings/feature-toggles', methods=['POST'])
+@login_required
+def set_feature_toggle():
+    d = request.get_json() or {}
+    mapping = {
+        'ki_caption':      'ki_caption_enabled',
+        'smart_refill':    'smart_refill_enabled',
+        'duplicate_check': 'duplicate_check_enabled',
+        'auto_watermark':  'auto_watermark_global',
+    }
+    updated = {}
+    for key, setting_key in mapping.items():
+        if key in d:
+            val = 'true' if d[key] else 'false'
+            set_setting(setting_key, val)
+            updated[key] = d[key]
+    if 'refill_days' in d:
+        set_setting('smart_refill_threshold_days', str(int(d['refill_days'])))
+        updated['refill_days'] = int(d['refill_days'])
+    return jsonify({'ok': True, 'updated': updated})
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────

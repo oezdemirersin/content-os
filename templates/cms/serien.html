@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+{% block title %}Serien-Planer — Content OS{% endblock %}
+{% block page_title %}SERIEN-PLANER{% endblock %}
+{% set active_page = 'serien' %}
+
+{% block content %}
+<div style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between">
+  <div>
+    <div style="font-family:var(--font-display);font-size:22px;letter-spacing:1px">SERIEN-PLANER</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:3px">Wiederkehrende Content-Serien — besonders für Stories.</div>
+  </div>
+  <button onclick="openSerieModal()" class="btn btn-primary">
+    <i class="fa-solid fa-plus"></i> Neue Serie
+  </button>
+</div>
+
+<!-- ── Serien-Liste ── -->
+<div id="serienList" style="display:flex;flex-direction:column;gap:12px">
+  <div style="text-align:center;color:var(--muted);font-size:13px;padding:80px 20px">
+    <i class="fa-solid fa-rotate" style="font-size:32px;opacity:.25;display:block;margin-bottom:14px"></i>
+    Noch keine Serien angelegt. Starte mit der ersten!
+  </div>
+</div>
+
+<!-- ── Modal ── -->
+<div id="serieModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);
+     z-index:9000;align-items:center;justify-content:center">
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;
+              padding:28px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px">
+      <div style="font-family:var(--font-display);font-size:18px;letter-spacing:1px" id="modalSerieTitle">NEUE SERIE</div>
+      <button onclick="closeSerieModal()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <input type="hidden" id="serieId">
+
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <!-- Account -->
+      <div>
+        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">ACCOUNT *</label>
+        <select id="serieAccount" style="width:100%;background:var(--surface2);border:1px solid var(--border);
+                border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:13px;
+                padding:10px 12px;box-sizing:border-box">
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Name -->
+      <div>
+        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">SERIE-NAME *</label>
+        <input id="serieName" type="text" placeholder="z.B. Montag-Motivation, Story-Rätsel, Wochenrückblick"
+               style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                      color:var(--text);font-family:var(--font-body);font-size:13px;
+                      padding:10px 12px;box-sizing:border-box">
+      </div>
+
+      <!-- Beschreibung -->
+      <div>
+        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">BESCHREIBUNG</label>
+        <textarea id="serieDesc" rows="2" placeholder="Worum geht's in dieser Serie?"
+                  style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                         color:var(--text);font-family:var(--font-body);font-size:13px;
+                         padding:10px 12px;resize:vertical;box-sizing:border-box"></textarea>
+      </div>
+
+      <!-- Wochentage -->
+      <div>
+        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:8px">WOCHENTAGE *</label>
+        <div style="display:flex;gap:6px" id="dayBtns">
+          {% for d,n in [('Mon','Mo'),('Tue','Di'),('Wed','Mi'),('Thu','Do'),('Fri','Fr'),('Sat','Sa'),('Sun','So')] %}
+          <button type="button" data-day="{{ d }}" onclick="toggleDay(this)"
+                  style="flex:1;padding:8px 0;border-radius:8px;border:1px solid var(--border);
+                         background:var(--surface2);color:var(--muted);font-family:var(--font-body);
+                         font-size:12px;font-weight:700;cursor:pointer;transition:all .15s">{{ n }}</button>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Zeit + Typ -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">UHRZEIT</label>
+          <input id="serieTime" type="time" value="10:00"
+                 style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                        color:var(--text);font-family:var(--font-body);font-size:13px;
+                        padding:10px 12px;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">POST-TYP</label>
+          <select id="serieType" style="width:100%;background:var(--surface2);border:1px solid var(--border);
+                  border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:13px;
+                  padding:10px 12px;box-sizing:border-box">
+            <option value="story">Story</option>
+            <option value="feed">Feed</option>
+            <option value="reel">Reel</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Ordner -->
+      <div>
+        <label style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px">VORRATS-ORDNER (optional)</label>
+        <select id="serieFolder" style="width:100%;background:var(--surface2);border:1px solid var(--border);
+                border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:13px;
+                padding:10px 12px;box-sizing:border-box">
+          <option value="">— kein Ordner zugewiesen —</option>
+        </select>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button onclick="closeSerieModal()" class="btn btn-ghost" style="flex:1">Abbrechen</button>
+        <button onclick="saveSerie()" class="btn btn-primary" style="flex:2" id="saveSerieBtn">
+          <i class="fa-solid fa-check"></i> Serie speichern
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let serien = [];
+
+document.addEventListener('DOMContentLoaded', loadSerien);
+
+async function loadSerien() {
+  const r = await fetch('/api/serien');
+  serien = await r.json();
+  renderSerien();
+}
+
+const DAYS_DE = { Mon:'Mo', Tue:'Di', Wed:'Mi', Thu:'Do', Fri:'Fr', Sat:'Sa', Sun:'So' };
+const TYPE_ICONS = { story:'fa-circle-notch', feed:'fa-image', reel:'fa-film' };
+
+function renderSerien() {
+  const list = document.getElementById('serienList');
+  if (!serien.length) {
+    list.innerHTML = `<div style="text-align:center;color:var(--muted);font-size:13px;padding:80px 20px">
+      <i class="fa-solid fa-rotate" style="font-size:32px;opacity:.25;display:block;margin-bottom:14px"></i>
+      Noch keine Serien. Starte mit der ersten!
+    </div>`;
+    return;
+  }
+  list.innerHTML = serien.map(s => {
+    const days = (s.days_of_week || []).map(d => DAYS_DE[d] || d).join(' · ');
+    const active = s.active;
+    return `<div style="background:var(--surface);border:1px solid ${active ? 'var(--border)' : 'rgba(255,255,255,.05)'};
+                        border-radius:14px;padding:18px 20px;
+                        opacity:${active ? '1' : '.6'};transition:opacity .2s">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="width:42px;height:42px;border-radius:12px;flex-shrink:0;
+                    background:${active ? 'rgba(59,130,246,.15)' : 'var(--surface2)'};
+                    display:flex;align-items:center;justify-content:center">
+          <i class="fa-solid ${TYPE_ICONS[s.post_type] || 'fa-rotate'}"
+             style="color:${active ? 'var(--accent2)' : 'var(--muted)'};font-size:16px"></i>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:700;color:var(--text)">${s.name}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">${s.account_name || ''}</div>
+          <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+            <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(59,130,246,.1);
+                         color:var(--accent2);font-weight:700">${s.post_type?.toUpperCase() || ''}</span>
+            <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--surface2);
+                         color:var(--muted)">${days}</span>
+            <span style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--surface2);
+                         color:var(--muted)">${s.preferred_time || ''}</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+          <button onclick="toggleSerie(${s.id})"
+                  style="padding:7px 14px;border-radius:8px;border:1px solid ${active ? 'var(--success)' : 'var(--border)'};
+                         background:${active ? 'rgba(34,197,94,.1)' : 'var(--surface2)'};
+                         color:${active ? 'var(--success)' : 'var(--muted)'};
+                         font-family:var(--font-body);font-size:11px;font-weight:700;cursor:pointer;transition:all .15s">
+            ${active ? 'AKTIV' : 'PAUSIERT'}
+          </button>
+          <button onclick="editSerie(${s.id})"
+                  style="padding:7px 10px;border-radius:8px;border:1px solid var(--border);
+                         background:var(--surface2);color:var(--muted);cursor:pointer;transition:border-color .15s"
+                  onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+            <i class="fa-solid fa-pen" style="font-size:12px"></i>
+          </button>
+          <button onclick="deleteSerie(${s.id})"
+                  style="padding:7px 10px;border-radius:8px;border:1px solid var(--border);
+                         background:var(--surface2);color:var(--muted);cursor:pointer;transition:border-color .15s"
+                  onmouseover="this.style.borderColor='#ef4444'" onmouseout="this.style.borderColor='var(--border)'">
+            <i class="fa-solid fa-trash" style="font-size:12px"></i>
+          </button>
+        </div>
+      </div>
+      ${s.description ? `<div style="margin-top:10px;font-size:12px;color:var(--muted);
+                                      padding:8px 12px;background:var(--surface2);border-radius:8px">${s.description}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function toggleDay(btn) {
+  const active = btn.style.background.includes('59,130,246') || btn.style.background.includes('accent');
+  if (active) {
+    btn.style.background = 'var(--surface2)';
+    btn.style.color = 'var(--muted)';
+    btn.style.borderColor = 'var(--border)';
+  } else {
+    btn.style.background = 'rgba(59,130,246,.2)';
+    btn.style.color = 'var(--accent2)';
+    btn.style.borderColor = 'var(--accent)';
+  }
+}
+
+async function loadFolders(accountId) {
+  const sel = document.getElementById('serieFolder');
+  sel.innerHTML = '<option value="">— kein Ordner —</option>';
+  if (!accountId) return;
+  try {
+    const r = await fetch(`/api/accounts/${accountId}/folders`);
+    const folders = await r.json();
+    folders.forEach(f => {
+      sel.innerHTML += `<option value="${f.id}">${f.name}</option>`;
+    });
+  } catch {}
+}
+
+document.getElementById('serieAccount').addEventListener('change', function() {
+  loadFolders(this.value);
+});
+
+function openSerieModal(serie = null) {
+  document.getElementById('serieId').value = serie?.id || '';
+  document.getElementById('modalSerieTitle').textContent = serie ? 'SERIE BEARBEITEN' : 'NEUE SERIE';
+  document.getElementById('serieName').value = serie?.name || '';
+  document.getElementById('serieDesc').value = serie?.description || '';
+  document.getElementById('serieTime').value = serie?.preferred_time || '10:00';
+  document.getElementById('serieType').value = serie?.post_type || 'story';
+  // Reset days
+  document.querySelectorAll('#dayBtns button').forEach(b => {
+    const sel = serie?.days_of_week?.includes(b.dataset.day);
+    b.style.background = sel ? 'rgba(59,130,246,.2)' : 'var(--surface2)';
+    b.style.color = sel ? 'var(--accent2)' : 'var(--muted)';
+    b.style.borderColor = sel ? 'var(--accent)' : 'var(--border)';
+  });
+  const accId = serie?.account_id || document.getElementById('serieAccount').value;
+  document.getElementById('serieAccount').value = accId;
+  loadFolders(accId).then(() => {
+    if (serie?.folder_id) document.getElementById('serieFolder').value = serie.folder_id;
+  });
+  document.getElementById('serieModal').style.display = 'flex';
+}
+
+function closeSerieModal() {
+  document.getElementById('serieModal').style.display = 'none';
+}
+
+function editSerie(id) {
+  const s = serien.find(x => x.id === id);
+  if (s) openSerieModal(s);
+}
+
+async function saveSerie() {
+  const id = document.getElementById('serieId').value;
+  const days = [...document.querySelectorAll('#dayBtns button')]
+    .filter(b => b.style.background.includes('59,130,246') || b.style.background.includes('rgba(59'))
+    .map(b => b.dataset.day);
+  if (!days.length) { showToast('Mindestens einen Wochentag auswählen', 'error'); return; }
+  const name = document.getElementById('serieName').value.trim();
+  if (!name) { showToast('Name erforderlich', 'error'); return; }
+  const body = {
+    account_id: parseInt(document.getElementById('serieAccount').value),
+    name,
+    description: document.getElementById('serieDesc').value,
+    days_of_week: days,
+    preferred_time: document.getElementById('serieTime').value,
+    post_type: document.getElementById('serieType').value,
+    folder_id: document.getElementById('serieFolder').value || null,
+  };
+  const url = id ? `/api/serien/${id}` : '/api/serien';
+  const method = id ? 'PUT' : 'POST';
+  const r = await fetch(url, { method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  if (r.ok) {
+    closeSerieModal();
+    loadSerien();
+    showToast(id ? 'Serie aktualisiert' : 'Serie erstellt', 'success');
+  } else {
+    showToast('Fehler beim Speichern', 'error');
+  }
+}
+
+async function toggleSerie(id) {
+  const r = await fetch(`/api/serien/${id}/toggle`, { method: 'POST' });
+  if (r.ok) { loadSerien(); }
+}
+
+async function deleteSerie(id) {
+  if (!confirm('Serie wirklich löschen?')) return;
+  const r = await fetch(`/api/serien/${id}`, { method: 'DELETE' });
+  if (r.ok) { loadSerien(); showToast('Serie gelöscht', 'info'); }
+}
+</script>
+{% endblock %}
