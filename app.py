@@ -583,6 +583,14 @@ def init_db():
                 safe_alter('ALTER TABLE account ADD COLUMN watermark_enabled BOOLEAN DEFAULT 0')
             if 'smart_refill_threshold' not in account_cols:
                 safe_alter('ALTER TABLE account ADD COLUMN smart_refill_threshold INTEGER DEFAULT 0')
+            if 'telegram_chat_id' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN telegram_chat_id VARCHAR(100)')
+            if 'canva_url' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN canva_url VARCHAR(500)')
+            if 'layout_notes' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN layout_notes TEXT')
+            if 'page_persona' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN page_persona TEXT')
             # content_series, kooperation, account_ideen_context (SQLite)
             safe_alter('''CREATE TABLE IF NOT EXISTS content_series (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -8910,7 +8918,7 @@ def content_serien():
     series = ContentSeries.query.order_by(ContentSeries.created_at.desc()).all()
     accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
     folders = ContentFolder.query.order_by(ContentFolder.name).all()
-    return render_template('cms/serien.html', series=series,
+    return render_template('serien.html', series=series,
                            accounts=accounts, folders=folders, active_page='serien')
 
 
@@ -9051,7 +9059,7 @@ def content_ideen():
             ctx = AccountIdeenContext(account_id=acc.id)
             db.session.add(ctx)
     db.session.commit()
-    return render_template('cms/content_ideen.html', accounts=accounts, active_page='content_ideen')
+    return render_template('content_ideen.html', accounts=accounts, active_page='content_ideen')
 
 
 @app.route('/api/content-ideen/context/<int:account_id>', methods=['GET'])
@@ -9207,7 +9215,7 @@ def kooperationen():
     koops = Kooperation.query.order_by(Kooperation.created_at.desc()).all()
     accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
     today = datetime.utcnow().date()
-    return render_template('cms/kooperationen.html', koops=koops,
+    return render_template('kooperationen.html', koops=koops,
                            accounts=accounts, today=today, active_page='kooperationen')
 
 
