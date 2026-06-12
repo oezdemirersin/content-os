@@ -660,11 +660,16 @@ def init_db():
                 start_date DATE, deliverables TEXT, partner_rating INTEGER)''')
             koop_cols = [c['name'] for c in inspector.get_columns('kooperation')]
             for _col, _ddl in [
-                ('contact_name',   'ALTER TABLE kooperation ADD COLUMN contact_name VARCHAR(200)'),
-                ('payment_status', "ALTER TABLE kooperation ADD COLUMN payment_status VARCHAR(20) DEFAULT 'offen'"),
-                ('start_date',     'ALTER TABLE kooperation ADD COLUMN start_date DATE'),
-                ('deliverables',   'ALTER TABLE kooperation ADD COLUMN deliverables TEXT'),
-                ('partner_rating', 'ALTER TABLE kooperation ADD COLUMN partner_rating INTEGER'),
+                ('contact_name',        'ALTER TABLE kooperation ADD COLUMN contact_name VARCHAR(200)'),
+                ('payment_status',      "ALTER TABLE kooperation ADD COLUMN payment_status VARCHAR(20) DEFAULT 'offen'"),
+                ('start_date',          'ALTER TABLE kooperation ADD COLUMN start_date DATE'),
+                ('deliverables',        'ALTER TABLE kooperation ADD COLUMN deliverables TEXT'),
+                ('partner_rating',      'ALTER TABLE kooperation ADD COLUMN partner_rating INTEGER'),
+                ('payment_due_date',    'ALTER TABLE kooperation ADD COLUMN payment_due_date DATE'),
+                ('invoice_number',      'ALTER TABLE kooperation ADD COLUMN invoice_number VARCHAR(100)'),
+                ('invoice_sent_at',     'ALTER TABLE kooperation ADD COLUMN invoice_sent_at DATE'),
+                ('payment_received_at', 'ALTER TABLE kooperation ADD COLUMN payment_received_at DATE'),
+                ('payment_notes',       'ALTER TABLE kooperation ADD COLUMN payment_notes TEXT'),
             ]:
                 if _col not in koop_cols:
                     safe_alter(_ddl)
@@ -9545,6 +9550,11 @@ def koop_list():
             'deliverables': delivs,
             'partner_rating': k.partner_rating,
             'created_at': k.created_at.isoformat() if k.created_at else None,
+            'payment_due_date':    k.payment_due_date.isoformat() if k.payment_due_date else None,
+            'invoice_number':      k.invoice_number or '',
+            'invoice_sent_at':     k.invoice_sent_at.isoformat() if k.invoice_sent_at else None,
+            'payment_received_at': k.payment_received_at.isoformat() if k.payment_received_at else None,
+            'payment_notes':       k.payment_notes or '',
         })
     return jsonify(out)
 
@@ -9567,6 +9577,11 @@ def koop_create():
         payment_status=d.get('payment_status', 'offen'),
         deliverables=json.dumps(d.get('deliverables', []), ensure_ascii=False) if d.get('deliverables') else None,
         partner_rating=int(d['partner_rating']) if d.get('partner_rating') else None,
+        payment_due_date=datetime.strptime(d['payment_due_date'], '%Y-%m-%d').date() if d.get('payment_due_date') else None,
+        invoice_number=d.get('invoice_number', '').strip() or None,
+        invoice_sent_at=datetime.strptime(d['invoice_sent_at'], '%Y-%m-%d').date() if d.get('invoice_sent_at') else None,
+        payment_received_at=datetime.strptime(d['payment_received_at'], '%Y-%m-%d').date() if d.get('payment_received_at') else None,
+        payment_notes=d.get('payment_notes', '').strip() or None,
     )
     db.session.add(k)
     db.session.commit()
@@ -9602,8 +9617,61 @@ def koop_update(kid):
         k.start_date = None
     if 'deliverables' in d:
         k.deliverables = json.dumps(d['deliverables'], ensure_ascii=False)
+    if 'payment_notes' in d:
+        k.payment_notes = d['payment_notes'].strip() or None
+    if 'invoice_number' in d:
+        k.invoice_number = d['invoice_number'].strip() or None
+    for _date_field in ('payment_due_date', 'invoice_sent_at', 'payment_received_at'):
+        if _date_field in d:
+            val = d[_date_field]
+            setattr(k, _date_field, datetime.strptime(val, '%Y-%m-%d').date() if val else None)
+    # Auto-sync payment_status from received date
+    if k.payment_received_at:
+        k.payment_status = 'bezahlt'
+    elif k.invoice_sent_at:
+        k.payment_status = 'rechnungsgestellt'
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/kooperationen/chart')
+@login_required
+def koop_chart():
+    """Monatliche Einnahmen-Übersicht ab Jan 2025."""
+    from datetime import date as _date
+    start = _date(2025, 1, 1)
+    today = _date.today()
+    # Monatsliste aufbauen
+    months, d = [], _date(start.year, start.month, 1)
+    while d <= _date(today.year, today.month, 1):
+        months.append(d.strftime('%Y-%m'))
+        d = _date(d.year + (d.month == 12), (d.month % 12) + 1, 1)
+
+    koops = Kooperation.query.filter(
+        Kooperation.created_at >= datetime(2025, 1, 1),
+        Kooperation.status != 'storniert',
+    ).all()
+
+    bucket = {m: {'bezahlt': 0.0, 'ausstehend': 0.0, 'anzahl': 0} for m in months}
+    for k in koops:
+        if not k.amount:
+            continue
+        month = k.created_at.strftime('%Y-%m') if k.created_at else None
+        if month not in bucket:
+            continue
+        bucket[month]['anzahl'] += 1
+        if k.payment_status == 'bezahlt' or k.payment_received_at:
+            bucket[month]['bezahlt'] += float(k.amount)
+        else:
+            bucket[month]['ausstehend'] += float(k.amount)
+
+    labels = [datetime.strptime(m, '%Y-%m').strftime('%b %Y') for m in months]
+    return jsonify({
+        'labels':     labels,
+        'bezahlt':    [bucket[m]['bezahlt']    for m in months],
+        'ausstehend': [bucket[m]['ausstehend'] for m in months],
+        'anzahl':     [bucket[m]['anzahl']     for m in months],
+    })
 
 
 @app.route('/api/kooperationen/<int:kid>/status', methods=['PATCH'])

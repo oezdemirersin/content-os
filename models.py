@@ -717,11 +717,16 @@ class Kooperation(db.Model):
     content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
     reminder_sent   = db.Column(db.Boolean, default=False)
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
-    contact_name    = db.Column(db.String(200))       # Ansprechpartner beim Partner
-    payment_status  = db.Column(db.String(20), default='offen')  # offen/rechnungsgestellt/bezahlt
-    start_date      = db.Column(db.Date, nullable=True)
-    deliverables    = db.Column(db.Text)              # JSON: [{text, done}, ...]
-    partner_rating  = db.Column(db.Integer)           # 1–5 Sterne nach Abschluss
+    contact_name         = db.Column(db.String(200))
+    payment_status       = db.Column(db.String(20), default='offen')  # offen/rechnungsgestellt/bezahlt
+    start_date           = db.Column(db.Date, nullable=True)
+    deliverables         = db.Column(db.Text)              # JSON: [{text, done}, ...]
+    partner_rating       = db.Column(db.Integer)           # 1–5 Sterne nach Abschluss
+    payment_due_date     = db.Column(db.Date, nullable=True)   # Zahlungsziel
+    invoice_number       = db.Column(db.String(100))            # Rechnungsnummer
+    invoice_sent_at      = db.Column(db.Date, nullable=True)   # Rechnung gesendet am
+    payment_received_at  = db.Column(db.Date, nullable=True)   # Zahlung erhalten am
+    payment_notes        = db.Column(db.Text)                   # Was wurde vereinbart
     account         = db.relationship('Account', backref='kooperationen')
     content_item    = db.relationship('ContentItem', backref=db.backref('kooperation', uselist=False))
 
