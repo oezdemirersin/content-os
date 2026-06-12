@@ -415,16 +415,28 @@ function deliverablesSummary(k) {
   return parts.join(', ');
 }
 
+function invoiceDaysOverdue(k) {
+  if (!k.invoice_sent_at || k.payment_received_at) return 0;
+  return Math.floor((Date.now() - new Date(k.invoice_sent_at)) / 86400000);
+}
+
 function koopCard(k) {
   const sc = STATUS_CFG[k.status]||STATUS_CFG.anfrage;
   const pc = PAY_CFG[k.payment_status]||PAY_CFG.offen;
   const dSummary = deliverablesSummary(k);
   const firstPosting = k.posting_dates?.length ? k.posting_dates.sort()[0] : null;
+  const overdueDays = invoiceDaysOverdue(k);
+  const isOverdue = overdueDays > 30;
   let payIcon = '';
   if (k.amount) {
-    if (k.payment_status==='bezahlt') payIcon=`<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:rgba(34,197,94,.12);color:var(--success)">✓ Bezahlt</span>`;
-    else if (k.payment_status==='rechnungsgestellt') payIcon=`<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:rgba(245,158,11,.12);color:var(--warning)">Rechnung gestellt</span>`;
-    else payIcon=`<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:var(--surface2);color:var(--muted)">Offen</span>`;
+    if (k.payment_status==='bezahlt')
+      payIcon=`<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:rgba(34,197,94,.12);color:var(--success)">✓ Bezahlt</span>`;
+    else if (isOverdue)
+      payIcon=`<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:rgba(239,68,68,.12);color:#ef4444">⚠ Überfällig (${overdueDays}T)</span>`;
+    else if (k.payment_status==='rechnungsgestellt')
+      payIcon=`<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:rgba(245,158,11,.12);color:var(--warning)">Rechnung gestellt</span>`;
+    else
+      payIcon=`<span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;background:var(--surface2);color:var(--muted)">Offen</span>`;
   }
   return `<div class="koop-card" onclick="openDetail(${k.id})">
     <div style="display:flex;align-items:flex-start;gap:14px">
@@ -572,6 +584,12 @@ function openDetail(id) {
   detailKoopId = id;
   const sc = STATUS_CFG[k.status]||STATUS_CFG.anfrage;
   const pc = PAY_CFG[k.payment_status]||PAY_CFG.offen;
+  const overdueDays = invoiceDaysOverdue(k);
+  const isOverdue   = overdueDays > 30;
+  const payColor    = isOverdue ? '#ef4444' : pc.color;
+  const payText     = isOverdue ? `⚠ Überfällig (${overdueDays} Tage)` : pc.text;
+  const payBg       = isOverdue ? 'rgba(239,68,68,.07)' : 'var(--surface2)';
+  const payBorder   = isOverdue ? '1px solid rgba(239,68,68,.3)' : '1px solid transparent';
   const dSummary = deliverablesSummary(k);
   const dates = (k.posting_dates||[]).sort();
   const step = pc.step;
@@ -596,11 +614,11 @@ function openDetail(id) {
 
       ${k.campaign_name ? `<div style="font-size:13px;font-weight:600;color:var(--accent2)"><i class="fa-solid fa-tag fa-xs"></i> ${esc(k.campaign_name)}</div>` : ''}
 
-      ${k.amount ? `<div style="background:var(--surface2);border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center">
+      ${k.amount ? `<div style="background:${payBg};border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border:${payBorder}">
         <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">BETRAG</div>
           <div style="font-size:22px;font-weight:700;color:var(--success)">${fmt(k.amount)}</div></div>
         <div style="text-align:right"><div style="font-size:11px;color:var(--muted);margin-bottom:2px">ZAHLUNG</div>
-          <div style="font-size:13px;font-weight:700;color:${pc.color}">${pc.text}</div></div>
+          <div style="font-size:13px;font-weight:700;color:${payColor}">${payText}</div></div>
       </div>` : ''}
 
       <!-- Quick-Payment-Buttons -->
