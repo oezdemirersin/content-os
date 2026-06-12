@@ -44,9 +44,15 @@
 <div class="card" style="padding:0;overflow:hidden;margin-bottom:20px">
   <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
     <span class="card-title">EINNAHMEN-VERLAUF <span style="font-weight:400;font-size:10px;color:var(--muted)">ab Jan 2025</span></span>
-    <div style="display:flex;gap:12px;font-size:11px;color:rgba(255,255,255,.6)">
+    <div style="display:flex;gap:12px;font-size:11px;color:rgba(255,255,255,.6);align-items:center">
       <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:#22c55e;display:inline-block"></span>Bezahlt</span>
       <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:2px;background:#f97316;display:inline-block"></span>Ausstehend</span>
+      <button id="toggleAnzahl" onclick="toggleAnzahlLine()"
+              style="display:flex;align-items:center;gap:5px;padding:3px 9px;border-radius:8px;
+                     border:1px solid var(--border);background:var(--surface2);
+                     color:var(--muted);font-family:var(--font-body);font-size:11px;cursor:pointer">
+        <span style="width:10px;height:2px;background:rgba(148,163,184,.5);display:inline-block;border-radius:1px"></span>Anzahl
+      </button>
     </div>
   </div>
   <div style="padding:16px 20px"><canvas id="revenueChart" height="75"></canvas></div>
@@ -329,7 +335,7 @@ async function loadChart() {
           { label:'Anzahl',     data:d.anzahl,     type:'line', yAxisID:'y2',
             borderColor:'rgba(148,163,184,.8)', backgroundColor:'rgba(148,163,184,.15)',
             borderWidth:2, pointRadius:4, pointBackgroundColor:'rgba(148,163,184,.9)',
-            tension:0.3, fill:false },
+            tension:0.3, fill:false, hidden:true },
         ]
       },
       options: {
@@ -506,6 +512,18 @@ function renderPipeline() {
       </div>`;
     }).join('');
   });
+}
+
+function toggleAnzahlLine() {
+  if (!revenueChart) return;
+  const idx = 2;
+  const visible = !revenueChart.getDatasetMeta(idx).hidden;
+  revenueChart.setDatasetVisibility(idx, visible ? false : true);
+  revenueChart.update();
+  const btn = document.getElementById('toggleAnzahl');
+  btn.style.background = visible ? 'var(--surface2)' : 'rgba(148,163,184,.15)';
+  btn.style.borderColor = visible ? 'var(--border)' : 'rgba(148,163,184,.6)';
+  btn.style.color = visible ? 'var(--muted)' : 'rgba(148,163,184,.9)';
 }
 
 async function quickStatus(id, status) {
