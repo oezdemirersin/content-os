@@ -30,6 +30,32 @@ from sqlalchemy.orm import joinedload, selectinload
 
 app = Flask(__name__, template_folder='templates/cms')
 
+# ── Automatisches DB-Backup bei jedem Start ───────────────────────────────────
+def _auto_backup_db():
+    """Erstellt ein Backup der SQLite-DB beim Start. Niemals bei Postgres."""
+    import shutil, glob
+    db_url = os.environ.get('DATABASE_URL', 'sqlite:///content_os.db')
+    if 'postgresql' in db_url:
+        return
+    # Pfad: instance/content_os.db neben app.py
+    base = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(base, 'instance', 'content_os.db')
+    if not os.path.exists(db_path) or os.path.getsize(db_path) < 4096:
+        return
+    backup_dir = os.path.join(base, 'db_backups')
+    os.makedirs(backup_dir, exist_ok=True)
+    from datetime import datetime as _dt
+    stamp = _dt.now().strftime('%Y-%m-%d_%H-%M-%S')
+    dst = os.path.join(backup_dir, f'content_os_{stamp}.db')
+    shutil.copy2(db_path, dst)
+    # Nur 30 neueste behalten
+    old = sorted(glob.glob(os.path.join(backup_dir, '*.db')))[:-30]
+    for f in old:
+        try: os.remove(f)
+        except: pass
+
+_auto_backup_db()
+
 # ── Emergency-Pause Cache ─────────────────────────────────────────────────────
 # Shared by inject_globals() (every request) AND the scheduler (every 60 s).
 # Avoids one DB round-trip per request; refreshes every 10 s automatically.
