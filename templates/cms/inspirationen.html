@@ -42,81 +42,309 @@
       </div>
     </div>
 
-    <!-- Quellen-Liste -->
+    <!-- Quellen-Liste gruppiert nach Account -->
     <div class="card" style="padding:0;overflow:hidden">
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border);
-                  font-family:var(--font-display);font-size:12px;letter-spacing:.5px;color:var(--muted)">
-        BEOBACHTETE SEITEN ({{ sources|length }})
+
+      <!-- Header mit "Alle laden"-Button -->
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;
+                  border-bottom:1px solid var(--border)">
+        <span style="font-family:var(--font-display);font-size:11px;letter-spacing:.5px;
+                     color:var(--muted);flex:1">QUELLEN ({{ sources|length }})</span>
+        {% if sources and has_rapidapi_key %}
+        <button onclick="fetchAll()" title="Alle Seiten aktualisieren"
+                style="background:none;border:none;color:var(--muted);cursor:pointer;
+                       font-size:12px;padding:2px 4px" class="btn-icon-muted">
+          <i class="fa-solid fa-rotate"></i>
+        </button>
+        {% endif %}
       </div>
+
       {% if not sources %}
       <div style="padding:20px;text-align:center;font-size:12px;color:var(--muted)">
         Noch keine Seiten hinzugefügt.
       </div>
       {% else %}
-      <div>
-        {% for src in sources %}
-        <div style="border-bottom:1px solid var(--border);
-                    {% if source_filter == src.id %}background:rgba(59,130,246,.08){% endif %}">
 
-          <!-- Zeile 1: Name + Buttons -->
-          <div style="display:flex;align-items:center;gap:8px;padding:10px 14px 4px">
-            <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
+      {# ── Gruppen mit Account ── #}
+      {% for acc_id, src_list in sources_by_account.items() %}
+      {% if acc_id %}
+      {% set acc = accounts_with_sources.get(acc_id) %}
+      {% set is_active = (account_filter == acc_id) %}
+
+      <!-- Gruppen-Header: Filter-Link + Auf/Zuklappen -->
+      <div style="border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;
+                    background:{% if is_active %}rgba(99,102,241,.1){% else %}var(--surface2){% endif %};
+                    border-left:3px solid {% if is_active %}var(--accent){% else %}transparent{% endif %}">
+
+          <!-- Klappbar-Toggle -->
+          <button onclick="toggleGroup({{ acc_id }})"
+                  style="background:none;border:none;cursor:pointer;padding:9px 8px 9px 12px;
+                         color:var(--muted);font-size:10px;flex-shrink:0">
+            <i class="fa-solid fa-chevron-down" id="chev-{{ acc_id }}"
+               style="transition:transform .2s"></i>
+          </button>
+
+          <!-- Filter-Link (Name + Status-Counts) -->
+          <a href="{{ url_for('inspirationen', account=acc_id, status=status_filter) }}"
+             style="flex:1;min-width:0;text-decoration:none;padding:7px 0">
+            <div style="font-size:12px;font-weight:700;
+                        color:{% if is_active %}var(--accent){% else %}var(--text){% endif %};
+                        overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              {{ acc.name if acc else 'Account #' ~ acc_id }}
+            </div>
+            {# Status-Mini-Badges für diese Gruppe #}
+            {% set ac = account_src_counts.get(acc_id, {}) %}
+            {% if ac %}
+            <div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap">
+              {% if ac.get('new', 0) > 0 %}
+              <span style="font-size:9px;padding:1px 5px;border-radius:6px;
+                           background:rgba(99,102,241,.15);color:#818cf8;font-weight:700;line-height:1.4">
+                {{ ac.get('new', 0) }} Neu
+              </span>
+              {% endif %}
+              {% if ac.get('saved', 0) > 0 %}
+              <span style="font-size:9px;padding:1px 5px;border-radius:6px;
+                           background:rgba(34,197,94,.15);color:#22c55e;font-weight:700;line-height:1.4">
+                {{ ac.get('saved', 0) }} Gesp.
+              </span>
+              {% endif %}
+              {% if ac.get('ignored', 0) > 0 %}
+              <span style="font-size:9px;padding:1px 5px;border-radius:6px;
+                           background:rgba(107,114,128,.13);color:#9ca3af;font-weight:600;line-height:1.4">
+                {{ ac.get('ignored', 0) }} Ign.
+              </span>
+              {% endif %}
+              {% if ac.get('used', 0) > 0 %}
+              <span style="font-size:9px;padding:1px 5px;border-radius:6px;
+                           background:rgba(245,158,11,.13);color:#f59e0b;font-weight:600;line-height:1.4">
+                {{ ac.get('used', 0) }} Übernom.
+              </span>
+              {% endif %}
+            </div>
+            {% endif %}
+          </a>
+
+          <!-- Quellenanzahl-Badge -->
+          <span style="font-size:10px;color:var(--muted);padding:0 12px;flex-shrink:0">
+            {{ src_list|length }}
+          </span>
+        </div>
+
+        <!-- Quellen dieser Gruppe (einklappbar) -->
+        <div id="group-{{ acc_id }}">
+          {% for src in src_list %}
+          <div style="display:flex;align-items:center;gap:6px;padding:6px 10px 6px 20px;
+                      border-top:1px solid var(--border);
+                      {% if source_filter == src.id %}background:rgba(59,130,246,.07){% endif %}">
+
+            <!-- Source-Link -->
+            <a href="{{ url_for('inspirationen', account=acc_id, source=src.id, status=status_filter) }}"
                style="flex:1;min-width:0;text-decoration:none">
-              <div style="font-size:13px;font-weight:600;color:var(--text)">@{{ src.username }}</div>
-              <div style="font-size:10px;color:var(--muted)">
-                {% if src.last_fetch %}Zuletzt: {{ src.last_fetch.strftime('%d.%m. %H:%M') }}
-                {% else %}Noch nie geladen{% endif %}
+              <div style="font-size:12px;font-weight:{% if source_filter==src.id %}700{% else %}500{% endif %};
+                          color:{% if source_filter==src.id %}var(--accent){% else %}var(--text){% endif %}">
+                @{{ src.username }}
               </div>
+              <div style="font-size:10px;color:var(--muted)">
+                {% if src.last_fetch %}{{ src.last_fetch.strftime('%d.%m %H:%M') }}
+                {% else %}<span style="color:var(--warning)">nie geladen</span>{% endif %}
+              </div>
+              {# Status-Counts für diese Quelle #}
+              {% set sc = source_counts.get(src.id, {}) %}
+              {% set sc_total = sc.get('new',0) + sc.get('saved',0) + sc.get('ignored',0) + sc.get('used',0) %}
+              {% if sc_total > 0 %}
+              <div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap">
+                {% if sc.get('new', 0) > 0 %}
+                <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                             background:rgba(99,102,241,.15);color:#818cf8;font-weight:700;line-height:1.5">
+                  {{ sc.get('new', 0) }}N
+                </span>
+                {% endif %}
+                {% if sc.get('saved', 0) > 0 %}
+                <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                             background:rgba(34,197,94,.15);color:#22c55e;font-weight:700;line-height:1.5">
+                  {{ sc.get('saved', 0) }}G
+                </span>
+                {% endif %}
+                {% if sc.get('ignored', 0) > 0 %}
+                <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                             background:rgba(107,114,128,.12);color:#9ca3af;font-weight:600;line-height:1.5">
+                  {{ sc.get('ignored', 0) }}I
+                </span>
+                {% endif %}
+                {% if sc.get('used', 0) > 0 %}
+                <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                             background:rgba(245,158,11,.12);color:#f59e0b;font-weight:600;line-height:1.5">
+                  {{ sc.get('used', 0) }}Ü
+                </span>
+                {% endif %}
+              </div>
+              {% endif %}
             </a>
-            <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
-                    class="btn btn-primary" style="font-size:11px;padding:5px 10px;flex-shrink:0"
-                    {% if not has_rapidapi_key %}disabled title="RapidAPI-Key fehlt"{% endif %}>
-              <i class="fa-solid fa-download"></i> Laden
+
+            <!-- Gruppe-Wechseln Icon (öffnet verstecktes Select) -->
+            <button onclick="toggleGroupSelect({{ src.id }})" title="Gruppe ändern"
+                    style="background:none;border:none;cursor:pointer;color:var(--muted);
+                           font-size:11px;padding:3px;flex-shrink:0;opacity:.6">
+              <i class="fa-solid fa-pen-to-square"></i>
             </button>
+
+            <!-- Download -->
+            <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
+                    title="Posts laden"
+                    style="background:none;border:none;cursor:pointer;color:var(--accent);
+                           font-size:11px;padding:3px;flex-shrink:0"
+                    {% if not has_rapidapi_key %}disabled style="opacity:.3"{% endif %}>
+              <i class="fa-solid fa-download"></i>
+            </button>
+
+            <!-- Löschen -->
             <button onclick="deleteSource({{ src.id }}, '@{{ src.username }}')"
-                    style="background:none;border:none;color:var(--muted);cursor:pointer;
-                           font-size:13px;padding:4px;flex-shrink:0">
+                    title="Entfernen"
+                    style="background:none;border:none;cursor:pointer;color:var(--muted);
+                           font-size:11px;padding:3px;flex-shrink:0;opacity:.5">
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
 
-          <!-- Zeile 2: Standard-Account Dropdown -->
-          <div style="padding:4px 14px 10px;display:flex;align-items:center;gap:6px">
-            <i class="fa-solid fa-arrow-right" style="font-size:10px;color:var(--muted);flex-shrink:0"></i>
-            <select class="select-field src-account-select"
-                    data-src-id="{{ src.id }}"
-                    style="font-size:11px;padding:3px 8px;flex:1;height:auto">
-              <option value="">— Kein Standard-Account —</option>
-              {% for acc in all_accounts %}
-              <option value="{{ acc.id }}"
-                {% if src.account_id == acc.id %}selected{% endif %}>
-                {{ acc.name }}{% if acc.status != 'active' %} ({{ acc.status }}){% endif %}
+          <!-- Gruppen-Select (versteckt, per Stift-Icon aufklappbar) -->
+          <div id="gsel-{{ src.id }}" style="display:none;padding:4px 10px 6px 20px;
+               border-top:1px dashed var(--border);background:var(--surface2)">
+            <select class="select-field src-account-select" data-src-id="{{ src.id }}"
+                    style="font-size:11px;padding:3px 6px;width:100%;height:auto">
+              <option value="">— Keine Gruppe —</option>
+              {% for a in all_accounts %}
+              <option value="{{ a.id }}" {% if src.account_id == a.id %}selected{% endif %}>
+                {{ a.name }}
               </option>
               {% endfor %}
             </select>
           </div>
-
+          {% endfor %}
         </div>
-        {% endfor %}
       </div>
       {% endif %}
-    </div>
+      {% endfor %}
 
-    {% if sources and has_rapidapi_key %}
-    <button onclick="fetchAll()" class="btn btn-ghost" style="font-size:12px">
-      <i class="fa-solid fa-rotate"></i> Alle Seiten aktualisieren
-    </button>
-    {% endif %}
+      {# ── Ohne Zuordnung ── #}
+      {% set ungrouped = (sources_by_account.get(none) or []) + (sources_by_account.get(0) or []) %}
+      {% if ungrouped %}
+      <div style="border-bottom:1px solid var(--border)">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;background:var(--surface2);
+                    border-left:3px solid transparent">
+          <button onclick="toggleGroup('none')"
+                  style="background:none;border:none;cursor:pointer;padding:8px 8px 8px 12px;
+                         color:var(--muted);font-size:10px;flex-shrink:0">
+            <i class="fa-solid fa-chevron-down" id="chev-none" style="transition:transform .2s"></i>
+          </button>
+          <span style="flex:1;font-size:11px;font-weight:600;color:var(--muted);
+                       padding:8px 0;letter-spacing:.3px">OHNE GRUPPE</span>
+          <span style="font-size:10px;color:var(--muted);padding:0 12px">{{ ungrouped|length }}</span>
+        </div>
+
+        <!-- Quellen -->
+        <div id="group-none">
+          {% for src in ungrouped %}
+          <div style="border-top:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:6px;padding:6px 10px 6px 14px;
+                        {% if source_filter == src.id %}background:rgba(59,130,246,.07){% endif %}">
+              <a href="{{ url_for('inspirationen', source=src.id, status=status_filter) }}"
+                 style="flex:1;min-width:0;text-decoration:none">
+                <div style="font-size:12px;font-weight:{% if source_filter==src.id %}700{% else %}500{% endif %};
+                            color:{% if source_filter==src.id %}var(--accent){% else %}var(--text){% endif %}">
+                  @{{ src.username }}
+                </div>
+                <div style="font-size:10px;color:var(--muted)">
+                  {% if src.last_fetch %}{{ src.last_fetch.strftime('%d.%m %H:%M') }}
+                  {% else %}<span style="color:var(--warning)">nie geladen</span>{% endif %}
+                </div>
+                {# Status-Counts für ungrouped Quelle #}
+                {% set sc = source_counts.get(src.id, {}) %}
+                {% set sc_total = sc.get('new',0) + sc.get('saved',0) + sc.get('ignored',0) + sc.get('used',0) %}
+                {% if sc_total > 0 %}
+                <div style="display:flex;gap:3px;margin-top:3px;flex-wrap:wrap">
+                  {% if sc.get('new', 0) > 0 %}
+                  <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                               background:rgba(99,102,241,.15);color:#818cf8;font-weight:700;line-height:1.5">
+                    {{ sc.get('new', 0) }}N
+                  </span>
+                  {% endif %}
+                  {% if sc.get('saved', 0) > 0 %}
+                  <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                               background:rgba(34,197,94,.15);color:#22c55e;font-weight:700;line-height:1.5">
+                    {{ sc.get('saved', 0) }}G
+                  </span>
+                  {% endif %}
+                  {% if sc.get('ignored', 0) > 0 %}
+                  <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                               background:rgba(107,114,128,.12);color:#9ca3af;font-weight:600;line-height:1.5">
+                    {{ sc.get('ignored', 0) }}I
+                  </span>
+                  {% endif %}
+                  {% if sc.get('used', 0) > 0 %}
+                  <span style="font-size:9px;padding:0px 4px;border-radius:5px;
+                               background:rgba(245,158,11,.12);color:#f59e0b;font-weight:600;line-height:1.5">
+                    {{ sc.get('used', 0) }}Ü
+                  </span>
+                  {% endif %}
+                </div>
+                {% endif %}
+              </a>
+              <button onclick="toggleGroupSelect({{ src.id }})" title="Gruppe zuordnen"
+                      style="background:none;border:none;cursor:pointer;font-size:11px;
+                             padding:3px;flex-shrink:0;color:var(--warning)">
+                <i class="fa-solid fa-folder-plus"></i>
+              </button>
+              <button onclick="fetchSource({{ src.id }}, '@{{ src.username }}', this)"
+                      style="background:none;border:none;cursor:pointer;color:var(--accent);
+                             font-size:11px;padding:3px;flex-shrink:0"
+                      {% if not has_rapidapi_key %}disabled{% endif %}>
+                <i class="fa-solid fa-download"></i>
+              </button>
+              <button onclick="deleteSource({{ src.id }}, '@{{ src.username }}')"
+                      style="background:none;border:none;cursor:pointer;color:var(--muted);
+                             font-size:11px;padding:3px;flex-shrink:0;opacity:.5">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <!-- Gruppen-Select (aufklappbar) — bei ungrouped standardmäßig sichtbar -->
+            <div id="gsel-{{ src.id }}"
+                 style="padding:4px 10px 6px 14px;border-top:1px dashed var(--border);
+                        background:var(--surface2)">
+              <select class="select-field src-account-select" data-src-id="{{ src.id }}"
+                      style="font-size:11px;padding:3px 6px;width:100%;height:auto">
+                <option value="">— Gruppe zuordnen —</option>
+                {% for a in all_accounts %}
+                <option value="{{ a.id }}" {% if src.account_id == a.id %}selected{% endif %}>
+                  {{ a.name }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% endif %}
+    </div>
 
   </div>
 
   <!-- ── Rechte Spalte: Posts ── -->
   <div>
 
-    <!-- Status-Tabs -->
+    <!-- Status-Tabs (bewahren account + source Filter) -->
     <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
       {% for tab_status, label in [('new','Neu'), ('saved','Gespeichert'), ('ignored','Ignoriert'), ('used','Übernommen'), ('all','Alle')] %}
-      <a href="{{ url_for('inspirationen', status=tab_status, source=source_filter or '') }}"
+      <a href="{{ url_for('inspirationen', status=tab_status,
+                  account=account_filter or '',
+                  source=source_filter or '',
+                  sort=sort_by, min_likes=min_likes or '',
+                  date_from=date_from or '', date_to=date_to or '') }}"
          style="display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:20px;
                 font-size:12px;font-weight:{% if status_filter == tab_status %}700{% else %}600{% endif %};
                 text-decoration:none;
@@ -132,6 +360,101 @@
       </a>
       {% endfor %}
     </div>
+
+    <!-- Filter & Sortierung -->
+    <form method="get" id="filterForm"
+          style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <input type="hidden" name="status" value="{{ status_filter }}">
+      {% if account_filter %}<input type="hidden" name="account" value="{{ account_filter }}">{% endif %}
+      {% if source_filter %}<input type="hidden" name="source" value="{{ source_filter }}">{% endif %}
+
+      <!-- Sortierung -->
+      <select name="sort" class="select-field" style="font-size:12px;padding:6px 10px;flex-shrink:0"
+              onchange="this.form.submit()">
+        <option value="date_desc"  {% if sort_by=='date_desc'  %}selected{% endif %}>Neueste zuerst</option>
+        <option value="likes_desc" {% if sort_by=='likes_desc' %}selected{% endif %}>Meiste Likes zuerst</option>
+        <option value="date_asc"   {% if sort_by=='date_asc'   %}selected{% endif %}>Älteste zuerst</option>
+      </select>
+
+      <!-- Min-Likes -->
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="font-size:11px;color:var(--muted);white-space:nowrap">Min. Likes</span>
+        <input type="number" name="min_likes" value="{{ min_likes }}" min="0" placeholder="z.B. 500"
+               class="input-field" style="width:80px;font-size:12px;padding:5px 8px">
+      </div>
+
+      <!-- Datum von/bis -->
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="font-size:11px;color:var(--muted)">Von</span>
+        <input type="date" name="date_from" value="{{ date_from }}"
+               class="input-field" style="font-size:12px;padding:5px 8px">
+        <span style="font-size:11px;color:var(--muted)">Bis</span>
+        <input type="date" name="date_to" value="{{ date_to }}"
+               class="input-field" style="font-size:12px;padding:5px 8px">
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="font-size:12px;padding:6px 14px">
+        <i class="fa-solid fa-filter"></i> Filtern
+      </button>
+      {% if min_likes or date_from or date_to or sort_by != 'date_desc' or source_filter or account_filter %}
+      <a href="{{ url_for('inspirationen', status=status_filter,
+                  account=account_filter or '', source=source_filter or '') }}"
+         class="btn btn-ghost" style="font-size:12px;padding:6px 10px;color:var(--muted)">
+        <i class="fa-solid fa-xmark"></i> Reset
+      </a>
+      {% endif %}
+    </form>
+
+    <!-- Quellen-Pills (nur wenn Account-Gruppe aktiv) -->
+    {% if account_filter and sources_by_account.get(account_filter) %}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;
+                padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
+      <span style="font-size:10px;color:var(--muted);align-self:center;margin-right:2px;white-space:nowrap">
+        <i class="fa-solid fa-filter" style="font-size:9px"></i> QUELLE:
+      </span>
+      <!-- "Alle" Pill -->
+      <a href="{{ url_for('inspirationen', account=account_filter, status=status_filter,
+                  sort=sort_by, min_likes=min_likes or '', date_from=date_from or '', date_to=date_to or '') }}"
+         style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;
+                font-size:11px;font-weight:600;text-decoration:none;
+                {% if not source_filter %}background:var(--accent);color:white;
+                {% else %}background:var(--surface2);border:1px solid var(--border);color:var(--muted);{% endif %}">
+        Alle
+      </a>
+      {% for src in sources_by_account[account_filter] %}
+      <a href="{{ url_for('inspirationen', account=account_filter, source=src.id, status=status_filter,
+                  sort=sort_by, min_likes=min_likes or '', date_from=date_from or '', date_to=date_to or '') }}"
+         style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;
+                font-size:11px;font-weight:600;text-decoration:none;
+                {% if source_filter == src.id %}background:var(--accent);color:white;
+                {% else %}background:var(--surface2);border:1px solid var(--border);color:var(--muted);{% endif %}">
+        @{{ src.username }}
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Bulk-Auswahl-Leiste -->
+    {% if posts %}
+    <div id="selectionBar"
+         style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:12px;
+                background:var(--surface);border:1px solid var(--border);border-radius:10px;flex-wrap:wrap">
+      <span style="font-size:12px;font-weight:600;color:var(--muted)" id="selCount">0 ausgewählt</span>
+      <button onclick="selectAllPosts()" class="btn btn-ghost"
+              style="font-size:11px;padding:4px 10px">Alle</button>
+      <button onclick="selectNonePosts()" class="btn btn-ghost"
+              style="font-size:11px;padding:4px 10px">Keine</button>
+      <div style="flex:1"></div>
+      <button onclick="bulkDeletePosts()" id="bulkDeleteBtn" class="btn btn-ghost"
+              style="font-size:12px;opacity:.4;pointer-events:none;color:#ef4444;border-color:rgba(239,68,68,.3)" disabled>
+        <i class="fa-solid fa-trash"></i> Löschen
+      </button>
+      <button onclick="openBulkModal()" id="bulkUseBtn" class="btn btn-primary"
+              style="font-size:12px;opacity:.4;pointer-events:none" disabled>
+        <i class="fa-solid fa-layer-group"></i> In Vorrat
+      </button>
+    </div>
+    {% endif %}
 
     <!-- Posts-Grid -->
     {% if not posts %}
@@ -155,12 +478,23 @@
                   overflow:hidden;transition:opacity .3s,transform .3s">
 
         <!-- Bild -->
-        <div style="aspect-ratio:1;overflow:hidden;background:var(--surface2);position:relative">
+        <div data-imgwrap style="aspect-ratio:1;overflow:hidden;background:var(--surface2);position:relative;cursor:pointer"
+             onclick="toggleSelect({{ post.id }})">
           {% if post.thumbnail_url %}
           <img src="{{ post.thumbnail_url }}" alt=""
-               style="width:100%;height:100%;object-fit:cover"
+               style="width:100%;height:100%;object-fit:cover;pointer-events:none"
                onerror="this.style.display='none'">
           {% endif %}
+
+          <!-- Auswahl-Checkbox -->
+          <div id="sel-{{ post.id }}"
+               style="position:absolute;top:7px;left:7px;width:22px;height:22px;border-radius:50%;
+                      border:2px solid rgba(255,255,255,.85);background:rgba(0,0,0,.35);
+                      display:flex;align-items:center;justify-content:center;
+                      transition:background .15s,border-color .15s;z-index:10">
+            <i class="fa-solid fa-check" id="selcheck-{{ post.id }}"
+               style="font-size:10px;color:white;opacity:0;transition:opacity .15s"></i>
+          </div>
 
           <!-- Typ-Badge -->
           {% if post.media_type == 'video' %}
@@ -175,16 +509,18 @@
           </div>
           {% endif %}
 
-          <!-- Status-Badge -->
-          {% if post.status == 'saved' %}
-          <div style="position:absolute;top:7px;left:7px;background:#22c55e;
-               border-radius:5px;padding:2px 7px;font-size:10px;color:white">
+          <!-- Inspo-Bookmark-Badge -->
+          {% if post.is_saved %}
+          <div style="position:absolute;bottom:7px;left:7px;background:#f59e0b;
+               border-radius:5px;padding:2px 8px;font-size:10px;color:white;
+               display:flex;align-items:center;gap:4px">
             <i class="fa-solid fa-bookmark"></i>
+            {% if post.status == 'used' %}<span>+ Vorrat</span>{% endif %}
           </div>
           {% elif post.status == 'used' %}
-          <div style="position:absolute;top:7px;left:7px;background:var(--accent);
+          <div style="position:absolute;bottom:7px;left:7px;background:var(--accent);
                border-radius:5px;padding:2px 7px;font-size:10px;color:white">
-            <i class="fa-solid fa-check"></i> Übernommen
+            <i class="fa-solid fa-check"></i> Vorrat
           </div>
           {% endif %}
         </div>
@@ -205,6 +541,45 @@
             {% endif %}
           </div>
 
+          <!-- Karussel-Vorschau: alle gespeicherten Bilder -->
+          {% if post.media_type == 'carousel' and post.carousel_urls %}
+          {% set curl = post.carousel_urls | from_json %}
+          {% if curl and curl|length > 1 %}
+          <div style="display:flex;gap:2px;margin-bottom:7px;border-radius:6px;overflow:hidden">
+            {% for u in curl[:4] %}
+            <img src="{{ u }}" alt="" style="flex:1;height:52px;object-fit:cover;min-width:0"
+                 onerror="this.style.display='none'">
+            {% endfor %}
+            {% if curl|length > 4 %}
+            <div style="width:40px;height:52px;background:var(--surface2);display:flex;
+                        align-items:center;justify-content:center;flex-shrink:0;
+                        font-size:10px;color:var(--muted);font-weight:700">
+              +{{ curl|length - 4 }}
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
+          {% endif %}
+
+          <!-- Likes & Kommentare -->
+          {% if post.like_count is not none %}
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+            <span style="font-size:12px;font-weight:700;color:
+              {% if post.like_count >= 10000 %}#f59e0b
+              {% elif post.like_count >= 1000 %}#22c55e
+              {% else %}var(--muted){% endif %}">
+              <i class="fa-solid fa-heart" style="font-size:10px;margin-right:2px"></i>
+              {{ '{:,}'.format(post.like_count).replace(',','.') }}
+            </span>
+            {% if post.comment_count %}
+            <span style="font-size:11px;color:var(--muted)">
+              <i class="fa-regular fa-comment" style="font-size:10px;margin-right:2px"></i>
+              {{ '{:,}'.format(post.comment_count).replace(',','.') }}
+            </span>
+            {% endif %}
+          </div>
+          {% endif %}
+
           <!-- Caption Preview -->
           {% if post.caption %}
           <div style="font-size:11px;color:var(--muted);
@@ -220,29 +595,38 @@
 
           <!-- Aktionen -->
           <div style="display:flex;gap:4px;flex-wrap:wrap">
-            {% if post.status != 'used' %}
+
+            <!-- Verwenden — immer sichtbar -->
             <button class="btn btn-primary use-btn"
                     data-id="{{ post.id }}"
                     data-caption="{{ (post.caption or '') | e }}"
                     data-md="{{ post.post_date.strftime('%m-%d') if post.post_date else '' }}"
                     data-account="{{ post.source.account_id or '' }}"
-                    style="flex:1;font-size:11px;padding:5px 8px;min-width:80px">
-              <i class="fa-solid fa-arrow-right"></i> Verwenden
+                    data-img="{{ post.image_url or post.thumbnail_url or '' }}"
+                    data-suggested-folder="{{ post.suggested_folder_id or '' }}"
+                    style="flex:1;font-size:11px;padding:5px 8px;min-width:80px;
+                           {% if post.status == 'used' %}opacity:.6{% endif %}">
+              <i class="fa-solid fa-{% if post.status == 'used' %}rotate{% else %}arrow-right{% endif %}"></i>
+              {% if post.status == 'used' %}Erneut{% else %}Verwenden{% endif %}
             </button>
-            {% endif %}
 
-            {% if post.status == 'new' %}
-            <button onclick="setStatus({{ post.id }}, 'saved', this)"
-                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
-                    title="Merken">
-              <i class="fa-solid fa-bookmark"></i>
+            <!-- Bookmark-Toggle — immer sichtbar -->
+            <button id="savebtn-{{ post.id }}"
+                    onclick="toggleSave({{ post.id }}, this)"
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px;
+                           color:{% if post.is_saved %}#f59e0b{% else %}var(--muted){% endif %}"
+                    title="{% if post.is_saved %}Aus Inspo entfernen{% else %}Als Inspo speichern{% endif %}">
+              <i class="fa-{% if post.is_saved %}solid{% else %}regular{% endif %} fa-bookmark"></i>
             </button>
+
+            <!-- Ignorieren (nur für neue Posts) -->
+            {% if post.status == 'new' %}
             <button onclick="setStatus({{ post.id }}, 'ignored', this)"
                     class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
                     title="Ignorieren">
               <i class="fa-solid fa-xmark"></i>
             </button>
-            {% elif post.status == 'saved' %}
+            {% elif post.status == 'ignored' %}
             <button onclick="setStatus({{ post.id }}, 'new', this)"
                     class="btn btn-ghost" style="font-size:11px;padding:5px 8px"
                     title="Zurücksetzen">
@@ -294,12 +678,22 @@
 
       <!-- Ordner -->
       <div>
-        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
           <span>In welchen Ordner?</span>
-          <a href="{{ url_for('kategorien') }}" target="_blank"
-             style="font-size:10px;color:var(--accent);text-decoration:none">
-            <i class="fa-solid fa-plus"></i> Ordner verwalten
-          </a>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <button onclick="suggestFolder()" id="suggestFolderBtn" type="button"
+                    style="background:none;border:none;cursor:pointer;font-size:11px;
+                           color:#818cf8;padding:0;display:flex;align-items:center;gap:4px;font-weight:600"
+                    title="Claude analysiert Bild + Caption und schlägt automatisch den richtigen Ordner vor">
+              <i class="fa-solid fa-robot" id="suggestFolderIcon"></i> KI-Vorschlag
+            </button>
+            <span style="color:var(--border)">|</span>
+            <button onclick="toggleInlineNewFolder()" type="button"
+                    style="background:none;border:none;cursor:pointer;font-size:11px;
+                           color:var(--accent);padding:0;display:flex;align-items:center;gap:4px">
+              <i class="fa-solid fa-plus"></i> Neuer Ordner
+            </button>
+          </div>
         </label>
         <select id="useFolderId" class="select-field">
           <option value="">— Kein Ordner —</option>
@@ -307,6 +701,40 @@
           <option value="{{ f.id }}" data-color="{{ f.color }}">{{ f.name }}</option>
           {% endfor %}
         </select>
+
+        <!-- KI-Vorschlag Ergebnis -->
+        <div id="folderSuggestHint" style="display:none;margin-top:7px;padding:9px 12px;
+             background:rgba(129,140,248,.08);border:1px solid rgba(129,140,248,.25);
+             border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6">
+          <div style="display:flex;align-items:flex-start;gap:7px">
+            <i class="fa-solid fa-robot" style="color:#818cf8;flex-shrink:0;margin-top:1px"></i>
+            <div id="folderSuggestText"></div>
+          </div>
+        </div>
+
+        <!-- Inline-Formular: Neuer Ordner -->
+        <div id="inlineNewFolder" style="display:none;margin-top:8px;padding:10px 12px;
+             background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px">
+            NEUER ORDNER
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="text" id="inlineFolderName" placeholder="Ordnername"
+                   class="input-field" style="flex:1;font-size:12px;padding:5px 8px"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();createInlineFolder()}">
+            <input type="color" id="inlineFolderColor" value="#6366f1"
+                   style="width:36px;height:32px;border-radius:6px;border:1px solid var(--border);
+                          cursor:pointer;padding:2px;flex-shrink:0">
+            <button type="button" onclick="createInlineFolder()"
+                    class="btn btn-primary" style="font-size:11px;padding:5px 10px;flex-shrink:0">
+              <i class="fa-solid fa-check"></i>
+            </button>
+            <button type="button" onclick="toggleInlineNewFolder()"
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px;flex-shrink:0">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Modus -->
@@ -363,10 +791,17 @@
       <div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
           <label class="form-label" style="margin:0">Caption</label>
-          <button id="rewriteBtn" onclick="rewriteCaption()"
-                  class="btn btn-ghost" style="font-size:11px;padding:4px 10px;gap:5px">
-            <i class="fa-solid fa-wand-magic-sparkles"></i> Umformulieren
-          </button>
+          <div style="display:flex;gap:6px">
+            <button id="aiCaptionBtn" onclick="generateAiCaption()"
+                    class="btn btn-ghost" style="font-size:11px;padding:4px 10px;gap:5px;
+                                                  border-color:var(--accent);color:var(--accent)">
+              <i class="fa-solid fa-robot"></i> KI-Caption
+            </button>
+            <button id="rewriteBtn" onclick="rewriteCaption()"
+                    class="btn btn-ghost" style="font-size:11px;padding:4px 10px;gap:5px">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Umformulieren
+            </button>
+          </div>
         </div>
         <textarea id="useCaptionText" class="input-field" rows="5"
                   style="resize:vertical;font-size:12px;line-height:1.6"
@@ -379,6 +814,119 @@
         <button onclick="closeUseModal()" class="btn btn-ghost">Abbrechen</button>
         <button id="confirmUseBtn" onclick="confirmUse()" class="btn btn-primary">
           <i class="fa-solid fa-arrow-right"></i> Übernehmen
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Bulk-Verwenden-Modal ── -->
+<div id="bulkModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.65);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeBulkModal()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+              width:100%;max-width:440px;margin:16px;box-shadow:0 24px 80px rgba(0,0,0,.6)">
+
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-family:var(--font-display);font-size:17px;letter-spacing:.5px">
+          MEHRERE ÜBERNEHMEN
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px" id="bulkSubtitle"></div>
+      </div>
+      <button onclick="closeBulkModal()"
+              style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <div style="padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+
+      <div>
+        <label class="form-label">Für welche Seite?</label>
+        <select id="bulkAccountId" class="select-field">
+          <option value="">— Kein Account (nur in Medienbibliothek) —</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+          <span>In welchen Ordner?</span>
+          <button onclick="toggleBulkNewFolder()" type="button"
+                  style="background:none;border:none;cursor:pointer;font-size:11px;
+                         color:var(--accent);padding:0;display:flex;align-items:center;gap:4px">
+            <i class="fa-solid fa-plus"></i> Neuer Ordner
+          </button>
+        </label>
+        <select id="bulkFolderId" class="select-field">
+          <option value="">— Kein Ordner —</option>
+          {% for f in all_folders %}
+          <option value="{{ f.id }}">{{ f.name }}</option>
+          {% endfor %}
+        </select>
+
+        <!-- Inline-Formular: Neuer Ordner (Bulk-Modal) -->
+        <div id="bulkInlineNewFolder" style="display:none;margin-top:8px;padding:10px 12px;
+             background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px">
+            NEUER ORDNER
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="text" id="bulkFolderName" placeholder="Ordnername"
+                   class="input-field" style="flex:1;font-size:12px;padding:5px 8px"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();createBulkFolder()}">
+            <input type="color" id="bulkFolderColor" value="#6366f1"
+                   style="width:36px;height:32px;border-radius:6px;border:1px solid var(--border);
+                          cursor:pointer;padding:2px;flex-shrink:0">
+            <button type="button" onclick="createBulkFolder()"
+                    class="btn btn-primary" style="font-size:11px;padding:5px 10px;flex-shrink:0">
+              <i class="fa-solid fa-check"></i>
+            </button>
+            <button type="button" onclick="toggleBulkNewFolder()"
+                    class="btn btn-ghost" style="font-size:11px;padding:5px 8px;flex-shrink:0">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- KI-Ordner-Erkennung -->
+      <div style="background:rgba(129,140,248,.06);border:1px solid rgba(129,140,248,.2);
+                  border-radius:8px;padding:10px 13px">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+          <input type="checkbox" id="bulkAutoFolder"
+                 style="margin-top:2px;accent-color:#818cf8;flex-shrink:0">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#818cf8;margin-bottom:2px">
+              <i class="fa-solid fa-robot"></i> Ordner automatisch per KI erkennen
+            </div>
+            <div style="font-size:10px;color:var(--muted);line-height:1.5">
+              Claude analysiert Bild + Caption jedes Posts einzeln und wählt den
+              passenden Ordner. Überschreibt die manuelle Auswahl oben.
+            </div>
+          </div>
+        </label>
+      </div>
+
+      <!-- Fortschritt -->
+      <div id="bulkProgress" style="display:none">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px">
+          <span id="bulkProgressText">Verarbeite…</span>
+          <span id="bulkProgressPct"></span>
+        </div>
+        <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+          <div id="bulkProgressBar"
+               style="height:100%;background:var(--accent);border-radius:3px;
+                      width:0%;transition:width .3s"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="closeBulkModal()" class="btn btn-ghost" id="bulkCancelBtn">Abbrechen</button>
+        <button onclick="runBulkUse()" id="bulkConfirmBtn" class="btn btn-primary">
+          <i class="fa-solid fa-layer-group"></i> Alle in Vorrat übernehmen
         </button>
       </div>
     </div>
@@ -420,12 +968,33 @@ function getAllAccountOptions() {
 }
 
 // ── "Verwenden"-Modal öffnen ──────────────────────────────────
-function openUseModal(postId, caption, monthDay, defaultAccountId) {
-  _currentPostId = postId;
-  _postMonthDay  = monthDay || null;
+function openUseModal(postId, caption, monthDay, defaultAccountId, imageUrl, suggestedFolderId) {
+  _currentPostId  = postId;
+  _postMonthDay   = monthDay || null;
+  _currentImageUrl = imageUrl || null;
   document.getElementById('useCaptionText').value = caption || '';
   document.getElementById('rewriteStatus').style.display = 'none';
   document.getElementById('sameYearBtn').style.display = monthDay ? 'inline-flex' : 'none';
+  document.getElementById('folderSuggestHint').style.display = 'none';
+
+  // KI-Vorschlag vorausfüllen (wenn vorhanden und nicht manuell gesperrt)
+  const folderSel = document.getElementById('useFolderId');
+  if (suggestedFolderId) {
+    folderSel.value = suggestedFolderId;
+    // Hinweis anzeigen dass dies ein KI-Vorschlag ist
+    const hint     = document.getElementById('folderSuggestHint');
+    const hintText = document.getElementById('folderSuggestText');
+    const opt      = folderSel.options[folderSel.selectedIndex];
+    if (opt && opt.value) {
+      hintText.innerHTML = `<strong style="color:var(--text)">${opt.textContent.trim()}</strong>`
+        + ` <span style="color:#818cf8;font-size:9px;font-weight:700">KI-AUTO</span>`
+        + `<br><span style="color:var(--muted)">Automatisch kategorisiert — Ordner änderbar</span>`;
+      hint.style.display = 'block';
+    }
+  } else {
+    folderSel.value = '';
+  }
+
   selectMode('reserve');
 
   // Account-Dropdown füllen (einmalig)
@@ -471,6 +1040,48 @@ function setSameYearDate() {
   showToast(`Datum gesetzt: ${day}.${month}.${year} um 10:00 Uhr`, 'success');
 }
 
+// ── KI-Caption generieren ─────────────────────────────────────
+let _currentImageUrl = null;
+
+async function generateAiCaption() {
+  if (!_currentPostId || !_currentImageUrl) return;
+  const btn      = document.getElementById('aiCaptionBtn');
+  const statusEl = document.getElementById('rewriteStatus');
+  const ta       = document.getElementById('useCaptionText');
+  const accountId = parseInt(document.getElementById('useAccountId').value) || null;
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  statusEl.style.display = 'block';
+  statusEl.style.color   = 'var(--muted)';
+  statusEl.textContent   = '🤖 Claude analysiert das Bild…';
+
+  try {
+    const r = await fetch('/api/caption/generate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({image_url: _currentImageUrl, account_id: accountId})
+    }).then(r => r.json());
+
+    if (r.ok) {
+      ta.value = r.caption + (r.hashtags ? '\n\n' + r.hashtags : '');
+      statusEl.textContent = r.is_football
+        ? '✓ Caption generiert · Fußball erkannt → Sporthashtag ergänzt'
+        : '✓ Caption generiert';
+      statusEl.style.color = 'var(--success, #22c55e)';
+    } else {
+      statusEl.textContent = '⚠ ' + (r.error || 'Fehler');
+      statusEl.style.color = 'var(--warning)';
+    }
+  } catch(e) {
+    statusEl.textContent = '⚠ Verbindungsfehler';
+    statusEl.style.color = 'var(--warning)';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-robot"></i> KI-Caption';
+  }
+}
+
 // ── Umformulieren ─────────────────────────────────────────────
 async function rewriteCaption() {
   if (!_currentPostId) return;
@@ -502,7 +1113,12 @@ async function rewriteCaption() {
   }
 }
 
+// ── Aktueller Tab (für Card-Verhalten nach Verwenden) ─────────
+const CURRENT_TAB = '{{ status_filter }}';
+
 // ── Übernehmen ────────────────────────────────────────────────
+let _dupConfirmed = false;   // wird true wenn User Duplikat-Warnung bestätigt
+
 async function confirmUse() {
   if (!_currentPostId) return;
   const btn = document.getElementById('confirmUseBtn');
@@ -525,32 +1141,66 @@ async function confirmUse() {
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 90000); // 90s max
+    const timer = setTimeout(() => controller.abort(), 90000);
     const resp = await fetch(`/api/inspirationen/${_currentPostId}/use`, {
       signal: controller.signal,
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({account_id, folder_id, mode: _selectedMode, caption, scheduled_at})
+      body: JSON.stringify({
+        account_id, folder_id, mode: _selectedMode, caption, scheduled_at,
+        force_duplicate: _dupConfirmed   // beim 2. Klick überspringen wir den Duplikat-Check
+      })
     });
     clearTimeout(timer);
     const r = await resp.json();
     if (r.ok) {
-      showToast(r.message, 'success');
+      _dupConfirmed = false;
       closeUseModal();
       const card = document.getElementById(`pcard-${_currentPostId}`);
-      if (card) {
-        card.style.opacity = '0'; card.style.transform = 'scale(.95)';
-        setTimeout(() => card.remove(), 350);
+      if (CURRENT_TAB === 'saved') {
+        // Im Gespeichert-Tab bleibt die Karte — nur Badge + Button aktualisieren
+        showToast('In Vorrat übernommen ✓ — bleibt als Inspo gespeichert', 'success');
+        const badge = card ? card.querySelector('.inspo-use-badge') : null;
+        if (card) {
+          // Vorrat-Badge einblenden
+          const img = card.querySelector('[data-imgwrap]');
+          if (img) {
+            const b = img.querySelector('.status-badge');
+            if (b) { b.innerHTML = '<i class="fa-solid fa-bookmark"></i> <span>+ Vorrat</span>'; b.style.background='#f59e0b'; }
+          }
+          // "Verwenden"-Button → "Erneut"
+          const useBtn = card.querySelector('.use-btn');
+          if (useBtn) { useBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Erneut'; useBtn.style.opacity = '.6'; }
+        }
+      } else {
+        showToast(r.message, 'success');
+        if (card) {
+          card.style.opacity = '0'; card.style.transform = 'scale(.95)';
+          setTimeout(() => card.remove(), 350);
+        }
       }
+    } else if (r.duplicate && !_dupConfirmed) {
+      // Duplikat-Warnung: Button umbenennen, beim nächsten Klick trotzdem übernehmen
+      _dupConfirmed = true;
+      const statusEl = document.getElementById('rewriteStatus');
+      statusEl.style.display = 'block';
+      statusEl.style.color   = 'var(--warning)';
+      statusEl.textContent   = '⚠ ' + r.error;
+      btn.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Trotzdem übernehmen';
+      btn.disabled  = false;
     } else {
       showToast(r.error || 'Fehler beim Übernehmen.', 'error');
+      _dupConfirmed = false;
     }
   } catch (err) {
     const msg = err.name === 'AbortError' ? 'Timeout — Server antwortet nicht.' : (err.message || 'Unbekannter Fehler');
     showToast('Fehler: ' + msg, 'error');
+    _dupConfirmed = false;
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Übernehmen';
+    if (!_dupConfirmed) {
+      btn.disabled  = false;
+      btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Übernehmen';
+    }
   }
 }
 
@@ -627,6 +1277,258 @@ function hideFetchStatus() {
   document.getElementById('fetchStatus').style.display = 'none';
 }
 
+// ── Bulk-Auswahl ──────────────────────────────────────────────
+const _sel = new Set();
+
+function toggleSelect(id) {
+  if (_sel.has(id)) {
+    _sel.delete(id);
+    _setCardSelected(id, false);
+  } else {
+    _sel.add(id);
+    _setCardSelected(id, true);
+  }
+  _updateSelBar();
+}
+
+function _setCardSelected(id, on) {
+  const circle = document.getElementById(`sel-${id}`);
+  const check  = document.getElementById(`selcheck-${id}`);
+  const card   = document.getElementById(`pcard-${id}`);
+  if (!circle) return;
+  circle.style.background      = on ? 'var(--accent)'            : 'rgba(0,0,0,.35)';
+  circle.style.borderColor     = on ? 'var(--accent)'            : 'rgba(255,255,255,.85)';
+  if (check) check.style.opacity = on ? '1' : '0';
+  if (card)  card.style.outline  = on ? '2px solid var(--accent)' : 'none';
+}
+
+function selectAllPosts() {
+  document.querySelectorAll('[id^="sel-"]').forEach(el => {
+    const id = parseInt(el.id.replace('sel-', ''));
+    if (!isNaN(id)) { _sel.add(id); _setCardSelected(id, true); }
+  });
+  _updateSelBar();
+}
+
+function selectNonePosts() {
+  _sel.forEach(id => _setCardSelected(id, false));
+  _sel.clear();
+  _updateSelBar();
+}
+
+function _updateSelBar() {
+  const n       = _sel.size;
+  const useBtn  = document.getElementById('bulkUseBtn');
+  const delBtn  = document.getElementById('bulkDeleteBtn');
+  document.getElementById('selCount').textContent = n === 0
+    ? '0 ausgewählt'
+    : `${n} ausgewählt`;
+  [useBtn, delBtn].forEach(btn => {
+    if (!btn) return;
+    btn.disabled            = n === 0;
+    btn.style.opacity       = n === 0 ? '.4' : '1';
+    btn.style.pointerEvents = n === 0 ? 'none' : 'auto';
+  });
+}
+
+async function bulkDeletePosts() {
+  const n = _sel.size;
+  if (n === 0) return;
+  if (!confirm(`${n} ${n === 1 ? 'Post' : 'Posts'} dauerhaft löschen?\nDies kann nicht rückgängig gemacht werden.`)) return;
+
+  const ids     = [..._sel];
+  const delBtn  = document.getElementById('bulkDeleteBtn');
+  const useBtn  = document.getElementById('bulkUseBtn');
+  const countEl = document.getElementById('selCount');
+
+  delBtn.disabled = true;
+  useBtn.disabled = true;
+  delBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+  let done = 0, errors = 0;
+  for (const id of ids) {
+    countEl.textContent = `Lösche ${done + 1} / ${ids.length}…`;
+    try {
+      const r = await fetch(`/api/inspirationen/${id}`, {method: 'DELETE'}).then(r => r.json());
+      if (r.ok) {
+        const card = document.getElementById(`pcard-${id}`);
+        if (card) {
+          card.style.opacity   = '0';
+          card.style.transform = 'scale(.9)';
+          setTimeout(() => card.remove(), 300);
+        }
+        _sel.delete(id);
+      } else { errors++; }
+    } catch(e) { errors++; }
+    done++;
+  }
+
+  delBtn.innerHTML = '<i class="fa-solid fa-trash"></i> Löschen';
+  _updateSelBar();
+
+  if (errors === 0) {
+    showToast(`${done} ${done === 1 ? 'Post' : 'Posts'} gelöscht ✓`, 'success');
+  } else {
+    showToast(`${done - errors} gelöscht, ${errors} Fehler`, 'warning');
+  }
+}
+
+// ── KI-Ordner-Vorschlag (Einzelpost) ─────────────────────────
+async function suggestFolder() {
+  if (!_currentPostId) return;
+  const btn      = document.getElementById('suggestFolderBtn');
+  const icon     = document.getElementById('suggestFolderIcon');
+  const hint     = document.getElementById('folderSuggestHint');
+  const hintText = document.getElementById('folderSuggestText');
+
+  // Loading-State
+  btn.style.pointerEvents = 'none';
+  icon.className = 'fa-solid fa-spinner fa-spin';
+
+  const accountId = parseInt(document.getElementById('useAccountId').value) || null;
+
+  try {
+    const r = await fetch(`/api/inspirationen/${_currentPostId}/suggest-folder`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({account_id: accountId})
+    }).then(res => res.json());
+
+    if (r.ok && r.folder_id) {
+      // Ordner-Dropdown setzen
+      document.getElementById('useFolderId').value = r.folder_id;
+
+      // Hinweis anzeigen
+      const pct     = Math.round(r.confidence * 100);
+      const imgIcon = r.image_analyzed ? '🖼️' : '📝';
+      const typeBadge = r.detected_type
+        ? `<span style="background:rgba(129,140,248,.15);color:#818cf8;padding:1px 6px;border-radius:5px;font-size:9px;font-weight:700;margin-left:4px">${r.detected_type}</span>`
+        : '';
+      hintText.innerHTML =
+        `<strong style="color:var(--text)">${r.folder_name}</strong>`
+        + ` <span style="color:#818cf8;font-weight:700">${pct}%</span>${typeBadge}`
+        + `<br><span style="color:var(--muted)">${imgIcon} ${r.reason}</span>`;
+      hint.style.display = 'block';
+    } else if (r.ok && !r.folder_id) {
+      hintText.innerHTML = '<span style="color:var(--muted)">Kein passender Ordner gefunden — bitte manuell wählen.</span>';
+      hint.style.display = 'block';
+    } else {
+      showToast(r.error || 'KI-Analyse fehlgeschlagen', 'warning');
+    }
+  } catch(e) {
+    showToast('Verbindungsfehler: ' + e.message, 'error');
+  } finally {
+    btn.style.pointerEvents = '';
+    icon.className = 'fa-solid fa-robot';
+  }
+}
+
+function openBulkModal() {
+  if (_sel.size === 0) return;
+  document.getElementById('bulkSubtitle').textContent =
+    `${_sel.size} Posts → als Entwurf in den Vorrat`;
+  document.getElementById('bulkProgress').style.display = 'none';
+  document.getElementById('bulkProgressBar').style.width = '0%';
+  document.getElementById('bulkConfirmBtn').disabled = false;
+  document.getElementById('bulkConfirmBtn').innerHTML =
+    '<i class="fa-solid fa-layer-group"></i> Alle in Vorrat übernehmen';
+
+  // Account-Dropdown füllen (einmalig)
+  const sel = document.getElementById('bulkAccountId');
+  if (sel.options.length <= 1) {
+    getAllAccountOptions().forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.id; opt.textContent = a.name;
+      sel.appendChild(opt);
+    });
+  }
+
+  document.getElementById('bulkModal').style.display = 'flex';
+}
+
+function closeBulkModal() {
+  document.getElementById('bulkModal').style.display = 'none';
+}
+
+async function runBulkUse() {
+  const ids        = [..._sel];
+  const account_id = parseInt(document.getElementById('bulkAccountId').value) || null;
+  const base_folder_id  = parseInt(document.getElementById('bulkFolderId').value)  || null;
+  const autoFolder = document.getElementById('bulkAutoFolder')?.checked || false;
+
+  const confirmBtn = document.getElementById('bulkConfirmBtn');
+  const cancelBtn  = document.getElementById('bulkCancelBtn');
+  const progWrap   = document.getElementById('bulkProgress');
+  const progBar    = document.getElementById('bulkProgressBar');
+  const progText   = document.getElementById('bulkProgressText');
+  const progPct    = document.getElementById('bulkProgressPct');
+
+  confirmBtn.disabled = true;
+  cancelBtn.disabled  = true;
+  progWrap.style.display = 'block';
+
+  let done = 0, errors = 0, autoAssigned = 0;
+  for (const id of ids) {
+    progText.textContent = `${autoFolder ? '🤖 Analysiere' : 'Verarbeite'} ${done + 1} von ${ids.length}…`;
+    progPct.textContent  = `${Math.round((done / ids.length) * 100)} %`;
+    progBar.style.width  = `${(done / ids.length) * 100}%`;
+
+    // KI-Ordner-Erkennung pro Post
+    let folder_id = base_folder_id;
+    if (autoFolder) {
+      try {
+        const sf = await fetch(`/api/inspirationen/${id}/suggest-folder`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({account_id})
+        }).then(r => r.json());
+        if (sf.ok && sf.folder_id) {
+          folder_id = sf.folder_id;
+          autoAssigned++;
+        }
+      } catch(e) { /* Fallback auf base_folder_id */ }
+    }
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 90000);
+      const resp = await fetch(`/api/inspirationen/${id}/use`, {
+        signal: controller.signal,
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({account_id, folder_id, mode: 'reserve', caption: ''})
+      });
+      clearTimeout(timer);
+      const r = await resp.json();
+      if (r.ok) {
+        const card = document.getElementById(`pcard-${id}`);
+        if (card) { card.style.opacity='0'; card.style.transform='scale(.95)';
+                    setTimeout(() => card.remove(), 350); }
+        _sel.delete(id);
+      } else {
+        errors++;
+      }
+    } catch(e) {
+      errors++;
+    }
+    done++;
+  }
+
+  progBar.style.width  = '100%';
+  progPct.textContent  = '100 %';
+  let doneMsg = errors > 0
+    ? `${done - errors} übernommen, ${errors} Fehler`
+    : `alle ${done} übernommen ✓`;
+  if (autoFolder && autoAssigned > 0) doneMsg += ` · 🤖 ${autoAssigned}× Ordner auto-erkannt`;
+  progText.textContent = doneMsg;
+  progText.style.color = errors > 0 ? 'var(--warning)' : 'var(--success)';
+
+  cancelBtn.disabled  = false;
+  cancelBtn.textContent = 'Schließen';
+  _updateSelBar();
+  if (errors === 0) setTimeout(closeBulkModal, 1400);
+}
+
 // ── "Verwenden"-Buttons via Event-Delegation ──────────────────
 document.addEventListener('click', function(e) {
   const btn = e.target.closest('.use-btn');
@@ -635,8 +1537,21 @@ document.addEventListener('click', function(e) {
     btn.dataset.id,
     btn.dataset.caption,
     btn.dataset.md || null,
-    btn.dataset.account || null
+    btn.dataset.account || null,
+    btn.dataset.img || null,
+    btn.dataset.suggestedFolder || null
   );
+});
+
+// ── Manueller Ordner-Wechsel → folder_locked setzen ──────────
+document.getElementById('useFolderId').addEventListener('change', function() {
+  if (!_currentPostId) return;
+  // User hat Ordner manuell geändert → als gesperrt markieren
+  fetch(`/api/inspirationen/${_currentPostId}/lock-folder`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({folder_id: parseInt(this.value) || null})
+  }).catch(() => {});   // Fehler ignorieren (non-critical)
 });
 
 // ── Standard-Account einer Quelle speichern ───────────────────
@@ -648,9 +1563,134 @@ document.addEventListener('change', function(e) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({account_id: sel.value ? parseInt(sel.value) : null})
   }).then(r => r.json()).then(d => {
-    if (d.ok) showToast('Standard-Account gespeichert ✓', 'success');
+    if (d.ok) { showToast('Gruppe gespeichert ✓', 'success'); setTimeout(()=>location.reload(),600); }
     else showToast(d.error || 'Fehler', 'error');
   });
 });
+
+// ── Inline Ordner anlegen (im Verwenden-Modal) ───────────────
+function toggleInlineNewFolder() {
+  const el = document.getElementById('inlineNewFolder');
+  const show = el.style.display === 'none';
+  el.style.display = show ? '' : 'none';
+  if (show) setTimeout(() => document.getElementById('inlineFolderName').focus(), 50);
+}
+
+async function createInlineFolder() {
+  const name  = (document.getElementById('inlineFolderName').value || '').trim();
+  const color = document.getElementById('inlineFolderColor').value;
+  if (!name) { showToast('Name eingeben.', 'warning'); return; }
+
+  const r = await fetch('/api/folders', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, color})
+  }).then(x => x.json());
+
+  if (!r.ok) { showToast(r.error || 'Fehler', 'error'); return; }
+
+  // Dropdown updaten + neuen Ordner auswählen
+  const sel = document.getElementById('useFolderId');
+  const opt = document.createElement('option');
+  opt.value = r.id;
+  opt.textContent = r.name;
+  opt.dataset.color = r.color;
+  sel.appendChild(opt);
+  sel.value = r.id;
+
+  // Formular schließen + reset
+  document.getElementById('inlineFolderName').value = '';
+  document.getElementById('inlineNewFolder').style.display = 'none';
+  showToast(`Ordner „${r.name}" angelegt ✓`, 'success');
+}
+
+// ── Inline Ordner anlegen (Bulk-Modal) ───────────────────────
+function toggleBulkNewFolder() {
+  const el = document.getElementById('bulkInlineNewFolder');
+  const show = el.style.display === 'none';
+  el.style.display = show ? '' : 'none';
+  if (show) setTimeout(() => document.getElementById('bulkFolderName').focus(), 50);
+}
+
+async function createBulkFolder() {
+  const name  = (document.getElementById('bulkFolderName').value || '').trim();
+  const color = document.getElementById('bulkFolderColor').value;
+  if (!name) { showToast('Name eingeben.', 'warning'); return; }
+
+  const r = await fetch('/api/folders', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, color})
+  }).then(x => x.json());
+
+  if (!r.ok) { showToast(r.error || 'Fehler beim Anlegen', 'error'); return; }
+
+  // Beide Dropdowns (Einzel + Bulk) synchron updaten
+  for (const selId of ['useFolderId', 'bulkFolderId']) {
+    const sel = document.getElementById(selId);
+    if (!sel) continue;
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.name;
+    sel.appendChild(opt);
+  }
+  document.getElementById('bulkFolderId').value = r.id;
+  document.getElementById('bulkFolderName').value = '';
+  document.getElementById('bulkInlineNewFolder').style.display = 'none';
+  showToast(`Ordner „${r.name}" angelegt ✓`, 'success');
+}
+
+// ── Inspo-Bookmark toggle ─────────────────────────────────────
+async function toggleSave(postId, btn) {
+  const r = await fetch(`/api/inspirationen/${postId}/save`, {method:'POST'}).then(x=>x.json());
+  if (!r.ok) { showToast('Fehler', 'error'); return; }
+  const saved = r.is_saved;
+  // Button updaten
+  btn.style.color = saved ? '#f59e0b' : 'var(--muted)';
+  btn.title = saved ? 'Aus Inspo entfernen' : 'Als Inspo speichern';
+  btn.innerHTML = `<i class="fa-${saved ? 'solid' : 'regular'} fa-bookmark"></i>`;
+  // Badge auf Karte updaten
+  const card = document.getElementById(`pcard-${postId}`);
+  if (card) {
+    const imgWrap = card.querySelector('[style*="aspect-ratio"]');
+    if (imgWrap) {
+      let badge = imgWrap.querySelector('.status-badge');
+      if (saved) {
+        if (!badge) {
+          badge = document.createElement('div');
+          badge.className = 'status-badge';
+          badge.style.cssText = 'position:absolute;bottom:7px;left:7px;border-radius:5px;padding:2px 8px;font-size:10px;color:white;display:flex;align-items:center;gap:4px';
+          imgWrap.appendChild(badge);
+        }
+        badge.style.background = '#f59e0b';
+        badge.innerHTML = '<i class="fa-solid fa-bookmark"></i>';
+      } else if (!saved && badge) {
+        badge.remove();
+      }
+    }
+  }
+  // Im Gespeichert-Tab: Karte ausblenden wenn Bookmark entfernt
+  if (!saved && CURRENT_TAB === 'saved') {
+    if (card) { card.style.opacity='0'; card.style.transform='scale(.95)'; setTimeout(()=>card.remove(),300); }
+  }
+  showToast(saved ? '📌 Als Inspo gespeichert' : 'Lesezeichen entfernt', 'success');
+}
+
+// Gruppe auf-/zuklappen
+function toggleGroup(id) {
+  const body = document.getElementById('group-' + id);
+  const chev = document.getElementById('chev-' + id);
+  if (!body) return;
+  const collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? '' : 'none';
+  if (chev) chev.style.transform = collapsed ? '' : 'rotate(-90deg)';
+}
+
+// Gruppen-Select ein-/ausblenden (Stift-Icon)
+function toggleGroupSelect(srcId) {
+  const el = document.getElementById('gsel-' + srcId);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
 </script>
 {% endblock %}

@@ -23,6 +23,30 @@
   </div>
 </div>
 
+<!-- ── System-Alerts Banner ── -->
+{% set warn_alerts = alerts | selectattr('alert_type', 'in', ['overcapacity', 'low_stock', 'empty_stock', 'no_posts']) | list %}
+{% if warn_alerts %}
+<div style="margin-bottom:16px;display:flex;flex-direction:column;gap:6px">
+  {% for al in warn_alerts[:5] %}
+  {% set _color = '#ef4444' if al.severity == 'critical' else '#f59e0b' %}
+  <div data-alert="{{ al.id }}" style="display:flex;align-items:center;gap:10px;padding:10px 16px;
+              border-radius:10px;border:1px solid {{ _color }}40;
+              background:{{ _color }}10;font-size:12.5px">
+    <i class="fa-solid {% if al.severity == 'critical' %}fa-circle-exclamation{% else %}fa-triangle-exclamation{% endif %}"
+       style="color:{{ _color }};flex-shrink:0"></i>
+    <span style="flex:1;color:var(--text)">{{ al.message }}</span>
+    {% if al.alert_type == 'overcapacity' %}
+    <a href="{{ url_for('calendar_view') }}" style="font-size:11px;color:{{ _color }};text-decoration:none;white-space:nowrap">
+      Kalender → </a>
+    {% endif %}
+    <button onclick="resolveAlert({{ al.id }}, document.querySelector('[data-alert=\'{{ al.id }}\']'))"
+            style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px"
+            title="Schließen">✕</button>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if stats.total_accounts == 0 %}
 <!-- ── Onboarding ── -->
 <div style="background:linear-gradient(135deg,rgba(59,130,246,.08),rgba(168,85,247,.06));
@@ -134,7 +158,7 @@
 <!-- ── Streak ── -->
 <div id="streakBanner" style="display:none;margin-bottom:16px;padding:12px 20px;
      border-radius:10px;background:linear-gradient(90deg,rgba(245,158,11,.1),rgba(249,115,22,.06));
-     border:1px solid rgba(245,158,11,.25);display:flex;align-items:center;gap:12px">
+     border:1px solid rgba(245,158,11,.25);align-items:center;gap:12px">
   <span style="font-size:24px">🔥</span>
   <div>
     <span id="streakCount" style="font-family:var(--font-display);font-size:22px;color:var(--warning)"></span>
@@ -168,6 +192,110 @@
     <div class="stat-label">Bereit</div>
     <div class="stat-value yellow">{{ stats.content_ready }}</div>
     <div class="stat-sub">Content zur Freigabe</div>
+  </div>
+</div>
+
+<!-- ── Follower-Meilenstein-Tracker ── -->
+<div id="milestoneWidget" style="display:none;margin-bottom:20px;background:linear-gradient(135deg,rgba(168,85,247,.08),rgba(59,130,246,.06));
+     border:1px solid rgba(168,85,247,.25);border-radius:14px;padding:16px 20px">
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="width:40px;height:40px;border-radius:12px;background:rgba(168,85,247,.15);
+                display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      <i class="fa-solid fa-trophy" style="color:#c084fc;font-size:17px"></i>
+    </div>
+    <div style="flex:1;min-width:200px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:4px">NÄCHSTER MEILENSTEIN</div>
+      <div id="mlAccountName" style="font-size:13px;font-weight:700;color:var(--text)"></div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">AKTUELL</div>
+      <div id="mlCurrent" style="font-size:18px;font-weight:700;color:var(--text)">—</div>
+    </div>
+    <div style="color:var(--muted);font-size:18px">→</div>
+    <div style="text-align:center">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">ZIEL</div>
+      <div id="mlTarget" style="font-size:18px;font-weight:700;color:#c084fc">—</div>
+    </div>
+    <div style="flex:1;min-width:180px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+        <span style="font-size:11px;color:var(--muted)" id="mlMissing"></span>
+        <span style="font-size:11px;font-weight:700;color:#c084fc" id="mlPct"></span>
+      </div>
+      <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+        <div id="mlBar" style="height:100%;border-radius:3px;
+             background:linear-gradient(90deg,#818cf8,#c084fc);transition:width .8s ease;width:0%"></div>
+      </div>
+      <div id="mlETA" style="font-size:11px;color:var(--muted);margin-top:5px"></div>
+    </div>
+    <div style="display:flex;gap:6px;flex-shrink:0">
+      <button onclick="prevMilestone()" style="width:28px;height:28px;border-radius:8px;border:1px solid var(--border);
+              background:var(--surface);color:var(--muted);cursor:pointer;font-size:13px">‹</button>
+      <button onclick="nextMilestone()" style="width:28px;height:28px;border-radius:8px;border:1px solid var(--border);
+              background:var(--surface);color:var(--muted);cursor:pointer;font-size:13px">›</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confetti canvas (hidden by default) -->
+<canvas id="confettiCanvas" style="position:fixed;top:0;left:0;width:100%;height:100%;
+       pointer-events:none;z-index:99999;display:none"></canvas>
+
+<!-- ── KI-Auto-Kategorisierung Toggle ── -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;
+            padding:16px 20px;margin-bottom:20px">
+  <div style="display:flex;align-items:center;gap:14px">
+    <div style="width:40px;height:40px;border-radius:10px;
+                background:rgba(129,140,248,{% if auto_classify_on %}.18{% else %}.08{% endif %});
+                display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      <i class="fa-solid fa-robot" style="color:{% if auto_classify_on %}#818cf8{% else %}var(--muted){% endif %};font-size:17px"></i>
+    </div>
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px">
+        KI-Auto-Kategorisierung
+        <span id="acBadge" style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;
+              background:{% if auto_classify_on %}rgba(129,140,248,.15);color:#818cf8{% else %}var(--surface2);color:var(--muted){% endif %}">
+          {% if auto_classify_on %}AN{% else %}AUS{% endif %}
+        </span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">
+        Neue Inspirations-Posts werden automatisch einem Vorrats-Ordner zugeordnet
+        · manuell geordnete &amp; Vorrat-Posts werden nicht geändert
+      </div>
+    </div>
+
+    <!-- Stats -->
+    {% if classify_stats and classify_stats.total_new > 0 %}
+    <div style="display:flex;gap:14px;flex-shrink:0;padding:0 16px;border-left:1px solid var(--border);border-right:1px solid var(--border)">
+      <div style="text-align:center">
+        <div style="font-size:18px;font-weight:800;color:var(--text)" id="acTotalNew">{{ classify_stats.total_new }}</div>
+        <div style="font-size:9px;color:var(--muted)">Neue Posts</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:18px;font-weight:800;color:#818cf8" id="acClassified">{{ classify_stats.classified }}</div>
+        <div style="font-size:9px;color:var(--muted)">Sortiert</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:18px;font-weight:800;color:var(--muted)" id="acPending">{{ classify_stats.pending }}</div>
+        <div style="font-size:9px;color:var(--muted)">Ausstehend</div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Toggle Switch -->
+    <label style="position:relative;display:inline-block;width:50px;height:27px;
+                  cursor:pointer;flex-shrink:0" title="KI-Auto-Kategorisierung ein/aus">
+      <input type="checkbox" id="acToggle"
+             {% if auto_classify_on %}checked{% endif %}
+             onchange="toggleAutoClassify(this)"
+             style="opacity:0;width:0;height:0;position:absolute">
+      <span id="acSlider"
+            style="position:absolute;inset:0;border-radius:27px;transition:.3s;
+                   background:{% if auto_classify_on %}#818cf8{% else %}var(--border){% endif %}"></span>
+      <span id="acThumb"
+            style="position:absolute;width:21px;height:21px;border-radius:50%;background:white;
+                   top:3px;transition:.3s;box-shadow:0 1px 4px rgba(0,0,0,.2);
+                   left:{% if auto_classify_on %}26px{% else %}3px{% endif %}"></span>
+    </label>
   </div>
 </div>
 
@@ -283,7 +411,7 @@
         <a href="{{ url_for('account_detail', account_id=acc.id) }}"
            style="display:flex;justify-content:space-between;padding:5px 0;text-decoration:none;border-bottom:1px solid var(--border)">
           <span style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">{{ acc.name }}</span>
-          <span style="font-size:12px;font-weight:700;color:var(--danger)">{{ acc.stock_days_display() }}T</span>
+          <span style="font-size:12px;font-weight:700;color:var(--danger)">{{ days_map.get(acc.id, 0) | round(1) }}T</span>
         </a>
         {% endfor %}
       </div>
@@ -407,10 +535,11 @@
     </div>
     <div id="topAccountsList">
       {% for acc in accounts %}
+      {% set _ad = days_map.get(acc.id, 0) %}
       <a href="{{ url_for('account_detail', account_id=acc.id) }}"
          data-name="{{ acc.name }}"
          data-followers="{{ acc.follower_count }}"
-         data-stock="{{ acc.stock_days_display() }}"
+         data-stock="{{ _ad | round(1) }}"
          style="display:flex;align-items:center;gap:12px;padding:11px 20px;
                 border-bottom:1px solid var(--border);text-decoration:none;transition:background .1s"
          onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
@@ -427,7 +556,7 @@
           <div style="font-family:var(--font-display);font-size:15px;color:var(--text)">
             {{ acc.follower_count | fmt_followers }}
           </div>
-          <div style="font-size:10px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
+          <div style="font-size:10px;font-weight:700" class="stock-{% if _ad >= 14 %}green{% elif _ad >= 7 %}yellow{% elif _ad >= 3 %}orange{% else %}red{% endif %}">{{ _ad | round(1) }}T</div>
         </div>
 
         <!-- Nächste Post-Thumbnails -->
@@ -491,6 +620,14 @@
             <i class="fa-solid fa-copy"></i>
           </button>
         </form>
+      </div>
+      {% else %}
+      <div style="padding:36px;text-align:center">
+        <i class="fa-solid fa-photo-film" style="font-size:26px;color:var(--border);margin-bottom:10px;display:block"></i>
+        <div style="font-size:13px;color:var(--muted)">Noch kein Content erstellt</div>
+        <a href="{{ url_for('content_hub') }}" class="btn btn-ghost" style="margin-top:12px;font-size:12px">
+          <i class="fa-solid fa-plus"></i> Content erstellen
+        </a>
       </div>
       {% endfor %}
     </div>
@@ -572,6 +709,53 @@
 
 {% block scripts %}
 <script>
+// ── KI-Auto-Kategorisierung Toggle ───────────────────────────
+async function toggleAutoClassify(checkbox) {
+  const enabled = checkbox.checked;
+  const slider  = document.getElementById('acSlider');
+  const thumb   = document.getElementById('acThumb');
+  const badge   = document.getElementById('acBadge');
+
+  // UI sofort aktualisieren
+  slider.style.background = enabled ? '#818cf8' : 'var(--border)';
+  thumb.style.left        = enabled ? '26px' : '3px';
+  badge.textContent       = enabled ? 'AN' : 'AUS';
+  badge.style.background  = enabled ? 'rgba(129,140,248,.15)' : 'var(--surface2)';
+  badge.style.color       = enabled ? '#818cf8' : 'var(--muted)';
+
+  try {
+    const r = await fetch('/api/settings/auto-classify', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled})
+    }).then(r => r.json());
+
+    if (r.ok) {
+      showToast(enabled
+        ? '🤖 KI-Auto-Kategorisierung aktiviert — läuft alle 10 Min.'
+        : 'KI-Auto-Kategorisierung deaktiviert', 'success');
+      // Stats aktualisieren
+      if (document.getElementById('acTotalNew')) {
+        document.getElementById('acTotalNew').textContent  = r.total_new;
+        document.getElementById('acClassified').textContent = r.classified;
+        document.getElementById('acPending').textContent    = r.pending;
+      }
+    } else {
+      showToast('Fehler beim Speichern', 'error');
+      checkbox.checked = !enabled;
+    }
+  } catch(e) {
+    showToast('Verbindungsfehler', 'error');
+    checkbox.checked = !enabled;
+  }
+}
+
+// ── Alert schließen ───────────────────────────────────────────
+async function resolveAlert(alertId, el) {
+  const r = await fetch(`/api/alerts/resolve/${alertId}`, { method: 'POST' });
+  if (r.ok && el) el.remove();
+}
+
 // ── Portfolio-Gesamt-Chart ──────────────────────────────────────
 let portfolioChart, portDays = 30;
 
@@ -710,9 +894,10 @@ async function loadChart(days, btn) {
       plugins:{
         legend:{display:false},
         tooltip:{
-          backgroundColor:'var(--surface)',
-          borderColor:'var(--border)', borderWidth:1,
-          titleColor:'var(--muted)', bodyColor:'var(--text)',
+          backgroundColor:'#1e2640',
+          borderColor:'rgba(59,130,246,.3)', borderWidth:1,
+          titleColor:'#94a3b8', bodyColor:'#e2e8f0',
+          padding:10, displayColors:false,
           callbacks:{label:c=>(c.dataset.label==='Prognose'?'~ ':' ')+c.raw?.toLocaleString('de-DE')+' Follower'}
         }
       },
@@ -760,5 +945,90 @@ function sortAccounts() {
   });
   items.forEach(el => list.appendChild(el));
 }
+
+// ── Follower-Meilenstein-Tracker ─────────────────────────────
+let _mlData = [];
+let _mlIdx = 0;
+
+async function loadMilestones() {
+  try {
+    const r = await fetch('/api/milestones');
+    if (!r.ok) return;
+    const data = await r.json();
+    _mlData = (data.milestones || []).filter(m => m.next_milestone);
+    if (!_mlData.length) return;
+    document.getElementById('milestoneWidget').style.display = 'block';
+    renderMilestone(_mlIdx);
+    // Check if any account just crossed a milestone
+    const fresh = _mlData.filter(m => m.just_reached);
+    if (fresh.length) launchConfetti();
+  } catch {}
+}
+
+function renderMilestone(idx) {
+  const m = _mlData[idx];
+  if (!m) return;
+  const fmt = n => n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? (n/1000).toFixed(1)+'K' : n;
+  const pct = Math.min(100, Math.round((m.followers / m.next_milestone) * 100));
+  const missing = m.next_milestone - m.followers;
+  document.getElementById('mlAccountName').textContent = m.account_name;
+  document.getElementById('mlCurrent').textContent = fmt(m.followers);
+  document.getElementById('mlTarget').textContent = fmt(m.next_milestone);
+  document.getElementById('mlMissing').textContent = '–' + fmt(missing) + ' fehlen';
+  document.getElementById('mlPct').textContent = pct + '%';
+  document.getElementById('mlBar').style.width = pct + '%';
+  document.getElementById('mlETA').textContent = m.eta_days != null
+    ? (m.eta_days === 0 ? 'Heute möglich!' : `ETA: ~${m.eta_days} Tag${m.eta_days===1?'':'e'}`)
+    : 'Wachstum noch nicht berechnet';
+}
+
+function prevMilestone() {
+  _mlIdx = (_mlIdx - 1 + _mlData.length) % _mlData.length;
+  renderMilestone(_mlIdx);
+}
+
+function nextMilestone() {
+  _mlIdx = (_mlIdx + 1) % _mlData.length;
+  renderMilestone(_mlIdx);
+}
+
+function launchConfetti() {
+  const canvas = document.getElementById('confettiCanvas');
+  canvas.style.display = 'block';
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const pieces = Array.from({length: 120}, () => ({
+    x: Math.random() * canvas.width,
+    y: Math.random() * -canvas.height,
+    w: Math.random() * 10 + 5,
+    h: Math.random() * 6 + 3,
+    color: ['#818cf8','#c084fc','#34d399','#f59e0b','#60a5fa','#fb7185'][Math.floor(Math.random()*6)],
+    rot: Math.random() * 360,
+    vx: (Math.random() - 0.5) * 3,
+    vy: Math.random() * 4 + 2,
+    vr: (Math.random() - 0.5) * 6,
+  }));
+  let frame = 0;
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    pieces.forEach(p => {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot * Math.PI / 180);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = Math.max(0, 1 - frame / 180);
+      ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+      ctx.restore();
+      p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+    });
+    frame++;
+    if (frame < 200) requestAnimationFrame(draw);
+    else canvas.style.display = 'none';
+  }
+  draw();
+}
+
+loadMilestones();
 </script>
 {% endblock %}

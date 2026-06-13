@@ -108,15 +108,61 @@
   <div class="card" style="overflow:hidden">
     <div class="card-header"><span class="card-title">BACKUP & IMPORT</span></div>
     <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+
+      <!-- DB-Backup Panel -->
+      <div style="background:linear-gradient(135deg,rgba(34,197,94,.07),rgba(59,130,246,.05));
+                  border:1px solid rgba(34,197,94,.25);border-radius:12px;padding:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:38px;height:38px;border-radius:10px;background:rgba(34,197,94,.15);
+                        display:flex;align-items:center;justify-content:center">
+              <i class="fa-solid fa-database" style="color:var(--success);font-size:16px"></i>
+            </div>
+            <div>
+              <div style="font-size:13px;font-weight:700;color:var(--text)">Datenbank-Backup</div>
+              <div style="font-size:11px;color:var(--muted)" id="backupStatusLine">Lädt…</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="doManualBackup()" class="btn btn-ghost" style="font-size:12px" id="backupNowBtn">
+              <i class="fa-solid fa-shield-halved"></i> Jetzt sichern
+            </button>
+            <a href="/api/backup/download" class="btn btn-primary" style="font-size:12px">
+              <i class="fa-solid fa-download"></i> DB herunterladen
+            </a>
+          </div>
+        </div>
+        <div id="backupList" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+
+      <!-- Vollexport -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">
+          <i class="fa-solid fa-box-archive" style="color:var(--accent2);margin-right:6px"></i>
+          Alle Daten exportieren
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+          Accounts, Ordner, Content, Inspiration-Posts, Kooperationen, Serien, API-Keys — alles als lesbare JSON-Datei.
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <a href="/api/export/all" class="btn btn-primary" style="font-size:12px">
+            <i class="fa-solid fa-download"></i> Alles herunterladen (JSON)
+          </a>
+          <button onclick="copyAllData()" class="btn btn-ghost" style="font-size:12px" id="copyAllBtn">
+            <i class="fa-solid fa-copy"></i> In Zwischenablage kopieren
+          </button>
+        </div>
+      </div>
+
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <a href="{{ url_for('settings_export') }}" class="btn btn-ghost">
-          <i class="fa-solid fa-download"></i> Config exportieren (JSON)
+        <a href="{{ url_for('settings_export') }}" class="btn btn-ghost" style="font-size:12px">
+          <i class="fa-solid fa-sliders"></i> Nur Config (JSON)
         </a>
-        <a href="{{ url_for('accounts_export_csv') }}" class="btn btn-ghost">
-          <i class="fa-solid fa-file-csv"></i> Accounts exportieren (CSV)
+        <a href="{{ url_for('accounts_export_csv') }}" class="btn btn-ghost" style="font-size:12px">
+          <i class="fa-solid fa-file-csv"></i> Accounts (CSV)
         </a>
-        <a href="{{ url_for('analytics_export') }}" class="btn btn-ghost">
-          <i class="fa-solid fa-chart-bar"></i> Analytics exportieren (CSV)
+        <a href="{{ url_for('analytics_export') }}" class="btn btn-ghost" style="font-size:12px">
+          <i class="fa-solid fa-chart-bar"></i> Analytics (CSV)
         </a>
       </div>
       <form method="post" action="{{ url_for('settings_import') }}" enctype="multipart/form-data"
@@ -225,6 +271,68 @@ async function autoArchive() {
   });
   const d = await res.json();
   showToast(`${d.archived} Inhalte archiviert.`, 'success');
+}
+
+// ── Backup-Status ────────────────────────────────────────────
+(async function loadBackupStatus() {
+  try {
+    const d = await fetch('/api/backup/status').then(r => r.json());
+    const line = document.getElementById('backupStatusLine');
+    const list = document.getElementById('backupList');
+    if (d.mode === 'postgres') {
+      line.textContent = 'PostgreSQL — Backup über Render Dashboard';
+      return;
+    }
+    const last = d.last_backup
+      ? d.last_backup.replace('content_os_','').replace('.db','').replace('_',' ')
+      : 'noch keins';
+    line.innerHTML = `Letztes Backup: <strong>${last}</strong> · ${d.db_size_kb} KB · ${d.local_backups.length} Kopien gespeichert`;
+    list.innerHTML = d.local_backups.slice(0,5).map(f => {
+      const label = f.replace('content_os_','').replace('.db','');
+      return `<span style="font-size:10px;padding:3px 9px;border-radius:10px;
+                           background:rgba(34,197,94,.12);color:var(--success);font-weight:600">
+                ${label}
+              </span>`;
+    }).join('');
+  } catch { document.getElementById('backupStatusLine').textContent = 'Status nicht verfügbar'; }
+})();
+
+async function copyAllData() {
+  const btn = document.getElementById('copyAllBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Lädt…';
+  try {
+    const r = await fetch('/api/export/all');
+    const text = await r.text();
+    await navigator.clipboard.writeText(text);
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Kopiert!';
+    btn.style.color = 'var(--success)';
+    setTimeout(() => {
+      btn.innerHTML = '<i class="fa-solid fa-copy"></i> In Zwischenablage kopieren';
+      btn.style.color = '';
+      btn.disabled = false;
+    }, 2500);
+  } catch {
+    showToast('Kopieren fehlgeschlagen — bitte herunterladen', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-copy"></i> In Zwischenablage kopieren';
+  }
+}
+
+async function doManualBackup() {
+  const btn = document.getElementById('backupNowBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sichert…';
+  const r = await fetch('/api/backup/now', {method:'POST'});
+  const d = await r.json();
+  if (d.ok) {
+    showToast('Backup gespeichert: ' + d.file, 'success');
+    setTimeout(() => location.reload(), 1200);
+  } else {
+    showToast('Backup fehlgeschlagen', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Jetzt sichern';
+  }
 }
 </script>
 {% endblock %}

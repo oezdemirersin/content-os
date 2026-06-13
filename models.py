@@ -147,6 +147,25 @@ class Account(db.Model):
     layout_notes      = db.Column(db.Text)          # Layout-Hinweise (Farben, Schriften, Stil)
     page_persona      = db.Column(db.Text)          # Seiten-Persönlichkeit für Inspiration-KI
 
+    # KI-Caption & Hashtags
+    default_hashtags  = db.Column(db.Text)           # z.B. "#Frankfurt #Frankfurtmemes" (leer = keine)
+    sports_hashtag    = db.Column(db.String(200))    # z.B. "#EintrachtFrankfurt" (leer = kein Sporterkennnung)
+
+    # Wetter-System: Stadt für OpenWeatherMap (z.B. "Frankfurt")
+    weather_city      = db.Column(db.String(100), nullable=True)
+
+    # Analytics-Sichtbarkeit: True = Account wird in Gesamt-Charts ausgeblendet
+    hide_in_analytics = db.Column(db.Boolean, default=False, nullable=False, server_default='false')
+
+    # Wasserzeichen
+    watermark_url      = db.Column(db.String(500), nullable=True)
+    watermark_position = db.Column(db.String(10), default='br')  # tl/tr/bl/br
+    watermark_opacity  = db.Column(db.Float, default=0.7)
+    watermark_enabled  = db.Column(db.Boolean, default=False)
+
+    # Smart-Refill: eigener Schwellwert (0 = globale Einstellung verwenden)
+    smart_refill_threshold = db.Column(db.Integer, default=0)
+
     # Relationships
     scheduled_posts = db.relationship('ScheduledPost', backref='account', lazy=True, cascade='all,delete')
     analytics = db.relationship('AnalyticsSnapshot', backref='account', lazy=True, cascade='all,delete')
@@ -223,9 +242,16 @@ class ContentFolder(db.Model):
     color          = db.Column(db.String(20), default='#6366f1')
     icon           = db.Column(db.String(50), default='fa-folder')
     account_id     = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)  # NULL = global
-    sort_order     = db.Column(db.Integer, default=0)
-    posts_per_week = db.Column(db.Integer, default=0)   # 0 = kein Limit
-    notes          = db.Column(db.Text)
+    sort_order       = db.Column(db.Integer, default=0)
+    posts_per_week   = db.Column(db.Integer, default=0)   # 0 = kein Limit
+    notes            = db.Column(db.Text)
+    # Zeitfenster: Ordner wird nur in diesem Zeitraum eingeplant (Priorität)
+    valid_from       = db.Column(db.Date, nullable=True)   # Startdatum des aktiven Fensters
+    valid_until      = db.Column(db.Date, nullable=True)   # Enddatum
+    recurring_yearly = db.Column(db.Boolean, default=False) # True = jedes Jahr wiederholen (nur MM-TT zählt)
+    # Wetter-Trigger: Ordner wird automatisch gepostet wenn Wetterbedingung aktiv
+    # Werte: weather_hot | weather_storm | weather_snow | weather_spring | weather_frost | NULL
+    trigger_condition = db.Column(db.String(50), nullable=True)
     created_at     = db.Column(db.DateTime, default=datetime.utcnow)
     content_items  = db.relationship('ContentItem', backref='folder', lazy='select',
                                      foreign_keys='ContentItem.folder_id')
@@ -296,6 +322,7 @@ class MediaItem(db.Model):
 
     tags = db.Column(db.Text, default='[]')
     usage_count = db.Column(db.Integer, default=0)
+    image_hash  = db.Column(db.String(64), nullable=True, index=True)  # perceptual hash für Duplikat-Erkennung
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def get_tags(self):
@@ -639,7 +666,127 @@ class InspirationPost(db.Model):
     caption         = db.Column(db.Text)
     post_date       = db.Column(db.DateTime)
     media_type      = db.Column(db.String(20), default='image')  # image | video | carousel
-    # Status: new=frisch | saved=will ich verwenden | ignored=nicht interessant | used=schon übernommen
+    # Status: new=frisch | ignored=nicht interessant | used=schon übernommen
+    # (saved wurde durch is_saved ersetzt — ist_saved bleibt auch nach Verwenden erhalten)
     status          = db.Column(db.String(20), default='new', index=True)
+    is_saved        = db.Column(db.Boolean, default=False, nullable=False)  # Inspo-Lesezeichen
+    carousel_urls   = db.Column(db.Text, nullable=True)        # JSON-Array aller Bilder bei Karussels
+    video_url       = db.Column(db.String(1000), nullable=True) # MP4-URL bei Videos
+    like_count      = db.Column(db.Integer, nullable=True)     # Likes zum Zeitpunkt des Downloads
+    comment_count   = db.Column(db.Integer, nullable=True)     # Kommentare zum Zeitpunkt des Downloads
+    content_item_id     = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
+    created_at          = db.Column(db.DateTime, default=datetime.utcnow)
+    # KI-Auto-Kategorisierung
+    suggested_folder_id = db.Column(db.Integer, db.ForeignKey('content_folder.id'), nullable=True)
+    folder_locked       = db.Column(db.Boolean, default=False, nullable=False)
+    # folder_locked=True → User hat manuell kategorisiert, KI überschreibt nicht
+
+
+class ContentSeries(db.Model):
+    """Wiederkehrende Content-Serien (z.B. Montagsmeme, Freitags-Story)."""
+    __tablename__ = 'content_series'
+    id             = db.Column(db.Integer, primary_key=True)
+    account_id     = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
+    folder_id      = db.Column(db.Integer, db.ForeignKey('content_folder.id'), nullable=True)
+    name           = db.Column(db.String(200), nullable=False)
+    description    = db.Column(db.Text)
+    days_of_week   = db.Column(db.Text, default='[]')   # JSON [0..6], 0=Mo
+    preferred_time = db.Column(db.String(5), default='09:00')
+    post_type      = db.Column(db.String(20), default='feed')  # feed/story/reel
+    active         = db.Column(db.Boolean, default=True)
+    last_scheduled = db.Column(db.DateTime)
+    created_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    account        = db.relationship('Account', backref='content_series')
+    folder         = db.relationship('ContentFolder', backref='series', foreign_keys=[folder_id])
+
+
+class Kooperation(db.Model):
+    """Kooperationen, Paid Posts, UGC-Deals mit Partnern."""
+    __tablename__ = 'kooperation'
+    id              = db.Column(db.Integer, primary_key=True)
+    account_id      = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)
+    partner_name    = db.Column(db.String(200), nullable=False)
+    koop_type       = db.Column(db.String(30), default='paid_post')
+    # paid_post / ugc / collab / sponsoring / product / other
+    status          = db.Column(db.String(20), default='anfrage')
+    # anfrage / aktiv / abgeschlossen / storniert
+    deadline        = db.Column(db.Date, nullable=True)
+    amount          = db.Column(db.Float, nullable=True)
+    currency        = db.Column(db.String(3), default='EUR')
+    notes           = db.Column(db.Text)
     content_item_id = db.Column(db.Integer, db.ForeignKey('content_item.id'), nullable=True)
+    reminder_sent   = db.Column(db.Boolean, default=False)
     created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    contact_name         = db.Column(db.String(200))
+    payment_status       = db.Column(db.String(20), default='offen')  # offen/rechnungsgestellt/bezahlt
+    start_date           = db.Column(db.Date, nullable=True)
+    deliverables         = db.Column(db.Text)              # JSON: [{text, done}, ...]
+    partner_rating       = db.Column(db.Integer)           # 1–5 Sterne nach Abschluss
+    payment_due_date     = db.Column(db.Date, nullable=True)
+    invoice_number       = db.Column(db.String(100))
+    invoice_sent_at      = db.Column(db.Date, nullable=True)
+    payment_received_at  = db.Column(db.Date, nullable=True)
+    payment_notes        = db.Column(db.Text)
+    posting_dates        = db.Column(db.Text)     # JSON: ["2025-03-15", "2025-03-17"]
+    invoice_reminder_sent   = db.Column(db.Boolean, default=False)
+    payment_reminder_sent   = db.Column(db.Boolean, default=False)
+    campaign_name           = db.Column(db.String(200))
+    account         = db.relationship('Account', backref='kooperationen')
+    content_item    = db.relationship('ContentItem', backref=db.backref('kooperation', uselist=False))
+
+
+class AccountIdeenContext(db.Model):
+    """Seiten-Strategie und zuletzt generierte Content-Ideen pro Account."""
+    __tablename__ = 'account_ideen_context'
+    id              = db.Column(db.Integer, primary_key=True)
+    account_id      = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False, unique=True)
+    konzept         = db.Column(db.Text)     # Was ist der Sinn dieser Seite?
+    zielgruppe      = db.Column(db.Text)     # Wer ist die Zielgruppe?
+    tonalitaet      = db.Column(db.Text)     # Wie ist der Ton / das Format?
+    themen          = db.Column(db.Text)     # Welche Themen / Kategorien?
+    last_generated  = db.Column(db.DateTime)
+    generated_ideas = db.Column(db.Text)     # JSON: letzte KI-Ideen
+    past_posts_json = db.Column(db.Text)     # JSON: bisherige Beiträge mit Metrics
+    page_analysis   = db.Column(db.Text)     # KI-Seitenanalyse (Freitext strukturiert)
+    updated_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    account         = db.relationship('Account', backref=db.backref('ideen_context', uselist=False))
+
+
+class AiUsageLog(db.Model):
+    """Logt jeden KI-API-Call mit Token-Verbrauch und Kostenschätzung."""
+    __tablename__ = 'ai_usage_log'
+    id            = db.Column(db.Integer, primary_key=True)
+    feature       = db.Column(db.String(60), nullable=False)   # caption, kategorisierung, …
+    model         = db.Column(db.String(80), nullable=False)
+    input_tokens  = db.Column(db.Integer, default=0)
+    output_tokens = db.Column(db.Integer, default=0)
+    cost_eur      = db.Column(db.Float,   default=0.0)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class WeatherCache(db.Model):
+    """Gecachte Wetterdaten pro Account — verhindert unnötige API-Calls."""
+    __tablename__ = 'weather_cache'
+    id            = db.Column(db.Integer, primary_key=True)
+    account_id    = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False, unique=True)
+    city_name     = db.Column(db.String(100))
+    temperature   = db.Column(db.Float)
+    weather_code  = db.Column(db.Integer)
+    wind_speed    = db.Column(db.Float)
+    description   = db.Column(db.String(200))
+    forecast_json = db.Column(db.Text)
+    checked_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    account       = db.relationship('Account', backref=db.backref('weather_cache', uselist=False))
+
+
+class WeatherTriggerLog(db.Model):
+    """Wann welcher Wetter-Trigger für welchen Account gefeuert hat (Cooldown-Basis)."""
+    __tablename__ = 'weather_trigger_log'
+    id            = db.Column(db.Integer, primary_key=True)
+    account_id    = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
+    trigger_type  = db.Column(db.String(50), nullable=False)
+    fired_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    post_id       = db.Column(db.Integer, db.ForeignKey('scheduled_post.id'), nullable=True)
+    city_name     = db.Column(db.String(100))
+    temperature   = db.Column(db.Float)
+    account       = db.relationship('Account', backref='weather_trigger_logs')
