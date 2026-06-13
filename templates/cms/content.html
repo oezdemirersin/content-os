@@ -105,7 +105,7 @@
 <!-- Grid -->
 <div id="contentGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
   {% for item in items %}
-  <div class="card" style="position:relative;transition:border-color .15s"
+  <div class="card" id="content-card-{{ item.id }}" style="position:relative;transition:border-color .15s"
        onmouseover="this.style.borderColor='rgba(255,255,255,0.12)'" onmouseout="this.style.borderColor='var(--border)'">
     <!-- Checkbox -->
     <div style="position:absolute;top:14px;left:14px;z-index:2">
@@ -356,16 +356,28 @@ function toggleCardSelected(cb) {
 }
 async function deleteContent(id, btn) {
   if (!confirm('Diesen Inhalt wirklich löschen?')) return;
-  const res = await fetch('/api/content/bulk', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ids:[id], action:'delete'})
-  });
-  const d = await res.json();
-  if (d.ok) {
-    const card = btn.closest('.card');
-    card.style.transition = 'opacity .25s';
-    card.style.opacity = '0';
-    setTimeout(() => card.remove(), 250);
+  const card = document.getElementById('content-card-' + id);
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  try {
+    const res = await fetch('/api/content/bulk', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ids:[id], action:'delete'})
+    });
+    const d = await res.json();
+    if (d.ok) {
+      if (card) { card.style.opacity='0.2'; card.style.pointerEvents='none'; }
+      showToast('Inhalt gelöscht.');
+      setTimeout(() => location.reload(), 500);
+    } else {
+      showToast('Fehler beim Löschen.', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-trash"></i>';
+    }
+  } catch(e) {
+    showToast('Netzwerkfehler: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-trash"></i>';
   }
 }
 async function quickStatus(id, sel) {
