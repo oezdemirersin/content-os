@@ -369,6 +369,45 @@ def init_db():
 
         is_postgres = 'postgresql' in str(db.engine.url)
 
+        # ── Auto-Migration: prüft ALLE Modell-Spalten gegen die echte DB ──
+        # Verhindert, dass neue Modell-Felder die App auf Render crashen lassen.
+        def auto_migrate_columns():
+            try:
+                insp = inspect(db.engine)
+                existing_tables = set(insp.get_table_names())
+                dialect = db.engine.dialect
+                for table in db.metadata.sorted_tables:
+                    if table.name not in existing_tables:
+                        continue
+                    existing = {c['name'] for c in insp.get_columns(table.name)}
+                    for col in table.columns:
+                        if col.name in existing:
+                            continue
+                        col_type = col.type.compile(dialect=dialect)
+                        default_sql = ''
+                        if col.default is not None and col.default.is_scalar:
+                            v = col.default.arg
+                            if isinstance(v, str):
+                                default_sql = f" DEFAULT '{v}'"
+                            elif isinstance(v, bool):
+                                default_sql = f" DEFAULT {'1' if v else '0'}"
+                            elif v is not None:
+                                default_sql = f' DEFAULT {v}'
+                        elif col.server_default is not None:
+                            default_sql = f' DEFAULT {col.server_default.arg}'
+                        try:
+                            with db.engine.connect() as _c:
+                                _c.execute(text(
+                                    f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type}{default_sql}'
+                                ))
+                                _c.commit()
+                            app.logger.info(f'Auto-Migration: {table.name}.{col.name} hinzugefügt')
+                        except Exception:
+                            pass
+            except Exception as e:
+                app.logger.warning(f'Auto-Migration Fehler: {e}')
+        auto_migrate_columns()
+
         # Jede Migration läuft in ihrer eigenen Verbindung + Commit.
         # Auf PostgreSQL: bricht eine Anweisung ab, bleibt die nächste davon unberührt.
         def safe_alter(sql):
