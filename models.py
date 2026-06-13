@@ -752,6 +752,18 @@ class AccountIdeenContext(db.Model):
     account         = db.relationship('Account', backref=db.backref('ideen_context', uselist=False))
 
 
+class AiUsageLog(db.Model):
+    """Logt jeden KI-API-Call mit Token-Verbrauch und Kostenschätzung."""
+    __tablename__ = 'ai_usage_log'
+    id            = db.Column(db.Integer, primary_key=True)
+    feature       = db.Column(db.String(60), nullable=False)   # caption, kategorisierung, …
+    model         = db.Column(db.String(80), nullable=False)
+    input_tokens  = db.Column(db.Integer, default=0)
+    output_tokens = db.Column(db.Integer, default=0)
+    cost_eur      = db.Column(db.Float,   default=0.0)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class WeatherCache(db.Model):
     """Gecachte Wetterdaten pro Account — verhindert unnötige API-Calls."""
     __tablename__ = 'weather_cache'

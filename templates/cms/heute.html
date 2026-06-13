@@ -361,10 +361,91 @@
 </div>
 {% endif %}
 
+{# ── KI-Verbrauch ── #}
+<div style="margin-bottom:24px">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <i class="fa-solid fa-microchip" style="color:var(--accent2)"></i>
+    <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">KI-VERBRAUCH</span>
+  </div>
+  <div id="aiUsageWidget" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="card" style="padding:16px 20px">
+      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:10px">HEUTE</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end">
+        <div>
+          <div style="font-family:var(--font-display);font-size:28px;color:var(--accent2)" id="ai-today-calls">—</div>
+          <div style="font-size:11px;color:var(--muted)">Anfragen</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:16px;font-weight:700;color:var(--text)" id="ai-today-cost">—</div>
+          <div style="font-size:11px;color:var(--muted)">Kosten</div>
+        </div>
+      </div>
+      <div id="ai-today-tokens" style="font-size:11px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">—</div>
+    </div>
+    <div class="card" style="padding:16px 20px">
+      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:10px">DIESEN MONAT</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end">
+        <div>
+          <div style="font-family:var(--font-display);font-size:28px;color:var(--accent2)" id="ai-month-calls">—</div>
+          <div style="font-size:11px;color:var(--muted)">Anfragen</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:16px;font-weight:700;color:var(--text)" id="ai-month-cost">—</div>
+          <div style="font-size:11px;color:var(--muted)">Kosten</div>
+        </div>
+      </div>
+      <div id="ai-month-breakdown" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:5px"></div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
+const FEATURE_LABELS = {
+  caption:        'Caption',
+  kategorisierung:'Kategorisierung',
+  inspire:        'Inspire',
+  meme_adapt:     'Meme-Adapt',
+  meme_analyse:   'Meme-Analyse',
+  inspo_rewrite:  'Inspo-Rewrite',
+  ideen_analyse:  'Ideen-Analyse',
+  ideen_generate: 'Ideen-Generate',
+};
+
+async function loadAiUsage() {
+  try {
+    const d = await fetch('/api/dashboard/ai-usage').then(r => r.json());
+    const fmt = v => v.toLocaleString('de-DE');
+    const fmtCost = v => v < 0.001 ? '< 0,001 €' : v.toFixed(3).replace('.',',') + ' €';
+
+    // Heute
+    document.getElementById('ai-today-calls').textContent = d.today.calls;
+    document.getElementById('ai-today-cost').textContent  = fmtCost(d.today.cost_eur);
+    document.getElementById('ai-today-tokens').textContent =
+      `${fmt(d.today.input_tokens)} Input + ${fmt(d.today.output_tokens)} Output Tokens`;
+
+    // Monat
+    document.getElementById('ai-month-calls').textContent = d.month.calls;
+    document.getElementById('ai-month-cost').textContent  = fmtCost(d.month.cost_eur);
+
+    // Feature-Breakdown als Chips
+    const bd = document.getElementById('ai-month-breakdown');
+    const features = Object.entries(d.month.by_feature)
+      .sort((a,b) => b[1].calls - a[1].calls);
+    bd.innerHTML = features.length
+      ? features.map(([f, v]) =>
+          `<span style="font-size:10px;padding:2px 8px;border-radius:8px;
+                        background:rgba(59,130,246,.1);color:var(--accent2)">
+            ${FEATURE_LABELS[f]||f} × ${v.calls}
+           </span>`).join('')
+      : '<span style="font-size:11px;color:var(--muted)">Noch keine Nutzung</span>';
+  } catch(e) {}
+}
+
+document.addEventListener('DOMContentLoaded', loadAiUsage);
+
 async function markTgPosted(postId, btn) {
   btn.disabled = true;
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';

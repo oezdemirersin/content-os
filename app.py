@@ -706,6 +706,15 @@ def init_db():
                 fired_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 post_id INTEGER REFERENCES scheduled_post(id),
                 city_name VARCHAR(100), temperature FLOAT)''')
+            # ai_usage_log
+            safe_alter('''CREATE TABLE IF NOT EXISTS ai_usage_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feature VARCHAR(60) NOT NULL,
+                model VARCHAR(80) NOT NULL,
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                cost_eur FLOAT DEFAULT 0.0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
             # media_item: Duplikat-Hash
             mi_cols = [c['name'] for c in inspector.get_columns('media_item')]
             if 'image_hash' not in mi_cols:
@@ -1424,6 +1433,7 @@ Antworte NUR mit diesem JSON (kein anderer Text):
         system='Du bist ein Content-Klassifizierer für deutsche Instagram-Seiten. Antworte AUSSCHLIESSLICH mit dem JSON-Objekt.',
         messages=[{'role': 'user', 'content': content}]
     )
+    _log_ai('kategorisierung', resp)
     raw = resp.content[0].text.strip()
     if '```' in raw:
         _m = _re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', raw)
@@ -2000,6 +2010,35 @@ def dashboard():
 
 # ─────────────────────── HEUTE / DAILY ACTION CENTER ────────────────────────
 
+@app.route('/api/dashboard/ai-usage')
+@login_required
+def dashboard_ai_usage():
+    """KI-Verbrauch: heute und diesen Monat."""
+    from datetime import date as _d
+    today   = datetime.utcnow().date()
+    month_start = datetime(today.year, today.month, 1)
+
+    rows_today = AiUsageLog.query.filter(
+        AiUsageLog.created_at >= datetime.combine(today, datetime.min.time())
+    ).all()
+    rows_month = AiUsageLog.query.filter(AiUsageLog.created_at >= month_start).all()
+
+    def summarise(rows):
+        total_in   = sum(r.input_tokens  for r in rows)
+        total_out  = sum(r.output_tokens for r in rows)
+        total_cost = sum(r.cost_eur      for r in rows)
+        by_feature = {}
+        for r in rows:
+            by_feature.setdefault(r.feature, {'calls': 0, 'cost': 0.0})
+            by_feature[r.feature]['calls'] += 1
+            by_feature[r.feature]['cost']  += r.cost_eur
+        return {'calls': len(rows), 'input_tokens': total_in,
+                'output_tokens': total_out, 'cost_eur': round(total_cost, 4),
+                'by_feature': by_feature}
+
+    return jsonify({'today': summarise(rows_today), 'month': summarise(rows_month)})
+
+
 @app.route('/heute')
 @login_required
 def heute():
@@ -2327,6 +2366,7 @@ Nur das JSON-Array, keine Erklärungen drumherum."""
             system=system,
             messages=[{'role': 'user', 'content': user_prompt}]
         )
+        _log_ai('inspire', msg)
         raw = msg.content[0].text.strip()
 
         if '```' in raw:
@@ -6964,6 +7004,7 @@ Nur die Städte in der Liste, kein extra Text, nur das JSON-Objekt."""
             system=_MEME_SYSTEM_PROMPT,
             messages=[{'role': 'user', 'content': user_prompt}]
         )
+        _log_ai('meme_adapt', message)
         raw = message.content[0].text.strip()
 
         # JSON extrahieren (falls Claude Markdown-Blöcke drumherum schreibt)
@@ -7189,6 +7230,7 @@ Antworte NUR mit dem JSON-Objekt (kein Markdown, kein anderer Text)."""
             model='claude-opus-4-5',
             max_tokens=6000,
             system=_MEME_IMAGE_ANALYSIS_PROMPT,
+
             messages=[{
                 'role': 'user',
                 'content': [
@@ -7203,6 +7245,7 @@ Antworte NUR mit dem JSON-Objekt (kein Markdown, kein anderer Text)."""
                 ]
             }]
         )
+        _log_ai('meme_analyse', message)
         raw = message.content[0].text.strip()
 
         # JSON extrahieren
@@ -8037,6 +8080,7 @@ def inspiration_rewrite(post_id):
                 'role': 'user',
                 'content': (
                     "Formuliere diese Instagram-Caption komplett um.\n"
+
                     "Regeln:\n"
                     "- Behalte exakt denselben Kontext, Humor, Tonalität und die Kernaussage\n"
                     "- Kein Satz darf identisch zur Vorlage sein\n"
@@ -8047,6 +8091,7 @@ def inspiration_rewrite(post_id):
                 )
             }]
         )
+        _log_ai('inspo_rewrite', msg)
         rewritten = msg.content[0].text.strip()
         return jsonify({'ok': True, 'rewritten': rewritten})
     except Exception as e:
@@ -8950,6 +8995,7 @@ FUSSBALL: [Ja / Nein]"""
                 {'type': 'text', 'text': prompt}
             ]}]
         )
+        _log_ai('caption', resp)
         text = resp.content[0].text.strip()
     except Exception as e:
         return jsonify({'ok': False, 'error': f'Claude-Fehler: {e}'})
@@ -9398,6 +9444,7 @@ Sei konkret. Beziehe dich auf die Beitrags-Daten. Keine allgemeinen Social-Media
             max_tokens=1500,
             messages=[{'role': 'user', 'content': prompt}]
         )
+        _log_ai('ideen_analyse', resp)
         analysis = resp.content[0].text.strip()
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
@@ -9462,6 +9509,7 @@ Wichtig: Ideen müssen sehr spezifisch und umsetzbar sein. Keine generischen Tip
             max_tokens=4000,
             messages=[{'role': 'user', 'content': prompt}]
         )
+        _log_ai('ideen_generate', resp)
         raw = resp.content[0].text.strip()
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
@@ -9517,6 +9565,29 @@ def save_idea_to_vorrat(account_id):
 # ═══════════════════════════════════════════════════════════════
 # KOOPERATIONS-TRACKER
 # ═══════════════════════════════════════════════════════════════
+
+_AI_PRICING = {
+    # USD pro Million Tokens → in EUR (×0.92)
+    'claude-haiku-4-5':           {'in': 0.80,  'out': 4.00},
+    'claude-haiku-4-5-20251001':  {'in': 0.80,  'out': 4.00},
+    'claude-sonnet-4-6':          {'in': 3.00,  'out': 15.00},
+    'claude-opus-4-5':            {'in': 15.00, 'out': 75.00},
+    'claude-opus-4-8':            {'in': 15.00, 'out': 75.00},
+}
+
+def _log_ai(feature, resp):
+    """Logt einen API-Call nach client.messages.create(). resp = Anthropic-Response."""
+    try:
+        p = _AI_PRICING.get(resp.model, {'in': 3.00, 'out': 15.00})
+        it, ot = resp.usage.input_tokens, resp.usage.output_tokens
+        cost = (it * p['in'] + ot * p['out']) / 1_000_000 * 0.92
+        entry = AiUsageLog(feature=feature, model=resp.model,
+                           input_tokens=it, output_tokens=ot, cost_eur=cost)
+        db.session.add(entry)
+        db.session.commit()
+    except Exception:
+        pass
+
 
 def _koop_ref_date(k):
     """Primäres Datum einer Koop: frühestes Posting → start_date → deadline → created_at."""
