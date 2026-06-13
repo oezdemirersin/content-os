@@ -201,6 +201,8 @@ PUBLIC_ENDPOINTS = {'login', 'logout', 'static'}
 def global_auth_guard():
     if request.endpoint and request.endpoint not in PUBLIC_ENDPOINTS:
         if not session.get('user_id'):
+            if request.path.startswith('/api/') or request.is_json:
+                return jsonify({'ok': False, 'error': 'Session abgelaufen – bitte neu anmelden.'}), 401
             return redirect(url_for('login', next=request.path))
 
 

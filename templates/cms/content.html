@@ -364,18 +364,23 @@ async function deleteContent(id, btn) {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ids:[id], action:'delete'})
     });
+    if (res.status === 401) {
+      showToast('Session abgelaufen – Seite wird neu geladen.', 'warning');
+      setTimeout(() => location.reload(), 1500);
+      return;
+    }
     const d = await res.json();
     if (d.ok) {
       if (card) { card.style.opacity='0.2'; card.style.pointerEvents='none'; }
       showToast('Inhalt gelöscht.');
       setTimeout(() => location.reload(), 500);
     } else {
-      showToast('Fehler beim Löschen.', 'error');
+      showToast(d.error || 'Fehler beim Löschen.', 'error');
       btn.disabled = false;
       btn.innerHTML = '<i class="fa-solid fa-trash"></i>';
     }
   } catch(e) {
-    showToast('Netzwerkfehler: ' + e.message, 'error');
+    showToast('Fehler: ' + e.message, 'error');
     btn.disabled = false;
     btn.innerHTML = '<i class="fa-solid fa-trash"></i>';
   }
