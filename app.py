@@ -512,6 +512,28 @@ def init_db():
                 content_item_id INTEGER REFERENCES content_item(id),
                 reminder_sent BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_name VARCHAR(200)')
+            safe_alter("ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) DEFAULT 'offen'")
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS start_date DATE')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS deliverables TEXT')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS partner_rating INTEGER')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS payment_due_date DATE')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(100)')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS invoice_sent_at DATE')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS payment_received_at DATE')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS payment_notes TEXT')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS posting_dates TEXT')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS invoice_reminder_sent BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS payment_reminder_sent BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS campaign_name VARCHAR(200)')
+            safe_alter('''CREATE TABLE IF NOT EXISTS ai_usage_log (
+                id SERIAL PRIMARY KEY,
+                feature VARCHAR(60) NOT NULL,
+                model VARCHAR(80) NOT NULL,
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                cost_eur FLOAT DEFAULT 0.0,
+                created_at TIMESTAMP DEFAULT NOW())''')
             # ── Content-Ideen-Kontext ─────────────────────────────────────
             safe_alter('''CREATE TABLE IF NOT EXISTS account_ideen_context (
                 id SERIAL PRIMARY KEY,

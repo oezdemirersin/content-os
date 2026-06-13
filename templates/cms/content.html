@@ -317,23 +317,29 @@ async function bulkAction(action, value) {
   if (action==='delete') {
     if (!confirm(`${ids.length} Inhalt(e) wirklich löschen?`)) return;
   }
-  const res = await fetch('/api/content/bulk', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ids, action, value})
-  });
-  const d = await res.json();
-  if (d.ok) {
-    if (action==='delete') {
-      ids.forEach(id => {
-        const cb = document.querySelector(`.item-checkbox[data-id="${id}"]`);
-        if (cb) cb.closest('.card').remove();
-      });
-      showToast(`${ids.length} Inhalt(e) gelöscht.`);
-      updateBulkBar();
-    } else {
-      showToast('Aktualisiert.');
-      setTimeout(()=>location.reload(), 600);
+  try {
+    const res = await fetch('/api/content/bulk', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ids, action, value})
+    });
+    if (res.status === 401) {
+      showToast('Session abgelaufen – bitte neu anmelden.', 'warning');
+      setTimeout(() => location.href = '/login', 1500);
+      return;
     }
+    if (!res.ok) {
+      showToast('Server-Fehler ' + res.status, 'error');
+      return;
+    }
+    const d = await res.json();
+    if (d.ok) {
+      showToast(action==='delete' ? `${ids.length} Inhalt(e) gelöscht.` : 'Aktualisiert.');
+      setTimeout(() => location.reload(), 600);
+    } else {
+      showToast(d.error || 'Fehler beim Ausführen.', 'error');
+    }
+  } catch(e) {
+    showToast('Fehler: ' + e.message, 'error');
   }
 }
 function selectAll() {
@@ -355,13 +361,7 @@ function toggleCardSelected(cb) {
   }
 }
 async function deleteContent(id, btn) {
-  showToast('Schritt 1: Button geklickt ID=' + id, 'info');
-  if (!confirm('Diesen Inhalt wirklich löschen?')) {
-    showToast('Abgebrochen (confirm=false)', 'warning');
-    return;
-  }
-  showToast('Schritt 2: Sende API-Request...', 'info');
-  const card = document.getElementById('content-card-' + id);
+  if (!confirm('Diesen Inhalt wirklich löschen?')) return;
   btn.disabled = true;
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
   try {
@@ -369,26 +369,23 @@ async function deleteContent(id, btn) {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ids:[id], action:'delete'})
     });
-    showToast('Schritt 3: HTTP Status=' + res.status, 'info');
     if (res.status === 401) {
-      showToast('Session abgelaufen – Seite wird neu geladen.', 'warning');
-      setTimeout(() => location.reload(), 1500);
+      showToast('Session abgelaufen – bitte neu anmelden.', 'warning');
+      setTimeout(() => location.href = '/login', 1500);
       return;
     }
-    const text = await res.text();
-    showToast('Schritt 4: Response=' + text.substring(0,80), 'info');
-    const d = JSON.parse(text);
+    if (!res.ok) { showToast('Server-Fehler ' + res.status, 'error'); btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-trash"></i>'; return; }
+    const d = await res.json();
     if (d.ok) {
-      if (card) { card.style.opacity='0.2'; card.style.pointerEvents='none'; }
-      showToast('Erfolgreich gelöscht! Lade neu...');
-      setTimeout(() => location.reload(), 1500);
+      showToast('Inhalt gelöscht.');
+      setTimeout(() => location.reload(), 500);
     } else {
-      showToast(d.error || 'Fehler: ok=false', 'error');
+      showToast(d.error || 'Fehler beim Löschen.', 'error');
       btn.disabled = false;
       btn.innerHTML = '<i class="fa-solid fa-trash"></i>';
     }
   } catch(e) {
-    showToast('Exception: ' + e.message, 'error');
+    showToast('Fehler: ' + e.message, 'error');
     btn.disabled = false;
     btn.innerHTML = '<i class="fa-solid fa-trash"></i>';
   }
