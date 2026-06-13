@@ -190,6 +190,9 @@
             <i class="fa-solid fa-copy"></i>
           </button>
         </form>
+        <button onclick="deleteContent({{ item.id }})" class="icon-btn" style="font-size:12px;padding:5px;color:var(--danger)" title="Löschen">
+          <i class="fa-solid fa-trash"></i>
+        </button>
       </div>
     </div>
   </div>
@@ -308,6 +311,16 @@ async function bulkAction(action, value) {
   });
   const d = await res.json();
   if (d.ok) { showToast(action==='delete' ? `${ids.length} Inhalt(e) gelöscht.` : 'Aktualisiert.'); setTimeout(()=>location.reload(), 800); }
+}
+async function deleteContent(id) {
+  const ok = await customConfirm('Content löschen', 'Diesen Inhalt wirklich löschen?');
+  if (!ok) return;
+  const res = await fetch('/api/content/bulk', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ids:[id], action:'delete'})
+  });
+  const d = await res.json();
+  if (d.ok) { showToast('Inhalt gelöscht.'); setTimeout(()=>location.reload(), 600); }
 }
 async function quickStatus(id, sel) {
   await fetch(`/content/${id}/status`, {
