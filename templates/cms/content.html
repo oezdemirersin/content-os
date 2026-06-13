@@ -99,9 +99,8 @@
        onmouseover="this.style.borderColor='rgba(255,255,255,0.12)'" onmouseout="this.style.borderColor='var(--border)'">
     <!-- Checkbox -->
     <div style="position:absolute;top:14px;left:14px;z-index:2">
-      <input type="checkbox" class="item-checkbox" data-id="{{ item.id }}" onchange="updateBulkBar()"
-             style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;
-                    opacity:0;transition:opacity .15s" class="item-cb">
+      <input type="checkbox" class="item-checkbox" data-id="{{ item.id }}" onchange="updateBulkBar();toggleCardSelected(this)"
+             style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer">
     </div>
 
     <div style="padding:16px 16px 12px 38px">
@@ -294,7 +293,11 @@ function updateBulkBar() {
   bar.style.display = ids.length ? 'flex' : 'none';
 }
 function deselectAll() {
-  document.querySelectorAll('.item-checkbox').forEach(c=>{c.checked=false;c.style.opacity='';});
+  document.querySelectorAll('.item-checkbox').forEach(c=>{
+    c.checked=false;
+    const card=c.closest('.card');
+    if(card){card.style.borderColor='var(--border)';card.style.boxShadow='';}
+  });
   updateBulkBar();
 }
 async function bulkAction(action, value) {
@@ -311,6 +314,16 @@ async function bulkAction(action, value) {
   });
   const d = await res.json();
   if (d.ok) { showToast(action==='delete' ? `${ids.length} Inhalt(e) gelöscht.` : 'Aktualisiert.'); setTimeout(()=>location.reload(), 800); }
+}
+function toggleCardSelected(cb) {
+  const card = cb.closest('.card');
+  if (cb.checked) {
+    card.style.borderColor = 'var(--accent)';
+    card.style.boxShadow = '0 0 0 1px var(--accent)';
+  } else {
+    card.style.borderColor = 'var(--border)';
+    card.style.boxShadow = '';
+  }
 }
 async function deleteContent(id) {
   const ok = await customConfirm('Content löschen', 'Diesen Inhalt wirklich löschen?');
