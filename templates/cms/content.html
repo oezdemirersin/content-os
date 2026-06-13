@@ -355,7 +355,12 @@ function toggleCardSelected(cb) {
   }
 }
 async function deleteContent(id, btn) {
-  if (!confirm('Diesen Inhalt wirklich löschen?')) return;
+  showToast('Schritt 1: Button geklickt ID=' + id, 'info');
+  if (!confirm('Diesen Inhalt wirklich löschen?')) {
+    showToast('Abgebrochen (confirm=false)', 'warning');
+    return;
+  }
+  showToast('Schritt 2: Sende API-Request...', 'info');
   const card = document.getElementById('content-card-' + id);
   btn.disabled = true;
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
@@ -364,23 +369,26 @@ async function deleteContent(id, btn) {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ids:[id], action:'delete'})
     });
+    showToast('Schritt 3: HTTP Status=' + res.status, 'info');
     if (res.status === 401) {
       showToast('Session abgelaufen – Seite wird neu geladen.', 'warning');
       setTimeout(() => location.reload(), 1500);
       return;
     }
-    const d = await res.json();
+    const text = await res.text();
+    showToast('Schritt 4: Response=' + text.substring(0,80), 'info');
+    const d = JSON.parse(text);
     if (d.ok) {
       if (card) { card.style.opacity='0.2'; card.style.pointerEvents='none'; }
-      showToast('Inhalt gelöscht.');
-      setTimeout(() => location.reload(), 500);
+      showToast('Erfolgreich gelöscht! Lade neu...');
+      setTimeout(() => location.reload(), 1500);
     } else {
-      showToast(d.error || 'Fehler beim Löschen.', 'error');
+      showToast(d.error || 'Fehler: ok=false', 'error');
       btn.disabled = false;
       btn.innerHTML = '<i class="fa-solid fa-trash"></i>';
     }
   } catch(e) {
-    showToast('Fehler: ' + e.message, 'error');
+    showToast('Exception: ' + e.message, 'error');
     btn.disabled = false;
     btn.innerHTML = '<i class="fa-solid fa-trash"></i>';
   }
