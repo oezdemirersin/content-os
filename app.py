@@ -21,7 +21,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     MemeTemplate, MemeVariant,
                     InspirationSource, InspirationPost,
                     WeatherCache, WeatherTriggerLog,
-                    ContentSeries, Kooperation, AccountIdeenContext)
+                    ContentSeries, Kooperation, AccountIdeenContext,
+                    AiUsageLog)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
