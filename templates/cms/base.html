@@ -322,9 +322,25 @@
     }
     @media(max-width:600px) {
       #liveClock { display:none; }
-      .topbar { padding:0 14px; gap:6px; }
-      .search-wrap { max-width:none; flex:1; margin:0 4px; }
-      .topbar-title { font-size:16px; }
+      .topbar { padding:0 12px; gap:6px; height:50px; }
+      .topbar-title { font-size:15px; }
+      /* Suche kompakter */
+      .search-wrap { flex:1; max-width:none; margin:0 4px; }
+      .search-shortcut { display:none; }
+      /* Seiteninhalt enger */
+      .page { padding:14px; }
+      .flash-bar { padding:0 14px; }
+      /* Topbar-Buttons ausdünnen */
+      .topbar-hide-mobile { display:none !important; }
+      /* Schnell-Post: nur Icon */
+      .qp-text { display:none; }
+      /* Notification-Dropdown volle Breite */
+      #notifDropdown { width:calc(100vw - 24px); right:-46px; }
+      /* Toast volle Breite */
+      #toastContainer { right:12px; left:12px; bottom:16px; }
+      /* Stat-Cards: 2 Spalten */
+      .stat-card { padding:14px 16px; }
+      .stat-value { font-size:30px; }
     }
   </style>
   {% block head %}{% endblock %}
@@ -535,9 +551,9 @@
       <span id="liveClock"></span>
       <button onclick="openQuickPost()"
               class="btn btn-primary" style="font-size:12px;padding:7px 14px">
-        <i class="fa-solid fa-plus"></i> Schnell-Post
+        <i class="fa-solid fa-plus"></i><span class="qp-text"> Schnell-Post</span>
       </button>
-      <a href="{{ url_for('content_new') }}" class="btn btn-ghost" style="font-size:12px;padding:7px 12px" title="Neuer Content (n)">
+      <a href="{{ url_for('content_new') }}" class="btn btn-ghost topbar-hide-mobile" style="font-size:12px;padding:7px 12px" title="Neuer Content (n)">
         <i class="fa-solid fa-pen-to-square"></i>
       </a>
       <!-- Notification Bell -->
@@ -566,10 +582,10 @@
         </div>
       </div>
       <!-- Feature-Toggles Button -->
-      <button class="icon-btn" onclick="openFeatureToggles()" title="KI-Features an/aus (F)" id="featureToggleBtn">
+      <button class="icon-btn topbar-hide-mobile" onclick="openFeatureToggles()" title="KI-Features an/aus (F)" id="featureToggleBtn">
         <i class="fa-solid fa-sliders"></i>
       </button>
-      <button class="icon-btn" onclick="document.getElementById('shortcutsPanel').style.display='flex'" title="Shortcuts (?)">
+      <button class="icon-btn topbar-hide-mobile" onclick="document.getElementById('shortcutsPanel').style.display='flex'" title="Shortcuts (?)">
         <i class="fa-solid fa-keyboard"></i>
       </button>
     </div>

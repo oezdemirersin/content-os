@@ -4,71 +4,85 @@
 
 {% block content %}
 {# ── Schnell-Übersicht (Zahlen-Chips oben) ── #}
-<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:28px">
+<style>
+@media(max-width:600px){
+  .heute-chips { display:grid !important; grid-template-columns:1fr 1fr; gap:8px !important; }
+  .heute-chip  { flex:unset !important; min-width:unset !important; padding:12px 14px !important; }
+  .heute-chip .chip-num { font-size:22px !important; }
+  .heute-table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .heute-preview-col { display:none; }
+  .tg-row { flex-wrap:wrap; gap:8px !important; }
+  .tg-row-meta { min-width:unset !important; }
+  .tg-row-btn { width:100%; }
+  .heute-alert { padding:8px 10px !important; }
+}
+</style>
+
+<div class="heute-chips" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:28px">
 
   {% set tg_n = tg_queue|length %}
-  <a href="#tg-queue"
+  <a href="#tg-queue" class="heute-chip"
      style="display:flex;align-items:center;gap:10px;padding:14px 20px;
-            border-radius:14px;text-decoration:none;flex:1;min-width:160px;
+            border-radius:14px;text-decoration:none;flex:1;min-width:140px;
             background:{% if tg_n %}rgba(41,182,246,.1);border:1px solid rgba(41,182,246,.3)
             {% else %}var(--surface);border:1px solid var(--border){% endif %}">
-    <i class="fa-brands fa-telegram" style="font-size:22px;color:{% if tg_n %}#29b6f6{% else %}var(--muted){% endif %}"></i>
+    <i class="fa-brands fa-telegram" style="font-size:20px;color:{% if tg_n %}#29b6f6{% else %}var(--muted){% endif %}"></i>
     <div>
-      <div style="font-family:var(--font-display);font-size:26px;line-height:1;
+      <div class="chip-num" style="font-family:var(--font-display);font-size:26px;line-height:1;
                   color:{% if tg_n %}#29b6f6{% else %}var(--muted){% endif %}">{{ tg_n }}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px">Telegram Queue</div>
     </div>
   </a>
 
   {% set no_n = no_stock|length %}
-  <a href="#no-stock"
+  <a href="#no-stock" class="heute-chip"
      style="display:flex;align-items:center;gap:10px;padding:14px 20px;
-            border-radius:14px;text-decoration:none;flex:1;min-width:160px;
+            border-radius:14px;text-decoration:none;flex:1;min-width:140px;
             background:{% if no_n %}rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3)
             {% else %}var(--surface);border:1px solid var(--border){% endif %}">
-    <i class="fa-solid fa-circle-xmark" style="font-size:22px;color:{% if no_n %}var(--danger){% else %}var(--muted){% endif %}"></i>
+    <i class="fa-solid fa-circle-xmark" style="font-size:20px;color:{% if no_n %}var(--danger){% else %}var(--muted){% endif %}"></i>
     <div>
-      <div style="font-family:var(--font-display);font-size:26px;line-height:1;
+      <div class="chip-num" style="font-family:var(--font-display);font-size:26px;line-height:1;
                   color:{% if no_n %}var(--danger){% else %}var(--muted){% endif %}">{{ no_n }}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px">Kein Vorrat</div>
     </div>
   </a>
 
   {% set cr_n = critical_stock|length %}
-  <a href="#critical-stock"
+  <a href="#critical-stock" class="heute-chip"
      style="display:flex;align-items:center;gap:10px;padding:14px 20px;
-            border-radius:14px;text-decoration:none;flex:1;min-width:160px;
+            border-radius:14px;text-decoration:none;flex:1;min-width:140px;
             background:{% if cr_n %}rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.3)
             {% else %}var(--surface);border:1px solid var(--border){% endif %}">
-    <i class="fa-solid fa-triangle-exclamation" style="font-size:22px;color:{% if cr_n %}#f97316{% else %}var(--muted){% endif %}"></i>
+    <i class="fa-solid fa-triangle-exclamation" style="font-size:20px;color:{% if cr_n %}#f97316{% else %}var(--muted){% endif %}"></i>
     <div>
-      <div style="font-family:var(--font-display);font-size:26px;line-height:1;
+      <div class="chip-num" style="font-family:var(--font-display);font-size:26px;line-height:1;
                   color:{% if cr_n %}#f97316{% else %}var(--muted){% endif %}">{{ cr_n }}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px">Kritischer Vorrat</div>
     </div>
   </a>
 
   {% set lo_n = low_stock|length %}
-  <a href="#low-stock"
+  <a href="#low-stock" class="heute-chip"
      style="display:flex;align-items:center;gap:10px;padding:14px 20px;
-            border-radius:14px;text-decoration:none;flex:1;min-width:160px;
+            border-radius:14px;text-decoration:none;flex:1;min-width:140px;
             background:{% if lo_n %}rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25)
             {% else %}var(--surface);border:1px solid var(--border){% endif %}">
-    <i class="fa-solid fa-battery-half" style="font-size:22px;color:{% if lo_n %}var(--warning){% else %}var(--muted){% endif %}"></i>
+    <i class="fa-solid fa-battery-half" style="font-size:20px;color:{% if lo_n %}var(--warning){% else %}var(--muted){% endif %}"></i>
     <div>
-      <div style="font-family:var(--font-display);font-size:26px;line-height:1;
+      <div class="chip-num" style="font-family:var(--font-display);font-size:26px;line-height:1;
                   color:{% if lo_n %}var(--warning){% else %}var(--muted){% endif %}">{{ lo_n }}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px">Niedriger Vorrat</div>
     </div>
   </a>
 
-  <a href="#posts-today"
+  <a href="#posts-today" class="heute-chip"
      style="display:flex;align-items:center;gap:10px;padding:14px 20px;
-            border-radius:14px;text-decoration:none;flex:1;min-width:160px;
+            border-radius:14px;text-decoration:none;flex:1;min-width:140px;
             background:var(--surface);border:1px solid var(--border)">
-    <i class="fa-solid fa-calendar-day" style="font-size:22px;color:var(--accent2)"></i>
+    <i class="fa-solid fa-calendar-day" style="font-size:20px;color:var(--accent2)"></i>
     <div>
-      <div style="font-family:var(--font-display);font-size:26px;line-height:1;color:var(--accent2)">{{ posts_today|length }}</div>
+      <div class="chip-num" style="font-family:var(--font-display);font-size:26px;line-height:1;color:var(--accent2)">{{ posts_today|length }}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px">Posts heute</div>
     </div>
   </a>
@@ -226,7 +240,7 @@
   {% else %}
   <div id="tgQueueList" style="display:flex;flex-direction:column;gap:8px">
     {% for post in tg_queue %}
-    <div id="tqrow-{{ post.id }}"
+    <div id="tqrow-{{ post.id }}" class="tg-row"
          style="display:flex;align-items:center;gap:12px;padding:12px 16px;
                 background:var(--surface);border:1px solid var(--border);border-radius:10px;
                 transition:opacity .3s,transform .3s">
@@ -246,18 +260,18 @@
           {{ post.account.name if post.account else '—' }}
         </div>
         <div style="font-size:12px;color:var(--text);
-                    overflow:hidden;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical">
+                    overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">
           {{ post.caption or post.title or '(kein Text)' }}
         </div>
       </div>
 
-      <div style="font-size:11px;color:var(--muted);text-align:right;flex-shrink:0;min-width:80px">
+      <div class="tg-row-meta" style="font-size:11px;color:var(--muted);text-align:right;flex-shrink:0;min-width:60px">
         <i class="fa-brands fa-telegram" style="color:#29b6f6"></i>
         {{ post.telegram_sent_at.strftime('%H:%M') if post.telegram_sent_at else '—' }}
       </div>
 
       <button onclick="markTgPosted({{ post.id }}, this)"
-              class="btn btn-primary" style="font-size:11px;padding:6px 12px;white-space:nowrap;flex-shrink:0">
+              class="btn btn-primary tg-row-btn" style="font-size:11px;padding:6px 12px;white-space:nowrap;flex-shrink:0">
         <i class="fa-solid fa-check"></i> Gepostet
       </button>
     </div>
@@ -280,13 +294,13 @@
     Keine Posts für heute geplant.
   </div>
   {% else %}
-  <div class="card" style="overflow:hidden">
-    <table class="table" style="font-size:12px">
+  <div class="card heute-table-wrap" style="overflow:hidden">
+    <table class="table" style="font-size:12px;min-width:360px">
       <thead>
         <tr>
           <th>Uhrzeit</th>
           <th>Account</th>
-          <th>Vorschau</th>
+          <th class="heute-preview-col">Vorschau</th>
           <th style="text-align:center">Status</th>
         </tr>
       </thead>
@@ -302,7 +316,7 @@
               {{ post.account.name if post.account else '—' }}
             </a>
           </td>
-          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">
+          <td class="heute-preview-col" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">
             {{ post.caption or post.title or '—' }}
           </td>
           <td style="text-align:center">
