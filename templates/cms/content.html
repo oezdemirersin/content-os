@@ -67,6 +67,16 @@
   </form>
 </div>
 
+<!-- Auswahl-Leiste (immer sichtbar) -->
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+  <button onclick="selectAll()" class="btn btn-ghost" style="font-size:12px;padding:5px 12px">
+    <i class="fa-solid fa-check-double"></i> Alle auswählen
+  </button>
+  <button onclick="deselectAll()" class="btn btn-ghost" style="font-size:12px;padding:5px 12px" id="deselectBtn" style="display:none">
+    Auswahl aufheben
+  </button>
+</div>
+
 <!-- Bulk bar -->
 <div id="bulkBar" style="display:none;align-items:center;gap:12px;padding:12px 20px;
      background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);
@@ -87,7 +97,7 @@
   <button onclick="bulkAction('status',document.getElementById('bulkStatus').value)" class="btn btn-primary" style="font-size:12px;padding:6px 14px">Status</button>
   <button onclick="bulkAction('category',document.getElementById('bulkCat').value)" class="btn btn-ghost" style="font-size:12px;padding:6px 14px">Kategorie</button>
   <button onclick="bulkAction('delete',null)" class="btn btn-danger" style="font-size:12px;padding:6px 14px">
-    <i class="fa-solid fa-trash"></i> Löschen
+    <i class="fa-solid fa-trash"></i> Ausgewählte löschen
   </button>
   <button onclick="deselectAll()" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;margin-left:auto">Aufheben</button>
 </div>
@@ -189,7 +199,7 @@
             <i class="fa-solid fa-copy"></i>
           </button>
         </form>
-        <button onclick="deleteContent({{ item.id }})" class="icon-btn" style="font-size:12px;padding:5px;color:var(--danger)" title="Löschen">
+        <button onclick="deleteContent({{ item.id }},this)" class="icon-btn" style="font-size:12px;padding:5px;color:var(--danger)" title="Löschen">
           <i class="fa-solid fa-trash"></i>
         </button>
       </div>
@@ -302,21 +312,40 @@ function deselectAll() {
 }
 async function bulkAction(action, value) {
   const ids = getSelectedIds();
-  if (!ids.length) return;
+  if (!ids.length) { showToast('Nichts ausgewählt.', 'warning'); return; }
   if (!value && action!=='delete') { showToast('Bitte einen Wert wählen.', 'warning'); return; }
   if (action==='delete') {
-    const ok = await customConfirm('Inhalte löschen', `${ids.length} Inhalt(e) wirklich löschen?`);
-    if (!ok) return;
+    if (!confirm(`${ids.length} Inhalt(e) wirklich löschen?`)) return;
   }
   const res = await fetch('/api/content/bulk', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({ids, action, value})
   });
   const d = await res.json();
-  if (d.ok) { showToast(action==='delete' ? `${ids.length} Inhalt(e) gelöscht.` : 'Aktualisiert.'); setTimeout(()=>location.reload(), 800); }
+  if (d.ok) {
+    if (action==='delete') {
+      ids.forEach(id => {
+        const cb = document.querySelector(`.item-checkbox[data-id="${id}"]`);
+        if (cb) cb.closest('.card').remove();
+      });
+      showToast(`${ids.length} Inhalt(e) gelöscht.`);
+      updateBulkBar();
+    } else {
+      showToast('Aktualisiert.');
+      setTimeout(()=>location.reload(), 600);
+    }
+  }
+}
+function selectAll() {
+  document.querySelectorAll('.item-checkbox').forEach(cb => {
+    cb.checked = true;
+    toggleCardSelected(cb);
+  });
+  updateBulkBar();
 }
 function toggleCardSelected(cb) {
   const card = cb.closest('.card');
+  if (!card) return;
   if (cb.checked) {
     card.style.borderColor = 'var(--accent)';
     card.style.boxShadow = '0 0 0 1px var(--accent)';
@@ -325,15 +354,19 @@ function toggleCardSelected(cb) {
     card.style.boxShadow = '';
   }
 }
-async function deleteContent(id) {
-  const ok = await customConfirm('Content löschen', 'Diesen Inhalt wirklich löschen?');
-  if (!ok) return;
+async function deleteContent(id, btn) {
+  if (!confirm('Diesen Inhalt wirklich löschen?')) return;
   const res = await fetch('/api/content/bulk', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({ids:[id], action:'delete'})
   });
   const d = await res.json();
-  if (d.ok) { showToast('Inhalt gelöscht.'); setTimeout(()=>location.reload(), 600); }
+  if (d.ok) {
+    const card = btn.closest('.card');
+    card.style.transition = 'opacity .25s';
+    card.style.opacity = '0';
+    setTimeout(() => card.remove(), 250);
+  }
 }
 async function quickStatus(id, sel) {
   await fetch(`/content/${id}/status`, {
