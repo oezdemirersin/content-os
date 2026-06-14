@@ -8,7 +8,7 @@ import mimetypes
 import uuid
 from datetime import datetime, timedelta
 from flask import (Flask, render_template, request, redirect, url_for,
-                   jsonify, flash, send_from_directory)
+                   jsonify, flash, send_from_directory, make_response, abort)
 from werkzeug.utils import secure_filename
 from functools import wraps
 from flask import session
@@ -9517,6 +9517,52 @@ def save_past_posts(account_id):
     ctx.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'ok': True, 'count': len(posts)})
+
+
+@app.route('/api/content-ideen/<int:account_id>/clear-posts', methods=['POST'])
+@login_required
+def clear_past_posts(account_id):
+    """Löscht alle gespeicherten Beiträge eines Accounts."""
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if ctx:
+        ctx.past_posts_json = None
+        ctx.updated_at = datetime.utcnow()
+        db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/proxy-image')
+@login_required
+def proxy_image():
+    """Proxy für Instagram-CDN-Bilder — umgeht Browser-Referrer-Sperren."""
+    from urllib.parse import urlparse as _urlparse
+    url = request.args.get('url', '').strip()
+    if not url or not url.startswith('https://'):
+        abort(400)
+    try:
+        host = _urlparse(url).hostname or ''
+    except Exception:
+        abort(400)
+    allowed = ('cdninstagram.com', 'fbcdn.net', 'scontent')
+    if not any(a in host for a in allowed):
+        abort(403)
+    try:
+        req = _urllib_request.Request(
+            url,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; bot)',
+                'Referer': 'https://www.instagram.com/',
+            }
+        )
+        with _urllib_request.urlopen(req, timeout=10) as r:
+            data = r.read()
+            ctype = r.headers.get('Content-Type', 'image/jpeg').split(';')[0]
+            resp = make_response(data)
+            resp.headers['Content-Type'] = ctype
+            resp.headers['Cache-Control'] = 'public, max-age=3600'
+            return resp
+    except Exception:
+        abort(404)
 
 
 @app.route('/api/content-ideen/<int:account_id>/analyse', methods=['POST'])
