@@ -452,10 +452,17 @@ function invoiceDaysOverdue(k) {
     if (d > 14) return d - 14;
   }
 
-  // 3. Kein Rechnungsdatum, aber Posting liegt zurück → ab 21 Tagen Warnung
+  // 3. Posting-Datum liegt zurück → ab 21 Tagen Warnung
   if (k.posting_dates?.length) {
     const first = [...k.posting_dates].sort()[0];
     const d = Math.floor((Date.now() - new Date(first)) / 86400000);
+    if (d > 21) return d - 21;
+  }
+
+  // 4. Fallback: deadline oder start_date (falls posting_dates nicht gesetzt)
+  const refDate = k.deadline || k.start_date;
+  if (refDate) {
+    const d = Math.floor((Date.now() - new Date(refDate)) / 86400000);
     if (d > 21) return d - 21;
   }
 
