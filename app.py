@@ -22,7 +22,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     InspirationSource, InspirationPost,
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
-                    AiUsageLog)
+                    Partner, AiUsageLog)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -538,22 +538,6 @@ def init_db():
                 active BOOLEAN DEFAULT TRUE,
                 last_scheduled TIMESTAMP,
                 created_at TIMESTAMP DEFAULT NOW())''')
-            # ── Partner-CRM ───────────────────────────────────────────────
-            safe_alter('''CREATE TABLE IF NOT EXISTS partner (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name VARCHAR(200) NOT NULL,
-                company VARCHAR(200),
-                email VARCHAR(200),
-                phone VARCHAR(100),
-                website VARCHAR(500),
-                category VARCHAR(100),
-                status VARCHAR(20) DEFAULT 'aktiv',
-                rating INTEGER,
-                notes TEXT,
-                total_deals INTEGER DEFAULT 0,
-                total_revenue FLOAT DEFAULT 0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
             # ── Kooperationen ─────────────────────────────────────────────
             safe_alter('''CREATE TABLE IF NOT EXISTS kooperation (
                 id SERIAL PRIMARY KEY,
@@ -582,6 +566,24 @@ def init_db():
             safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS invoice_reminder_sent BOOLEAN DEFAULT FALSE')
             safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS payment_reminder_sent BOOLEAN DEFAULT FALSE')
             safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS campaign_name VARCHAR(200)')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS posting_reminder_sent BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS partner_id INTEGER')
+            # ── Partner-CRM ───────────────────────────────────────────────
+            safe_alter('''CREATE TABLE IF NOT EXISTS partner (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(200) NOT NULL,
+                company VARCHAR(200),
+                email VARCHAR(200),
+                phone VARCHAR(100),
+                website VARCHAR(500),
+                category VARCHAR(100),
+                status VARCHAR(20) DEFAULT 'aktiv',
+                rating INTEGER,
+                notes TEXT,
+                total_deals INTEGER DEFAULT 0,
+                total_revenue FLOAT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW())''')
             safe_alter('''CREATE TABLE IF NOT EXISTS ai_usage_log (
                 id SERIAL PRIMARY KEY,
                 feature VARCHAR(60) NOT NULL,
