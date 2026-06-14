@@ -264,6 +264,7 @@
         <th class="sortable" data-col="3" onclick="sortTable(3)" style="text-align:center;cursor:pointer;user-select:none">Vorrat <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th style="text-align:center">Status</th>
         <th style="text-align:center">Priorität</th>
+        <th style="text-align:center">Ziel/Wo</th>
         <th></th>
       </tr>
     </thead>
@@ -360,6 +361,14 @@
           <span style="font-size:11px;font-weight:700;color:var(--muted)">● Niedrig</span>
           {% endif %}
         </td>
+        <td style="text-align:center">
+          {% set ppw = acc.posts_per_week or 0 %}
+          <button onclick="editWeeklyGoal({{ acc.id }}, {{ ppw }})"
+                  title="Posting-Ziel pro Woche setzen"
+                  style="background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:6px;font-size:12px;font-weight:700;color:{% if ppw > 0 %}var(--accent2){% else %}var(--muted){% endif %}">
+            {% if ppw > 0 %}{{ ppw }}x{% else %}—{% endif %}
+          </button>
+        </td>
         <td>
           <div style="display:flex;gap:2px" class="row-actions">
             <a href="{{ url_for('account_detail', account_id=acc.id) }}" class="icon-btn" style="font-size:13px;padding:6px" title="Details">
@@ -384,7 +393,7 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="9" style="text-align:center;padding:60px 20px">
+        <td colspan="10" style="text-align:center;padding:60px 20px">
           <i class="fa-solid fa-layer-group" style="font-size:32px;color:var(--border);display:block;margin-bottom:12px"></i>
           <div style="font-size:14px;color:var(--muted);margin-bottom:12px">Keine Accounts gefunden</div>
           <a href="{{ url_for('account_new') }}" class="btn btn-primary">
@@ -432,6 +441,19 @@
 .sortable:hover { color:var(--text) !important; }
 </style>
 <script>
+// ── Posting-Ziel (posts_per_week) ──
+async function editWeeklyGoal(accountId, current) {
+  const val = window.prompt(`Posting-Ziel pro Woche für diesen Account (0 = kein Ziel):`, current);
+  if (val === null) return;
+  const n = parseInt(val) || 0;
+  const r = await fetch(`/api/accounts/${accountId}/weekly-goal`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({posts_per_week: n})
+  });
+  if ((await r.json()).ok) location.reload();
+  else showToast('Fehler beim Speichern', 'error');
+}
+
 // ── Sortable table ──
 let sortDir = {};
 function sortTable(colIndex) {

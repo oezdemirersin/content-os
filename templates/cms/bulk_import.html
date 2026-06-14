@@ -397,11 +397,20 @@ function buildScheduleGrid(accountId) {
       </div>
 
       <!-- Caption -->
-      <div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">${item.title}</div>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <div style="font-size:12px;color:var(--muted)">${item.title}</div>
+          ${item.thumb ? `<button onclick="generateCaptions(${i}, ${item.id})"
+            id="capBtn-${i}"
+            style="border:none;background:rgba(99,102,241,.15);color:#818cf8;border-radius:6px;
+                   padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap">
+            ✨ KI-Caption
+          </button>` : ''}
+        </div>
         <input type="text" placeholder="Caption (optional — kann später ergänzt werden)"
                class="input-field" id="cap-${i}"
                style="font-size:12px;padding:6px 10px;width:100%">
+        <div id="capSuggestions-${i}" style="display:none;margin-top:6px;flex-direction:column;gap:4px"></div>
       </div>
 
       <!-- Datum-Toggle -->
@@ -604,6 +613,50 @@ function resetForNewBatch() {
   document.getElementById('previewGrid').style.display    = 'none';
   document.getElementById('previewCount').textContent     = '';
   goToPhase1();
+}
+
+// ── Auto-Caption via KI ────────────────────────────────────────
+async function generateCaptions(rowIdx, mediaId) {
+  const btn  = document.getElementById(`capBtn-${rowIdx}`);
+  const sugg = document.getElementById(`capSuggestions-${rowIdx}`);
+  if (!btn || !sugg) return;
+
+  // Account aus Phase-1 auslesen (welcher Account gerade ausgewählt)
+  const selectedAccount = document.querySelector('.acc-option.selected');
+  const accountId = selectedAccount ? parseInt(selectedAccount.dataset.id) : null;
+
+  btn.textContent = '⏳ …';
+  btn.disabled    = true;
+
+  const r    = await fetch(`/api/media/${mediaId}/generate-captions`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({account_id: accountId})
+  });
+  const data = await r.json();
+  btn.textContent = '✨ KI-Caption';
+  btn.disabled    = false;
+
+  if (!data.ok) { showToast(data.error || 'Fehler', 'error'); return; }
+
+  sugg.style.display = 'flex';
+  sugg.innerHTML = (data.captions || []).map((c, j) => `
+    <div onclick="pickCaption(${rowIdx}, this)"
+         data-caption="${c.replace(/"/g,'&quot;')}"
+         style="padding:7px 10px;background:var(--surface2);border:1px solid var(--border);
+                border-radius:7px;font-size:11px;cursor:pointer;line-height:1.4;
+                transition:border-color .15s"
+         onmouseover="this.style.borderColor='var(--accent)'"
+         onmouseout="this.style.borderColor='var(--border)'">
+      <span style="color:var(--accent2);font-weight:700;margin-right:4px">${j+1}</span>${c}
+    </div>`).join('');
+}
+
+function pickCaption(rowIdx, el) {
+  const cap  = el.dataset.caption;
+  const inp  = document.getElementById(`cap-${rowIdx}`);
+  if (inp) inp.value = cap;
+  const sugg = document.getElementById(`capSuggestions-${rowIdx}`);
+  if (sugg) sugg.style.display = 'none';
 }
 </script>
 {% endblock %}

@@ -187,6 +187,42 @@
     </div>
   </div>
 
+  <!-- Saisonkalender-KI -->
+  <div style="margin-top:24px;border:1px solid var(--border);border-radius:14px;overflow:hidden" id="seasonCalTool">
+    <button onclick="toggleSeasonCal()"
+            style="width:100%;padding:16px 20px;background:var(--surface2);border:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;font-family:var(--font-display);font-size:13px;letter-spacing:.5px;color:var(--text)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <i class="fa-solid fa-calendar-star" style="color:#f59e0b"></i>
+        SAISONKALENDER-KI — Meme-Anlässe der nächsten 4 Wochen
+      </div>
+      <i class="fa-solid fa-chevron-down" id="seasonCalChevron" style="transition:transform .2s;color:var(--muted)"></i>
+    </button>
+    <div id="seasonCalBody" style="display:none;padding:20px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">
+        Claude schaut, was in den nächsten 4 Wochen passiert und schlägt konkrete Meme-Ideen vor.
+      </div>
+      <div style="display:grid;grid-template-columns:200px 1fr;gap:16px;margin-bottom:16px;align-items:end">
+        <div>
+          <label class="form-label">Stadt (optional)</label>
+          <select id="seasonCity" class="select-field">
+            <option value="">Alle Städte</option>
+            {% for city, profile in city_profiles.items() %}
+            <option value="{{ city }}">{{ profile.emoji }} {{ city }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Aktuelle Themen (optional)</label>
+          <input type="text" id="seasonTopics" class="input-field" placeholder="z.B. EM-Viertelfinale, Hitzewelle, GTA6-Release…">
+        </div>
+      </div>
+      <button onclick="generateSeasonCal()" class="btn btn-primary" id="seasonCalBtn">
+        <i class="fa-solid fa-calendar-star"></i> Saisonkalender generieren
+      </button>
+      <div id="seasonCalResult" style="margin-top:20px;display:none"></div>
+    </div>
+  </div>
+
 </div>
 
 <!-- Upload-Modal (Batch) -->
@@ -402,6 +438,55 @@ async function uploadTemplate() {
 }
 
 // ── Caption-Tool ─────────────────────────────────────────────
+function toggleSeasonCal() {
+  const body    = document.getElementById('seasonCalBody');
+  const chevron = document.getElementById('seasonCalChevron');
+  const open    = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  if (chevron) chevron.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+async function generateSeasonCal() {
+  const btn    = document.getElementById('seasonCalBtn');
+  const result = document.getElementById('seasonCalResult');
+  const city   = document.getElementById('seasonCity').value;
+  const topics = document.getElementById('seasonTopics').value.trim();
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Claude denkt…';
+  result.style.display = 'none';
+
+  const res  = await fetch('/api/memes/seasonal-calendar', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({city, current_topics: topics})
+  });
+  const data = await res.json();
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-calendar-star"></i> Saisonkalender generieren';
+
+  if (!data.ok) { showToast(data.error || 'Fehler', 'error'); return; }
+
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px">';
+  (data.weeks || []).forEach(week => {
+    html += `<div class="card" style="padding:16px">
+      <div style="font-family:var(--font-display);font-size:11px;letter-spacing:.5px;color:var(--accent2);margin-bottom:12px">
+        ${week.label}
+      </div>`;
+    (week.ideas || []).forEach(idea => {
+      html += `<div style="padding:10px;background:var(--surface2);border-radius:8px;margin-bottom:8px;font-size:12px">
+        <div style="font-weight:700;color:var(--text);margin-bottom:4px">${idea.anlass || ''}</div>
+        <div style="color:var(--muted);line-height:1.4">${idea.meme_idee || ''}</div>
+        ${idea.format ? `<span style="display:inline-block;margin-top:6px;padding:2px 8px;background:rgba(99,102,241,.15);color:#818cf8;border-radius:6px;font-size:10px;font-weight:700">${idea.format}</span>` : ''}
+      </div>`;
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+
+  result.innerHTML = html;
+  result.style.display = 'block';
+}
+
 function toggleCaptionTool() {
   const body = document.getElementById('captionToolBody');
   const chev = document.getElementById('captionToolChevron');

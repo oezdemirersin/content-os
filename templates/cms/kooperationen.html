@@ -751,6 +751,16 @@ function openDetail(id) {
           ${k.invoice_number ? `<span style="background:var(--accent);color:#fff;border-radius:6px;padding:1px 7px;font-size:10px">${esc(k.invoice_number)}</span>` : ''}
         </a>
       </div>
+      <div style="margin-top:6px;display:flex;gap:6px">
+        <button onclick="openContractGen(${k.id}, '${esc(k.partner_name)}', ${k.amount||0}, 'rechnung')"
+                style="flex:1;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font-body)">
+          <i class="fa-solid fa-file-lines" style="color:#f59e0b"></i> KI-Rechnung
+        </button>
+        <button onclick="openContractGen(${k.id}, '${esc(k.partner_name)}', ${k.amount||0}, 'vertrag')"
+                style="flex:1;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font-body)">
+          <i class="fa-solid fa-file-contract" style="color:#22c55e"></i> KI-Vertrag
+        </button>
+      </div>
     </div>`;
 
   document.getElementById('detailOverlay').style.display = 'block';
@@ -950,5 +960,134 @@ async function deleteKoop(id) {
 }
 
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── Vertrags-/Rechnungs-Generator ─────────────────────────────
+let _contractKoopId = null;
+
+function openContractGen(koopId, partnerName, amount, type) {
+  _contractKoopId = koopId;
+  document.getElementById('cgDocType').value    = type;
+  document.getElementById('cgPartnerName').value = partnerName;
+  document.getElementById('cgAmount').value      = amount || '';
+  document.getElementById('cgDocTypeLabel').textContent = type === 'rechnung' ? 'KI-RECHNUNG GENERIEREN' : 'KI-VERTRAG GENERIEREN';
+  document.getElementById('cgResult').style.display  = 'none';
+  document.getElementById('cgResult').innerHTML      = '';
+  document.getElementById('contractGenModal').style.display = 'flex';
+}
+
+async function generateContract() {
+  const btn = document.getElementById('cgGenerateBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Claude schreibt…';
+
+  const body = {
+    type:             document.getElementById('cgDocType').value,
+    partner_name:     document.getElementById('cgPartnerName').value,
+    amount:           parseFloat(document.getElementById('cgAmount').value) || 0,
+    our_name:         document.getElementById('cgOurName').value,
+    our_address:      document.getElementById('cgOurAddress').value,
+    our_tax_id:       document.getElementById('cgOurTaxId').value,
+    partner_address:  document.getElementById('cgPartnerAddress').value,
+    deliverables_text:document.getElementById('cgDeliverables').value,
+    invoice_number:   document.getElementById('cgInvoiceNumber').value,
+    campaign:         document.getElementById('cgCampaign').value,
+    extra_notes:      document.getElementById('cgExtraNotes').value,
+  };
+
+  const r   = await fetch(`/api/kooperationen/${_contractKoopId}/generate-contract`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  });
+  const data = await r.json();
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Generieren';
+
+  if (!data.ok) { showToast(data.error || 'Fehler', 'error'); return; }
+
+  const result = document.getElementById('cgResult');
+  result.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:10px;padding:20px;background:var(--surface2);max-height:60vh;overflow-y:auto;font-size:13px;line-height:1.7">
+      ${data.html}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button onclick="window.print()" class="btn btn-ghost" style="font-size:12px">
+        <i class="fa-solid fa-print"></i> Drucken
+      </button>
+      <button onclick="copyContract()" class="btn btn-ghost" style="font-size:12px">
+        <i class="fa-solid fa-copy"></i> Kopieren
+      </button>
+    </div>`;
+  result.style.display = 'block';
+  result._rawHtml = data.html;
+}
+
+async function copyContract() {
+  const result = document.getElementById('cgResult');
+  const text = result._rawHtml || result.innerText;
+  await navigator.clipboard.writeText(text);
+  showToast('Kopiert!', 'success');
+}
 </script>
+
+<!-- Vertrags-Generator-Modal -->
+<div id="contractGenModal" style="display:none;position:fixed;inset:0;z-index:600;align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(640px,95vw);max-height:92vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div style="font-family:var(--font-display);font-size:15px;letter-spacing:.5px" id="cgDocTypeLabel">DOKUMENT GENERIEREN</div>
+      <button onclick="document.getElementById('contractGenModal').style.display='none'" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+
+    <input type="hidden" id="cgDocType" value="vertrag">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div style="grid-column:1/-1">
+        <label class="form-label">Unser Name / Impressum</label>
+        <input type="text" id="cgOurName" class="input-field" placeholder="Dein Name oder Firmenname">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Unsere Adresse</label>
+        <input type="text" id="cgOurAddress" class="input-field" placeholder="Musterstraße 1, 12345 Musterstadt">
+      </div>
+      <div>
+        <label class="form-label">Steuernummer / USt-ID</label>
+        <input type="text" id="cgOurTaxId" class="input-field" placeholder="DE123456789">
+      </div>
+      <div>
+        <label class="form-label">Partner-Name</label>
+        <input type="text" id="cgPartnerName" class="input-field">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Partner-Adresse</label>
+        <input type="text" id="cgPartnerAddress" class="input-field" placeholder="Partnerstraße 2, 54321 Partnerstadt">
+      </div>
+      <div>
+        <label class="form-label">Betrag (€)</label>
+        <input type="number" id="cgAmount" class="input-field" placeholder="500">
+      </div>
+      <div>
+        <label class="form-label">Rechnungsnummer</label>
+        <input type="text" id="cgInvoiceNumber" class="input-field" placeholder="R-2024-001">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Kampagne / Projektname</label>
+        <input type="text" id="cgCampaign" class="input-field" placeholder="z.B. Sommerkampagne 2024">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Leistungen / Liefergegenstände</label>
+        <textarea id="cgDeliverables" rows="3" class="input-field" placeholder="z.B. 2× Instagram Feed-Post, 3× Story, 1× Reel"></textarea>
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Weitere Hinweise (optional)</label>
+        <textarea id="cgExtraNotes" rows="2" class="input-field" placeholder="Besondere Absprachen, Fristen, etc."></textarea>
+      </div>
+    </div>
+
+    <button onclick="generateContract()" class="btn btn-primary" id="cgGenerateBtn" style="width:100%;margin-bottom:16px">
+      <i class="fa-solid fa-wand-magic-sparkles"></i> Generieren
+    </button>
+
+    <div id="cgResult" style="display:none"></div>
+  </div>
+</div>
+
 {% endblock %}

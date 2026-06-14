@@ -166,6 +166,9 @@ class Account(db.Model):
     # Smart-Refill: eigener Schwellwert (0 = globale Einstellung verwenden)
     smart_refill_threshold = db.Column(db.Integer, default=0)
 
+    # Posting-Ziel pro Woche (0 = kein Ziel)
+    posts_per_week = db.Column(db.Integer, default=0)
+
     # Relationships
     scheduled_posts = db.relationship('ScheduledPost', backref='account', lazy=True, cascade='all,delete')
     analytics = db.relationship('AnalyticsSnapshot', backref='account', lazy=True, cascade='all,delete')
@@ -730,9 +733,31 @@ class Kooperation(db.Model):
     posting_dates        = db.Column(db.Text)     # JSON: ["2025-03-15", "2025-03-17"]
     invoice_reminder_sent   = db.Column(db.Boolean, default=False)
     payment_reminder_sent   = db.Column(db.Boolean, default=False)
+    posting_reminder_sent   = db.Column(db.Boolean, default=False)  # 3 Tage vor Posting
     campaign_name           = db.Column(db.String(200))
+    partner_id              = db.Column(db.Integer, db.ForeignKey('partner.id'), nullable=True)
     account         = db.relationship('Account', backref='kooperationen')
     content_item    = db.relationship('ContentItem', backref=db.backref('kooperation', uselist=False))
+    partner         = db.relationship('Partner', backref='kooperationen')
+
+
+class Partner(db.Model):
+    """Partner-Datenbank / CRM für Kooperationen."""
+    __tablename__ = 'partner'
+    id           = db.Column(db.Integer, primary_key=True)
+    name         = db.Column(db.String(200), nullable=False)
+    company      = db.Column(db.String(200))
+    email        = db.Column(db.String(200))
+    phone        = db.Column(db.String(100))
+    website      = db.Column(db.String(500))
+    category     = db.Column(db.String(100))   # z.B. Gastronomie, Mode, Sport
+    status       = db.Column(db.String(20), default='aktiv')  # aktiv / inaktiv / blacklist
+    rating       = db.Column(db.Integer)        # 1–5 Sterne
+    notes        = db.Column(db.Text)
+    total_deals  = db.Column(db.Integer, default=0)
+    total_revenue= db.Column(db.Float, default=0.0)
+    created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at   = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class AccountIdeenContext(db.Model):

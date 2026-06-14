@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block title %}Partner-CRM — Content OS{% endblock %}
+{% block page_title %}PARTNER-CRM{% endblock %}
+
+{% block content %}
+<div style="max-width:1100px">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap">
+    <div style="font-size:13px;color:var(--muted)">
+      Alle Kooperationspartner auf einen Blick — Kontakte, Bewertungen, Deal-Historie
+    </div>
+    <button onclick="openPartnerModal()" class="btn btn-primary">
+      <i class="fa-solid fa-plus"></i> Neuer Partner
+    </button>
+  </div>
+
+  <!-- Statistik -->
+  {% set active_partners = partners | selectattr('status', 'eq', 'aktiv') | list %}
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:28px;font-weight:800">{{ partners|length }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Partner gesamt</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:var(--success)">{{ active_partners|length }}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Aktiv</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:28px;font-weight:800;color:var(--accent)">
+        {{ partners | map(attribute='_koop_count') | sum }}
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Kooperationen</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:24px;font-weight:800;color:var(--warning)">
+        {{ partners | map(attribute='_revenue') | sum | round(0) | int }}€
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Umsatz (bezahlt)</div>
+    </div>
+  </div>
+
+  <!-- Partner-Tabelle -->
+  <div class="card" style="overflow:hidden">
+    {% if partners %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Partner</th>
+          <th>Kategorie</th>
+          <th>Kontakt</th>
+          <th style="text-align:center">Koops</th>
+          <th style="text-align:center">Umsatz</th>
+          <th style="text-align:center">Bewertung</th>
+          <th style="text-align:center">Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in partners %}
+        <tr>
+          <td>
+            <div style="font-size:13px;font-weight:600;color:var(--text)">{{ p.name }}</div>
+            {% if p.company %}<div style="font-size:11px;color:var(--muted)">{{ p.company }}</div>{% endif %}
+            {% if p.website %}
+            <a href="{{ p.website }}" target="_blank" style="font-size:10px;color:var(--accent2)">
+              <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:9px"></i> Website
+            </a>
+            {% endif %}
+          </td>
+          <td>
+            {% if p.category %}
+            <span class="badge" style="background:rgba(99,102,241,.15);color:#818cf8">{{ p.category }}</span>
+            {% else %}<span style="color:var(--muted)">—</span>{% endif %}
+          </td>
+          <td>
+            {% if p.email %}
+            <div style="font-size:12px"><i class="fa-solid fa-envelope" style="color:var(--muted);width:14px"></i> {{ p.email }}</div>
+            {% endif %}
+            {% if p.phone %}
+            <div style="font-size:12px"><i class="fa-solid fa-phone" style="color:var(--muted);width:14px"></i> {{ p.phone }}</div>
+            {% endif %}
+            {% if not p.email and not p.phone %}<span style="color:var(--muted)">—</span>{% endif %}
+          </td>
+          <td style="text-align:center">
+            <span style="font-size:16px;font-weight:700;color:var(--accent2)">{{ p._koop_count }}</span>
+          </td>
+          <td style="text-align:center">
+            {% if p._revenue > 0 %}
+            <span style="font-size:13px;font-weight:700;color:var(--success)">{{ p._revenue | round(0) | int }}€</span>
+            {% else %}
+            <span style="color:var(--muted)">—</span>
+            {% endif %}
+          </td>
+          <td style="text-align:center">
+            {% if p.rating %}
+            <span style="font-size:14px">{% for i in range(p.rating) %}⭐{% endfor %}</span>
+            {% else %}<span style="color:var(--muted)">—</span>{% endif %}
+          </td>
+          <td style="text-align:center">
+            {% if p.status == 'aktiv' %}
+            <span class="badge badge-green">Aktiv</span>
+            {% elif p.status == 'inaktiv' %}
+            <span class="badge badge-gray">Inaktiv</span>
+            {% else %}
+            <span class="badge badge-red">Blacklist</span>
+            {% endif %}
+          </td>
+          <td>
+            <div style="display:flex;gap:4px">
+              <button onclick="editPartner({{ p.id }})" class="icon-btn" title="Bearbeiten">
+                <i class="fa-solid fa-pen"></i>
+              </button>
+              <a href="{{ url_for('kooperationen') }}?partner={{ p.name }}" class="icon-btn" title="Kooperationen anzeigen">
+                <i class="fa-solid fa-handshake"></i>
+              </a>
+              <button onclick="deletePartner({{ p.id }}, '{{ p.name }}')" class="icon-btn" style="color:var(--danger)" title="Löschen">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="padding:80px 20px;text-align:center">
+      <div style="font-size:48px;margin-bottom:16px">🤝</div>
+      <div style="font-family:var(--font-display);font-size:18px;margin-bottom:8px">Noch keine Partner</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:20px">Füge deinen ersten Kooperationspartner hinzu</div>
+      <button onclick="openPartnerModal()" class="btn btn-primary">
+        <i class="fa-solid fa-plus"></i> Erster Partner
+      </button>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Partner-Modal -->
+<div id="partnerModal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closePartnerModal()">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(560px,95vw);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div style="font-family:var(--font-display);font-size:16px" id="partnerModalTitle">NEUER PARTNER</div>
+      <button onclick="closePartnerModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+
+    <input type="hidden" id="partnerId" value="">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <label class="form-label">Name *</label>
+        <input type="text" id="partnerName" class="input-field" placeholder="Max Mustermann">
+      </div>
+      <div>
+        <label class="form-label">Unternehmen</label>
+        <input type="text" id="partnerCompany" class="input-field" placeholder="Musterfirma GmbH">
+      </div>
+      <div>
+        <label class="form-label">E-Mail</label>
+        <input type="email" id="partnerEmail" class="input-field" placeholder="max@firma.de">
+      </div>
+      <div>
+        <label class="form-label">Telefon</label>
+        <input type="text" id="partnerPhone" class="input-field" placeholder="+49 …">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Website</label>
+        <input type="url" id="partnerWebsite" class="input-field" placeholder="https://…">
+      </div>
+      <div>
+        <label class="form-label">Kategorie</label>
+        <input type="text" id="partnerCategory" class="input-field" placeholder="z.B. Gastronomie, Mode, Sport">
+      </div>
+      <div>
+        <label class="form-label">Status</label>
+        <select id="partnerStatus" class="select-field">
+          <option value="aktiv">Aktiv</option>
+          <option value="inaktiv">Inaktiv</option>
+          <option value="blacklist">Blacklist</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Bewertung</label>
+        <select id="partnerRating" class="select-field">
+          <option value="">Keine</option>
+          <option value="1">⭐ 1 Stern</option>
+          <option value="2">⭐⭐ 2 Sterne</option>
+          <option value="3">⭐⭐⭐ 3 Sterne</option>
+          <option value="4">⭐⭐⭐⭐ 4 Sterne</option>
+          <option value="5">⭐⭐⭐⭐⭐ 5 Sterne</option>
+        </select>
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Notizen</label>
+        <textarea id="partnerNotes" rows="3" class="input-field" placeholder="Ansprechpartner, Besonderheiten, History…"></textarea>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+      <button onclick="closePartnerModal()" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="savePartner()" class="btn btn-primary" id="partnerSaveBtn">
+        <i class="fa-solid fa-save"></i> Speichern
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openPartnerModal(data) {
+  document.getElementById('partnerId').value    = data?.id || '';
+  document.getElementById('partnerName').value  = data?.name || '';
+  document.getElementById('partnerCompany').value = data?.company || '';
+  document.getElementById('partnerEmail').value   = data?.email || '';
+  document.getElementById('partnerPhone').value   = data?.phone || '';
+  document.getElementById('partnerWebsite').value = data?.website || '';
+  document.getElementById('partnerCategory').value = data?.category || '';
+  document.getElementById('partnerStatus').value  = data?.status || 'aktiv';
+  document.getElementById('partnerRating').value  = data?.rating || '';
+  document.getElementById('partnerNotes').value   = data?.notes || '';
+  document.getElementById('partnerModalTitle').textContent = data?.id ? 'PARTNER BEARBEITEN' : 'NEUER PARTNER';
+  document.getElementById('partnerModal').style.display = 'flex';
+}
+
+function closePartnerModal() {
+  document.getElementById('partnerModal').style.display = 'none';
+}
+
+async function editPartner(id) {
+  const r = await fetch(`/api/partner?q=`);
+  const all = await r.json();
+  const p = all.find(x => x.id === id);
+  if (p) openPartnerModal(p);
+}
+
+async function savePartner() {
+  const id   = document.getElementById('partnerId').value;
+  const name = document.getElementById('partnerName').value.trim();
+  if (!name) { showToast('Name erforderlich', 'error'); return; }
+
+  const btn = document.getElementById('partnerSaveBtn');
+  btn.disabled = true;
+
+  const data = {
+    name,
+    company:  document.getElementById('partnerCompany').value.trim(),
+    email:    document.getElementById('partnerEmail').value.trim(),
+    phone:    document.getElementById('partnerPhone').value.trim(),
+    website:  document.getElementById('partnerWebsite').value.trim(),
+    category: document.getElementById('partnerCategory').value.trim(),
+    status:   document.getElementById('partnerStatus').value,
+    rating:   document.getElementById('partnerRating').value || null,
+    notes:    document.getElementById('partnerNotes').value.trim(),
+  };
+
+  const url    = id ? `/api/partner/${id}` : '/api/partner';
+  const method = id ? 'PUT' : 'POST';
+  const r = await fetch(url, {method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)});
+  const res = await r.json();
+  btn.disabled = false;
+
+  if (res.ok) {
+    showToast('Partner gespeichert', 'success');
+    setTimeout(() => location.reload(), 800);
+  } else {
+    showToast(res.error || 'Fehler', 'error');
+  }
+}
+
+async function deletePartner(id, name) {
+  if (!confirm(`"${name}" wirklich löschen?`)) return;
+  const r = await fetch(`/api/partner/${id}`, {method: 'DELETE'});
+  if ((await r.json()).ok) location.reload();
+}
+</script>
+{% endblock %}

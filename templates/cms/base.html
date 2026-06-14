@@ -418,6 +418,9 @@
     <a href="{{ url_for('kooperationen') }}" class="nav-item {% if active_page == 'kooperationen' %}active{% endif %}">
       <i class="fa-solid fa-handshake"></i> Kooperationen
     </a>
+    <a href="{{ url_for('partner_list') }}" class="nav-sub {% if active_page == 'partner' %}active{% endif %}">
+      <i class="fa-solid fa-address-book"></i> Partner-CRM
+    </a>
 
     <div class="nav-section">System</div>
     <a href="{{ url_for('alerts_center') }}" class="nav-item {% if active_page == 'alerts' %}active{% endif %}">
@@ -527,7 +530,19 @@
             </template>
           </div>
         </template>
-        <template x-if="!results.accounts.length && !results.content.length && q.length > 1">
+        <template x-if="results.kooperationen && results.kooperationen.length">
+          <div>
+            <div class="search-section">Kooperationen</div>
+            <template x-for="k in results.kooperationen" :key="k.id">
+              <a :href="k.url" @click="open=false" class="search-item">
+                <i class="fa-solid fa-handshake" style="color:#f59e0b;font-size:11px;width:14px"></i>
+                <span class="search-item-title" x-text="k.name"></span>
+                <span class="search-item-meta" x-text="k.campaign || k.status"></span>
+              </a>
+            </template>
+          </div>
+        </template>
+        <template x-if="!results.accounts.length && !results.content.length && !(results.kooperationen && results.kooperationen.length) && q.length > 1">
           <div style="padding:20px;text-align:center;font-size:13px;color:var(--muted)">Keine Ergebnisse</div>
         </template>
       </div>
@@ -539,7 +554,7 @@
           if (!comp) return;
           const res = await fetch('/api/search?q=' + encodeURIComponent(comp.q));
           comp.results = await res.json();
-          comp.open = !!(comp.results.accounts.length || comp.results.content.length || comp.results.media.length);
+          comp.open = !!(comp.results.accounts.length || comp.results.content.length || comp.results.media.length || (comp.results.kooperationen && comp.results.kooperationen.length));
         }
       </script>
     </div>

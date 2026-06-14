@@ -524,6 +524,7 @@ def init_db():
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS watermark_opacity FLOAT DEFAULT 0.7')
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS watermark_enabled BOOLEAN DEFAULT FALSE')
             safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS smart_refill_threshold INTEGER DEFAULT 0')
+            safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS posts_per_week INTEGER DEFAULT 0')
             # ── Content-Serien ────────────────────────────────────────────
             safe_alter('''CREATE TABLE IF NOT EXISTS content_series (
                 id SERIAL PRIMARY KEY,
@@ -537,6 +538,22 @@ def init_db():
                 active BOOLEAN DEFAULT TRUE,
                 last_scheduled TIMESTAMP,
                 created_at TIMESTAMP DEFAULT NOW())''')
+            # ── Partner-CRM ───────────────────────────────────────────────
+            safe_alter('''CREATE TABLE IF NOT EXISTS partner (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(200) NOT NULL,
+                company VARCHAR(200),
+                email VARCHAR(200),
+                phone VARCHAR(100),
+                website VARCHAR(500),
+                category VARCHAR(100),
+                status VARCHAR(20) DEFAULT 'aktiv',
+                rating INTEGER,
+                notes TEXT,
+                total_deals INTEGER DEFAULT 0,
+                total_revenue FLOAT DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
             # ── Kooperationen ─────────────────────────────────────────────
             safe_alter('''CREATE TABLE IF NOT EXISTS kooperation (
                 id SERIAL PRIMARY KEY,
@@ -677,6 +694,8 @@ def init_db():
                 safe_alter('ALTER TABLE account ADD COLUMN watermark_enabled BOOLEAN DEFAULT 0')
             if 'smart_refill_threshold' not in account_cols:
                 safe_alter('ALTER TABLE account ADD COLUMN smart_refill_threshold INTEGER DEFAULT 0')
+            if 'posts_per_week' not in account_cols:
+                safe_alter('ALTER TABLE account ADD COLUMN posts_per_week INTEGER DEFAULT 0')
             if 'telegram_chat_id' not in account_cols:
                 safe_alter('ALTER TABLE account ADD COLUMN telegram_chat_id VARCHAR(100)')
             if 'canva_url' not in account_cols:
@@ -737,7 +756,9 @@ def init_db():
                 ('posting_dates',            'ALTER TABLE kooperation ADD COLUMN posting_dates TEXT'),
                 ('invoice_reminder_sent',    'ALTER TABLE kooperation ADD COLUMN invoice_reminder_sent BOOLEAN DEFAULT 0'),
                 ('payment_reminder_sent',    'ALTER TABLE kooperation ADD COLUMN payment_reminder_sent BOOLEAN DEFAULT 0'),
+                ('posting_reminder_sent',    'ALTER TABLE kooperation ADD COLUMN posting_reminder_sent BOOLEAN DEFAULT 0'),
                 ('campaign_name',            'ALTER TABLE kooperation ADD COLUMN campaign_name VARCHAR(200)'),
+                ('partner_id',               'ALTER TABLE kooperation ADD COLUMN partner_id INTEGER REFERENCES partner(id)'),
             ]:
                 if _col not in koop_cols:
                     safe_alter(_ddl)
@@ -3853,8 +3874,8 @@ def ai_config_detail(account_id):
         cfg = AIConfig(
             account_id=account_id,
             caption_tone='humorvoll' if is_meme else 'informativ',
-            caption_min_words=20 if is_meme else 50,
-            caption_max_words=150 if is_meme else 300,
+            caption_min_words=5 if is_meme else 30,
+            caption_max_words=30 if is_meme else 200,  # kurze Captions performen besser
         )
         db.session.add(cfg)
         db.session.commit()
@@ -4368,7 +4389,7 @@ def accounts_bulk():
 def global_search():
     q = request.args.get('q', '').strip()
     if len(q) < 2:
-        return jsonify({'accounts': [], 'content': [], 'media': []})
+        return jsonify({'accounts': [], 'content': [], 'media': [], 'kooperationen': []})
 
     accounts = Account.query.filter(
         Account.name.ilike(f'%{q}%') | Account.handle.ilike(f'%{q}%')
@@ -4382,6 +4403,10 @@ def global_search():
         MediaItem.original_filename.ilike(f'%{q}%')
     ).limit(5).all()
 
+    koops = Kooperation.query.filter(
+        Kooperation.partner_name.ilike(f'%{q}%') | Kooperation.campaign_name.ilike(f'%{q}%')
+    ).limit(4).all()
+
     return jsonify({
         'accounts': [{'id': a.id, 'name': a.name, 'handle': a.handle,
                       'url': url_for('account_detail', account_id=a.id)} for a in accounts],
@@ -4389,6 +4414,10 @@ def global_search():
                       'url': url_for('content_detail', item_id=c.id)} for c in content],
         'media':    [{'id': m.id, 'name': m.original_filename, 'type': m.file_type,
                       'url': url_for('media_library')} for m in media],
+        'kooperationen': [{'id': k.id, 'name': k.partner_name,
+                           'campaign': k.campaign_name or '',
+                           'status': k.status,
+                           'url': url_for('kooperationen')} for k in koops],
     })
 
 
@@ -5665,6 +5694,81 @@ def api_bulk_import():
     db.session.commit()
     log_activity('bulk_import', f'{len(created)} Dateien importiert')
     return jsonify({'ok': True, 'created': created, 'count': len(created)})
+
+
+@app.route('/api/media/<int:media_id>/generate-captions', methods=['POST'])
+@login_required
+def media_generate_captions(media_id):
+    """Generiert 3 Caption-Vorschläge für ein Bild via Claude Vision."""
+    media = MediaItem.query.get_or_404(media_id)
+    if media.file_type != 'image':
+        return jsonify({'ok': False, 'error': 'Nur für Bilder'}), 400
+
+    d = request.get_json() or {}
+    account_id = d.get('account_id')
+    tone = 'informativ'
+    context_text = d.get('context', '')
+
+    account = Account.query.get(account_id) if account_id else None
+    if account and account.ai_config:
+        tone = account.ai_config.caption_tone or tone
+
+    api_key = get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key'}), 400
+
+    try:
+        import anthropic, base64, requests as req_lib
+        client = anthropic.Anthropic(api_key=api_key)
+
+        # Bild laden (URL oder Cloudinary)
+        img_url = media.url
+        resp = req_lib.get(img_url, timeout=10)
+        img_b64 = base64.standard_b64encode(resp.content).decode('utf-8')
+        mime = resp.headers.get('Content-Type', 'image/jpeg').split(';')[0]
+
+        account_info = ''
+        if account:
+            account_info = f'Account: {account.name} | Ton: {tone}'
+            if account.default_hashtags:
+                account_info += f' | Hashtags: {account.default_hashtags}'
+
+        prompt = f"""Du bist ein Social-Media-Texter. Erstelle 3 verschiedene Caption-Vorschläge für dieses Bild.
+
+{account_info}
+{('Kontext: ' + context_text) if context_text else ''}
+
+Regeln:
+- Max. 1–2 kurze Sätze (kurze Captions performen besser!)
+- Passend zur Bildaussage
+- Emojis erlaubt wenn sinnvoll
+- Jede Caption einen anderen Stil: emotional / informativ / Call-to-Action
+
+Antworte NUR mit diesem Format (3 Einträge, kein weiterer Text):
+CAPTION_1: [Text]
+CAPTION_2: [Text]
+CAPTION_3: [Text]"""
+
+        msg = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=600,
+            messages=[{
+                'role': 'user',
+                'content': [
+                    {'type': 'image', 'source': {'type': 'base64', 'media_type': mime, 'data': img_b64}},
+                    {'type': 'text', 'text': prompt}
+                ]
+            }]
+        )
+        raw = msg.content[0].text
+        captions = []
+        for line in raw.split('\n'):
+            for prefix in ['CAPTION_1:', 'CAPTION_2:', 'CAPTION_3:']:
+                if line.startswith(prefix):
+                    captions.append(line[len(prefix):].strip())
+        return jsonify({'ok': True, 'captions': captions[:3]})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/accounts/<int:account_id>/batch-schedule', methods=['POST'])
@@ -7066,6 +7170,87 @@ def meme_detail(template_id):
         open_count=open_count,
         has_ai_key=has_ai_key,
         active_page='memes')
+
+
+@app.route('/api/memes/seasonal-calendar', methods=['POST'])
+@login_required
+def memes_seasonal_calendar():
+    """Generiert saisonale Meme-Ideen für die nächsten 4 Wochen."""
+    from datetime import date as _d
+    d = request.get_json() or {}
+    current_topics = d.get('current_topics', '')
+    city = d.get('city', '')
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert.'}), 400
+
+    today = _d.today()
+    month_names = ['Januar','Februar','März','April','Mai','Juni',
+                   'Juli','August','September','Oktober','November','Dezember']
+    month_name = month_names[today.month - 1]
+
+    city_context = ''
+    if city and city in CITY_PROFILES:
+        cp = CITY_PROFILES[city]
+        city_context = f'Für: {city} ({cp.get("bundesland","")}) — {cp.get("typisch","")}'
+
+    prompt = f"""Heute ist {today.strftime('%d. %B %Y')}.
+
+Erstelle einen Saisonkalender mit Meme-Ideen für die nächsten 4 Wochen.
+{city_context}
+{('Aktuelle Themen: ' + current_topics) if current_topics else ''}
+
+Für jede Woche: 3–4 konkrete Meme-Anlässe. Denke an:
+- Feiertage, Schulferien, saisonale Events
+- Wiederkehrende Kultur-Momente (Bundesliga-Spieltag, Tatort-Sonntag, etc.)
+- Saisonale Klischees (Hitze, Regen, Herbst, etc.)
+- Aktuell trendige Themen (wenn bekannt)
+
+Format:
+WOCHE_1: [Datum-Spanne]
+- ANLASS: [Name] | MEME_IDEE: [konkrete Idee] | FORMAT: [POV/Vergleich/Ranking/etc.]
+- ...
+
+WOCHE_2: ...
+WOCHE_3: ...
+WOCHE_4: ..."""
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=2000,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        raw = msg.content[0].text
+
+        # Parse weeks
+        weeks = []
+        current_week = None
+        for line in raw.split('\n'):
+            line = line.strip()
+            if line.startswith('WOCHE_'):
+                if current_week:
+                    weeks.append(current_week)
+                parts = line.split(':', 1)
+                current_week = {'label': parts[1].strip() if len(parts) > 1 else line, 'ideas': []}
+            elif line.startswith('- ') and current_week is not None:
+                idea_line = line[2:]
+                idea = {}
+                for part in idea_line.split('|'):
+                    if ':' in part:
+                        k, v = part.split(':', 1)
+                        idea[k.strip().lower()] = v.strip()
+                if idea:
+                    current_week['ideas'].append(idea)
+        if current_week:
+            weeks.append(current_week)
+
+        return jsonify({'ok': True, 'weeks': weeks, 'raw': raw})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/memes/adapt', methods=['POST'])
@@ -10045,7 +10230,7 @@ Für jede Idee dieses Format, durch --- getrennt:
 TITEL: [kurzer Titel, max. 60 Zeichen]
 FORMAT: [Foto / Story / Reel / Karussell]
 IDEE: [2-3 Sätze: Was wird gezeigt? Was macht es besonders?]
-CAPTION: [Beispiel-Caption, 2-3 Sätze, kein Hashtag]
+CAPTION: [1-2 kurze Sätze, kein Hashtag — kurze Captions performen besser]
 HASHTAGS: [5-8 passende Hashtags]
 ---
 
@@ -10151,16 +10336,35 @@ def _koop_ref_date(k):
 
 
 def _check_koop_reminders():
-    """Erinnerungen: Rechnung schicken (3W nach Posting) + Zahlung prüfen (2W nach Rechnung)."""
-    from datetime import date as _d
+    """Erinnerungen: 3 Tage vor Posting + Rechnung (3W nach Posting) + Zahlung (2W nach Rechnung)."""
+    from datetime import date as _d, timedelta as _td
     try:
         with app.app_context():
             today = _d.today()
+            in_3_days = today + _td(days=3)
             koops = Kooperation.query.filter(
                 Kooperation.status.in_(['aktiv', 'abgeschlossen'])
             ).all()
             changed = False
             for k in koops:
+                # Erinnerung 0: 3 Tage VOR dem Posting
+                if not getattr(k, 'posting_reminder_sent', False) and k.posting_dates:
+                    try:
+                        dates = [_d.fromisoformat(x) for x in json.loads(k.posting_dates) if x]
+                        upcoming = [d for d in dates if today <= d <= in_3_days]
+                    except: upcoming = []
+                    if upcoming:
+                        next_post = min(upcoming)
+                        days_until = (next_post - today).days
+                        db.session.add(SystemAlert(
+                            account_id=k.account_id,
+                            alert_type='koop_posting_soon',
+                            severity='info',
+                            message=(f'📅 Koop {k.partner_name}: Posting in {days_until} Tag(en) am {next_post}! '
+                                     f'Content bereit?'),
+                        ))
+                        k.posting_reminder_sent = True
+                        changed = True
                 # Erinnerung 1: Rechnung noch nicht gesendet, 3 Wochen nach erstem Posting
                 if (not k.invoice_reminder_sent and not k.invoice_sent_at
                         and not k.payment_received_at and k.posting_dates):
@@ -10419,6 +10623,187 @@ def koop_quick_payment(kid):
 def koop_save_deliverables(kid):
     k = Kooperation.query.get_or_404(kid)
     k.deliverables = json.dumps(request.get_json().get('deliverables', []), ensure_ascii=False)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/kooperationen/<int:kid>/generate-contract', methods=['POST'])
+@login_required
+def koop_generate_contract(kid):
+    """Generiert einen Kooperationsvertrag oder Rechnung via Claude."""
+    k = Kooperation.query.get_or_404(kid)
+    d = request.get_json() or {}
+    doc_type = d.get('type', 'vertrag')  # 'vertrag' oder 'rechnung'
+
+    # Daten aus der Koop + optionale Felder aus Request
+    partner = d.get('partner_name') or k.partner_name
+    amount  = d.get('amount') or k.amount or 0
+    currency = k.currency or 'EUR'
+    our_name = d.get('our_name', '')
+    our_address = d.get('our_address', '')
+    our_tax_id  = d.get('our_tax_id', '')
+    partner_address = d.get('partner_address', '')
+    deliverables_text = d.get('deliverables_text', k.deliverables or '')
+    posting_dates_text = ''
+    if k.posting_dates:
+        try:
+            dates = json.loads(k.posting_dates)
+            posting_dates_text = ', '.join(dates)
+        except: pass
+    invoice_number = d.get('invoice_number') or k.invoice_number or ''
+    campaign = d.get('campaign') or k.campaign_name or ''
+    extra_notes = d.get('extra_notes', '')
+
+    api_key = get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert'}), 400
+
+    if doc_type == 'rechnung':
+        prompt = f"""Erstelle eine professionelle Rechnung auf Deutsch.
+
+RECHNUNGSSTELLER:
+{our_name}
+{our_address}
+Steuernummer / USt-ID: {our_tax_id}
+
+RECHNUNGSEMPFÄNGER:
+{partner}
+{partner_address}
+
+RECHNUNGSNUMMER: {invoice_number or 'R-' + str(k.id).zfill(4)}
+RECHNUNGSDATUM: {datetime.utcnow().strftime('%d.%m.%Y')}
+FÄLLIG BIS: {(datetime.utcnow() + timedelta(days=14)).strftime('%d.%m.%Y')}
+
+LEISTUNG:
+Kampagne/Projekt: {campaign or 'Social-Media-Kooperation'}
+Partner: {partner}
+Posting-Termine: {posting_dates_text or 'nach Vereinbarung'}
+Leistungsbeschreibung: {deliverables_text or 'Social-Media-Posting und Kooperation'}
+
+BETRAG: {amount} {currency} (zzgl. 19% MwSt. falls zutreffend)
+
+{('Hinweise: ' + extra_notes) if extra_notes else ''}
+
+Erstelle die Rechnung als strukturierten, professionellen Text mit allen üblichen Rechnung-Bestandteilen. Nutze HTML-Formatierung (h2, p, table, strong, etc.) damit es druckfertig aussieht."""
+    else:
+        prompt = f"""Erstelle einen professionellen Kooperationsvertrag auf Deutsch.
+
+VERTRAGSPARTEIEN:
+Auftragnehmer: {our_name}, {our_address}
+Auftraggeber: {partner}, {partner_address}
+
+PROJEKT: {campaign or 'Social-Media-Kooperation'}
+VERGÜTUNG: {amount} {currency}
+LEISTUNGEN: {deliverables_text or 'Social-Media-Postings, Kooperation'}
+POSTING-TERMINE: {posting_dates_text or 'nach Vereinbarung'}
+{('WEITERE HINWEISE: ' + extra_notes) if extra_notes else ''}
+
+Erstelle einen vollständigen, rechtlich soliden Vertrag mit:
+- Vertragsgegenstand
+- Leistungen des Auftragnehmers
+- Vergütung und Zahlungsbedingungen
+- Nutzungsrechte und Bildrechte
+- Geheimhaltung
+- Laufzeit und Kündigung
+- Schlussbestimmungen
+
+Nutze HTML-Formatierung (h2, h3, p, ol, strong) damit es druckfertig aussieht."""
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=3000,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        text = msg.content[0].text
+        return jsonify({'ok': True, 'html': text})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ─────────────────────── PARTNER-CRM ────────────────────────────
+
+@app.route('/partner')
+@login_required
+def partner_list():
+    partners = Partner.query.order_by(Partner.name).all()
+    # Statistik je Partner: Anzahl Koops + Umsatz
+    for p in partners:
+        koops = Kooperation.query.filter_by(partner_id=p.id).all()
+        p._koop_count = len(koops)
+        p._revenue = sum(k.amount or 0 for k in koops if k.payment_received_at)
+    return render_template('partner.html', partners=partners, active_page='partner')
+
+
+@app.route('/api/partner', methods=['GET'])
+@login_required
+def api_partner_list():
+    q = request.args.get('q', '').strip()
+    query = Partner.query
+    if q:
+        query = query.filter(Partner.name.ilike(f'%{q}%') | Partner.company.ilike(f'%{q}%'))
+    partners = query.order_by(Partner.name).all()
+    return jsonify([{
+        'id': p.id, 'name': p.name, 'company': p.company or '',
+        'email': p.email or '', 'phone': p.phone or '',
+        'website': p.website or '', 'category': p.category or '',
+        'status': p.status, 'rating': p.rating,
+        'notes': p.notes or ''
+    } for p in partners])
+
+
+@app.route('/api/partner', methods=['POST'])
+@login_required
+def api_partner_create():
+    d = request.get_json() or {}
+    if not d.get('name'):
+        return jsonify({'ok': False, 'error': 'Name erforderlich'}), 400
+    p = Partner(
+        name=d['name'], company=d.get('company', ''),
+        email=d.get('email', ''), phone=d.get('phone', ''),
+        website=d.get('website', ''), category=d.get('category', ''),
+        status=d.get('status', 'aktiv'), rating=d.get('rating'),
+        notes=d.get('notes', '')
+    )
+    db.session.add(p)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': p.id})
+
+
+@app.route('/api/partner/<int:pid>', methods=['PUT'])
+@login_required
+def api_partner_update(pid):
+    p = Partner.query.get_or_404(pid)
+    d = request.get_json() or {}
+    for field in ['name', 'company', 'email', 'phone', 'website', 'category', 'status', 'notes']:
+        if field in d:
+            setattr(p, field, d[field])
+    if 'rating' in d:
+        p.rating = int(d['rating']) if d['rating'] else None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/partner/<int:pid>', methods=['DELETE'])
+@login_required
+def api_partner_delete(pid):
+    p = Partner.query.get_or_404(pid)
+    Kooperation.query.filter_by(partner_id=pid).update({'partner_id': None})
+    db.session.delete(p)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────── POSTING-ZIEL / WEEKLY GOAL ─────────────
+
+@app.route('/api/accounts/<int:account_id>/weekly-goal', methods=['POST'])
+@login_required
+def account_set_weekly_goal(account_id):
+    acc = Account.query.get_or_404(account_id)
+    d = request.get_json() or {}
+    acc.posts_per_week = int(d.get('posts_per_week', 0) or 0)
     db.session.commit()
     return jsonify({'ok': True})
 
