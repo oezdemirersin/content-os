@@ -1411,10 +1411,14 @@ def send_telegram_post(post, account=None, token=None):
     if not ok:
         return False
 
-    # ── 2. Caption als eigene Nachricht (leicht zu kopieren) ───
+    # ── 2. Caption: erst Label, dann Caption ALLEIN (direkt kopierbar) ─
     if post.caption:
-        caption_msg = f'<b>📋 Caption zum Kopieren:</b>\n\n{post.caption}'
-        _tg_send_message(token, chat_id, caption_msg[:4096])
+        _tg_send_message(token, chat_id, '📋 <b>Caption</b> — Nachricht darunter komplett kopieren:')
+        # Reine Caption ohne irgendetwas drumherum → Langdruck → "Text kopieren"
+        _tg_call(token, 'sendMessage', json={
+            'chat_id': chat_id,
+            'text': post.caption[:4096],
+        })
 
     # ── 3. Aktions-Buttons senden ──────────────────────────────
     _tg_send_action_keyboard(token, chat_id, post.id)
