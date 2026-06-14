@@ -438,8 +438,28 @@ function deliverablesSummary(k) {
 }
 
 function invoiceDaysOverdue(k) {
-  if (!k.invoice_sent_at || k.payment_received_at) return 0;
-  return Math.floor((Date.now() - new Date(k.invoice_sent_at)) / 86400000);
+  if (k.payment_received_at || k.payment_status === 'bezahlt') return 0;
+
+  // 1. Explizites Zahlungsziel überschritten
+  if (k.payment_due_date) {
+    const d = Math.floor((Date.now() - new Date(k.payment_due_date)) / 86400000);
+    if (d > 0) return d;
+  }
+
+  // 2. Rechnung gesendet → ab 14 Tagen überfällig
+  if (k.invoice_sent_at) {
+    const d = Math.floor((Date.now() - new Date(k.invoice_sent_at)) / 86400000);
+    if (d > 14) return d - 14;
+  }
+
+  // 3. Kein Rechnungsdatum, aber Posting liegt zurück → ab 21 Tagen Warnung
+  if (k.posting_dates?.length) {
+    const first = [...k.posting_dates].sort()[0];
+    const d = Math.floor((Date.now() - new Date(first)) / 86400000);
+    if (d > 21) return d - 21;
+  }
+
+  return 0;
 }
 
 function koopCard(k) {
@@ -448,7 +468,7 @@ function koopCard(k) {
   const dSummary = deliverablesSummary(k);
   const firstPosting = k.posting_dates?.length ? k.posting_dates.sort()[0] : null;
   const overdueDays = invoiceDaysOverdue(k);
-  const isOverdue = overdueDays > 30;
+  const isOverdue = overdueDays > 0;
   let payIcon = '';
   if (k.amount) {
     if (k.payment_status==='bezahlt')
