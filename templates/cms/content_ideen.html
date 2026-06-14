@@ -453,7 +453,9 @@ async function scanAndAnalyse() {
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scanne Instagram… (ca. 60–90 Sek.)';
   try {
     const r = await fetch(`/api/content-ideen/${activeAccountId}/scrape-analyse`, { method: 'POST' });
-    const data = await r.json();
+    let data;
+    try { data = await r.json(); }
+    catch { showToast(`Server-Fehler ${r.status}`, 'error'); return; }
     if (!data.ok) {
       showToast(data.error || 'Fehler beim Scannen', 'error');
       return;
@@ -462,10 +464,10 @@ async function scanAndAnalyse() {
     document.getElementById('analyseDate').textContent =
       `Auto-Scan — ${data.posts_found} Posts${data.images_analysed ? ', ' + data.images_analysed + ' Bilder' : ''}`;
     showToast(`✅ ${data.posts_found} Posts gescannt & analysiert`, 'success');
-    // Gescrapte Posts auch in der Liste anzeigen
-    await loadAccountData(activeAccountId);
+    // Gescrapte Posts in der Liste aktualisieren
+    await loadContext(activeAccountId);
   } catch (e) {
-    showToast('Verbindungsfehler', 'error');
+    showToast('Netzwerkfehler: ' + (e.message || e), 'error');
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fa-brands fa-instagram"></i> Instagram automatisch scannen &amp; analysieren';
