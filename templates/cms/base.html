@@ -370,9 +370,6 @@
     <a href="{{ url_for('accounts') }}" class="nav-item {% if active_page == 'accounts' %}active{% endif %}">
       <i class="fa-solid fa-layer-group"></i> Accounts
     </a>
-    <a href="{{ url_for('account_groups') }}" class="nav-sub {% if active_page == 'groups' or active_page == 'gruppen_planer' %}active{% endif %}">
-      <i class="fa-solid fa-object-group"></i> Gruppen
-    </a>
 
     <div class="nav-section">Planung</div>
     <a href="{{ url_for('calendar_view') }}" class="nav-item {% if active_page == 'calendar' %}active{% endif %}">
