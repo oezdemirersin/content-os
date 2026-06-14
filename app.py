@@ -1286,20 +1286,67 @@ def _tg_send_media_group(token, chat_id, media_items, caption=None):
     return result
 
 
-def _build_telegram_caption(post, account):
-    """Baut die vollständige Caption für Telegram auf."""
-    icon   = _POST_ICONS.get(post.post_type, '📌')
-    header = f'<b>{icon} {account.name}</b>'
-    tz_note = post.scheduled_at.strftime('%d.%m.%Y %H:%M') + ' UTC'
+def _tg_send_document(token, chat_id, media_item, caption=None):
+    """Sendet eine Datei als Dokument (volle Qualität, ohne Komprimierung)."""
+    url, fpath = _tg_media_source(media_item)
+    cap = (caption or '')[:1024] or None
+    if url:
+        return _tg_call(token, 'sendDocument', json={
+            'chat_id': chat_id, 'document': url,
+            **({'caption': cap} if cap else {})
+        })
+    elif fpath:
+        with open(fpath, 'rb') as f:
+            data = {'chat_id': chat_id, **({'caption': cap} if cap else {})}
+            return _tg_call(token, 'sendDocument', data=data,
+                            files={'document': (os.path.basename(fpath), f, 'image/jpeg')})
+    return {'ok': False}
 
-    lines = [header, f'🕐 {tz_note}']
-    if post.caption:
-        lines += ['', post.caption]
-    return '\n'.join(lines)
+
+def _tg_send_action_keyboard(token, chat_id, post_id):
+    """Sendet die Aktion-Buttons: Gepostet ✓ / Fehler melden."""
+    keyboard = {
+        'inline_keyboard': [[
+            {'text': '✅  Gepostet auf Instagram', 'callback_data': f'posted_{post_id}'},
+            {'text': '⚠️  Fehler melden',          'callback_data': f'error_{post_id}'},
+        ]]
+    }
+    return _tg_call(token, 'sendMessage', json={
+        'chat_id': chat_id,
+        'text': '👆 Bitte nach dem Posten bestätigen:',
+        'reply_markup': keyboard,
+        'parse_mode': 'HTML',
+    })
+
+
+def _tg_answer_callback(token, callback_query_id, text, alert=False):
+    """Beantwortet einen Callback-Query (Toast / Popup in Telegram)."""
+    try:
+        _tg_call(token, 'answerCallbackQuery', json={
+            'callback_query_id': callback_query_id,
+            'text': text,
+            'show_alert': alert,
+        })
+    except Exception:
+        pass
+
+
+def _tg_edit_message_text(token, chat_id, message_id, text):
+    """Bearbeitet den Text einer bestehenden Nachricht."""
+    try:
+        _tg_call(token, 'editMessageText', json={
+            'chat_id': chat_id, 'message_id': message_id,
+            'text': text, 'parse_mode': 'HTML',
+        })
+    except Exception:
+        pass
 
 
 def send_telegram_post(post, account=None, token=None):
-    """Sendet einen ScheduledPost an den Telegram-Channel des Accounts.
+    """Sendet einen ScheduledPost an den Telegram-Channel als 3-teilige Karte:
+    1) Bild(er) als Dokument (volle Auflösung)
+    2) Caption als plain text (zum Kopieren)
+    3) Aktions-Buttons: Gepostet / Fehler melden
     Gibt True zurück wenn erfolgreich."""
     if account is None:
         account = post.account
@@ -1311,47 +1358,68 @@ def send_telegram_post(post, account=None, token=None):
         app.logger.warning('Telegram: kein Bot-Token konfiguriert')
         return False
 
-    chat_id   = account.telegram_chat_id
-    full_cap  = _build_telegram_caption(post, account)
-    short_cap = full_cap[:1024]  # Limit für Medien-Caption
+    chat_id = account.telegram_chat_id
+    icon    = _POST_ICONS.get(post.post_type, '📌')
+    date_str = post.scheduled_at.strftime('%d.%m.%Y')
+    type_label = {'feed': 'Feed-Post', 'reel': 'Reel', 'story': 'Story', 'carousel': 'Karussell'}.get(post.post_type, post.post_type)
 
-    # Media ermitteln
+    # ── 1. Header + Bild(er) senden ────────────────────────────
     media_ids_list = post.get_media_ids()
     primary_media  = MediaItem.query.get(post.media_item_id) if post.media_item_id else None
     if not primary_media and media_ids_list:
         primary_media = MediaItem.query.get(media_ids_list[0])
 
+    header_text = (
+        f'{icon} <b>{account.name}</b> — {type_label}\n'
+        f'📅 Posting-Datum: <b>{date_str}</b>\n'
+        f'🆔 Post-ID: #{post.id}'
+    )
+
     ok = False
 
     if post.post_type == 'reel' and primary_media:
-        result = _tg_send_video(token, chat_id, primary_media, short_cap)
+        # Reels als Video
+        result = _tg_send_video(token, chat_id, primary_media, header_text[:1024])
         ok = result.get('ok', False)
 
     elif len(media_ids_list) > 1:
-        # Carousel: alle Bilder laden
+        # Karussell: zuerst Header als Text, dann alle Bilder als Dokumente
+        _tg_send_message(token, chat_id, header_text)
         all_media = MediaItem.query.filter(MediaItem.id.in_(media_ids_list)).all()
         id_order  = {mid: i for i, mid in enumerate(media_ids_list)}
         all_media.sort(key=lambda m: id_order.get(m.id, 999))
-        result = _tg_send_media_group(token, chat_id, all_media, short_cap)
-        ok = bool(result.get('ok'))
+        ok = True
+        for mi in all_media:
+            r = _tg_send_document(token, chat_id, mi)
+            if not r.get('ok'):
+                ok = False
 
     elif primary_media:
-        result = _tg_send_photo(token, chat_id, primary_media, short_cap)
+        # Einzelbild als Dokument (volle Qualität)
+        result = _tg_send_document(token, chat_id, primary_media, header_text[:1024])
         ok = result.get('ok', False)
-
-    else:
-        # Kein Bild → reiner Text
-        if post.caption or True:  # immer senden (auch ohne Caption = Header)
-            result = _tg_send_message(token, chat_id, full_cap)
+        if not ok:
+            # Fallback: als Foto
+            result = _tg_send_photo(token, chat_id, primary_media, header_text[:1024])
             ok = result.get('ok', False)
 
-    # Caption war zu lang für Medien → Rest als Folge-Nachricht
-    if ok and primary_media and len(full_cap) > 1024:
-        overflow = full_cap[1024:].strip()
-        if overflow:
-            _tg_send_message(token, chat_id, f'📝 {overflow}')
+    else:
+        # Kein Bild → nur Text
+        result = _tg_send_message(token, chat_id, header_text)
+        ok = result.get('ok', False)
 
-    return ok
+    if not ok:
+        return False
+
+    # ── 2. Caption als eigene Nachricht (leicht zu kopieren) ───
+    if post.caption:
+        caption_msg = f'<b>📋 Caption zum Kopieren:</b>\n\n{post.caption}'
+        _tg_send_message(token, chat_id, caption_msg[:4096])
+
+    # ── 3. Aktions-Buttons senden ──────────────────────────────
+    _tg_send_action_keyboard(token, chat_id, post.id)
+
+    return True
 
 
 def _send_due_telegram_posts():
@@ -10026,14 +10094,72 @@ def toggle_watermark(account_id):
 @app.route('/api/telegram/bot-webhook', methods=['POST'])
 def telegram_bot_webhook():
     """Empfängt Updates vom Telegram-Bot. Reagiert account-spezifisch wenn Chat-ID einem Account gehört."""
-    data = request.get_json() or {}
+    data  = request.get_json() or {}
+    token = get_setting('telegram_bot_token')
+    if not token:
+        return jsonify({'ok': True})
+
+    # ── Callback-Queries (Button-Taps) ───────────────────────────
+    cb = data.get('callback_query')
+    if cb:
+        cb_id      = cb.get('id')
+        cb_data    = cb.get('data', '')
+        cb_chat_id = str(cb.get('message', {}).get('chat', {}).get('id', ''))
+        cb_msg_id  = cb.get('message', {}).get('message_id')
+        cb_user    = cb.get('from', {}).get('first_name', 'Unbekannt')
+
+        if cb_data.startswith('posted_'):
+            try:
+                post_id = int(cb_data.split('_', 1)[1])
+                post = ScheduledPost.query.get(post_id)
+                if post and post.status != 'published':
+                    post.status       = 'published'
+                    post.published_at = datetime.utcnow()
+                    db.session.commit()
+                    _tg_answer_callback(token, cb_id, '✅ Als gepostet markiert!', alert=False)
+                    _tg_edit_message_text(token, cb_chat_id, cb_msg_id,
+                        f'✅ <b>Gepostet von {cb_user}</b> um {datetime.utcnow().strftime("%H:%M")} UTC\n'
+                        f'Post #{post_id}')
+                else:
+                    _tg_answer_callback(token, cb_id, 'Bereits markiert.', alert=False)
+            except Exception as e:
+                _tg_answer_callback(token, cb_id, f'Fehler: {e}', alert=True)
+
+        elif cb_data.startswith('error_'):
+            try:
+                post_id = int(cb_data.split('_', 1)[1])
+                post = ScheduledPost.query.get(post_id)
+                if post:
+                    post.status = 'error'
+                    post.error_message = f'Fehler gemeldet von {cb_user} um {datetime.utcnow().strftime("%d.%m.%Y %H:%M")} UTC'
+                    # SystemAlert für Dashboard
+                    alert = SystemAlert(
+                        account_id = post.account_id,
+                        alert_type = 'post_error',
+                        severity   = 'error',
+                        message    = f'Post #{post_id} ({post.scheduled_at.strftime("%d.%m.%Y") if post.scheduled_at else "?"}) wurde von {cb_user} als fehlerhaft gemeldet. Bitte prüfen und erneut freigeben.',
+                        resolved   = False,
+                    )
+                    db.session.add(alert)
+                    db.session.commit()
+                    _tg_answer_callback(token, cb_id, '⚠️ Fehler gemeldet! Admin wurde benachrichtigt.', alert=True)
+                    _tg_edit_message_text(token, cb_chat_id, cb_msg_id,
+                        f'⚠️ <b>Fehler gemeldet von {cb_user}</b>\n'
+                        f'Post #{post_id} — Admin prüft den Post.')
+                else:
+                    _tg_answer_callback(token, cb_id, 'Post nicht gefunden.', alert=True)
+            except Exception as e:
+                _tg_answer_callback(token, cb_id, f'Fehler: {e}', alert=True)
+
+        return jsonify({'ok': True})
+
+    # ── Normale Nachrichten / Commands ───────────────────────────
     msg = data.get('message') or data.get('edited_message', {})
     if not msg:
         return jsonify({'ok': True})
     chat_id = str(msg.get('chat', {}).get('id', ''))
     text    = (msg.get('text') or '').strip()
-    token   = get_setting('telegram_bot_token')
-    if not token or not chat_id or not text.startswith('/'):
+    if not chat_id or not text.startswith('/'):
         return jsonify({'ok': True})
 
     def _tg_reply(txt):
