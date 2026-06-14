@@ -369,7 +369,7 @@ function updateKPIs() {
   const today   = new Date().toISOString().slice(0,10);
   // Koops wo erstes Posting > 21 Tage und keine Rechnung
   const invoiceDue = koops.filter(k => {
-    if (k.invoice_sent_at || k.payment_received_at || !k.posting_dates?.length) return false;
+    if (k.invoice_sent_at || k.payment_received_at || k.payment_status==='bezahlt' || !k.posting_dates?.length) return false;
     const first = k.posting_dates.sort()[0];
     return first && Math.ceil((Date.now() - new Date(first)) / 86400000) >= 21;
   }).length;
@@ -421,10 +421,16 @@ function renderKoops() {
   list.innerHTML = filtered.map(k => koopCard(k)).join('');
 }
 
+function parseDeliverables(k) {
+  if (!k.deliverables) return [];
+  if (Array.isArray(k.deliverables)) return k.deliverables;
+  try { return JSON.parse(k.deliverables); } catch { return []; }
+}
 function deliverablesSummary(k) {
-  if (!k.deliverables?.length) return '';
+  const items = parseDeliverables(k);
+  if (!items.length) return '';
   const parts = [];
-  k.deliverables.forEach(d => {
+  items.forEach(d => {
     if (d.count && d.type) parts.push(`${d.count}× ${d.label||d.type}`);
     else if (d.text) parts.push(d.text);
   });
