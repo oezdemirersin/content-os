@@ -9592,10 +9592,17 @@ Sei konkret. Beziehe dich auf die Beitrags-Daten. Keine allgemeinen Social-Media
 @app.route('/api/content-ideen/<int:account_id>/scrape-analyse', methods=['POST'])
 @login_required
 def scrape_analyse_profile(account_id):
-    """Scannt Instagram-Profil via Apify (letzte 24 Posts) + KI-Analyse mit Vision."""
-    import json as _json, base64 as _b64
+    """Scannt Instagram-Profil via Apify (letzte 100 Posts) + KI-Analyse mit Vision."""
+    import json as _json, base64 as _b64, traceback as _tb
     import anthropic as _ant
+    try:
+        return _scrape_analyse_profile_inner(account_id, _json, _b64, _ant)
+    except Exception as _e:
+        app.logger.error(f'scrape_analyse_profile error: {_tb.format_exc()}')
+        return jsonify({'ok': False, 'error': f'Unerwarteter Fehler: {str(_e)}'})
 
+
+def _scrape_analyse_profile_inner(account_id, _json, _b64, _ant):
     acc = Account.query.get_or_404(account_id)
 
     # Handle ermitteln
@@ -9761,6 +9768,7 @@ SEITEN_DNA: [Kernaussage in 1-2 Sätzen: Was macht diese Seite einzigartig?]"""
 
 
 @app.route('/api/content-ideen/generate', methods=['POST'])
+
 @login_required
 def generate_content_ideen():
     import anthropic as _ant
