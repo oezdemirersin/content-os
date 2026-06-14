@@ -51,13 +51,13 @@
     </div>
 
     <!-- Header -->
-    <div style="display:grid;grid-template-columns:1fr 70px 65px 65px 65px 28px;
+    <div style="display:grid;grid-template-columns:44px 1fr 65px 58px 58px 58px 28px;
                 gap:6px;padding:8px 14px;border-bottom:1px solid var(--border);
                 font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted)">
-      <span>BESCHREIBUNG</span><span>FORMAT</span>
-      <span style="text-align:right">REACH</span>
+      <span></span><span>BESCHREIBUNG</span><span>FORMAT</span>
+      <span style="text-align:right">VIEWS</span>
       <span style="text-align:right">LIKES</span>
-      <span style="text-align:right">SAVES</span>
+      <span style="text-align:right">KOMM.</span>
       <span></span>
     </div>
 
@@ -216,8 +216,15 @@
 
 <!-- ── Row Template für Beiträge ── -->
 <template id="postRowTpl">
-  <div class="post-row" style="display:grid;grid-template-columns:1fr 70px 65px 65px 65px 28px;
+  <div class="post-row" style="display:grid;grid-template-columns:44px 1fr 65px 58px 58px 58px 28px;
                                 gap:6px;padding:7px 14px;border-bottom:1px solid var(--border);align-items:center">
+    <!-- Thumbnail -->
+    <div class="pr-thumb-wrap" style="width:40px;height:40px;border-radius:6px;overflow:hidden;
+                                       background:var(--surface2);flex-shrink:0">
+      <img class="pr-thumb" src="" alt=""
+           style="width:100%;height:100%;object-fit:cover;display:none"
+           onerror="this.style.display='none'">
+    </div>
     <input class="pr-beschreibung" type="text" placeholder="Was zeigt dieser Beitrag?"
            style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;
                   color:var(--text);font-family:var(--font-body);font-size:12px;
@@ -370,11 +377,22 @@ function renderPostRows(posts) {
 function appendRow(data = {}) {
   const tpl = document.getElementById('postRowTpl').content.cloneNode(true);
   const row = tpl.querySelector('.post-row');
-  if (data.beschreibung) row.querySelector('.pr-beschreibung').value = data.beschreibung;
-  if (data.format)       row.querySelector('.pr-format').value       = data.format;
-  if (data.reach)        row.querySelector('.pr-reach').value        = data.reach;
-  if (data.likes)        row.querySelector('.pr-likes').value        = data.likes;
-  if (data.saves)        row.querySelector('.pr-saves').value        = data.saves;
+  if (data.beschreibung)  row.querySelector('.pr-beschreibung').value = data.beschreibung;
+  if (data.format)        row.querySelector('.pr-format').value       = data.format;
+  // views (auto-scan) oder reach (manuell)
+  const viewsVal = data.views || data.reach || '';
+  if (viewsVal)           row.querySelector('.pr-reach').value        = viewsVal;
+  if (data.likes)         row.querySelector('.pr-likes').value        = data.likes;
+  // kommentare (auto-scan) oder saves (manuell)
+  const kommVal = data.kommentare || data.saves || '';
+  if (kommVal)            row.querySelector('.pr-saves').value        = kommVal;
+  // Thumbnail
+  if (data.image_url) {
+    const img = row.querySelector('.pr-thumb');
+    img.src = data.image_url;
+    img.style.display = 'block';
+    row.dataset.imageUrl = data.image_url;
+  }
   document.getElementById('postRows').appendChild(tpl);
   updatePostUI();
 }
@@ -398,9 +416,10 @@ function collectPosts() {
   return [...document.getElementById('postRows').querySelectorAll('.post-row')].map(row => ({
     beschreibung: row.querySelector('.pr-beschreibung').value.trim(),
     format:       row.querySelector('.pr-format').value,
-    reach:        parseInt(row.querySelector('.pr-reach').value) || 0,
+    views:        parseInt(row.querySelector('.pr-reach').value) || 0,
     likes:        parseInt(row.querySelector('.pr-likes').value) || 0,
-    saves:        parseInt(row.querySelector('.pr-saves').value) || 0,
+    kommentare:   parseInt(row.querySelector('.pr-saves').value) || 0,
+    image_url:    row.dataset.imageUrl || '',
   })).filter(p => p.beschreibung);
 }
 

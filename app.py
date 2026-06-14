@@ -9540,15 +9540,13 @@ def analyse_page(account_id):
 
     post_lines = []
     for i, p in enumerate(posts, 1):
-        reach = p.get('reach', '')
+        views = p.get('views', '') or p.get('reach', '')
         likes = p.get('likes', '')
-        komm  = p.get('kommentare', '')
-        saves = p.get('saves', '')
+        komm  = p.get('kommentare', '') or p.get('saves', '')
         eng_parts = []
-        if reach: eng_parts.append(f'Reach: {reach}')
+        if views: eng_parts.append(f'Views: {views}')
         if likes: eng_parts.append(f'Likes: {likes}')
         if komm:  eng_parts.append(f'Kommentare: {komm}')
-        if saves: eng_parts.append(f'Saves: {saves}')
         eng_str = ' | '.join(eng_parts) if eng_parts else 'keine Zahlen'
         besonders = f' — Notiz: {p["was_besonders"]}' if p.get('was_besonders') else ''
         post_lines.append(
@@ -9619,7 +9617,7 @@ def scrape_analyse_profile(account_id):
     payload = _json.dumps({
         'directUrls': [f'https://www.instagram.com/{handle}/'],
         'resultsType': 'posts',
-        'resultsLimit': 24,
+        'resultsLimit': 100,
         'addParentData': False,
     }).encode()
 
@@ -9650,33 +9648,40 @@ def scrape_analyse_profile(account_id):
     image_urls = []
     simplified_posts = []
 
-    for i, item in enumerate(items[:20], 1):
+    for i, item in enumerate(items[:100], 1):
         caption = (item.get('caption') or '').strip()
         post_type = _type_map.get(item.get('type', ''), item.get('type', '?'))
-        likes = item.get('likesCount', '')
-        comments = item.get('commentsCount', '')
+        likes    = item.get('likesCount', '') or ''
+        comments = item.get('commentsCount', '') or ''
+        views    = item.get('videoViewCount', '') or item.get('videoPlayCount', '') or ''
         timestamp = (item.get('timestamp') or '')[:10]
+        img_url = item.get('displayUrl', '')
 
         eng_parts = []
-        if likes != '': eng_parts.append(f'♥ {likes}')
+        if views    != '': eng_parts.append(f'▶ {views}')
+        if likes    != '': eng_parts.append(f'♥ {likes}')
         if comments != '': eng_parts.append(f'💬 {comments}')
         eng_str = ' | '.join(eng_parts) if eng_parts else 'keine Zahlen'
 
-        post_lines.append(
-            f'{i}. [{post_type}] {timestamp}\n'
-            f'   Caption: {caption[:300] or "(keine Caption)"}\n'
-            f'   {eng_str}'
-        )
+        # Für Claude-Prompt nur die ersten 50 Beiträge (Token-Limit)
+        if i <= 50:
+            post_lines.append(
+                f'{i}. [{post_type}] {timestamp}\n'
+                f'   Caption: {caption[:250] or "(keine Caption)"}\n'
+                f'   {eng_str}'
+            )
 
-        if item.get('displayUrl') and len(image_urls) < 5:
-            image_urls.append(item['displayUrl'])
+        if img_url and len(image_urls) < 5:
+            image_urls.append(img_url)
 
         simplified_posts.append({
-            'format': _type_map.get(item.get('type', ''), '?'),
-            'beschreibung': caption[:200],
-            'likes': likes,
-            'kommentare': comments,
-            'datum': timestamp,
+            'format':      _type_map.get(item.get('type', ''), '?'),
+            'beschreibung': caption[:250],
+            'views':       views,
+            'likes':       likes,
+            'kommentare':  comments,
+            'datum':       timestamp,
+            'image_url':   img_url,
         })
 
     # 3. Bilder für Vision laden (max 4, best-effort)
@@ -9703,18 +9708,20 @@ def scrape_analyse_profile(account_id):
     if acc.category:
         ctx_info += f' | {acc.category.name}'
 
+    total_scanned = len(simplified_posts)
     prompt = f"""Du analysierst den Instagram-Account „{ctx_info}".
 
-Ich habe dir die letzten {len(post_lines)} Beiträge gescannt. Analysiere sowohl die Texte als auch die Bilder (wenn vorhanden).
+Ich habe {total_scanned} Beiträge gescannt. Dir werden die ersten {len(post_lines)} davon als Text gezeigt, plus bis zu 5 Vorschaubilder.
+Reach ist leider nicht über die API verfügbar — du siehst Views (bei Reels/Videos), Likes und Kommentare.
 
-GESCANNTE BEITRÄGE:
+GESCANNTE BEITRÄGE ({len(post_lines)} von {total_scanned}):
 {chr(10).join(post_lines)}
 
-Erstelle jetzt eine präzise Analyse im exakten Format unten. Beziehe dich konkret auf die Daten — keine allgemeinen Tipps:
+Erstelle eine präzise Analyse im exakten Format. Beziehe dich konkret auf die Zahlen aus den Daten — keine allgemeinen Tipps:
 
-STÄRKEN: [Was perft gut? Welche Formate/Themen haben hohes Engagement?]
-BESTE_FORMATE: [Reel/Foto/Karussell — welche performen am besten laut den Zahlen?]
-CONTENT_PATTERN: [Was ist das wiederkehrende Muster? Stil, Struktur, Länge der Captions?]
+STÄRKEN: [Was perft gut? Welche Formate/Themen haben hohes Engagement laut den Zahlen?]
+BESTE_FORMATE: [Reel/Foto/Karussell — welche performen am besten und mit welchen Zahlen?]
+CONTENT_PATTERN: [Was ist das wiederkehrende Muster? Stil, Ton, Caption-Länge, Posting-Frequenz?]
 THEMEN_DIE_PERFORMEN: [Konkrete Themen mit hohem Engagement — mit Beispielen aus den Posts]
 ZIELGRUPPE: [Für wen ist diese Seite? Alter, Interessen, Standort?]
 TONALITAET: [Wie kommuniziert diese Seite? Humorvoll, informativ, emotional, lokal?]
