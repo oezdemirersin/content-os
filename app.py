@@ -9531,10 +9531,26 @@ def clear_past_posts(account_id):
     return jsonify({'ok': True})
 
 
+@app.route('/api/ig-thumb/<filename>')
+@login_required
+def serve_ig_thumb(filename):
+    """Serviert während des Scans gecachte Instagram-Thumbnails aus /tmp."""
+    import pathlib as _pl, re as _re
+    if not _re.match(r'^[a-f0-9]{32}\.jpg$', filename):
+        abort(400)
+    fpath = _pl.Path('/tmp/ig_thumbs') / filename
+    if not fpath.exists():
+        abort(404)
+    resp = make_response(fpath.read_bytes())
+    resp.headers['Content-Type'] = 'image/jpeg'
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
+
+
 @app.route('/api/proxy-image')
 @login_required
 def proxy_image():
-    """Proxy für Instagram-CDN-Bilder — umgeht Browser-Referrer-Sperren."""
+    """Fallback-Proxy für Instagram-CDN-Bilder."""
     from urllib.parse import urlparse as _urlparse
     url = request.args.get('url', '').strip()
     if not url or not url.startswith('https://'):
@@ -9543,18 +9559,17 @@ def proxy_image():
         host = _urlparse(url).hostname or ''
     except Exception:
         abort(400)
-    allowed = ('cdninstagram.com', 'fbcdn.net', 'scontent')
+    allowed = ('cdninstagram.com', 'fbcdn.net', 'scontent', 'instagram')
     if not any(a in host for a in allowed):
         abort(403)
     try:
-        req = _urllib_request.Request(
-            url,
-            headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; bot)',
-                'Referer': 'https://www.instagram.com/',
-            }
-        )
-        with _urllib_request.urlopen(req, timeout=10) as r:
+        req = _urllib_request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) '
+                          'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+            'Referer': 'https://www.instagram.com/',
+            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+        })
+        with _urllib_request.urlopen(req, timeout=8) as r:
             data = r.read()
             ctype = r.headers.get('Content-Type', 'image/jpeg').split(';')[0]
             resp = make_response(data)
@@ -9671,6 +9686,7 @@ def _scrape_analyse_profile_inner(account_id, _json, _b64, _ant):
         'directUrls': [f'https://www.instagram.com/{handle}/'],
         'resultsType': 'posts',
         'resultsLimit': 100,
+        'maxPostsPerProfile': 100,
         'addParentData': False,
     }).encode()
 
@@ -9701,6 +9717,32 @@ def _scrape_analyse_profile_inner(account_id, _json, _b64, _ant):
     image_urls = []
     simplified_posts = []
 
+    # Bilder in /tmp cachen damit Browser-Proxy sie zuverlässig liefern kann
+    import hashlib as _hashlib, pathlib as _pathlib
+    _thumb_dir = _pathlib.Path('/tmp/ig_thumbs')
+    _thumb_dir.mkdir(exist_ok=True)
+
+    def _cache_image(url):
+        """Lädt Bild von Instagram CDN auf den Server und gibt lokalen Pfad zurück."""
+        if not url:
+            return ''
+        fname = _hashlib.md5(url.encode()).hexdigest() + '.jpg'
+        fpath = _thumb_dir / fname
+        if fpath.exists():
+            return fname
+        try:
+            req = _urllib_request.Request(url, headers={
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) '
+                              'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+                'Referer': 'https://www.instagram.com/',
+                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+            })
+            with _urllib_request.urlopen(req, timeout=8) as r:
+                fpath.write_bytes(r.read())
+            return fname
+        except Exception:
+            return ''
+
     for i, item in enumerate(items[:100], 1):
         caption = (item.get('caption') or '').strip()
         post_type = _type_map.get(item.get('type', ''), item.get('type', '?'))
@@ -9708,7 +9750,17 @@ def _scrape_analyse_profile_inner(account_id, _json, _b64, _ant):
         comments = item.get('commentsCount', '') or ''
         views    = item.get('videoViewCount', '') or item.get('videoPlayCount', '') or ''
         timestamp = (item.get('timestamp') or '')[:10]
-        img_url = item.get('displayUrl', '')
+        short_code = item.get('shortCode') or item.get('shortcode') or ''
+        ig_url = item.get('url') or (f'https://www.instagram.com/p/{short_code}/' if short_code else '')
+
+        # Bild-URL: mehrere Felder probieren
+        raw_img = (item.get('displayUrl') or
+                   item.get('thumbnailUrl') or
+                   item.get('videoThumbnailUrl') or
+                   (item.get('images') or [None])[0] or '')
+
+        # Nur für erste 30 Posts Bild cachen (Speed)
+        cached_fname = _cache_image(raw_img) if i <= 30 and raw_img else ''
 
         eng_parts = []
         if views    != '': eng_parts.append(f'▶ {views}')
@@ -9716,7 +9768,6 @@ def _scrape_analyse_profile_inner(account_id, _json, _b64, _ant):
         if comments != '': eng_parts.append(f'💬 {comments}')
         eng_str = ' | '.join(eng_parts) if eng_parts else 'keine Zahlen'
 
-        # Für Claude-Prompt nur die ersten 50 Beiträge (Token-Limit)
         if i <= 50:
             post_lines.append(
                 f'{i}. [{post_type}] {timestamp}\n'
@@ -9724,17 +9775,19 @@ def _scrape_analyse_profile_inner(account_id, _json, _b64, _ant):
                 f'   {eng_str}'
             )
 
-        if img_url and len(image_urls) < 5:
-            image_urls.append(img_url)
+        if raw_img and len(image_urls) < 5:
+            image_urls.append(raw_img)
 
         simplified_posts.append({
-            'format':      _type_map.get(item.get('type', ''), '?'),
+            'format':       _type_map.get(item.get('type', ''), '?'),
             'beschreibung': caption[:250],
-            'views':       views,
-            'likes':       likes,
-            'kommentare':  comments,
-            'datum':       timestamp,
-            'image_url':   img_url,
+            'views':        views,
+            'likes':        likes,
+            'kommentare':   comments,
+            'datum':        timestamp,
+            'ig_url':       ig_url,
+            'short_code':   short_code,
+            'cached_thumb': cached_fname,  # lokaler Dateiname in /tmp/ig_thumbs/
         })
 
     # 3. Bilder für Vision laden (max 4, best-effort)
