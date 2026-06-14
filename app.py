@@ -10153,6 +10153,111 @@ def set_feature_toggle():
     return jsonify({'ok': True, 'updated': updated})
 
 
+# ═══════════════════════════════════════════════════════════════
+# RECHNUNGSGENERATOR
+# ═══════════════════════════════════════════════════════════════
+
+INVOICE_SETTINGS_KEYS = [
+    'invoice_sender_name', 'invoice_sender_street', 'invoice_sender_city',
+    'invoice_sender_email', 'invoice_sender_phone',
+    'invoice_sender_iban', 'invoice_sender_bic', 'invoice_sender_bank_name',
+    'invoice_sender_tax_number', 'invoice_sender_vat_number',
+    'invoice_sender_is_kleinunternehmer',
+    'invoice_prefix', 'invoice_payment_days',
+]
+
+
+@app.route('/api/invoice/settings', methods=['GET'])
+@login_required
+def invoice_settings_get():
+    data = {k: get_setting(k, '') for k in INVOICE_SETTINGS_KEYS}
+    data.setdefault('invoice_prefix', 'RE')
+    data.setdefault('invoice_payment_days', '14')
+    data.setdefault('invoice_sender_is_kleinunternehmer', 'true')
+    return jsonify(data)
+
+
+@app.route('/api/invoice/settings', methods=['POST'])
+@login_required
+def invoice_settings_save():
+    d = request.get_json() or {}
+    for k in INVOICE_SETTINGS_KEYS:
+        if k in d:
+            set_setting(k, str(d[k]))
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+def _next_invoice_number():
+    """Generiert die nächste Rechnungsnummer und speichert den Zähler."""
+    year = datetime.utcnow().year
+    counter_key = f'invoice_counter_{year}'
+    prefix = get_setting('invoice_prefix', 'RE')
+    current = int(get_setting(counter_key, '0') or '0')
+    next_num = current + 1
+    set_setting(counter_key, str(next_num))
+    db.session.commit()
+    return f'{prefix}-{year}-{next_num:03d}'
+
+
+@app.route('/api/kooperationen/<int:kid>/rechnung/generate', methods=['POST'])
+@login_required
+def koop_generate_invoice_number(kid):
+    """Weist dieser Kooperation eine Rechnungsnummer zu (nur wenn noch keine vorhanden)."""
+    k = Kooperation.query.get_or_404(kid)
+    if not k.invoice_number:
+        k.invoice_number = _next_invoice_number()
+        k.invoice_sent_at = datetime.utcnow().date()
+        if k.payment_status == 'offen':
+            k.payment_status = 'rechnungsgestellt'
+        db.session.commit()
+    return jsonify({'ok': True, 'invoice_number': k.invoice_number})
+
+
+@app.route('/kooperationen/<int:kid>/rechnung')
+@login_required
+def koop_rechnung(kid):
+    k = Kooperation.query.get_or_404(kid)
+    settings = {key: get_setting(key, '') for key in INVOICE_SETTINGS_KEYS}
+    settings.setdefault('invoice_sender_is_kleinunternehmer', 'true')
+    settings.setdefault('invoice_payment_days', '14')
+
+    deliverables = []
+    if k.deliverables:
+        try:
+            deliverables = json.loads(k.deliverables)
+        except Exception:
+            deliverables = []
+
+    posting_dates = []
+    if k.posting_dates:
+        try:
+            posting_dates = json.loads(k.posting_dates)
+        except Exception:
+            posting_dates = []
+
+    payment_due = None
+    if k.invoice_sent_at:
+        try:
+            days = int(settings.get('invoice_payment_days') or 14)
+            from datetime import timedelta
+            payment_due = k.invoice_sent_at + timedelta(days=days)
+        except Exception:
+            pass
+
+    account = k.account
+    return render_template(
+        'rechnung.html',
+        k=k,
+        settings=settings,
+        deliverables=deliverables,
+        posting_dates=posting_dates,
+        payment_due=payment_due,
+        account=account,
+        today=datetime.utcnow().date(),
+    )
+
+
 # ─────────────────────── ERROR HANDLERS ───────────────────────
 
 @app.errorhandler(404)

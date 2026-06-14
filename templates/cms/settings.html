@@ -232,6 +232,92 @@
     </div>
   </div>
 </div>
+
+<!-- ── RECHNUNGS-PROFIL ── -->
+<div style="margin-top:20px" id="rechnung">
+  <div class="card" style="max-width:660px">
+    <div class="card-header">
+      <span class="card-title">RECHNUNGS-PROFIL</span>
+      <span style="font-size:11px;color:var(--muted)">Absender-Infos für deine Rechnungen</span>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="grid-column:1/-1">
+          <label class="form-label">Dein Name / Unternehmen</label>
+          <input id="inv_sender_name" type="text" class="input-field" placeholder="Max Mustermann">
+        </div>
+        <div style="grid-column:1/-1">
+          <label class="form-label">Straße &amp; Hausnummer</label>
+          <input id="inv_sender_street" type="text" class="input-field" placeholder="Musterstraße 1">
+        </div>
+        <div>
+          <label class="form-label">PLZ &amp; Stadt</label>
+          <input id="inv_sender_city" type="text" class="input-field" placeholder="60311 Frankfurt">
+        </div>
+        <div>
+          <label class="form-label">E-Mail</label>
+          <input id="inv_sender_email" type="email" class="input-field" placeholder="kontakt@example.de">
+        </div>
+        <div>
+          <label class="form-label">Telefon (optional)</label>
+          <input id="inv_sender_phone" type="text" class="input-field" placeholder="+49 1234 567890">
+        </div>
+        <div>
+          <label class="form-label">Steuernummer</label>
+          <input id="inv_sender_tax_number" type="text" class="input-field" placeholder="12/345/67890">
+        </div>
+        <div>
+          <label class="form-label">USt-IdNr. (optional)</label>
+          <input id="inv_sender_vat_number" type="text" class="input-field" placeholder="DE123456789">
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--border);padding-top:14px">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:10px">BANKVERBINDUNG</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div style="grid-column:1/-1">
+            <label class="form-label">Bank</label>
+            <input id="inv_sender_bank_name" type="text" class="input-field" placeholder="Sparkasse Frankfurt">
+          </div>
+          <div>
+            <label class="form-label">IBAN</label>
+            <input id="inv_sender_iban" type="text" class="input-field" placeholder="DE89 3704 0044 0532 0130 00">
+          </div>
+          <div>
+            <label class="form-label">BIC</label>
+            <input id="inv_sender_bic" type="text" class="input-field" placeholder="COBADEFFXXX">
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--border);padding-top:14px">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:10px">RECHNUNGSEINSTELLUNGEN</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label class="form-label">Rechnungsnummer-Präfix</label>
+            <input id="inv_prefix" type="text" class="input-field" placeholder="RE" style="max-width:120px">
+            <div style="font-size:10px;color:var(--muted);margin-top:4px">Ergebnis: RE-2026-001</div>
+          </div>
+          <div>
+            <label class="form-label">Zahlungsziel (Tage)</label>
+            <input id="inv_payment_days" type="number" min="7" max="90" class="input-field" style="max-width:100px">
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-top:12px">
+          <input type="checkbox" id="inv_kleinunternehmer" style="width:16px;height:16px;accent-color:var(--accent)">
+          <span style="font-size:13px;color:var(--text)">Kleinunternehmerregelung § 19 UStG
+            <span style="font-size:11px;color:var(--muted)">(keine MwSt. auf Rechnungen)</span>
+          </span>
+        </label>
+      </div>
+
+      <button onclick="saveInvoiceSettings()" class="btn btn-primary" style="align-self:flex-start;min-width:160px">
+        <i class="fa-solid fa-floppy-disk"></i> Rechnungsprofil speichern
+      </button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -333,6 +419,52 @@ async function doManualBackup() {
     btn.disabled = false;
     btn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Jetzt sichern';
   }
+}
+
+// ── Rechnungs-Profil ─────────────────────────────────────────
+(async function loadInvoiceSettings() {
+  try {
+    const d = await fetch('/api/invoice/settings').then(r=>r.json());
+    document.getElementById('inv_sender_name').value     = d.invoice_sender_name    || '';
+    document.getElementById('inv_sender_street').value   = d.invoice_sender_street  || '';
+    document.getElementById('inv_sender_city').value     = d.invoice_sender_city    || '';
+    document.getElementById('inv_sender_email').value    = d.invoice_sender_email   || '';
+    document.getElementById('inv_sender_phone').value    = d.invoice_sender_phone   || '';
+    document.getElementById('inv_sender_iban').value     = d.invoice_sender_iban    || '';
+    document.getElementById('inv_sender_bic').value      = d.invoice_sender_bic     || '';
+    document.getElementById('inv_sender_bank_name').value= d.invoice_sender_bank_name || '';
+    document.getElementById('inv_sender_tax_number').value = d.invoice_sender_tax_number || '';
+    document.getElementById('inv_sender_vat_number').value = d.invoice_sender_vat_number || '';
+    document.getElementById('inv_prefix').value          = d.invoice_prefix || 'RE';
+    document.getElementById('inv_payment_days').value    = d.invoice_payment_days || '14';
+    document.getElementById('inv_kleinunternehmer').checked = d.invoice_sender_is_kleinunternehmer !== 'false';
+  } catch(e) { console.warn('Invoice-Settings konnten nicht geladen werden:', e); }
+})();
+
+async function saveInvoiceSettings() {
+  const payload = {
+    invoice_sender_name:              document.getElementById('inv_sender_name').value,
+    invoice_sender_street:            document.getElementById('inv_sender_street').value,
+    invoice_sender_city:              document.getElementById('inv_sender_city').value,
+    invoice_sender_email:             document.getElementById('inv_sender_email').value,
+    invoice_sender_phone:             document.getElementById('inv_sender_phone').value,
+    invoice_sender_iban:              document.getElementById('inv_sender_iban').value,
+    invoice_sender_bic:               document.getElementById('inv_sender_bic').value,
+    invoice_sender_bank_name:         document.getElementById('inv_sender_bank_name').value,
+    invoice_sender_tax_number:        document.getElementById('inv_sender_tax_number').value,
+    invoice_sender_vat_number:        document.getElementById('inv_sender_vat_number').value,
+    invoice_prefix:                   document.getElementById('inv_prefix').value || 'RE',
+    invoice_payment_days:             document.getElementById('inv_payment_days').value || '14',
+    invoice_sender_is_kleinunternehmer: document.getElementById('inv_kleinunternehmer').checked ? 'true' : 'false',
+  };
+  try {
+    const res = await fetch('/api/invoice/settings', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const d = await res.json();
+    if (d.ok) showToast('Rechnungsprofil gespeichert ✓', 'success');
+    else showToast('Fehler beim Speichern', 'error');
+  } catch(e) { showToast('Netzwerkfehler: ' + e.message, 'error'); }
 }
 </script>
 {% endblock %}

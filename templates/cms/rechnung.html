@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rechnung {{ k.invoice_number or 'Entwurf' }} – {{ k.partner_name }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Arial', sans-serif;
+    font-size: 11pt;
+    color: #1a1a1a;
+    background: #f4f4f4;
+    padding: 20px;
+  }
+
+  /* ── Print-Controls (nur am Bildschirm) ── */
+  .screen-controls {
+    max-width: 800px;
+    margin: 0 auto 20px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: opacity .15s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: #4f46e5; color: #fff; }
+  .btn-secondary { background: #374151; color: #fff; }
+  .btn-danger { background: #dc2626; color: #fff; }
+  .controls-label { color: #6b7280; font-size: 13px; margin-left: auto; }
+
+  /* ── Rechnungs-Seite ── */
+  .invoice-page {
+    max-width: 800px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 50px 55px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.12);
+    border-radius: 4px;
+    min-height: 297mm;
+  }
+
+  /* ── Header ── */
+  .inv-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 40px;
+    border-bottom: 2px solid #111;
+    padding-bottom: 24px;
+  }
+  .inv-sender { max-width: 55%; }
+  .inv-sender .name {
+    font-size: 18pt;
+    font-weight: 800;
+    color: #111;
+    margin-bottom: 4px;
+  }
+  .inv-sender .meta {
+    font-size: 9pt;
+    color: #555;
+    line-height: 1.7;
+  }
+  .inv-title-block { text-align: right; }
+  .inv-title-block .big {
+    font-size: 26pt;
+    font-weight: 900;
+    color: #111;
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+  .inv-title-block .nr {
+    font-size: 13pt;
+    color: #4f46e5;
+    font-weight: 700;
+    margin-top: 4px;
+  }
+  .inv-title-block .draft-badge {
+    display: inline-block;
+    background: #fef3c7;
+    color: #92400e;
+    font-size: 10pt;
+    font-weight: 700;
+    padding: 2px 10px;
+    border-radius: 20px;
+    margin-top: 6px;
+  }
+
+  /* ── Adressblock ── */
+  .inv-addresses {
+    display: flex;
+    gap: 40px;
+    margin-bottom: 36px;
+  }
+  .inv-addr-box { flex: 1; }
+  .inv-addr-box .label {
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: #9ca3af;
+    margin-bottom: 6px;
+  }
+  .inv-addr-box .content {
+    font-size: 10.5pt;
+    line-height: 1.7;
+    color: #1a1a1a;
+  }
+
+  /* ── Metazeile (Datum, Fälligkeit) ── */
+  .inv-meta {
+    display: flex;
+    gap: 32px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 14px 20px;
+    margin-bottom: 32px;
+  }
+  .inv-meta-item { }
+  .inv-meta-item .lbl {
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #9ca3af;
+    font-weight: 700;
+  }
+  .inv-meta-item .val {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #111;
+    margin-top: 2px;
+  }
+
+  /* ── Positionen-Tabelle ── */
+  .inv-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+  }
+  .inv-table th {
+    background: #111;
+    color: #fff;
+    font-size: 9pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    padding: 10px 12px;
+    text-align: left;
+  }
+  .inv-table th:last-child { text-align: right; }
+  .inv-table td {
+    padding: 12px;
+    border-bottom: 1px solid #f0f0f0;
+    vertical-align: top;
+    font-size: 10.5pt;
+    color: #1a1a1a;
+  }
+  .inv-table td:last-child { text-align: right; font-weight: 600; }
+  .inv-table tbody tr:hover { background: #fafafa; }
+  .inv-table .pos-num { color: #9ca3af; font-size: 9pt; }
+  .inv-table .pos-desc { font-weight: 600; }
+  .inv-table .pos-subdesc {
+    font-size: 9pt;
+    color: #6b7280;
+    margin-top: 3px;
+  }
+  .inv-table .unit-col { text-align: center; color: #6b7280; }
+  .inv-table .price-col { text-align: right; }
+
+  /* ── Summen ── */
+  .inv-totals {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 32px;
+  }
+  .inv-totals-box { min-width: 280px; }
+  .totals-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 7px 0;
+    font-size: 10.5pt;
+    color: #374151;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  .totals-row.total-final {
+    font-size: 14pt;
+    font-weight: 800;
+    color: #111;
+    border-top: 2px solid #111;
+    border-bottom: none;
+    padding-top: 10px;
+    margin-top: 4px;
+  }
+  .totals-row.total-final .amount { color: #4f46e5; }
+
+  /* ── Kleinunternehmer ── */
+  .kleinunternehmer-notice {
+    font-size: 9pt;
+    color: #6b7280;
+    background: #f9fafb;
+    border-left: 3px solid #d1d5db;
+    padding: 8px 12px;
+    margin-bottom: 24px;
+    line-height: 1.6;
+  }
+
+  /* ── Zahlungsinfo ── */
+  .inv-payment {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 20px;
+    margin-bottom: 28px;
+  }
+  .inv-payment .pay-title {
+    font-size: 10pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #374151;
+    margin-bottom: 12px;
+  }
+  .inv-payment .pay-row {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+  .inv-payment .pay-item .lbl {
+    font-size: 8pt;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    font-weight: 700;
+  }
+  .inv-payment .pay-item .val {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #111;
+    margin-top: 2px;
+  }
+  .inv-payment .pay-note {
+    margin-top: 12px;
+    font-size: 9.5pt;
+    color: #4b5563;
+    line-height: 1.6;
+  }
+
+  /* ── Footer ── */
+  .inv-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
+    font-size: 8.5pt;
+    color: #9ca3af;
+    line-height: 1.7;
+    text-align: center;
+  }
+
+  /* ── Warnung: kein Profil ── */
+  .setup-warning {
+    background: #fef3c7;
+    border: 2px solid #f59e0b;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    font-size: 10.5pt;
+    color: #92400e;
+  }
+  .setup-warning strong { display: block; margin-bottom: 4px; }
+  .setup-warning a {
+    color: #4f46e5;
+    font-weight: 700;
+    text-decoration: none;
+  }
+
+  /* ── Print ── */
+  @media print {
+    body { background: #fff; padding: 0; }
+    .screen-controls { display: none; }
+    .invoice-page {
+      box-shadow: none;
+      padding: 20mm 20mm;
+      max-width: 100%;
+      border-radius: 0;
+    }
+    .inv-table tbody tr:hover { background: transparent; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Screen Controls -->
+<div class="screen-controls">
+  <button class="btn btn-primary" onclick="window.print()">
+    <i>🖨️</i> Drucken / Als PDF speichern
+  </button>
+  <button class="btn btn-secondary" onclick="window.close()">
+    Schließen
+  </button>
+  {% if not k.invoice_number %}
+  <button class="btn btn-danger" id="btn-generate-nr" onclick="generateInvoiceNumber()">
+    ⚡ Rechnungsnummer vergeben &amp; speichern
+  </button>
+  {% endif %}
+  <span class="controls-label">
+    {% if k.invoice_number %}
+      ✅ Rechnungsnummer: <strong>{{ k.invoice_number }}</strong>
+    {% else %}
+      ⚠️ Noch kein Rechnungsnummer zugewiesen – Entwurf
+    {% endif %}
+  </span>
+</div>
+
+<!-- Invoice Page -->
+<div class="invoice-page">
+
+  {% set missing_profile = not settings.get('invoice_sender_name') %}
+  {% if missing_profile %}
+  <div class="setup-warning">
+    <strong>⚠️ Absender-Profil nicht eingerichtet</strong>
+    Bitte richte zuerst dein Rechnungs-Profil ein (Name, Adresse, Bankdaten, Steuernummer).
+    <br><a href="/settings#rechnung" target="_blank">→ Einstellungen öffnen</a>
+    &nbsp;|&nbsp;
+    <a href="javascript:void(0)" onclick="document.getElementById('inline-setup').style.display='block'">→ Hier schnell einrichten</a>
+  </div>
+  {% endif %}
+
+  <!-- HEADER -->
+  <div class="inv-header">
+    <div class="inv-sender">
+      <div class="name">{{ settings.get('invoice_sender_name') or '— Dein Name —' }}</div>
+      <div class="meta">
+        {% if settings.get('invoice_sender_street') %}{{ settings.invoice_sender_street }}<br>{% endif %}
+        {% if settings.get('invoice_sender_city') %}{{ settings.invoice_sender_city }}<br>{% endif %}
+        {% if settings.get('invoice_sender_email') %}{{ settings.invoice_sender_email }}<br>{% endif %}
+        {% if settings.get('invoice_sender_phone') %}Tel: {{ settings.invoice_sender_phone }}<br>{% endif %}
+        {% if settings.get('invoice_sender_tax_number') %}Steuernr.: {{ settings.invoice_sender_tax_number }}<br>{% endif %}
+        {% if settings.get('invoice_sender_vat_number') %}USt-IdNr.: {{ settings.invoice_sender_vat_number }}<br>{% endif %}
+      </div>
+    </div>
+    <div class="inv-title-block">
+      <div class="big">RECHNUNG</div>
+      {% if k.invoice_number %}
+        <div class="nr">{{ k.invoice_number }}</div>
+      {% else %}
+        <div class="draft-badge">ENTWURF</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ADRESSEN -->
+  <div class="inv-addresses">
+    <div class="inv-addr-box">
+      <div class="label">Rechnungsempfänger</div>
+      <div class="content">
+        <strong>{{ k.partner_name }}</strong><br>
+        {% if k.contact_name %}{{ k.contact_name }}<br>{% endif %}
+        {% if k.campaign_name %}<em style="color:#6b7280;font-size:9.5pt">Kampagne: {{ k.campaign_name }}</em>{% endif %}
+      </div>
+    </div>
+    <div class="inv-addr-box">
+      <div class="label">Account</div>
+      <div class="content">
+        {% if account %}
+          <strong>{{ account.name }}</strong><br>
+          {% if account.handle %}@{{ account.handle }}<br>{% endif %}
+        {% else %}
+          —
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- META -->
+  <div class="inv-meta">
+    <div class="inv-meta-item">
+      <div class="lbl">Rechnungsdatum</div>
+      <div class="val">{{ (k.invoice_sent_at or today).strftime('%d.%m.%Y') }}</div>
+    </div>
+    {% if payment_due %}
+    <div class="inv-meta-item">
+      <div class="lbl">Zahlungsziel</div>
+      <div class="val">{{ payment_due.strftime('%d.%m.%Y') }}</div>
+    </div>
+    {% endif %}
+    {% if k.invoice_number %}
+    <div class="inv-meta-item">
+      <div class="lbl">Rechnungsnummer</div>
+      <div class="val">{{ k.invoice_number }}</div>
+    </div>
+    {% endif %}
+    {% if k.start_date %}
+    <div class="inv-meta-item">
+      <div class="lbl">Leistungszeitraum</div>
+      <div class="val">{{ k.start_date.strftime('%d.%m.%Y') }}
+        {% if k.deadline %} – {{ k.deadline.strftime('%d.%m.%Y') }}{% endif %}
+      </div>
+    </div>
+    {% elif posting_dates %}
+    <div class="inv-meta-item">
+      <div class="lbl">Posting-Datum(en)</div>
+      <div class="val">{{ posting_dates | sort | map('truncate', 10, True, '') | join(', ') }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- POSITIONEN -->
+  <table class="inv-table">
+    <thead>
+      <tr>
+        <th style="width:36px">Pos.</th>
+        <th>Leistung</th>
+        <th style="width:70px; text-align:center">Menge</th>
+        <th style="width:110px; text-align:right">Einzelpreis</th>
+        <th style="width:110px; text-align:right">Betrag</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if deliverables %}
+        {% set ns = namespace(row=1, total=0) %}
+        {% for d in deliverables %}
+          {% if d.get('text') or (d.get('type') and d.get('count')) %}
+          {% set count = d.get('count', 1) | int %}
+          {% set label = d.get('label') or d.get('type') or '' %}
+          {% set text = d.get('text') or '' %}
+          {% set price = (k.amount or 0) / (deliverables | length) %}
+          {% set line_total = price %}
+          {% set _ = ns.__setattr__('total', ns.total + line_total) %}
+          <tr>
+            <td class="pos-num">{{ ns.row }}</td>
+            <td>
+              <div class="pos-desc">
+                {{ text or (count ~ '× ' ~ label) }}
+              </div>
+              {% if text and label %}
+              <div class="pos-subdesc">Format: {{ label }}</div>
+              {% endif %}
+            </td>
+            <td class="unit-col">{{ count }}</td>
+            <td class="price-col">—</td>
+            <td>—</td>
+          </tr>
+          {% set ns.row = ns.row + 1 %}
+          {% endif %}
+        {% endfor %}
+        <!-- Gesamt-Zeile wenn kein Einzelpreissystem -->
+        <tr style="background:#f9fafb">
+          <td></td>
+          <td><strong>Kooperation gesamt</strong>
+            {% if k.campaign_name %}
+            <div class="pos-subdesc">Kampagne: {{ k.campaign_name }}</div>
+            {% endif %}
+          </td>
+          <td class="unit-col">1</td>
+          <td class="price-col">
+            {% if k.amount %}{{ '%.2f'|format(k.amount) }} {{ k.currency or 'EUR' }}{% else %}—{% endif %}
+          </td>
+          <td>
+            {% if k.amount %}<strong>{{ '%.2f'|format(k.amount) }} {{ k.currency or 'EUR' }}</strong>{% else %}—{% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <!-- Fallback: eine Position aus der Kooperation -->
+        <tr>
+          <td class="pos-num">1</td>
+          <td>
+            <div class="pos-desc">
+              Kooperation / {{ {'paid_post':'Paid Post','ugc':'UGC','collab':'Collab','sponsoring':'Sponsoring','product':'Produkt-Deal'}.get(k.koop_type, 'Kooperation') }}
+            </div>
+            {% if k.campaign_name %}
+            <div class="pos-subdesc">Kampagne: {{ k.campaign_name }}</div>
+            {% endif %}
+          </td>
+          <td class="unit-col">1</td>
+          <td class="price-col">
+            {% if k.amount %}{{ '%.2f'|format(k.amount) }} {{ k.currency or 'EUR' }}{% else %}—{% endif %}
+          </td>
+          <td>
+            {% if k.amount %}<strong>{{ '%.2f'|format(k.amount) }} {{ k.currency or 'EUR' }}</strong>{% else %}—{% endif %}
+          </td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <!-- SUMMEN -->
+  <div class="inv-totals">
+    <div class="inv-totals-box">
+      {% set is_klein = settings.get('invoice_sender_is_kleinunternehmer', 'true') == 'true' %}
+      {% if not is_klein %}
+      <div class="totals-row">
+        <span>Nettobetrag</span>
+        <span>{% if k.amount %}{{ '%.2f'|format(k.amount / 1.19) }} {{ k.currency or 'EUR' }}{% else %}—{% endif %}</span>
+      </div>
+      <div class="totals-row">
+        <span>MwSt. 19%</span>
+        <span>{% if k.amount %}{{ '%.2f'|format(k.amount - k.amount / 1.19) }} {{ k.currency or 'EUR' }}{% else %}—{% endif %}</span>
+      </div>
+      {% endif %}
+      <div class="totals-row total-final">
+        <span>Gesamtbetrag</span>
+        <span class="amount">
+          {% if k.amount %}{{ '%.2f'|format(k.amount) }} {{ k.currency or 'EUR' }}
+          {% else %}—{% endif %}
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kleinunternehmer-Hinweis -->
+  {% if settings.get('invoice_sender_is_kleinunternehmer', 'true') == 'true' %}
+  <div class="kleinunternehmer-notice">
+    Gemäß § 19 UStG wird keine Umsatzsteuer berechnet (Kleinunternehmerregelung).
+  </div>
+  {% endif %}
+
+  <!-- ZAHLUNGSINFO -->
+  {% if settings.get('invoice_sender_iban') %}
+  <div class="inv-payment">
+    <div class="pay-title">Zahlungsinformationen</div>
+    <div class="pay-row">
+      {% if settings.get('invoice_sender_bank_name') %}
+      <div class="pay-item">
+        <div class="lbl">Bank</div>
+        <div class="val">{{ settings.invoice_sender_bank_name }}</div>
+      </div>
+      {% endif %}
+      <div class="pay-item">
+        <div class="lbl">IBAN</div>
+        <div class="val">{{ settings.invoice_sender_iban }}</div>
+      </div>
+      {% if settings.get('invoice_sender_bic') %}
+      <div class="pay-item">
+        <div class="lbl">BIC</div>
+        <div class="val">{{ settings.invoice_sender_bic }}</div>
+      </div>
+      {% endif %}
+      {% if payment_due %}
+      <div class="pay-item">
+        <div class="lbl">Fällig bis</div>
+        <div class="val">{{ payment_due.strftime('%d.%m.%Y') }}</div>
+      </div>
+      {% endif %}
+    </div>
+    <div class="pay-note">
+      Bitte überweise den Betrag unter Angabe der Rechnungsnummer
+      <strong>{{ k.invoice_number or '(noch nicht vergeben)' }}</strong>
+      {% if payment_due %}bis zum <strong>{{ payment_due.strftime('%d.%m.%Y') }}</strong>{% endif %}.
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- FUSSNOTE -->
+  <div class="inv-footer">
+    {{ settings.get('invoice_sender_name') or '' }}
+    {% if settings.get('invoice_sender_street') %} · {{ settings.invoice_sender_street }}{% endif %}
+    {% if settings.get('invoice_sender_city') %} · {{ settings.invoice_sender_city }}{% endif %}
+    {% if settings.get('invoice_sender_email') %} · {{ settings.invoice_sender_email }}{% endif %}
+    {% if settings.get('invoice_sender_tax_number') %}<br>Steuernummer: {{ settings.invoice_sender_tax_number }}{% endif %}
+    {% if settings.get('invoice_sender_vat_number') %} · USt-IdNr.: {{ settings.invoice_sender_vat_number }}{% endif %}
+  </div>
+
+</div><!-- /invoice-page -->
+
+<script>
+async function generateInvoiceNumber() {
+  const btn = document.getElementById('btn-generate-nr');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = 'Vergebe Nummer…';
+  try {
+    const res = await fetch('/api/kooperationen/{{ k.id }}/rechnung/generate', { method: 'POST' });
+    const d = await res.json();
+    if (d.ok) {
+      location.reload();
+    } else {
+      alert('Fehler: ' + (d.error || 'Unbekannt'));
+      btn.disabled = false;
+      btn.textContent = '⚡ Rechnungsnummer vergeben & speichern';
+    }
+  } catch(e) {
+    alert('Netzwerkfehler: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '⚡ Rechnungsnummer vergeben & speichern';
+  }
+}
+</script>
+</body>
+</html>

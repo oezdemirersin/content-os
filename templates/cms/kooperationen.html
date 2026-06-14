@@ -713,6 +713,17 @@ function openDetail(id) {
         <button onclick="deleteKoop(${k.id})" class="btn btn-ghost" style="font-size:11px;color:#ef4444"><i class="fa-solid fa-trash"></i> Löschen</button>
         <button onclick="editKoopFromDetail()" class="btn btn-primary" style="font-size:11px;flex:1"><i class="fa-solid fa-pen"></i> Bearbeiten</button>
       </div>
+      <div style="margin-top:8px">
+        <a href="/kooperationen/${k.id}/rechnung" target="_blank"
+           style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px;
+                  border-radius:10px;border:1px solid var(--accent);background:rgba(99,102,241,.08);
+                  color:var(--accent);font-family:var(--font-body);font-size:12px;font-weight:700;
+                  text-decoration:none;cursor:pointer">
+          <i class="fa-solid fa-file-invoice"></i>
+          Rechnung erstellen / anzeigen
+          ${k.invoice_number ? `<span style="background:var(--accent);color:#fff;border-radius:6px;padding:1px 7px;font-size:10px">${esc(k.invoice_number)}</span>` : ''}
+        </a>
+      </div>
     </div>`;
 
   document.getElementById('detailOverlay').style.display = 'block';
