@@ -6446,6 +6446,96 @@ _IG_DIRECT_HEADERS = {
 }
 
 
+def _fetch_ig_followers_rapidapi_batch(usernames, rapidapi_key):
+    """
+    Ruft Follower-Zahlen für eine Liste von Usernames via RapidAPI ab.
+    Probiert mehrere bekannte Instagram-Scraper-APIs durch.
+    Gibt {username_lower: followers_int}, [error_strings] zurück.
+    """
+    import json as _json
+
+    # Kandidaten: (host, url, params_fn, followers_key_path)
+    # followers_key_path: Liste von Keys die verschachtelt traversiert werden
+    APIS = [
+        ('instagram-scraper21.p.rapidapi.com',
+         'https://instagram-scraper21.p.rapidapi.com/api/v1/info',
+         lambda u: {'username': u},
+         ['data', 'user', 'edge_followed_by', 'count']),
+        ('instagram-scraper-api2.p.rapidapi.com',
+         'https://instagram-scraper-api2.p.rapidapi.com/v1/info',
+         lambda u: {'username_or_id_or_url': u},
+         ['data', 'follower_count']),
+        ('instagram-scraper-api2.p.rapidapi.com',
+         'https://instagram-scraper-api2.p.rapidapi.com/v1.2/info',
+         lambda u: {'username_or_id_or_url': u},
+         ['data', 'follower_count']),
+        ('instagram130.p.rapidapi.com',
+         'https://instagram130.p.rapidapi.com/v1/info',
+         lambda u: {'username_or_id_or_url': u},
+         ['data', 'follower_count']),
+        ('instagram-data1.p.rapidapi.com',
+         'https://instagram-data1.p.rapidapi.com/user/info',
+         lambda u: {'username': u},
+         ['data', 'follower_count']),
+        ('instagram47.p.rapidapi.com',
+         'https://instagram47.p.rapidapi.com/getUser',
+         lambda u: {'username': u},
+         ['graphql', 'user', 'edge_followed_by', 'count']),
+    ]
+
+    def _dig(d, keys):
+        """Traversiert ein verschachteltes Dict entlang keys."""
+        for k in keys:
+            if not isinstance(d, dict):
+                return None
+            d = d.get(k)
+        return d
+
+    # Finde die erste funktionierende API mit einem Test-Username
+    working = None
+    test_user = usernames[0] if usernames else 'instagram'
+    for host, url, mk_params, key_path in APIS:
+        try:
+            hdrs = {'x-rapidapi-key': rapidapi_key, 'x-rapidapi-host': host}
+            resp = req_lib.get(url, headers=hdrs, params=mk_params(test_user), timeout=15)
+            if resp.status_code == 200:
+                raw = resp.json()
+                val = _dig(raw, key_path)
+                if isinstance(val, int) and val > 0:
+                    working = (host, url, mk_params, key_path)
+                    break
+        except Exception:
+            continue
+
+    if not working:
+        return {}, ['RapidAPI: Keine funktionierende Instagram-User-Info-API gefunden. '
+                    'Bitte überprüfe dein Abonnement auf rapidapi.com.']
+
+    host, url, mk_params, key_path = working
+    result, errors = {}, []
+    hdrs = {'x-rapidapi-key': rapidapi_key, 'x-rapidapi-host': host}
+
+    for uname in usernames:
+        try:
+            resp = req_lib.get(url, headers=hdrs, params=mk_params(uname), timeout=15)
+            if resp.status_code == 200:
+                raw = resp.json()
+                val = _dig(raw, key_path)
+                if isinstance(val, int) and val > 0:
+                    result[uname.lower()] = val
+                else:
+                    errors.append(f'@{uname}: keine Follower-Zahl in Antwort')
+            elif resp.status_code == 429:
+                errors.append(f'@{uname}: Rate-Limit — warte kurz')
+                import time as _time; _time.sleep(2)
+            else:
+                errors.append(f'@{uname}: HTTP {resp.status_code}')
+        except Exception as e:
+            errors.append(f'@{uname}: {str(e)[:80]}')
+
+    return result, errors
+
+
 def _fetch_ig_followers_direct(username):
     """Ruft Follower-Zahl direkt von Instagrams Web-API ab (kein Key nötig)."""
     import json as _json
@@ -6517,18 +6607,30 @@ def _fetch_ig_followers_apify_batch(usernames, api_token):
 # ── Haupt-Sync-Worker ─────────────────────────────────────────
 
 def _run_ig_follower_sync():
-    """Holt Follower-Zahlen für alle Accounts. Nutzt Apify wenn konfiguriert."""
+    """Holt Follower-Zahlen für alle Accounts. Nutzt Apify, RapidAPI oder Direktzugriff."""
     global _ig_sync_status
     try:
         with app.app_context():
-            # Methode ermitteln (explizit gesetzt oder Fallback auf Token-Vorhanden)
-            method_row  = AppSettings.query.filter_by(key='ig_sync_method').first()
-            token_row   = AppSettings.query.filter_by(key='apify_token').first()
-            apify_token = token_row.value if token_row and token_row.value else None
-            method = (method_row.value if method_row and method_row.value else
-                      ('apify' if apify_token else 'direct'))
-            # Apify gewählt aber kein Token → Fallback auf direkt
+            method_row    = AppSettings.query.filter_by(key='ig_sync_method').first()
+            token_row     = AppSettings.query.filter_by(key='apify_token').first()
+            rapidapi_row  = AppSettings.query.filter_by(key='rapidapi_key').first()
+            apify_token   = token_row.value if token_row and token_row.value else None
+            rapidapi_key  = rapidapi_row.value if rapidapi_row and rapidapi_row.value else None
+
+            # Methode: explizit gesetzt → nehmen; sonst: apify > rapidapi > direct
+            if method_row and method_row.value:
+                method = method_row.value
+            elif apify_token:
+                method = 'apify'
+            elif rapidapi_key:
+                method = 'rapidapi'
+            else:
+                method = 'direct'
+
+            # Sanity checks
             if method == 'apify' and not apify_token:
+                method = 'rapidapi' if rapidapi_key else 'direct'
+            if method == 'rapidapi' and not rapidapi_key:
                 method = 'direct'
             _ig_sync_status['method'] = method
 
@@ -6551,43 +6653,49 @@ def _run_ig_follower_sync():
             updated_list, errors = [], []
             app.logger.info(f'[IG Sync] Methode={method}, {total} Accounts')
 
+            usernames = [a.handle.lstrip('@') for a in accounts]
+            acc_map   = {a.handle.lstrip('@').lower(): a for a in accounts}
+
             if method == 'apify':
                 # ── Apify: alle auf einmal ──
                 _ig_sync_status.update({'current': 'Apify-Scraper läuft…', 'progress': 10})
-                usernames = [a.handle.lstrip('@') for a in accounts]
                 followers_map, apify_errors = _fetch_ig_followers_apify_batch(usernames, apify_token)
                 errors.extend(apify_errors)
 
-                acc_map = {a.handle.lstrip('@').lower(): a for a in accounts}
-                for uname, followers in followers_map.items():
-                    acc = acc_map.get(uname)
-                    if acc:
-                        old, delta = _set_follower_count(acc, followers)
-                        updated_list.append({'name': acc.name, 'handle': uname,
-                                             'old': old, 'new': followers, 'delta': delta})
-                        app.logger.info(f'[IG Sync/Apify] @{uname}: {old}→{followers}')
-
-                _ig_sync_status['progress'] = 95
+            elif method == 'rapidapi':
+                # ── RapidAPI: alle auf einmal mit bestehenden Instagram-Scraper-APIs ──
+                _ig_sync_status.update({'current': 'RapidAPI Instagram-Scraper läuft…', 'progress': 10})
+                followers_map, rap_errors = _fetch_ig_followers_rapidapi_batch(usernames, rapidapi_key)
+                errors.extend(rap_errors)
 
             else:
                 # ── Direkt: Account für Account mit Pause ──
+                followers_map = {}
                 for i, acc in enumerate(accounts):
                     username = acc.handle.lstrip('@')
                     _ig_sync_status.update({
                         'current': acc.name,
                         'progress': int((i / total) * 100),
                     })
-                    followers, err = _fetch_ig_followers_direct(username)
+                    count_val, err = _fetch_ig_followers_direct(username)
                     if err:
                         errors.append(err)
                         app.logger.warning(f'[IG Sync/Direct] {err}')
-                    elif followers:
-                        old, delta = _set_follower_count(acc, followers)
-                        updated_list.append({'name': acc.name, 'handle': username,
-                                             'old': old, 'new': followers, 'delta': delta})
-                        app.logger.info(f'[IG Sync/Direct] @{username}: {old}→{followers}')
+                    elif count_val:
+                        followers_map[username.lower()] = count_val
                     if i < total - 1:
                         _time.sleep(1.5)
+
+            # ── Gemeinsames Update ───────────────────────────────────
+            for uname, followers in followers_map.items():
+                acc = acc_map.get(uname)
+                if acc:
+                    old, delta = _set_follower_count(acc, followers)
+                    updated_list.append({'name': acc.name, 'handle': uname,
+                                         'old': old, 'new': followers, 'delta': delta})
+                    app.logger.info(f'[IG Sync/{method.upper()}] @{uname}: {old}→{followers}')
+
+            _ig_sync_status['progress'] = 95
 
             db.session.commit()
 
@@ -6627,10 +6735,15 @@ def sync_followers_apify():
     _ig_sync_status.update({'running': True, 'error': None, 'result': None,
                              'progress': 0, 'current': ''})
     threading.Thread(target=_run_ig_follower_sync, daemon=True).start()
-    # Aktive Methode ermitteln für den Client
-    has_token = bool(AppSettings.query.filter_by(key='apify_token').first() and
-                     AppSettings.query.filter_by(key='apify_token').first().value)
-    return jsonify({'ok': True, 'total': count, 'method': 'apify' if has_token else 'direct'})
+    apify_key    = AppSettings.query.filter_by(key='apify_token').first()
+    rapidapi_key = AppSettings.query.filter_by(key='rapidapi_key').first()
+    if apify_key and apify_key.value:
+        method = 'apify'
+    elif rapidapi_key and rapidapi_key.value:
+        method = 'rapidapi'
+    else:
+        method = 'direct'
+    return jsonify({'ok': True, 'total': count, 'method': method})
 
 
 @app.route('/api/analytics/sync-followers-apify/status')
