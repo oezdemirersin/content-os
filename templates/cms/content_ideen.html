@@ -70,12 +70,17 @@
       Füge deine bisherigen Beiträge hinzu — je mehr Daten, desto besser die Analyse.
     </div>
 
-    <div style="padding:12px 14px;border-top:1px solid var(--border);display:flex;gap:8px">
-      <button onclick="savePosts()" class="btn btn-ghost" style="font-size:11px;flex:1">
-        <i class="fa-solid fa-floppy-disk"></i> Speichern
-      </button>
-      <button onclick="runAnalysis()" class="btn btn-primary" style="font-size:11px;flex:2" id="analyseBtn">
-        <i class="fa-solid fa-magnifying-glass-chart"></i> KI Seite analysieren
+    <div style="padding:12px 14px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;gap:8px">
+        <button onclick="savePosts()" class="btn btn-ghost" style="font-size:11px;flex:1">
+          <i class="fa-solid fa-floppy-disk"></i> Speichern
+        </button>
+        <button onclick="runAnalysis()" class="btn btn-primary" style="font-size:11px;flex:2" id="analyseBtn">
+          <i class="fa-solid fa-magnifying-glass-chart"></i> KI Seite analysieren
+        </button>
+      </div>
+      <button onclick="scanAndAnalyse()" class="btn btn-secondary" style="font-size:11px;width:100%" id="scanBtn">
+        <i class="fa-brands fa-instagram"></i> Instagram automatisch scannen &amp; analysieren
       </button>
     </div>
   </div>
@@ -437,6 +442,33 @@ async function runAnalysis() {
     showToast('Seitenanalyse erstellt', 'success');
   } else {
     showToast(data.error || 'Fehler bei der Analyse', 'error');
+  }
+}
+
+// ── Auto-Scan via Apify ──────────────────────────────────────
+async function scanAndAnalyse() {
+  if (!activeAccountId) return;
+  const btn = document.getElementById('scanBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scanne Instagram… (ca. 60–90 Sek.)';
+  try {
+    const r = await fetch(`/api/content-ideen/${activeAccountId}/scrape-analyse`, { method: 'POST' });
+    const data = await r.json();
+    if (!data.ok) {
+      showToast(data.error || 'Fehler beim Scannen', 'error');
+      return;
+    }
+    renderAnalysis(data.analysis);
+    document.getElementById('analyseDate').textContent =
+      `Auto-Scan — ${data.posts_found} Posts${data.images_analysed ? ', ' + data.images_analysed + ' Bilder' : ''}`;
+    showToast(`✅ ${data.posts_found} Posts gescannt & analysiert`, 'success');
+    // Gescrapte Posts auch in der Liste anzeigen
+    await loadAccountData(activeAccountId);
+  } catch (e) {
+    showToast('Verbindungsfehler', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-brands fa-instagram"></i> Instagram automatisch scannen &amp; analysieren';
   }
 }
 

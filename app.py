@@ -9591,6 +9591,168 @@ Sei konkret. Beziehe dich auf die Beitrags-Daten. Keine allgemeinen Social-Media
     return jsonify({'ok': True, 'analysis': analysis})
 
 
+@app.route('/api/content-ideen/<int:account_id>/scrape-analyse', methods=['POST'])
+@login_required
+def scrape_analyse_profile(account_id):
+    """Scannt Instagram-Profil via Apify (letzte 24 Posts) + KI-Analyse mit Vision."""
+    import json as _json, base64 as _b64
+    import anthropic as _ant
+
+    acc = Account.query.get_or_404(account_id)
+
+    # Handle ermitteln
+    handle = acc.handle
+    if not handle and acc.profile_url:
+        handle = acc.profile_url.rstrip('/').split('/')[-1]
+    if not handle:
+        return jsonify({'ok': False, 'error': 'Kein Instagram-Handle beim Account hinterlegt (Einstellungen → Account).'})
+
+    apify_token = get_setting('apify_token')
+    if not apify_token:
+        return jsonify({'ok': False, 'error': 'Kein Apify-Token. Bitte unter Einstellungen → Integrationen hinterlegen.'})
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert.'})
+
+    # 1. Posts via Apify scrapen
+    payload = _json.dumps({
+        'directUrls': [f'https://www.instagram.com/{handle}/'],
+        'resultsType': 'posts',
+        'resultsLimit': 24,
+        'addParentData': False,
+    }).encode()
+
+    apify_url = (
+        'https://api.apify.com/v2/acts/apify~instagram-scraper'
+        f'/run-sync-get-dataset-items?token={apify_token}&timeout=300'
+    )
+    req = _urllib_request.Request(
+        apify_url, data=payload,
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
+    try:
+        with _urllib_request.urlopen(req, timeout=360) as r:
+            items = _json.loads(r.read())
+    except _urllib_request.HTTPError as e:
+        body = e.read().decode(errors='replace')[:300]
+        return jsonify({'ok': False, 'error': f'Apify Fehler {e.code}: {body}'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Apify Verbindungsfehler: {str(e)}'})
+
+    if not items or not isinstance(items, list):
+        return jsonify({'ok': False, 'error': 'Keine Posts gefunden. Ist der Account öffentlich und der Handle korrekt?'})
+
+    # 2. Posts aufbereiten
+    _type_map = {'Image': 'Foto', 'Video': 'Reel/Video', 'Sidecar': 'Karussell'}
+    post_lines = []
+    image_urls = []
+    simplified_posts = []
+
+    for i, item in enumerate(items[:20], 1):
+        caption = (item.get('caption') or '').strip()
+        post_type = _type_map.get(item.get('type', ''), item.get('type', '?'))
+        likes = item.get('likesCount', '')
+        comments = item.get('commentsCount', '')
+        timestamp = (item.get('timestamp') or '')[:10]
+
+        eng_parts = []
+        if likes != '': eng_parts.append(f'♥ {likes}')
+        if comments != '': eng_parts.append(f'💬 {comments}')
+        eng_str = ' | '.join(eng_parts) if eng_parts else 'keine Zahlen'
+
+        post_lines.append(
+            f'{i}. [{post_type}] {timestamp}\n'
+            f'   Caption: {caption[:300] or "(keine Caption)"}\n'
+            f'   {eng_str}'
+        )
+
+        if item.get('displayUrl') and len(image_urls) < 5:
+            image_urls.append(item['displayUrl'])
+
+        simplified_posts.append({
+            'format': _type_map.get(item.get('type', ''), '?'),
+            'beschreibung': caption[:200],
+            'likes': likes,
+            'kommentare': comments,
+            'datum': timestamp,
+        })
+
+    # 3. Bilder für Vision laden (max 4, best-effort)
+    vision_images = []
+    for img_url in image_urls[:4]:
+        try:
+            img_req = _urllib_request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with _urllib_request.urlopen(img_req, timeout=12) as img_r:
+                img_data = img_r.read()
+                ctype = img_r.headers.get('Content-Type', 'image/jpeg').split(';')[0]
+                if ctype not in ('image/jpeg', 'image/png', 'image/webp', 'image/gif'):
+                    ctype = 'image/jpeg'
+                vision_images.append({
+                    'type': 'image',
+                    'source': {'type': 'base64', 'media_type': ctype, 'data': _b64.b64encode(img_data).decode()}
+                })
+        except Exception:
+            pass
+
+    # 4. Claude-Analyse
+    ctx_info = acc.name
+    if acc.handle:
+        ctx_info += f' (@{acc.handle})'
+    if acc.category:
+        ctx_info += f' | {acc.category.name}'
+
+    prompt = f"""Du analysierst den Instagram-Account „{ctx_info}".
+
+Ich habe dir die letzten {len(post_lines)} Beiträge gescannt. Analysiere sowohl die Texte als auch die Bilder (wenn vorhanden).
+
+GESCANNTE BEITRÄGE:
+{chr(10).join(post_lines)}
+
+Erstelle jetzt eine präzise Analyse im exakten Format unten. Beziehe dich konkret auf die Daten — keine allgemeinen Tipps:
+
+STÄRKEN: [Was perft gut? Welche Formate/Themen haben hohes Engagement?]
+BESTE_FORMATE: [Reel/Foto/Karussell — welche performen am besten laut den Zahlen?]
+CONTENT_PATTERN: [Was ist das wiederkehrende Muster? Stil, Struktur, Länge der Captions?]
+THEMEN_DIE_PERFORMEN: [Konkrete Themen mit hohem Engagement — mit Beispielen aus den Posts]
+ZIELGRUPPE: [Für wen ist diese Seite? Alter, Interessen, Standort?]
+TONALITAET: [Wie kommuniziert diese Seite? Humorvoll, informativ, emotional, lokal?]
+EMPFEHLUNG: [Max. 3 konkrete Empfehlungen basierend auf den echten Daten]
+SEITEN_DNA: [Kernaussage in 1-2 Sätzen: Was macht diese Seite einzigartig?]"""
+
+    try:
+        client = _ant.Anthropic(api_key=api_key)
+        content = vision_images + [{'type': 'text', 'text': prompt}]
+        resp = client.messages.create(
+            model='claude-opus-4-8',
+            max_tokens=2000,
+            messages=[{'role': 'user', 'content': content}],
+        )
+        _log_ai('ideen_scrape_analyse', resp)
+        analysis = resp.content[0].text.strip()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'KI-Fehler: {str(e)}'})
+
+    # 5. In AccountIdeenContext speichern
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx:
+        ctx = AccountIdeenContext(account_id=account_id)
+        db.session.add(ctx)
+
+    ctx.past_posts_json = _json.dumps(simplified_posts, ensure_ascii=False)
+    ctx.page_analysis = analysis
+    ctx.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'analysis': analysis,
+        'posts_found': len(items),
+        'images_analysed': len(vision_images),
+    })
+
+
 @app.route('/api/content-ideen/generate', methods=['POST'])
 @login_required
 def generate_content_ideen():
