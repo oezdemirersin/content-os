@@ -317,6 +317,23 @@
       </button>
     </div>
   </div>
+
+  <div class="card" style="max-width:660px">
+    <div class="card-header">
+      <span class="card-title">GLOBALE ANALYSE-REGELN</span>
+    </div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+      <div style="font-size:12px;color:var(--muted);line-height:1.5">
+        Diese Regeln werden bei <strong>jeder</strong> KI-Seitenanalyse mitgegeben — für alle Accounts.
+        Hier kannst du der KI erklären, was sie generell nicht falsch einschätzen soll:
+        z.B. Meme-Konventionen, kulturellen Kontext, was Reichweite vs. Saves bedeutet, etc.
+      </div>
+      <textarea id="globalRulesText" rows="8" class="form-control" placeholder="Beispiele:&#10;— Memes mit Politikern sind oft Humor/Ironie, kein politischer Inhalt.&#10;— GTA6-Posts laufen wegen allgemeinem Gaming-Hype, nicht Nischen-Interesse.&#10;— Posts zu lokalen Ereignissen (Marathon, Stadtfest) sind zeitkritisch und immer am Ereignistag zu posten.&#10;— Hohe Kommentarzahl ohne Likes = oft Kontroverse oder Gewinnspiel." style="font-size:12px;resize:vertical"></textarea>
+      <button onclick="saveGlobalRules()" class="btn btn-primary" style="align-self:flex-start;min-width:180px">
+        <i class="fa-solid fa-floppy-disk"></i> Globale Regeln speichern
+      </button>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
@@ -465,6 +482,27 @@ async function saveInvoiceSettings() {
     if (d.ok) showToast('Rechnungsprofil gespeichert ✓', 'success');
     else showToast('Fehler beim Speichern', 'error');
   } catch(e) { showToast('Netzwerkfehler: ' + e.message, 'error'); }
+}
+
+// ── Globale Analyse-Regeln ────────────────────────────────────
+(async function loadGlobalRules() {
+  try {
+    const d = await fetch('/api/settings/get?key=analyse_global_rules').then(r => r.json());
+    if (d.value !== undefined) document.getElementById('globalRulesText').value = d.value || '';
+  } catch(e) { console.error(e); }
+})();
+
+async function saveGlobalRules() {
+  const value = document.getElementById('globalRulesText').value.trim();
+  try {
+    const res = await fetch('/api/settings/set', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ key: 'analyse_global_rules', value })
+    });
+    const d = await res.json();
+    if (d.ok) showToast('Globale Regeln gespeichert ✓', 'success');
+    else showToast('Fehler beim Speichern', 'error');
+  } catch(e) { showToast('Netzwerkfehler', 'error'); }
 }
 </script>
 {% endblock %}

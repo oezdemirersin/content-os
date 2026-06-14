@@ -753,6 +753,8 @@ def init_db():
                 safe_alter('ALTER TABLE account_ideen_context ADD COLUMN past_posts_json TEXT')
             if 'page_analysis' not in aic_cols:
                 safe_alter('ALTER TABLE account_ideen_context ADD COLUMN page_analysis TEXT')
+            if 'analyse_feedback' not in aic_cols:
+                safe_alter('ALTER TABLE account_ideen_context ADD COLUMN analyse_feedback TEXT')
             # content_folder: Wetter-Trigger
             if 'trigger_condition' not in cf_cols:
                 safe_alter('ALTER TABLE content_folder ADD COLUMN trigger_condition VARCHAR(50)')
@@ -9474,15 +9476,31 @@ def get_ideen_context(account_id):
         try: past_posts = json.loads(ctx.past_posts_json)
         except: pass
     return jsonify({
-        'konzept':       ctx.konzept or '',
-        'zielgruppe':    ctx.zielgruppe or '',
-        'tonalitaet':    ctx.tonalitaet or '',
-        'themen':        ctx.themen or '',
-        'updated_at':    ctx.updated_at.isoformat() if ctx.updated_at else None,
-        'generated_ideas': ideas,
-        'past_posts':    past_posts,
-        'page_analysis': ctx.page_analysis or '',
+        'konzept':          ctx.konzept or '',
+        'zielgruppe':       ctx.zielgruppe or '',
+        'tonalitaet':       ctx.tonalitaet or '',
+        'themen':           ctx.themen or '',
+        'updated_at':       ctx.updated_at.isoformat() if ctx.updated_at else None,
+        'generated_ideas':  ideas,
+        'past_posts':       past_posts,
+        'page_analysis':    ctx.page_analysis or '',
+        'analyse_feedback': ctx.analyse_feedback or '',
     })
+
+
+@app.route('/api/content-ideen/<int:account_id>/save-feedback', methods=['POST'])
+@login_required
+def save_analyse_feedback(account_id):
+    """Speichert Account-spezifisches Feedback/Korrekturen zur KI-Analyse."""
+    d = request.get_json() or {}
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx:
+        ctx = AccountIdeenContext(account_id=account_id)
+        db.session.add(ctx)
+    ctx.analyse_feedback = d.get('feedback', '').strip()
+    ctx.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/content-ideen/save-context', methods=['POST'])
@@ -9621,8 +9639,18 @@ def analyse_page(account_id):
     top_lines = [_fmt_post_line(i+1, p) for i, p in enumerate(sorted_posts[:10])]
     all_lines  = [_fmt_post_line(i+1, p) for i, p in enumerate(posts)]
 
-    prompt = f"""Du analysierst die Instagram-Seite „{acc.name}" und willst verstehen, WARUM bestimmte Posts gut liefen.
+    # Feedback + globale Regeln laden
+    account_feedback = (ctx.analyse_feedback or '').strip()
+    global_rules     = (get_setting('analyse_global_rules') or '').strip()
 
+    feedback_block = ''
+    if account_feedback:
+        feedback_block += f'\nKORREKTUREN & KONTEXT VOM ACCOUNT-INHABER:\n{account_feedback}\n'
+    if global_rules:
+        feedback_block += f'\nGLOBALE ANALYSE-REGELN (gilt für alle Accounts):\n{global_rules}\n'
+
+    prompt = f"""Du analysierst die Instagram-Seite „{acc.name}" und willst verstehen, WARUM bestimmte Posts gut liefen.
+{feedback_block}
 {len(posts)} Beiträge analysiert.
 
 TOP 10 POSTS (nach Likes sortiert):
@@ -9632,6 +9660,7 @@ ALLE {len(posts)} POSTS (chronologisch):
 {chr(10).join(all_lines)}
 
 Deine Aufgabe: Erkläre WARUM die erfolgreichen Posts liefen — nicht nur was gepostet wurde.
+Berücksichtige dabei die Korrekturen und den Kontext vom Account-Inhaber wenn vorhanden.
 Nutze ausschließlich dieses Format:
 
 TOP_POSTS_MUSTER: [Was haben die besten Posts gemeinsam? Welches Thema, welcher Stil, welche Caption-Länge, welcher Typ?]
@@ -9642,7 +9671,7 @@ FLOP_MUSTER: [Was machen schwache Posts anders? Welche Themen/Stile zünden bei 
 REPLIZIEREN: [3 konkrete, sofort umsetzbare Ideen um das Erfolgsrezept zu wiederholen]
 SEITEN_DNA: [1-2 Sätze: Was liebt die Audience an dieser Seite wirklich — und warum kommen sie wieder?]
 
-Beziehe dich konkret auf echte Captions und Zahlen aus den Daten. Keine allgemeinen Social-Media-Tipps."""
+Beziehe dich konkret auf echte Captions und Zahlen. Keine allgemeinen Social-Media-Tipps."""
 
     try:
         client = _ant.Anthropic(api_key=api_key)
@@ -9842,9 +9871,20 @@ def _scrape_analyse_profile_inner(account_id, _json, _b64, _ant):
             f'  Caption: {(p.get("beschreibung") or "(keine)")[:200]}'
         )
 
+    # Feedback + globale Regeln laden
+    ctx_obj = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    account_feedback_s = (ctx_obj.analyse_feedback if ctx_obj else '') or ''
+    global_rules_s     = (get_setting('analyse_global_rules') or '').strip()
+
+    feedback_block_s = ''
+    if account_feedback_s:
+        feedback_block_s += f'\nKORREKTUREN & KONTEXT VOM ACCOUNT-INHABER:\n{account_feedback_s}\n'
+    if global_rules_s:
+        feedback_block_s += f'\nGLOBALE ANALYSE-REGELN (gilt für alle Accounts):\n{global_rules_s}\n'
+
     total_scanned = len(simplified_posts)
     prompt = f"""Du analysierst den Instagram-Account „{ctx_info}" und willst verstehen, WARUM bestimmte Posts liefen.
-
+{feedback_block_s}
 {total_scanned} Posts gescannt. Reach nicht verfügbar — du siehst Views (Reels), Likes, Kommentare.
 
 TOP 10 POSTS (nach Likes sortiert):
@@ -9853,7 +9893,9 @@ TOP 10 POSTS (nach Likes sortiert):
 ALLE {len(post_lines)} POSTS (chronologisch, erste 50):
 {chr(10).join(post_lines)}
 
-Deine Aufgabe: Erkläre WARUM die erfolgreichen Posts liefen. Nutze ausschließlich dieses Format:
+Deine Aufgabe: Erkläre WARUM die erfolgreichen Posts liefen.
+Berücksichtige Korrekturen/Kontext vom Account-Inhaber wenn vorhanden.
+Nutze ausschließlich dieses Format:
 
 TOP_POSTS_MUSTER: [Was haben die Top-Posts gemeinsam? Thema, Stil, Caption-Länge, Typ?]
 WARUM_LIEFEN_SIE: [Welche Emotion/Trigger? Humor, Lokalstolz, Überraschung, FOMO, Nostalgie?]
@@ -10697,6 +10739,27 @@ def set_feature_toggle():
         set_setting('smart_refill_threshold_days', str(int(d['refill_days'])))
         updated['refill_days'] = int(d['refill_days'])
     return jsonify({'ok': True, 'updated': updated})
+
+
+@app.route('/api/settings/get', methods=['GET'])
+@login_required
+def api_settings_get():
+    key = request.args.get('key', '').strip()
+    if not key:
+        return jsonify({'ok': False, 'error': 'key required'}), 400
+    return jsonify({'ok': True, 'key': key, 'value': get_setting(key) or ''})
+
+
+@app.route('/api/settings/set', methods=['POST'])
+@login_required
+def api_settings_set():
+    d = request.get_json() or {}
+    key   = (d.get('key') or '').strip()
+    value = (d.get('value') or '')
+    if not key:
+        return jsonify({'ok': False, 'error': 'key required'}), 400
+    set_setting(key, value)
+    return jsonify({'ok': True})
 
 
 # ═══════════════════════════════════════════════════════════════

@@ -102,6 +102,35 @@
     <div id="analyseResult" style="display:none;padding:16px 20px;overflow-y:auto;max-height:390px">
       <div id="analyseSections" style="display:flex;flex-direction:column;gap:14px"></div>
     </div>
+
+    <!-- Feedback / Korrekturen -->
+    <div id="feedbackBox" style="border-top:1px solid var(--border);padding:14px 16px">
+      <button onclick="toggleFeedback()"
+              style="background:transparent;border:none;color:var(--muted);font-family:var(--font-body);
+                     font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.3px;padding:0;
+                     display:flex;align-items:center;gap:6px" id="feedbackToggleBtn">
+        <i class="fa-solid fa-pen-to-square"></i> KORRIGIEREN / KONTEXT HINZUFÜGEN
+        <i class="fa-solid fa-chevron-down" id="feedbackChevron" style="font-size:9px"></i>
+      </button>
+      <div id="feedbackPanel" style="display:none;margin-top:10px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.5">
+          Erkläre Fehler in der Analyse oder gib Kontext zu einzelnen Posts (z.B. Meme-Hintergründe, Anlässe).
+          Die KI lernt das für alle zukünftigen Analysen dieses Accounts.
+        </div>
+        <textarea id="feedbackText" rows="5" placeholder="Beispiel: &#10;— Der Jens-Spahn-Post ist ein Meme über korrupte Politiker-Ausgaben, kein politischer Statement-Post.&#10;— GTA6-Posts laufen wegen allgemeinem Hype, nicht wegen Gaming-Interesse der Audience.&#10;— Posts mit lokalem Anlass (Arda Saatci Marathon) immer am Tag des Ereignisses posten."
+               style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);
+                      border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:12px;
+                      padding:10px;resize:vertical;outline:none;line-height:1.5"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button onclick="saveFeedback(false)" class="btn btn-ghost" style="font-size:11px;flex:1">
+            <i class="fa-solid fa-floppy-disk"></i> Speichern
+          </button>
+          <button onclick="saveFeedback(true)" class="btn btn-primary" style="font-size:11px;flex:2">
+            <i class="fa-solid fa-rotate"></i> Speichern &amp; neu analysieren
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -395,6 +424,10 @@ async function loadContext(accountId) {
       document.getElementById('analyseEmpty').style.display = 'block';
       document.getElementById('analyseResult').style.display = 'none';
     }
+
+    // Feedback laden
+    const ft = document.getElementById('feedbackText');
+    if (ft) ft.value = ctx.analyse_feedback || '';
   } catch(e) { console.error(e); }
 }
 
@@ -710,6 +743,27 @@ async function saveIdeaToVorrat(btn) {
   });
   if (r.ok) { btn.textContent = '✓ Gespeichert'; btn.style.color = 'var(--success)'; btn.style.borderColor = 'var(--success)'; }
   else { btn.textContent = '+ Vorrat'; btn.disabled = false; showToast('Fehler', 'error'); }
+}
+
+// ── Feedback / Korrekturen ────────────────────────────────────
+function toggleFeedback() {
+  const panel   = document.getElementById('feedbackPanel');
+  const chevron = document.getElementById('feedbackChevron');
+  const open    = panel.style.display === 'none';
+  panel.style.display  = open ? 'block' : 'none';
+  if (chevron) chevron.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+async function saveFeedback(andReanalyse) {
+  if (!activeAccountId) return;
+  const feedback = document.getElementById('feedbackText').value.trim();
+  const r = await fetch(`/api/content-ideen/${activeAccountId}/save-feedback`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ feedback })
+  });
+  if (!r.ok) { showToast('Fehler beim Speichern', 'error'); return; }
+  showToast('Feedback gespeichert', 'success');
+  if (andReanalyse) await runAnalysis();
 }
 </script>
 {% endblock %}
