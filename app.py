@@ -9599,38 +9599,50 @@ def analyse_page(account_id):
     except Exception:
         return jsonify({'ok': False, 'error': 'Beitrags-Daten ungültig.'})
 
-    post_lines = []
-    for i, p in enumerate(posts, 1):
-        views = p.get('views', '') or p.get('reach', '')
-        likes = p.get('likes', '')
-        komm  = p.get('kommentare', '') or p.get('saves', '')
+    def _fmt_post_line(idx, p):
+        views = p.get('views', '') or p.get('reach', '') or ''
+        likes = p.get('likes', '') or ''
+        komm  = p.get('kommentare', '') or p.get('saves', '') or ''
+        datum = p.get('datum', '') or ''
         eng_parts = []
-        if views: eng_parts.append(f'Views: {views}')
-        if likes: eng_parts.append(f'Likes: {likes}')
-        if komm:  eng_parts.append(f'Kommentare: {komm}')
-        eng_str = ' | '.join(eng_parts) if eng_parts else 'keine Zahlen'
-        besonders = f' — Notiz: {p["was_besonders"]}' if p.get('was_besonders') else ''
-        post_lines.append(
-            f'{i}. [{p.get("format","?")}] {p.get("beschreibung","?")}\n'
-            f'   {eng_str}{besonders}'
-        )
+        if views: eng_parts.append(f'▶{views}')
+        if likes: eng_parts.append(f'♥{likes}')
+        if komm:  eng_parts.append(f'💬{komm}')
+        eng_str = ' | '.join(eng_parts) if eng_parts else '—'
+        desc = p.get('beschreibung', '') or '(keine Caption)'
+        return (f'{idx}. [{p.get("format","?")}] {datum}  {eng_str}\n'
+                f'   Caption: {desc[:200]}')
 
-    prompt = f"""Du analysierst die Instagram-Seite "{acc.name}".
+    # Nach Likes sortiert → Top-Posts zuerst
+    def _like_key(p):
+        try: return int(p.get('likes') or 0)
+        except: return 0
+    sorted_posts = sorted(posts, key=_like_key, reverse=True)
+    top_lines = [_fmt_post_line(i+1, p) for i, p in enumerate(sorted_posts[:10])]
+    all_lines  = [_fmt_post_line(i+1, p) for i, p in enumerate(posts)]
 
-Hier sind {len(posts)} bisherige Beiträge mit ihren Insights:
+    prompt = f"""Du analysierst die Instagram-Seite „{acc.name}" und willst verstehen, WARUM bestimmte Posts gut liefen.
 
-{chr(10).join(post_lines)}
+{len(posts)} Beiträge analysiert.
 
-Analysiere diese Seite und gib eine strukturierte Auswertung. Nutze exakt dieses Format:
+TOP 10 POSTS (nach Likes sortiert):
+{chr(10).join(top_lines)}
 
-STÄRKEN: [Was funktioniert gut? Welche Inhalte haben hohe Reichweite/Engagement?]
-BESTE_FORMATE: [Welche Formate (Reel/Feed/Karussell) performen am besten und warum?]
-CONTENT_PATTERN: [Was ist das wiederkehrende Muster? Was macht diese Seite aus?]
-THEMEN_DIE_PERFORMEN: [Konkrete Themenfelder mit Potenzial, basierend auf den Daten]
-EMPFEHLUNG: [Was sollte die Seite häufiger/seltener machen? Max. 3 Punkte]
-SEITEN_DNA: [Kernaussage in 1-2 Sätzen: Was macht diese Seite einzigartig?]
+ALLE {len(posts)} POSTS (chronologisch):
+{chr(10).join(all_lines)}
 
-Sei konkret. Beziehe dich auf die Beitrags-Daten. Keine allgemeinen Social-Media-Tipps."""
+Deine Aufgabe: Erkläre WARUM die erfolgreichen Posts liefen — nicht nur was gepostet wurde.
+Nutze ausschließlich dieses Format:
+
+TOP_POSTS_MUSTER: [Was haben die besten Posts gemeinsam? Welches Thema, welcher Stil, welche Caption-Länge, welcher Typ?]
+WARUM_LIEFEN_SIE: [Welche Emotion/psychologischer Trigger steckt dahinter? Humor, Lokalstolz, Überraschung, FOMO, Nostalgie?]
+HOOK_ANALYSE: [Wie beginnen die Captions der Top-Posts? Was macht die ersten Worte unwiderstehlich?]
+FORMAT_WARUM: [Warum funktioniert das beste Format bei dieser Zielgruppe — was ist der echte Grund?]
+FLOP_MUSTER: [Was machen schwache Posts anders? Welche Themen/Stile zünden bei der Audience NICHT?]
+REPLIZIEREN: [3 konkrete, sofort umsetzbare Ideen um das Erfolgsrezept zu wiederholen]
+SEITEN_DNA: [1-2 Sätze: Was liebt die Audience an dieser Seite wirklich — und warum kommen sie wieder?]
+
+Beziehe dich konkret auf echte Captions und Zahlen aus den Daten. Keine allgemeinen Social-Media-Tipps."""
 
     try:
         client = _ant.Anthropic(api_key=api_key)
@@ -9814,25 +9826,44 @@ def _scrape_analyse_profile_inner(account_id, _json, _b64, _ant):
     if acc.category:
         ctx_info += f' | {acc.category.name}'
 
+    # Top-Posts nach Likes sortieren für bessere Analyse
+    def _like_key_s(p):
+        try: return int(p.get('likes') or 0)
+        except: return 0
+    sorted_s = sorted(simplified_posts, key=_like_key_s, reverse=True)
+    top_lines_s = []
+    for p in sorted_s[:10]:
+        eng = []
+        if p.get('views'):      eng.append(f'▶{p["views"]}')
+        if p.get('likes'):      eng.append(f'♥{p["likes"]}')
+        if p.get('kommentare'): eng.append(f'💬{p["kommentare"]}')
+        top_lines_s.append(
+            f'[{p.get("format","?")}] {p.get("datum","")}  {" | ".join(eng) or "—"}\n'
+            f'  Caption: {(p.get("beschreibung") or "(keine)")[:200]}'
+        )
+
     total_scanned = len(simplified_posts)
-    prompt = f"""Du analysierst den Instagram-Account „{ctx_info}".
+    prompt = f"""Du analysierst den Instagram-Account „{ctx_info}" und willst verstehen, WARUM bestimmte Posts liefen.
 
-Ich habe {total_scanned} Beiträge gescannt. Dir werden die ersten {len(post_lines)} davon als Text gezeigt, plus bis zu 5 Vorschaubilder.
-Reach ist leider nicht über die API verfügbar — du siehst Views (bei Reels/Videos), Likes und Kommentare.
+{total_scanned} Posts gescannt. Reach nicht verfügbar — du siehst Views (Reels), Likes, Kommentare.
 
-GESCANNTE BEITRÄGE ({len(post_lines)} von {total_scanned}):
+TOP 10 POSTS (nach Likes sortiert):
+{chr(10).join(top_lines_s)}
+
+ALLE {len(post_lines)} POSTS (chronologisch, erste 50):
 {chr(10).join(post_lines)}
 
-Erstelle eine präzise Analyse im exakten Format. Beziehe dich konkret auf die Zahlen aus den Daten — keine allgemeinen Tipps:
+Deine Aufgabe: Erkläre WARUM die erfolgreichen Posts liefen. Nutze ausschließlich dieses Format:
 
-STÄRKEN: [Was perft gut? Welche Formate/Themen haben hohes Engagement laut den Zahlen?]
-BESTE_FORMATE: [Reel/Foto/Karussell — welche performen am besten und mit welchen Zahlen?]
-CONTENT_PATTERN: [Was ist das wiederkehrende Muster? Stil, Ton, Caption-Länge, Posting-Frequenz?]
-THEMEN_DIE_PERFORMEN: [Konkrete Themen mit hohem Engagement — mit Beispielen aus den Posts]
-ZIELGRUPPE: [Für wen ist diese Seite? Alter, Interessen, Standort?]
-TONALITAET: [Wie kommuniziert diese Seite? Humorvoll, informativ, emotional, lokal?]
-EMPFEHLUNG: [Max. 3 konkrete Empfehlungen basierend auf den echten Daten]
-SEITEN_DNA: [Kernaussage in 1-2 Sätzen: Was macht diese Seite einzigartig?]"""
+TOP_POSTS_MUSTER: [Was haben die Top-Posts gemeinsam? Thema, Stil, Caption-Länge, Typ?]
+WARUM_LIEFEN_SIE: [Welche Emotion/Trigger? Humor, Lokalstolz, Überraschung, FOMO, Nostalgie?]
+HOOK_ANALYSE: [Wie beginnen die Captions der Top-Posts? Was macht sie unwiderstehlich?]
+FORMAT_WARUM: [Warum funktioniert das beste Format hier — was ist der echte Grund für die Zielgruppe?]
+FLOP_MUSTER: [Was machen schwache Posts anders? Welche Themen/Stile zünden NICHT?]
+REPLIZIEREN: [3 konkrete, sofort umsetzbare Ideen basierend auf dem Erfolgsrezept]
+SEITEN_DNA: [1-2 Sätze: Was liebt die Audience wirklich — und warum kommen sie wieder?]
+
+Beziehe dich auf echte Captions und Zahlen. Keine allgemeinen Tipps."""
 
     try:
         client = _ant.Anthropic(api_key=api_key)

@@ -318,12 +318,20 @@ let _posts = [];  // aktuell geladene Beitrags-Liste
 
 // ── Analyse-Label-Map ──
 const ANALYSE_LABELS = {
-  'STÄRKEN':             { label: 'Stärken',              icon: 'fa-trophy',            color: '#22c55e' },
-  'BESTE_FORMATE':       { label: 'Beste Formate',        icon: 'fa-film',              color: '#3b82f6' },
-  'CONTENT_PATTERN':     { label: 'Content-Pattern',      icon: 'fa-fingerprint',       color: '#a855f7' },
-  'THEMEN_DIE_PERFORMEN':{ label: 'Themen mit Potenzial', icon: 'fa-fire',              color: '#f97316' },
-  'EMPFEHLUNG':          { label: 'Empfehlung',           icon: 'fa-lightbulb',         color: '#eab308' },
-  'SEITEN_DNA':          { label: 'Seiten-DNA',           icon: 'fa-dna',               color: '#ec4899' },
+  // Neue WHY-fokussierte Sektionen
+  'TOP_POSTS_MUSTER':    { label: 'Was Top-Posts gemeinsam haben', icon: 'fa-crown',         color: '#f59e0b' },
+  'WARUM_LIEFEN_SIE':    { label: 'Warum sie liefen',              icon: 'fa-brain',         color: '#8b5cf6' },
+  'HOOK_ANALYSE':        { label: 'Hook-Analyse',                  icon: 'fa-fish-fins',     color: '#3b82f6' },
+  'FORMAT_WARUM':        { label: 'Format — der echte Grund',      icon: 'fa-film',          color: '#06b6d4' },
+  'FLOP_MUSTER':         { label: 'Was nicht funktioniert',        icon: 'fa-circle-xmark',  color: '#ef4444' },
+  'REPLIZIEREN':         { label: 'Sofort replizieren',            icon: 'fa-clone',         color: '#22c55e' },
+  'SEITEN_DNA':          { label: 'Seiten-DNA',                    icon: 'fa-dna',           color: '#ec4899' },
+  // Alte Sektionen als Fallback (manuelle Analyse)
+  'STÄRKEN':             { label: 'Stärken',                       icon: 'fa-trophy',        color: '#22c55e' },
+  'BESTE_FORMATE':       { label: 'Beste Formate',                 icon: 'fa-film',          color: '#3b82f6' },
+  'CONTENT_PATTERN':     { label: 'Content-Pattern',               icon: 'fa-fingerprint',   color: '#a855f7' },
+  'THEMEN_DIE_PERFORMEN':{ label: 'Themen mit Potenzial',          icon: 'fa-fire',          color: '#f97316' },
+  'EMPFEHLUNG':          { label: 'Empfehlung',                    icon: 'fa-lightbulb',     color: '#eab308' },
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -482,7 +490,11 @@ async function savePosts() {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ posts })
   });
-  if (r.ok) showToast(`${posts.length} Beiträge gespeichert`, 'success');
+  if (r.ok) {
+    showToast(`${posts.length} Beiträge gespeichert — KI analysiert…`, 'success');
+    // Automatisch neue Analyse starten
+    if (posts.length >= 3) runAnalysis();
+  }
 }
 
 // ── KI Seitenanalyse ─────────────────────────────────────────
@@ -577,8 +589,12 @@ function renderAnalysis(text) {
     sections.appendChild(dna);
   }
 
-  // Restliche Sektionen
-  const order = ['STÄRKEN','BESTE_FORMATE','CONTENT_PATTERN','THEMEN_DIE_PERFORMEN','EMPFEHLUNG'];
+  // Restliche Sektionen — neue WHY-Sektionen zuerst, alte als Fallback
+  const order = [
+    'TOP_POSTS_MUSTER','WARUM_LIEFEN_SIE','HOOK_ANALYSE',
+    'FORMAT_WARUM','FLOP_MUSTER','REPLIZIEREN',
+    'STÄRKEN','BESTE_FORMATE','CONTENT_PATTERN','THEMEN_DIE_PERFORMEN','EMPFEHLUNG',
+  ];
   for (const key of order) {
     if (!parsed[key]) continue;
     const meta = ANALYSE_LABELS[key] || { label: key, icon: 'fa-circle', color: 'var(--accent)' };
