@@ -755,6 +755,8 @@ def init_db():
                 safe_alter('ALTER TABLE account_ideen_context ADD COLUMN page_analysis TEXT')
             if 'analyse_feedback' not in aic_cols:
                 safe_alter('ALTER TABLE account_ideen_context ADD COLUMN analyse_feedback TEXT')
+            if 'analyse_category' not in aic_cols:
+                safe_alter('ALTER TABLE account_ideen_context ADD COLUMN analyse_category VARCHAR(100)')
             # content_folder: Wetter-Trigger
             if 'trigger_condition' not in cf_cols:
                 safe_alter('ALTER TABLE content_folder ADD COLUMN trigger_condition VARCHAR(50)')
@@ -9485,6 +9487,7 @@ def get_ideen_context(account_id):
         'past_posts':       past_posts,
         'page_analysis':    ctx.page_analysis or '',
         'analyse_feedback': ctx.analyse_feedback or '',
+        'analyse_category': ctx.analyse_category or '',
     })
 
 
@@ -9498,6 +9501,8 @@ def save_analyse_feedback(account_id):
         ctx = AccountIdeenContext(account_id=account_id)
         db.session.add(ctx)
     ctx.analyse_feedback = d.get('feedback', '').strip()
+    if 'category' in d:
+        ctx.analyse_category = d.get('category', '').strip()
     ctx.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'ok': True})
@@ -9639,15 +9644,19 @@ def analyse_page(account_id):
     top_lines = [_fmt_post_line(i+1, p) for i, p in enumerate(sorted_posts[:10])]
     all_lines  = [_fmt_post_line(i+1, p) for i, p in enumerate(posts)]
 
-    # Feedback + globale Regeln laden
-    account_feedback = (ctx.analyse_feedback or '').strip()
-    global_rules     = (get_setting('analyse_global_rules') or '').strip()
+    # Feedback + Kategorie-Regeln laden
+    account_feedback  = (ctx.analyse_feedback or '').strip()
+    account_category  = (ctx.analyse_category or '').strip()
+    category_rules    = ''
+    if account_category:
+        cat_key        = f'analyse_cat_{account_category.lower().replace(" ", "_")}'
+        category_rules = (get_setting(cat_key) or '').strip()
 
     feedback_block = ''
     if account_feedback:
         feedback_block += f'\nKORREKTUREN & KONTEXT VOM ACCOUNT-INHABER:\n{account_feedback}\n'
-    if global_rules:
-        feedback_block += f'\nGLOBALE ANALYSE-REGELN (gilt für alle Accounts):\n{global_rules}\n'
+    if category_rules:
+        feedback_block += f'\nKATEGORIE-REGELN ({account_category}):\n{category_rules}\n'
 
     prompt = f"""Du analysierst die Instagram-Seite „{acc.name}" und willst verstehen, WARUM bestimmte Posts gut liefen.
 {feedback_block}
@@ -9871,16 +9880,20 @@ def _scrape_analyse_profile_inner(account_id, _json, _b64, _ant):
             f'  Caption: {(p.get("beschreibung") or "(keine)")[:200]}'
         )
 
-    # Feedback + globale Regeln laden
+    # Feedback + Kategorie-Regeln laden
     ctx_obj = AccountIdeenContext.query.filter_by(account_id=account_id).first()
-    account_feedback_s = (ctx_obj.analyse_feedback if ctx_obj else '') or ''
-    global_rules_s     = (get_setting('analyse_global_rules') or '').strip()
+    account_feedback_s  = (ctx_obj.analyse_feedback if ctx_obj else '') or ''
+    account_category_s  = (ctx_obj.analyse_category if ctx_obj else '') or ''
+    category_rules_s    = ''
+    if account_category_s:
+        cat_key_s        = f'analyse_cat_{account_category_s.lower().replace(" ", "_")}'
+        category_rules_s = (get_setting(cat_key_s) or '').strip()
 
     feedback_block_s = ''
     if account_feedback_s:
         feedback_block_s += f'\nKORREKTUREN & KONTEXT VOM ACCOUNT-INHABER:\n{account_feedback_s}\n'
-    if global_rules_s:
-        feedback_block_s += f'\nGLOBALE ANALYSE-REGELN (gilt für alle Accounts):\n{global_rules_s}\n'
+    if category_rules_s:
+        feedback_block_s += f'\nKATEGORIE-REGELN ({account_category_s}):\n{category_rules_s}\n'
 
     total_scanned = len(simplified_posts)
     prompt = f"""Du analysierst den Instagram-Account „{ctx_info}" und willst verstehen, WARUM bestimmte Posts liefen.

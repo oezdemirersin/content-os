@@ -749,6 +749,7 @@ class AccountIdeenContext(db.Model):
     past_posts_json  = db.Column(db.Text)    # JSON: bisherige Beiträge mit Metrics
     page_analysis    = db.Column(db.Text)    # KI-Seitenanalyse (Freitext strukturiert)
     analyse_feedback = db.Column(db.Text)    # Korrekturen/Kontext vom Account-Inhaber
+    analyse_category = db.Column(db.String(100))  # Kategorie für geteilte Regeln (z.B. "Stadtmemes")
     updated_at       = db.Column(db.DateTime, default=datetime.utcnow)
     account         = db.relationship('Account', backref=db.backref('ideen_context', uselist=False))
 

@@ -115,13 +115,27 @@
       <div id="feedbackPanel" style="display:none;margin-top:10px">
         <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.5">
           Erkläre Fehler in der Analyse oder gib Kontext zu einzelnen Posts (z.B. Meme-Hintergründe, Anlässe).
-          Die KI lernt das für alle zukünftigen Analysen dieses Accounts.
+          Die KI lernt das für alle zukünftigen Analysen <em>dieses</em> Accounts.
         </div>
         <textarea id="feedbackText" rows="5" placeholder="Beispiel: &#10;— Der Jens-Spahn-Post ist ein Meme über korrupte Politiker-Ausgaben, kein politischer Statement-Post.&#10;— GTA6-Posts laufen wegen allgemeinem Hype, nicht wegen Gaming-Interesse der Audience.&#10;— Posts mit lokalem Anlass (Arda Saatci Marathon) immer am Tag des Ereignisses posten."
                style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);
                       border-radius:8px;color:var(--text);font-family:var(--font-body);font-size:12px;
                       padding:10px;resize:vertical;outline:none;line-height:1.5"></textarea>
-        <div style="display:flex;gap:8px;margin-top:8px">
+
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+          <label style="font-size:11px;color:var(--muted);white-space:nowrap;font-weight:600">KATEGORIE</label>
+          <input id="feedbackCategory" type="text" placeholder="z.B. Stadtmemes  (leer = keine Kategorie)"
+                 style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                        color:var(--text);font-family:var(--font-body);font-size:12px;padding:6px 10px;outline:none">
+          <a href="/settings" target="_blank" style="font-size:10px;color:var(--muted);white-space:nowrap;text-decoration:none">
+            <i class="fa-solid fa-gear"></i> Regeln
+          </a>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">
+          Accounts mit derselben Kategorie teilen die Kategorie-Regeln aus den Einstellungen.
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:10px">
           <button onclick="saveFeedback(false)" class="btn btn-ghost" style="font-size:11px;flex:1">
             <i class="fa-solid fa-floppy-disk"></i> Speichern
           </button>
@@ -425,9 +439,11 @@ async function loadContext(accountId) {
       document.getElementById('analyseResult').style.display = 'none';
     }
 
-    // Feedback laden
+    // Feedback + Kategorie laden
     const ft = document.getElementById('feedbackText');
     if (ft) ft.value = ctx.analyse_feedback || '';
+    const fc = document.getElementById('feedbackCategory');
+    if (fc) fc.value = ctx.analyse_category || '';
   } catch(e) { console.error(e); }
 }
 
@@ -757,9 +773,10 @@ function toggleFeedback() {
 async function saveFeedback(andReanalyse) {
   if (!activeAccountId) return;
   const feedback = document.getElementById('feedbackText').value.trim();
+  const category = (document.getElementById('feedbackCategory')?.value || '').trim();
   const r = await fetch(`/api/content-ideen/${activeAccountId}/save-feedback`, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ feedback })
+    body: JSON.stringify({ feedback, category })
   });
   if (!r.ok) { showToast('Fehler beim Speichern', 'error'); return; }
   showToast('Feedback gespeichert', 'success');

@@ -318,20 +318,28 @@
     </div>
   </div>
 
-  <div class="card" style="max-width:660px">
+  <div class="card" style="max-width:700px">
     <div class="card-header">
-      <span class="card-title">GLOBALE ANALYSE-REGELN</span>
+      <span class="card-title">KATEGORIE-ANALYSE-REGELN</span>
     </div>
-    <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+    <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
       <div style="font-size:12px;color:var(--muted);line-height:1.5">
-        Diese Regeln werden bei <strong>jeder</strong> KI-Seitenanalyse mitgegeben — für alle Accounts.
-        Hier kannst du der KI erklären, was sie generell nicht falsch einschätzen soll:
-        z.B. Meme-Konventionen, kulturellen Kontext, was Reichweite vs. Saves bedeutet, etc.
+        Hier kannst du Regeln für einzelne <strong>Kategorien</strong> hinterlegen (z.B. "Stadtmemes", "Stadtnachrichten").
+        Accounts, die du einer Kategorie zuweist, bekommen genau die passenden Regeln in ihre Analyse — nicht die Regeln anderer Kategorien.
+        Die Kategorie eines Accounts wird im Content-Ideen-Tab im Feedback-Bereich gesetzt.
       </div>
-      <textarea id="globalRulesText" rows="8" class="form-control" placeholder="Beispiele:&#10;— Memes mit Politikern sind oft Humor/Ironie, kein politischer Inhalt.&#10;— GTA6-Posts laufen wegen allgemeinem Gaming-Hype, nicht Nischen-Interesse.&#10;— Posts zu lokalen Ereignissen (Marathon, Stadtfest) sind zeitkritisch und immer am Ereignistag zu posten.&#10;— Hohe Kommentarzahl ohne Likes = oft Kontroverse oder Gewinnspiel." style="font-size:12px;resize:vertical"></textarea>
-      <button onclick="saveGlobalRules()" class="btn btn-primary" style="align-self:flex-start;min-width:180px">
-        <i class="fa-solid fa-floppy-disk"></i> Globale Regeln speichern
-      </button>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input id="catRulesName" type="text" class="form-control" placeholder="Kategoriename (z.B. Stadtmemes)" style="flex:1;min-width:180px;max-width:260px">
+        <button onclick="loadCatRules()" class="btn btn-ghost" style="font-size:12px">
+          <i class="fa-solid fa-arrow-down-to-line"></i> Laden
+        </button>
+        <button onclick="saveCatRules()" class="btn btn-primary" style="font-size:12px">
+          <i class="fa-solid fa-floppy-disk"></i> Speichern
+        </button>
+      </div>
+      <textarea id="catRulesText" rows="7" class="form-control" placeholder="Beispiele für 'Stadtmemes':&#10;— Jens-Spahn-Posts = Meme über korrupte Politiker-Ausgaben, kein politischer Inhalt.&#10;— GTA6-Posts laufen wegen allgemeinem Hype, nicht wegen Gaming-Nische.&#10;— Lokale Ereignisse (Marathon, Stadtfest) sind zeitkritisch — immer am Tag des Ereignisses gepostet." style="font-size:12px;resize:vertical"></textarea>
+      <div id="catRulesNote" style="font-size:11px;color:var(--muted)"></div>
     </div>
   </div>
 </div>
@@ -484,24 +492,35 @@ async function saveInvoiceSettings() {
   } catch(e) { showToast('Netzwerkfehler: ' + e.message, 'error'); }
 }
 
-// ── Globale Analyse-Regeln ────────────────────────────────────
-(async function loadGlobalRules() {
-  try {
-    const d = await fetch('/api/settings/get?key=analyse_global_rules').then(r => r.json());
-    if (d.value !== undefined) document.getElementById('globalRulesText').value = d.value || '';
-  } catch(e) { console.error(e); }
-})();
+// ── Kategorie-Analyse-Regeln ──────────────────────────────────
+function _catKey(name) {
+  return 'analyse_cat_' + name.trim().toLowerCase().replace(/\s+/g, '_');
+}
 
-async function saveGlobalRules() {
-  const value = document.getElementById('globalRulesText').value.trim();
+async function loadCatRules() {
+  const name = document.getElementById('catRulesName').value.trim();
+  if (!name) { showToast('Bitte Kategoriename eingeben', 'error'); return; }
+  try {
+    const d = await fetch(`/api/settings/get?key=${encodeURIComponent(_catKey(name))}`).then(r => r.json());
+    document.getElementById('catRulesText').value = d.value || '';
+    document.getElementById('catRulesNote').textContent = d.value ? `Regeln für "${name}" geladen.` : `Noch keine Regeln für "${name}" gespeichert.`;
+  } catch(e) { showToast('Fehler beim Laden', 'error'); }
+}
+
+async function saveCatRules() {
+  const name  = document.getElementById('catRulesName').value.trim();
+  const value = document.getElementById('catRulesText').value.trim();
+  if (!name) { showToast('Bitte Kategoriename eingeben', 'error'); return; }
   try {
     const res = await fetch('/api/settings/set', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ key: 'analyse_global_rules', value })
+      body: JSON.stringify({ key: _catKey(name), value })
     });
     const d = await res.json();
-    if (d.ok) showToast('Globale Regeln gespeichert ✓', 'success');
-    else showToast('Fehler beim Speichern', 'error');
+    if (d.ok) {
+      showToast(`Regeln für "${name}" gespeichert ✓`, 'success');
+      document.getElementById('catRulesNote').textContent = `Gespeichert als Kategorie "${name}".`;
+    } else showToast('Fehler beim Speichern', 'error');
   } catch(e) { showToast('Netzwerkfehler', 'error'); }
 }
 </script>
