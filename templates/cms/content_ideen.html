@@ -208,13 +208,13 @@
       </div>
       <div>
         <label style="font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:5px">
-          AKTUELLER FOKUS <span style="opacity:.5;font-weight:400">(optional)</span>
+          AKTUELLE THEMEN / ANLÄSSE <span style="opacity:.5;font-weight:400">(optional — aber wichtig für gute Ideen)</span>
         </label>
-        <input id="ctx_focus" type="text"
-               placeholder="z.B. Sommerferien, Stadtfest, neue Staffel…"
+        <textarea id="ctx_focus" rows="3"
+               placeholder="Was passiert gerade? Was ist aktuell relevant?&#10;z.B. Jens Spahn neues Urteil, GTA6 Release-Datum, Stadtfest nächste Woche, Sommerferien starten…&#10;Je mehr Kontext, desto besser die Ideen."
                style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
                       color:var(--text);font-family:var(--font-body);font-size:12px;
-                      padding:9px 11px;box-sizing:border-box">
+                      padding:9px 11px;box-sizing:border-box;resize:vertical;line-height:1.5"></textarea>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <label style="font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--muted);white-space:nowrap">ANZAHL</label>
@@ -331,10 +331,13 @@
                                     font-size:11px;font-weight:700;color:var(--accent2)"></div>
       <div style="flex:1;min-width:0">
         <div class="idea-title" style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px"></div>
+        <div class="idea-trigger" style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px;display:none"></div>
         <div class="idea-desc" style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:8px"></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <span class="idea-format" style="font-size:10px;padding:2px 8px;border-radius:10px;
                                            background:rgba(59,130,246,.12);color:var(--accent2);font-weight:700"></span>
+          <span class="idea-meme-typ" style="font-size:10px;padding:2px 8px;border-radius:10px;
+                                              background:rgba(168,85,247,.12);color:#a855f7;font-weight:700;display:none"></span>
         </div>
       </div>
       <button class="idea-save-btn" onclick="saveIdeaToVorrat(this)"
@@ -738,13 +741,21 @@ function renderIdeas(ideas) {
   document.getElementById('ideaCount').textContent = ideas.length + ' Ideen';
   ideas.forEach((idea, i) => {
     const clone = tpl.content.cloneNode(true);
-    clone.querySelector('.idea-num').textContent  = i + 1;
-    clone.querySelector('.idea-title').textContent = idea.titel || idea.title || '';
-    clone.querySelector('.idea-desc').textContent  = idea.idee  || idea.description || '';
+    clone.querySelector('.idea-num').textContent   = i + 1;
+    clone.querySelector('.idea-title').textContent  = idea.titel || idea.title || '';
+    clone.querySelector('.idea-desc').textContent   = idea.idee  || idea.description || '';
     clone.querySelector('.idea-format').textContent = idea.format || '';
     clone.querySelector('.idea-caption').textContent = idea.caption || '';
     const tags = (idea.hashtags || '').split(',').map(h => h.trim()).filter(Boolean).join(' ');
     clone.querySelector('.idea-hashtags').textContent = tags;
+    if (idea.meme_typ) {
+      const mt = clone.querySelector('.idea-meme-typ');
+      mt.textContent = idea.meme_typ; mt.style.display = '';
+    }
+    if (idea.trigger) {
+      const tr = clone.querySelector('.idea-trigger');
+      tr.textContent = '⚡ ' + idea.trigger; tr.style.display = '';
+    }
     clone.querySelector('.idea-card').dataset.idea = JSON.stringify(idea);
     list.appendChild(clone);
   });

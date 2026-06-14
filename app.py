@@ -9973,26 +9973,67 @@ def generate_content_ideen():
     zielgruppe = (ctx.zielgruppe if ctx else '') or 'Allgemein'
     tonalitaet = (ctx.tonalitaet if ctx else '') or 'Humorvoll, nahbar'
     themen     = (ctx.themen     if ctx else '') or 'Stadtleben, Humor, lokale Themen'
-    fokus_hint = f'\nAktueller Fokus: {focus}' if focus else ''
     kategorie  = acc.category.name if acc.category else 'Allgemein'
 
+    analyse_category = (ctx.analyse_category or '') if ctx else ''
+    is_meme_page = any(w in (analyse_category + ' ' + konzept + ' ' + tonalitaet).lower()
+                       for w in ['meme', 'humor', 'satire', 'witzig', 'komisch', 'fun'])
+
+    # WHY-Analyse: nur die relevanten Abschnitte extrahieren
     page_analysis = (ctx.page_analysis or '') if ctx else ''
-    analysis_hint = f'\n\nSEITEN-ANALYSE (was bisher gut funktioniert):\n{page_analysis}' if page_analysis else ''
+    why_hint = ''
+    if page_analysis:
+        # Erste 800 Zeichen sind meistens TOP_POSTS_MUSTER + WARUM_LIEFEN_SIE
+        why_hint = '\n\nWAS BEI DIESER SEITE VIRAL GEHT (aus Analyse):\n' + page_analysis[:900].strip()
 
-    prompt = f"""Du bist ein kreativer Social-Media-Stratege für Instagram.
+    aktuell_hint = f'\n\nAKTUELLE THEMEN / ANLÄSSE (heute relevant):\n{focus}' if focus else ''
 
-Erstelle genau {count} konkrete Content-Ideen für diese Instagram-Seite:
+    if is_meme_page:
+        prompt = f"""Du bist ein Meme-Stratege der versteht wie virales Internet-Humor funktioniert.
+
+Erstelle {count} konkrete Meme-Ideen für diese Seite:
+
+SEITE: {acc.name}
+KONZEPT: {konzept}
+ZIELGRUPPE: {zielgruppe}
+TON: {tonalitaet}{aktuell_hint}{why_hint}
+
+MEME-FORMATE die du nutzen kannst:
+- POV: [Situation] — Identifikation, jeder kennt das
+- Erwartung vs. Realität — lokaler Kontrast, Enttäuschung/Überraschung
+- Ranking / Top 5 — zieht immer, Diskussion entsteht
+- Twitter/X-Screenshot-Style — wirkt authentisch, niedrige Produktionshürde
+- Vergleich: [A] vs. [B] — zwei Bilder, eine Aussage
+- "Wenn du..." — Einleitung die sofort Wiedererkennung triggert
+- Lokales Ereignis + viraler Trend gemischt — Timing ist alles
+- Kommentar-Köder — bewusst kontroverse aber harmlose Aussage die Diskussion triggert
+
+Für jede Idee dieses Format, durch --- getrennt:
+TITEL: [max. 60 Zeichen]
+FORMAT: [Reel / Foto / Karussell]
+MEME_TYP: [welches Meme-Format aus der Liste oben]
+TRIGGER: [Was macht es relatable/viral? Welches Gefühl löst es aus: Wiedererkennung / Empörung / Hype / Nostalgie / Lachen?]
+IDEE: [Konkret: was ist zu sehen, was steht drauf, wie ist es aufgebaut?]
+CAPTION: [kurz, 1-2 Sätze, kein Hashtag — oft reicht ein Satz oder sogar nichts]
+HASHTAGS: [4-6 Hashtags]
+---
+
+Regeln: Kein generisches "Postet ein lustiges Bild über X". Jede Idee muss sofort umsetzbar sein — ich muss genau wissen was ich filmen/designen soll."""
+    else:
+        prompt = f"""Du bist ein kreativer Social-Media-Stratege für Instagram.
+
+Erstelle genau {count} konkrete Content-Ideen für diese Seite:
 
 SEITE: {acc.name}
 KATEGORIE: {kategorie}
 KONZEPT: {konzept}
 ZIELGRUPPE: {zielgruppe}
 TON/STIL: {tonalitaet}
-THEMEN: {themen}{fokus_hint}{analysis_hint}
+THEMEN: {themen}{aktuell_hint}{why_hint}
 
-Für jede Idee genau dieses Format — eine pro Zeile, durch --- getrennt:
+Für jede Idee dieses Format, durch --- getrennt:
 TITEL: [kurzer Titel, max. 60 Zeichen]
-FORMAT: [Feed / Story / Reel / Karussell]
+FORMAT: [Foto / Story / Reel / Karussell]
 IDEE: [2-3 Sätze: Was wird gezeigt? Was macht es besonders?]
 CAPTION: [Beispiel-Caption, 2-3 Sätze, kein Hashtag]
 HASHTAGS: [5-8 passende Hashtags]
@@ -10003,8 +10044,8 @@ Wichtig: Ideen müssen sehr spezifisch und umsetzbar sein. Keine generischen Tip
     try:
         client = _ant.Anthropic(api_key=api_key)
         resp = client.messages.create(
-            model='claude-haiku-4-5-20251001',
-            max_tokens=4000,
+            model='claude-sonnet-4-6',
+            max_tokens=5000,
             messages=[{'role': 'user', 'content': prompt}]
         )
         _log_ai('ideen_generate', resp)
@@ -10021,6 +10062,7 @@ Wichtig: Ideen müssen sehr spezifisch und umsetzbar sein. Keine generischen Tip
         idea = {}
         for line in block.splitlines():
             for key, field in [('TITEL:', 'titel'), ('FORMAT:', 'format'),
+                                ('MEME_TYP:', 'meme_typ'), ('TRIGGER:', 'trigger'),
                                 ('IDEE:', 'idee'), ('CAPTION:', 'caption'),
                                 ('HASHTAGS:', 'hashtags')]:
                 if line.startswith(key):
