@@ -365,6 +365,12 @@
             <a href="{{ url_for('account_edit', account_id=acc.id) }}" class="icon-btn" style="font-size:13px;padding:6px" title="Bearbeiten">
               <i class="fa-solid fa-pen"></i>
             </a>
+            <button onclick="toggleAnalytics({{ acc.id }}, this)"
+                    class="icon-btn" style="font-size:13px;padding:6px;color:{{ 'var(--muted)' if acc.hide_in_analytics else 'var(--text)' }}"
+                    title="{{ 'Wieder einblenden' if acc.hide_in_analytics else 'Aus Analytics ausblenden' }}"
+                    data-hidden="{{ 'true' if acc.hide_in_analytics else 'false' }}">
+              <i class="fa-solid fa-{{ 'eye-slash' if acc.hide_in_analytics else 'eye-low-vision' }}"></i>
+            </button>
             <form method="post" action="{{ url_for('account_delete', account_id=acc.id) }}" data-confirm="{{ acc.name }} wirklich löschen? Alle zugehörigen Posts und Daten werden entfernt.">
               <button type="submit" class="icon-btn" style="font-size:13px;padding:6px;color:var(--danger)" title="Löschen">
                 <i class="fa-solid fa-trash"></i>
@@ -613,4 +619,27 @@ async function submitBulkFollowers() {
     </div>
   </div>
 </div>
+
+<script>
+async function toggleAnalytics(accountId, btn) {
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/accounts/${accountId}/toggle-analytics`, { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      const nowHidden = d.hidden;
+      btn.dataset.hidden = nowHidden ? 'true' : 'false';
+      btn.title = nowHidden ? 'Wieder einblenden' : 'Aus Analytics ausblenden';
+      btn.style.color = nowHidden ? 'var(--muted)' : 'var(--text)';
+      btn.innerHTML = `<i class="fa-solid fa-${nowHidden ? 'eye-slash' : 'eye-low-vision'}"></i>`;
+      showToast(d.msg, nowHidden ? 'warning' : 'success');
+    } else {
+      showToast('Fehler', 'error');
+    }
+  } catch(e) {
+    showToast('Netzwerkfehler', 'error');
+  }
+  btn.disabled = false;
+}
+</script>
 {% endblock %}
