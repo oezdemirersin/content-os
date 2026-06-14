@@ -322,7 +322,10 @@
               </span>
             {% else %}
               <div>
-                <div style="font-size:14px;font-weight:700" class="stock-{{ acc.stock_status() }}">{{ acc.stock_days_display() }}T</div>
+                <div style="font-size:14px;font-weight:700" class="stock-{{ acc.stock_status() }}">
+                  {%- set sd = acc.stock_days_display() -%}
+                  {%- if sd == 0 or sd == 0.0 -%}0 Tage{%- elif sd < 1 -%}{{ sd }}T{%- else -%}{{ sd|int }}T{%- endif -%}
+                </div>
                 <div style="height:3px;background:var(--surface2);border-radius:3px;margin-top:4px;width:60px;margin-inline:auto">
                   {% set pct = [acc.stock_days_display()|float / 14 * 100, 100]|min %}
                   <div style="height:100%;border-radius:3px;width:{{ pct }}%;

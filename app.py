@@ -924,10 +924,11 @@ def generate_alerts():
                     f'{round(days,1)} Tage Vorrat verbleibend.',
                     link=f'/accounts/{acc.id}', account_id=acc.id)
 
-        # No posts scheduled at all — nur für manuelle Accounts relevant
+        # No posts scheduled at all — nur für manuelle Accounts, und nur wenn
+        # nicht bereits ein empty_stock-Alert (days==0) gesetzt wurde (sonst doppelt)
         upcoming = ScheduledPost.query.filter_by(account_id=acc.id, status='scheduled')\
             .filter(ScheduledPost.scheduled_at >= now).count()
-        if upcoming == 0 and not is_auto:
+        if upcoming == 0 and not is_auto and days > 0:
             db.session.add(SystemAlert(
                 account_id=acc.id, alert_type='no_posts', severity='warning',
                 message=f'"{acc.name}" hat keine geplanten Posts'
@@ -3847,7 +3848,14 @@ def ai_config_detail(account_id):
     account = Account.query.get_or_404(account_id)
     cfg = account.ai_config
     if not cfg:
-        cfg = AIConfig(account_id=account_id)
+        cat_name = (account.category.name if account.category else '').lower()
+        is_meme = any(w in cat_name for w in ['meme', 'humor', 'satire', 'fun', 'witzig'])
+        cfg = AIConfig(
+            account_id=account_id,
+            caption_tone='humorvoll' if is_meme else 'informativ',
+            caption_min_words=20 if is_meme else 50,
+            caption_max_words=150 if is_meme else 300,
+        )
         db.session.add(cfg)
         db.session.commit()
 
@@ -9449,7 +9457,9 @@ def _process_series():
 @app.route('/content-ideen')
 @login_required
 def content_ideen():
-    accounts = Account.query.filter_by(status='active').options(
+    accounts = Account.query.filter(
+        Account.status.in_(['active', 'pause'])
+    ).options(
         joinedload(Account.category)
     ).order_by(Account.follower_count.desc()).all()
     # IdeenContext pro Account laden/anlegen

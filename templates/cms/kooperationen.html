@@ -362,8 +362,8 @@ async function loadChart() {
 
 // ── KPIs ──────────────────────────────────────────────────────
 function updateKPIs() {
-  document.getElementById('kpi-total').textContent  = koops.length || '—';
-  document.getElementById('kpi-active').textContent = koops.filter(k=>k.status==='aktiv').length || '—';
+  document.getElementById('kpi-total').textContent  = koops.length;
+  document.getElementById('kpi-active').textContent = koops.filter(k=>k.status==='aktiv').length;
   const pending = koops.filter(k=>k.amount && k.payment_status!=='bezahlt' && k.status!=='storniert').reduce((s,k)=>s+k.amount,0);
   const paid    = koops.filter(k=>k.amount && k.payment_status==='bezahlt').reduce((s,k)=>s+k.amount,0);
   const today   = new Date().toISOString().slice(0,10);
@@ -375,7 +375,7 @@ function updateKPIs() {
   }).length;
   document.getElementById('kpi-pending').textContent = pending > 0 ? fmt(pending) : '—';
   document.getElementById('kpi-revenue').textContent = paid > 0 ? fmt(paid) : '—';
-  document.getElementById('kpi-invoice').textContent = invoiceDue || '—';
+  document.getElementById('kpi-invoice').textContent = invoiceDue;
 }
 function fmt(n) { return n.toLocaleString('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}); }
 
