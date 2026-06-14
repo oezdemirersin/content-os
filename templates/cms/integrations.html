@@ -315,6 +315,32 @@
         </button>
       </div>
     </form>
+
+    {% if telegram_token %}
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:10px">WEBHOOK REGISTRIEREN</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">
+        Der Webhook verbindet Telegram mit Content OS, damit Bot-Kommandos funktionieren.
+        <br>Nur einmal nötig — oder nach URL-Änderung erneut ausführen.
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button onclick="registerWebhook()" class="btn btn-ghost" id="webhookBtn">
+          <i class="fa-solid fa-link"></i> Webhook registrieren
+        </button>
+        <span id="webhookStatus" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div style="margin-top:12px;padding:12px;background:var(--surface2);border-radius:8px;font-size:11px;color:var(--muted);line-height:1.8">
+        <b>Bot-Commands die jetzt verfügbar sind:</b><br>
+        /heute — Heutige Posts für diesen Account<br>
+        /naechste [n] — Nächste n geplante Posts<br>
+        /vorrat — Content-Vorrat in Tagen<br>
+        /follower — Aktuelle Follower-Zahl<br>
+        /gepostet [id] — Post als auf Instagram gepostet markieren<br>
+        /status — Kurzübersicht<br>
+        /hilfe — Alle Kommandos
+      </div>
+    </div>
+    {% endif %}
   </div>
 
 </div>
@@ -392,6 +418,34 @@ function showTestResult(ok, msg) {
   el.style.display = 'block';
   el.style.color = ok ? 'var(--success)' : 'var(--danger)';
   el.innerHTML = `<i class="fa-solid fa-${ok ? 'circle-check' : 'circle-xmark'}"></i> ${msg}`;
+}
+
+async function registerWebhook() {
+  const btn = document.getElementById('webhookBtn');
+  const status = document.getElementById('webhookStatus');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Registriere…';
+  status.textContent = '';
+  try {
+    const res = await fetch('/api/telegram/register-webhook', { method: 'POST' });
+    const d = await res.json();
+    if (d.ok) {
+      btn.innerHTML = '<i class="fa-solid fa-check"></i> Webhook aktiv';
+      btn.style.color = 'var(--success)';
+      status.style.color = 'var(--success)';
+      status.textContent = '✓ ' + d.webhook_url;
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-link"></i> Webhook registrieren';
+      status.style.color = 'var(--danger)';
+      status.textContent = '✗ ' + (d.error || 'Fehler');
+    }
+  } catch (e) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-link"></i> Webhook registrieren';
+    status.style.color = 'var(--danger)';
+    status.textContent = '✗ ' + e.message;
+  }
 }
 </script>
 {% endblock %}

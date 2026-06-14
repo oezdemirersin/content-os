@@ -10025,12 +10025,12 @@ def toggle_watermark(account_id):
 
 @app.route('/api/telegram/bot-webhook', methods=['POST'])
 def telegram_bot_webhook():
-    """Empfängt Updates vom Telegram-Bot und verarbeitet Kommandos."""
+    """Empfängt Updates vom Telegram-Bot. Reagiert account-spezifisch wenn Chat-ID einem Account gehört."""
     data = request.get_json() or {}
     msg = data.get('message') or data.get('edited_message', {})
     if not msg:
         return jsonify({'ok': True})
-    chat_id = msg.get('chat', {}).get('id')
+    chat_id = str(msg.get('chat', {}).get('id', ''))
     text    = (msg.get('text') or '').strip()
     token   = get_setting('telegram_bot_token')
     if not token or not chat_id or not text.startswith('/'):
@@ -10047,72 +10047,181 @@ def telegram_bot_webhook():
     cmd = text.split()[0].lower().split('@')[0]
     args = text.split()[1:]
 
-    if cmd == '/status':
-        accounts = Account.query.filter_by(status='active').all()
-        lines = ['<b>Content OS Status</b>']
-        for acc in accounts[:8]:
-            d = acc.feed_stock_days()
-            emoji = '🟢' if d >= 14 else '🟡' if d >= 7 else '🔴'
-            lines.append(f'{emoji} {acc.name}: {round(d, 1)}T Vorrat | {acc.follower_count or 0:,} Follower')
-        _tg_reply('\n'.join(lines))
+    # Account anhand der Chat-ID identifizieren (für per-Channel-Modus)
+    account = Account.query.filter_by(telegram_chat_id=chat_id).first()
 
+    # ── /heute (/liste) — Heutige Posts für diesen Account (oder alle) ──
+    if cmd in ('/heute', '/liste'):
+        today = datetime.utcnow().date()
+        q = ScheduledPost.query.filter(
+            func.date(ScheduledPost.scheduled_at) == today,
+            ScheduledPost.status.in_(['scheduled', 'draft'])
+        )
+        if account:
+            q = q.filter(ScheduledPost.account_id == account.id)
+        posts = q.order_by(ScheduledPost.scheduled_at).limit(10).all()
+        if posts:
+            header = f'<b>📅 Heute {today.strftime("%d.%m")} – {account.name if account else "Alle Accounts"}</b>'
+            lines  = [header]
+            for p in posts:
+                status_icon = '📤' if p.telegram_sent_at else ('✅' if p.status == 'scheduled' else '✏️')
+                posted_mark = ' ✅ gepostet' if p.status == 'published' else ''
+                lines.append(f'{status_icon} #{p.id} {p.scheduled_at.strftime("%H:%M")}{posted_mark}')
+            _tg_reply('\n'.join(lines))
+        else:
+            name = f' für {account.name}' if account else ''
+            _tg_reply(f'Heute keine Posts geplant{name}.')
+
+    # ── /naechste [n] — Nächste n Posts ──
+    elif cmd == '/naechste':
+        n = min(int(args[0]) if args and args[0].isdigit() else 5, 10)
+        now = datetime.utcnow()
+        q = ScheduledPost.query.filter(
+            ScheduledPost.scheduled_at >= now,
+            ScheduledPost.status.in_(['scheduled', 'draft'])
+        )
+        if account:
+            q = q.filter(ScheduledPost.account_id == account.id)
+        posts = q.order_by(ScheduledPost.scheduled_at).limit(n).all()
+        if posts:
+            header = f'<b>⏭ Nächste {n} Posts{" – " + account.name if account else ""}</b>'
+            lines  = [header]
+            for p in posts:
+                date_str = p.scheduled_at.strftime('%d.%m %H:%M')
+                cap_preview = (p.caption or '')[:50].replace('\n', ' ')
+                lines.append(f'• #{p.id} {date_str}\n  {cap_preview}{"…" if len(p.caption or "") > 50 else ""}')
+            _tg_reply('\n'.join(lines))
+        else:
+            _tg_reply('Keine kommenden Posts geplant.')
+
+    # ── /vorrat — Content-Vorrat für diesen Account ──
     elif cmd == '/vorrat':
-        name = ' '.join(args).lower() if args else ''
-        q = Account.query.filter_by(status='active')
-        if name:
-            q = q.filter(Account.name.ilike(f'%{name}%'))
-        accounts = q.all()
-        lines = ['<b>Vorrat-Status</b>']
-        for acc in accounts[:10]:
-            d = acc.feed_stock_days()
-            lines.append(f'• {acc.name}: {round(d, 1)} Tage ({acc.follower_count or 0:,} Follower)')
-        _tg_reply('\n'.join(lines) if len(lines) > 1 else 'Kein Account gefunden.')
+        if account:
+            d = account.feed_stock_days()
+            emoji = '🟢' if d >= 14 else '🟡' if d >= 7 else '🔴'
+            total = ScheduledPost.query.filter_by(
+                account_id=account.id, status='scheduled'
+            ).filter(ScheduledPost.scheduled_at >= datetime.utcnow()).count()
+            _tg_reply(
+                f'{emoji} <b>{account.name}</b>\n'
+                f'Vorrat: <b>{round(d, 1)} Tage</b> ({total} Posts geplant)\n'
+                f'Follower: {account.follower_count or 0:,}'
+            )
+        else:
+            # Alle Accounts (globale Nutzung)
+            accounts = Account.query.filter_by(status='active').all()
+            lines = ['<b>📊 Vorrat-Übersicht</b>']
+            for acc in accounts[:10]:
+                d = acc.feed_stock_days()
+                emoji = '🟢' if d >= 14 else '🟡' if d >= 7 else '🔴'
+                lines.append(f'{emoji} {acc.name}: {round(d, 1)}T')
+            _tg_reply('\n'.join(lines))
 
-    elif cmd == '/approve':
+    # ── /follower — Follower-Zahlen ──
+    elif cmd == '/follower':
+        if account:
+            snaps = AnalyticsSnapshot.query.filter_by(account_id=account.id)\
+                .order_by(AnalyticsSnapshot.recorded_at.desc()).limit(2).all()
+            current = snaps[0].followers if snaps else (account.follower_count or 0)
+            delta   = current - snaps[1].followers if len(snaps) >= 2 else 0
+            delta_str = f' ({("+" if delta >= 0 else "")}{delta:,} seit gestern)' if delta != 0 else ''
+            _tg_reply(
+                f'👥 <b>{account.name}</b>\n'
+                f'{current:,} Follower{delta_str}'
+            )
+        else:
+            accounts = Account.query.filter_by(status='active')\
+                .order_by(Account.follower_count.desc()).limit(8).all()
+            lines = ['<b>👥 Follower-Übersicht</b>']
+            for acc in accounts:
+                lines.append(f'• {acc.name}: {acc.follower_count or 0:,}')
+            _tg_reply('\n'.join(lines))
+
+    # ── /gepostet [id] — Post als auf Instagram gepostet markieren ──
+    elif cmd == '/gepostet':
         if not args:
-            _tg_reply('Verwendung: /approve [post-id]')
+            _tg_reply('Verwendung: /gepostet [post-id]\nBeispiel: /gepostet 42')
         else:
             try:
                 post = ScheduledPost.query.get(int(args[0]))
-                if post and post.status == 'draft':
-                    post.status = 'scheduled'
-                    db.session.commit()
-                    _tg_reply(f'✅ Post #{post.id} freigegeben.')
-                elif post:
-                    _tg_reply(f'Post #{post.id} hat Status "{post.status}" — nicht freigebbar.')
-                else:
+                if not post:
                     _tg_reply(f'Post #{args[0]} nicht gefunden.')
+                elif account and post.account_id != account.id:
+                    _tg_reply('Dieser Post gehört nicht zu diesem Account-Channel.')
+                else:
+                    post.status     = 'published'
+                    post.published_at = datetime.utcnow()
+                    db.session.commit()
+                    acc_name = post.account.name if post.account else ''
+                    _tg_reply(f'✅ Post #{post.id} ({acc_name}) als gepostet markiert!')
             except Exception as e:
                 _tg_reply(f'Fehler: {e}')
 
-    elif cmd == '/liste':
-        today = datetime.utcnow().date()
-        posts = ScheduledPost.query.filter(
-            func.date(ScheduledPost.scheduled_at) == today,
-            ScheduledPost.status == 'scheduled'
-        ).order_by(ScheduledPost.scheduled_at).limit(10).all()
-        if posts:
-            lines = [f'<b>Heute geplant ({today.strftime("%d.%m")})</b>']
-            for p in posts:
-                acc_name = p.account.name if p.account else '?'
-                lines.append(f'• #{p.id} {acc_name} – {p.scheduled_at.strftime("%H:%M")}')
-            _tg_reply('\n'.join(lines))
+    # ── /status — Überblick ──
+    elif cmd == '/status':
+        if account:
+            d = account.feed_stock_days()
+            emoji = '🟢' if d >= 14 else '🟡' if d >= 7 else '🔴'
+            today_count = ScheduledPost.query.filter(
+                ScheduledPost.account_id == account.id,
+                func.date(ScheduledPost.scheduled_at) == datetime.utcnow().date(),
+                ScheduledPost.status.in_(['scheduled', 'draft'])
+            ).count()
+            _tg_reply(
+                f'{emoji} <b>{account.name}</b>\n'
+                f'Vorrat: {round(d, 1)} Tage\n'
+                f'Follower: {account.follower_count or 0:,}\n'
+                f'Heute geplant: {today_count} Post(s)'
+            )
         else:
-            _tg_reply('Heute keine geplanten Posts.')
+            accounts = Account.query.filter_by(status='active').all()
+            lines = ['<b>Content OS Status</b>']
+            for acc in accounts[:8]:
+                d = acc.feed_stock_days()
+                emoji = '🟢' if d >= 14 else '🟡' if d >= 7 else '🔴'
+                lines.append(f'{emoji} {acc.name}: {round(d, 1)}T | {acc.follower_count or 0:,} Follower')
+            _tg_reply('\n'.join(lines))
 
+    # ── /hilfe ──
     elif cmd == '/hilfe':
+        acc_name = f' ({account.name})' if account else ''
         _tg_reply(
-            '<b>Content OS Bot Kommandos</b>\n\n'
-            '/status — Vorrat-Übersicht aller Accounts\n'
-            '/vorrat [name] — Vorrat eines Accounts\n'
-            '/liste — Heutige geplante Posts\n'
-            '/approve [id] — Post freigeben\n'
+            f'<b>Content OS Bot{acc_name}</b>\n\n'
+            '/heute — Heutige geplante Posts\n'
+            '/naechste [n] — Nächste n Posts (Standard: 5)\n'
+            '/vorrat — Content-Vorrat in Tagen\n'
+            '/follower — Follower-Zahlen\n'
+            '/gepostet [id] — Post als gepostet markieren\n'
+            '/status — Kurzübersicht\n'
             '/hilfe — Diese Hilfe'
         )
     else:
         _tg_reply('Unbekanntes Kommando. /hilfe für alle Befehle.')
 
     return jsonify({'ok': True})
+
+
+@app.route('/api/telegram/register-webhook', methods=['POST'])
+@login_required
+def telegram_register_webhook():
+    """Registriert den Webhook bei Telegram — eine Anfrage genügt."""
+    token = get_setting('telegram_bot_token')
+    if not token:
+        return jsonify({'ok': False, 'error': 'Kein Bot-Token konfiguriert.'})
+    # Render-URL aus Request-Host ableiten oder aus AppSettings lesen
+    base_url = get_setting('app_base_url') or f'https://{request.host}'
+    webhook_url = f'{base_url}/api/telegram/bot-webhook'
+    try:
+        import requests as _r
+        res = _r.post(
+            f'https://api.telegram.org/bot{token}/setWebhook',
+            json={'url': webhook_url}, timeout=10
+        ).json()
+        if res.get('ok'):
+            return jsonify({'ok': True, 'webhook_url': webhook_url})
+        return jsonify({'ok': False, 'error': res.get('description', 'Unbekannter Fehler')})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
 
 
 # ═══════════════════════════════════════════════════════════════
