@@ -11789,7 +11789,12 @@ def todos():
         db.session.add(seed)
         db.session.commit()
         items = [seed]
-    return render_template('todos.html', active_page='todos', items=items)
+    items_data = [{
+        'id': t.id, 'text': t.text, 'category': t.category or 'idee',
+        'done': bool(t.done), 'priority': t.priority or 0,
+        'created_at': t.created_at.isoformat() if t.created_at else None
+    } for t in items]
+    return render_template('todos.html', active_page='todos', items=items_data)
 
 
 @app.route('/api/todos', methods=['GET'])
