@@ -206,7 +206,7 @@ def login_required(f):
 
 
 # ── Global auth guard — schützt ALLE Routen außer Login/Logout/Static ──
-PUBLIC_ENDPOINTS = {'login', 'logout', 'static'}
+PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'cron_sync_followers'}
 
 @app.before_request
 def global_auth_guard():
