@@ -7,7 +7,34 @@
 
   <!-- ── Linke Seiten-Liste ──────────────────────────────────── -->
   <div style="width:220px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;padding:12px 8px">
-    <div style="font-size:10px;letter-spacing:1.5px;color:var(--muted);font-weight:700;padding:4px 8px 10px;text-transform:uppercase">Meine Seiten</div>
+    <div style="font-size:10px;letter-spacing:1.5px;color:var(--muted);font-weight:700;padding:4px 8px 8px;text-transform:uppercase">Fest</div>
+
+    <!-- Feste Sonderseiten -->
+    <a href="{{ url_for('memes_dashboard') }}"
+       style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;text-decoration:none;margin-bottom:2px;
+              background:{% if active_page == 'memes' %}rgba(245,158,11,.15){% else %}transparent{% endif %};
+              color:{% if active_page == 'memes' %}#f59e0b{% else %}var(--text){% endif %}">
+      <div style="width:28px;height:28px;border-radius:8px;background:rgba(245,158,11,.12);
+                  display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">😄</div>
+      <div style="min-width:0">
+        <div style="font-size:12px;font-weight:600">Stadt-Memes</div>
+        <div style="font-size:10px;opacity:.55">Alle Meme-Seiten</div>
+      </div>
+    </a>
+
+    <a href="{{ url_for('beichten_dashboard') }}"
+       style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;text-decoration:none;margin-bottom:8px;
+              background:{% if active_page == 'beichten' %}rgba(244,63,94,.12){% else %}transparent{% endif %};
+              color:{% if active_page == 'beichten' %}#f43f5e{% else %}var(--text){% endif %}">
+      <div style="width:28px;height:28px;border-radius:8px;background:rgba(244,63,94,.1);
+                  display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🤍</div>
+      <div style="min-width:0">
+        <div style="font-size:12px;font-weight:600">Beichten</div>
+        <div style="font-size:10px;opacity:.55">Alle Beicht-Seiten</div>
+      </div>
+    </a>
+
+    <div style="font-size:10px;letter-spacing:1.5px;color:var(--muted);font-weight:700;padding:4px 8px 8px;text-transform:uppercase;border-top:1px solid var(--border);margin-top:4px;padding-top:12px">Meine Seiten</div>
 
     {% for acc in studio_accounts %}
     <a href="{{ url_for('content_studio_account', account_id=acc.id) }}"

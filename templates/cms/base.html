@@ -392,12 +392,6 @@
     <a href="{{ url_for('hashtag_sets') }}" class="nav-sub {% if active_page == 'hashtag_sets' %}active{% endif %}">
       <i class="fa-solid fa-hashtag"></i> Hashtag-Sets
     </a>
-    <a href="{{ url_for('memes_dashboard') }}" class="nav-item {% if active_page == 'memes' %}active{% endif %}">
-      <i class="fa-solid fa-face-laugh-squint"></i> Stadt-Memes
-    </a>
-    <a href="{{ url_for('beichten_dashboard') }}" class="nav-sub {% if active_page == 'beichten' %}active{% endif %}">
-      <i class="fa-solid fa-heart"></i> Beichten
-    </a>
     <a href="{{ url_for('inspirationen') }}" class="nav-item {% if active_page == 'inspirationen' %}active{% endif %}">
       <i class="fa-brands fa-instagram"></i> Inspirationen
     </a>
@@ -408,36 +402,19 @@
                    font-size:9px;padding:1px 6px;font-weight:700">{{ vorrat_total }}</span>
       {% endif %}
     </a>
-
     <a href="{{ url_for('content_ideen') }}" class="nav-sub {% if active_page == 'content_ideen' %}active{% endif %}">
       <i class="fa-solid fa-lightbulb"></i> Content-Ideen
     </a>
     <a href="{{ url_for('content_serien') }}" class="nav-sub {% if active_page == 'serien' %}active{% endif %}">
       <i class="fa-solid fa-rotate"></i> Serien-Planer
     </a>
-
-    <!-- CONTENT STUDIO -->
-    <div style="margin:12px 0 4px;padding:0 8px;display:flex;align-items:center;justify-content:space-between">
-      <span style="font-size:9px;letter-spacing:1.5px;color:var(--muted);font-weight:700;text-transform:uppercase">Content Studio</span>
-      <a href="{{ url_for('content_studio') }}" title="Seite hinzufügen"
-         style="font-size:11px;color:var(--accent2);text-decoration:none;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border-radius:4px;background:rgba(99,102,241,.15)">
-        <i class="fa-solid fa-plus" style="font-size:9px"></i>
-      </a>
-    </div>
-    {% if studio_accounts %}
-      {% for sa in studio_accounts %}
-      <a href="{{ url_for('content_studio_account', account_id=sa.id) }}"
-         class="nav-sub {% if active_page == 'studio' and request.view_args and request.view_args.get('account_id') == sa.id %}active{% endif %}"
-         style="padding-left:20px;font-size:12px">
-        <span style="width:7px;height:7px;border-radius:50%;background:var(--accent2);flex-shrink:0;margin-right:2px"></span>
-        {{ sa.name | truncate(22, true, '…') }}
-      </a>
-      {% endfor %}
-    {% else %}
-      <a href="{{ url_for('content_studio') }}" class="nav-sub" style="padding-left:20px;font-size:12px;color:var(--muted);font-style:italic">
-        <i class="fa-solid fa-plus" style="font-size:10px;margin-right:4px"></i> Erste Seite hinzufügen
-      </a>
-    {% endif %}
+    <!-- CONTENT STUDIO — ein Eintrag, Navigation im Studio selbst -->
+    <a href="{{ url_for('content_studio') }}" class="nav-item {% if active_page == 'studio' or active_page == 'memes' or active_page == 'beichten' %}active{% endif %}">
+      <i class="fa-solid fa-pen-nib"></i> Content Studio
+      {% set studio_count = studio_accounts | length + 2 %}
+      <span style="margin-left:auto;background:rgba(99,102,241,.2);color:var(--accent2);border-radius:10px;
+                   font-size:9px;padding:1px 7px;font-weight:700">{{ studio_count }}</span>
+    </a>
     <a href="{{ url_for('kooperationen') }}" class="nav-item {% if active_page == 'kooperationen' %}active{% endif %}">
       <i class="fa-solid fa-handshake"></i> Kooperationen
     </a>
