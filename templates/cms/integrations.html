@@ -343,6 +343,83 @@
     {% endif %}
   </div>
 
+  <!-- ── AUTOMATISCHER FOLLOWER-SYNC (CRON) ────────────────── -->
+  <div class="card" style="padding:28px;margin-top:20px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <div style="width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+                  background:linear-gradient(135deg,#7c3aed,#5b21b6);flex-shrink:0">
+        <i class="fa-solid fa-clock-rotate-left" style="color:#fff;font-size:18px"></i>
+      </div>
+      <div>
+        <div style="font-family:var(--font-display);font-size:17px;letter-spacing:.5px">AUTOMATISCHER FOLLOWER-SYNC</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">
+          Täglich um 23:59 alle Follower-Zahlen automatisch aktualisieren
+        </div>
+      </div>
+      {% if cron_token %}
+      <span class="badge badge-green" style="margin-left:auto">Token gesetzt</span>
+      {% else %}
+      <span class="badge" style="margin-left:auto;background:var(--surface2);color:var(--muted)">Nicht eingerichtet</span>
+      {% endif %}
+    </div>
+
+    <!-- Token-Feld -->
+    <div style="margin-bottom:16px">
+      <label class="form-label">Cron-Token</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="cronTokenDisplay" readonly
+               value="{{ cron_token or '' }}"
+               class="input-field"
+               placeholder="Noch kein Token — generieren um zu starten"
+               style="font-family:monospace;font-size:12px;flex:1;cursor:default">
+        <button onclick="generateCronToken()" class="btn btn-ghost" style="white-space:nowrap;flex-shrink:0">
+          <i class="fa-solid fa-rotate" style="font-size:11px"></i>
+          {% if cron_token %}Neu generieren{% else %}Token generieren{% endif %}
+        </button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">
+        Diesen Token in deinem Cron-Dienst als URL-Parameter <code>?token=...</code> übergeben.
+        Niemals öffentlich teilen.
+      </div>
+    </div>
+
+    <!-- Cron-URL -->
+    {% if cron_token %}
+    <div style="margin-bottom:16px">
+      <label class="form-label">Cron-URL (für cron-job.org)</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <code id="cronUrl" style="font-size:11px;padding:10px 12px;background:var(--surface2);border-radius:8px;flex:1;word-break:break-all;line-height:1.5;color:var(--text)">
+          https://content-os-0rjo.onrender.com/cron/sync-followers?token={{ cron_token }}
+        </code>
+        <button onclick="copyCronUrl()" class="btn btn-ghost" style="flex-shrink:0;white-space:nowrap">
+          <i class="fa-solid fa-copy" style="font-size:11px"></i> Kopieren
+        </button>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Anleitung -->
+    <div style="padding:16px;background:var(--surface2);border-radius:10px;font-size:12px;color:var(--muted);line-height:1.8">
+      <div style="font-weight:700;color:var(--text);margin-bottom:8px;font-size:11px;letter-spacing:.5px">EINRICHTEN IN 4 SCHRITTEN</div>
+      {% for num, title, desc, link, link_text in [
+        (1, 'Token generieren', 'Oben auf "Token generieren" klicken', '', ''),
+        (2, 'Cron-Dienst einrichten', 'Kostenlos auf cron-job.org registrieren', 'https://cron-job.org', 'cron-job.org'),
+        (3, 'Job anlegen', 'URL einfügen · Zeit: 23:59 CET täglich', '', ''),
+        (4, 'App wach halten', 'UptimeRobot alle 5 min pingen damit Render nicht schläft', 'https://uptimerobot.com', 'uptimerobot.com')
+      ] %}
+      <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:4px">
+        <div style="width:20px;height:20px;border-radius:50%;background:rgba(124,58,237,.3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#a78bfa;flex-shrink:0;margin-top:1px">{{ num }}</div>
+        <div>
+          <span style="font-weight:600;color:var(--text)">{{ title }}</span>
+          {% if link %} — <a href="{{ link }}" target="_blank" style="color:var(--accent)">{{ link_text }}</a>{% endif %}
+          {% if desc and not link %} — {{ desc }}{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+  </div>
+
 </div>
 {% endblock %}
 
@@ -418,6 +495,23 @@ function showTestResult(ok, msg) {
   el.style.display = 'block';
   el.style.color = ok ? 'var(--success)' : 'var(--danger)';
   el.innerHTML = `<i class="fa-solid fa-${ok ? 'circle-check' : 'circle-xmark'}"></i> ${msg}`;
+}
+
+async function generateCronToken() {
+  if (!confirm('Neuen Token generieren? Der alte Token wird ungültig.')) return;
+  const res = await fetch('/api/cron-token/generate', { method: 'POST' }).then(r => r.json());
+  if (res.ok) {
+    document.getElementById('cronTokenDisplay').value = res.token;
+    showToast('Token generiert — Seite wird neu geladen…', 'success');
+    setTimeout(() => location.reload(), 1200);
+  } else {
+    showToast('Fehler beim Generieren', 'error');
+  }
+}
+
+function copyCronUrl() {
+  const url = document.getElementById('cronUrl').textContent.trim();
+  navigator.clipboard.writeText(url).then(() => showToast('URL kopiert!', 'success'));
 }
 
 async function registerWebhook() {

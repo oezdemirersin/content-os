@@ -6833,6 +6833,25 @@ def _run_ig_follower_sync():
 
 # ── Sync-API-Endpunkte ────────────────────────────────────────
 
+@app.route('/cron/sync-followers')
+def cron_sync_followers():
+    """Öffentlicher Cron-Endpunkt — kein Login nötig, aber Token-Schutz.
+    Wird täglich um 23:59 von cron-job.org aufgerufen.
+    Token in AppSettings key='cron_token' oder ENV CRON_TOKEN."""
+    import os
+    expected = os.environ.get('CRON_TOKEN') or get_setting('cron_token') or ''
+    token = request.args.get('token', '')
+    if not expected or token != expected:
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
+    if _ig_sync_status['running']:
+        return jsonify({'ok': False, 'msg': 'Sync läuft bereits'}), 200
+    _ig_sync_status.update({'running': True, 'error': None, 'result': None,
+                             'progress': 0, 'current': ''})
+    threading.Thread(target=_run_ig_follower_sync, daemon=True).start()
+    _daily_follower_snapshot()
+    return jsonify({'ok': True, 'msg': 'Follower-Sync gestartet', 'time': datetime.utcnow().isoformat()})
+
+
 @app.route('/api/analytics/sync-followers-apify', methods=['POST'])
 @login_required
 def sync_followers_apify():
@@ -6883,6 +6902,8 @@ def integrations():
     anthropic_key_display = mask(anthropic_key)
     rapidapi_key_display  = mask(rapidapi_key)
 
+    cron_token = gs('cron_token')
+
     ig_accounts_count = Account.query.filter(
         Account.handle != None, Account.handle != '', Account.status == 'active'
     ).count()
@@ -6894,6 +6915,7 @@ def integrations():
         telegram_token=telegram_token,
         anthropic_key=anthropic_key_display,
         rapidapi_key=rapidapi_key_display,
+        cron_token=cron_token,
         active_page='integrations')
 
 
@@ -6913,6 +6935,16 @@ def integrations_save():
     db.session.commit()
     flash('Einstellungen gespeichert.', 'success')
     return redirect(url_for('integrations'))
+
+
+@app.route('/api/cron-token/generate', methods=['POST'])
+@login_required
+def cron_token_generate():
+    import secrets
+    token = secrets.token_urlsafe(32)
+    set_setting('cron_token', token)
+    db.session.commit()
+    return jsonify({'ok': True, 'token': token})
 
 
 @app.route('/settings/telegram', methods=['POST'])
