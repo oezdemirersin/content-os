@@ -60,72 +60,82 @@ async function dismissChangelog() {
 </script>
 {% endif %}
 
+<style>
+.hchip {
+  display:flex; align-items:center; gap:12px;
+  padding:16px 20px; border-radius:16px;
+  text-decoration:none; flex:1; min-width:150px;
+  background:var(--surface); border:1px solid var(--border);
+  backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+  transition:transform .15s, box-shadow .15s;
+  position:relative; overflow:hidden;
+}
+.hchip:hover { transform:translateY(-1px); }
+.hchip::before {
+  content:''; position:absolute; inset:0; opacity:0;
+  background:linear-gradient(135deg, rgba(255,255,255,.03) 0%, transparent 60%);
+  transition:opacity .15s;
+}
+.hchip:hover::before { opacity:1; }
+.hchip-icon { font-size:22px; flex-shrink:0; }
+.hchip-num  { font-family:var(--font-display); font-size:36px; line-height:1; letter-spacing:1px; }
+.hchip-lbl  { font-size:11px; color:var(--muted); margin-top:3px; font-weight:500; }
+
+.hchip-blue   { background:linear-gradient(135deg,rgba(41,182,246,.14) 0%,rgba(41,182,246,.04) 100%);
+                border-color:rgba(41,182,246,.3); box-shadow:0 4px 20px rgba(41,182,246,.08); }
+.hchip-red    { background:linear-gradient(135deg,rgba(239,68,68,.14) 0%,rgba(239,68,68,.04) 100%);
+                border-color:rgba(239,68,68,.3); box-shadow:0 4px 20px rgba(239,68,68,.08); }
+.hchip-orange { background:linear-gradient(135deg,rgba(249,115,22,.13) 0%,rgba(249,115,22,.03) 100%);
+                border-color:rgba(249,115,22,.28); box-shadow:0 4px 20px rgba(249,115,22,.07); }
+.hchip-yellow { background:linear-gradient(135deg,rgba(245,158,11,.11) 0%,rgba(245,158,11,.03) 100%);
+                border-color:rgba(245,158,11,.25); box-shadow:0 4px 20px rgba(245,158,11,.06); }
+.hchip-indigo { background:linear-gradient(135deg,rgba(99,102,241,.13) 0%,rgba(99,102,241,.03) 100%);
+                border-color:rgba(99,102,241,.25); box-shadow:0 4px 20px rgba(99,102,241,.07); }
+</style>
+
 <div class="heute-chips" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:28px">
 
   {% set tg_n = tg_queue|length %}
-  <a href="#tg-queue" class="heute-chip"
-     style="display:flex;align-items:center;gap:10px;padding:14px 20px;
-            border-radius:14px;text-decoration:none;flex:1;min-width:140px;
-            background:{% if tg_n %}rgba(41,182,246,.1);border:1px solid rgba(41,182,246,.3)
-            {% else %}var(--surface);border:1px solid var(--border){% endif %}">
-    <i class="fa-brands fa-telegram" style="font-size:20px;color:{% if tg_n %}#29b6f6{% else %}var(--muted){% endif %}"></i>
+  <a href="#tg-queue" class="hchip {% if tg_n %}hchip-blue{% endif %}">
+    <i class="fa-brands fa-telegram hchip-icon" style="color:{% if tg_n %}#29b6f6{% else %}var(--muted){% endif %}"></i>
     <div>
-      <div class="chip-num" style="font-family:var(--font-display);font-size:26px;line-height:1;
-                  color:{% if tg_n %}#29b6f6{% else %}var(--muted){% endif %}">{{ tg_n }}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">Telegram Queue</div>
+      <div class="hchip-num" style="color:{% if tg_n %}#29b6f6{% else %}var(--muted){% endif %}">{{ tg_n }}</div>
+      <div class="hchip-lbl">Telegram Queue</div>
     </div>
   </a>
 
   {% set no_n = no_stock|length %}
-  <a href="#no-stock" class="heute-chip"
-     style="display:flex;align-items:center;gap:10px;padding:14px 20px;
-            border-radius:14px;text-decoration:none;flex:1;min-width:140px;
-            background:{% if no_n %}rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3)
-            {% else %}var(--surface);border:1px solid var(--border){% endif %}">
-    <i class="fa-solid fa-circle-xmark" style="font-size:20px;color:{% if no_n %}var(--danger){% else %}var(--muted){% endif %}"></i>
+  <a href="#no-stock" class="hchip {% if no_n %}hchip-red{% endif %}">
+    <i class="fa-solid fa-circle-xmark hchip-icon" style="color:{% if no_n %}#ef4444{% else %}var(--muted){% endif %}"></i>
     <div>
-      <div class="chip-num" style="font-family:var(--font-display);font-size:26px;line-height:1;
-                  color:{% if no_n %}var(--danger){% else %}var(--muted){% endif %}">{{ no_n }}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">Kein Vorrat</div>
+      <div class="hchip-num" style="color:{% if no_n %}#ef4444{% else %}var(--muted){% endif %}">{{ no_n }}</div>
+      <div class="hchip-lbl">Kein Vorrat</div>
     </div>
   </a>
 
   {% set cr_n = critical_stock|length %}
-  <a href="#critical-stock" class="heute-chip"
-     style="display:flex;align-items:center;gap:10px;padding:14px 20px;
-            border-radius:14px;text-decoration:none;flex:1;min-width:140px;
-            background:{% if cr_n %}rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.3)
-            {% else %}var(--surface);border:1px solid var(--border){% endif %}">
-    <i class="fa-solid fa-triangle-exclamation" style="font-size:20px;color:{% if cr_n %}#f97316{% else %}var(--muted){% endif %}"></i>
+  <a href="#critical-stock" class="hchip {% if cr_n %}hchip-orange{% endif %}">
+    <i class="fa-solid fa-triangle-exclamation hchip-icon" style="color:{% if cr_n %}#f97316{% else %}var(--muted){% endif %}"></i>
     <div>
-      <div class="chip-num" style="font-family:var(--font-display);font-size:26px;line-height:1;
-                  color:{% if cr_n %}#f97316{% else %}var(--muted){% endif %}">{{ cr_n }}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">Kritischer Vorrat</div>
+      <div class="hchip-num" style="color:{% if cr_n %}#f97316{% else %}var(--muted){% endif %}">{{ cr_n }}</div>
+      <div class="hchip-lbl">Kritischer Vorrat</div>
     </div>
   </a>
 
   {% set lo_n = low_stock|length %}
-  <a href="#low-stock" class="heute-chip"
-     style="display:flex;align-items:center;gap:10px;padding:14px 20px;
-            border-radius:14px;text-decoration:none;flex:1;min-width:140px;
-            background:{% if lo_n %}rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25)
-            {% else %}var(--surface);border:1px solid var(--border){% endif %}">
-    <i class="fa-solid fa-battery-half" style="font-size:20px;color:{% if lo_n %}var(--warning){% else %}var(--muted){% endif %}"></i>
+  <a href="#low-stock" class="hchip {% if lo_n %}hchip-yellow{% endif %}">
+    <i class="fa-solid fa-battery-half hchip-icon" style="color:{% if lo_n %}#f59e0b{% else %}var(--muted){% endif %}"></i>
     <div>
-      <div class="chip-num" style="font-family:var(--font-display);font-size:26px;line-height:1;
-                  color:{% if lo_n %}var(--warning){% else %}var(--muted){% endif %}">{{ lo_n }}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">Niedriger Vorrat</div>
+      <div class="hchip-num" style="color:{% if lo_n %}#f59e0b{% else %}var(--muted){% endif %}">{{ lo_n }}</div>
+      <div class="hchip-lbl">Niedriger Vorrat</div>
     </div>
   </a>
 
-  <a href="#posts-today" class="heute-chip"
-     style="display:flex;align-items:center;gap:10px;padding:14px 20px;
-            border-radius:14px;text-decoration:none;flex:1;min-width:140px;
-            background:var(--surface);border:1px solid var(--border)">
-    <i class="fa-solid fa-calendar-day" style="font-size:20px;color:var(--accent2)"></i>
+  <a href="#posts-today" class="hchip hchip-indigo">
+    <i class="fa-solid fa-calendar-day hchip-icon" style="color:#818cf8"></i>
     <div>
-      <div class="chip-num" style="font-family:var(--font-display);font-size:26px;line-height:1;color:var(--accent2)">{{ posts_today|length }}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">Posts heute</div>
+      <div class="hchip-num" style="color:#818cf8">{{ posts_today|length }}</div>
+      <div class="hchip-lbl">Posts heute</div>
     </div>
   </a>
 
