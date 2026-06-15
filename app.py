@@ -11525,7 +11525,12 @@ def _koop_rechnung_inner(kid):
     deliverables = []
     if k.deliverables:
         try:
-            deliverables = json.loads(k.deliverables)
+            raw = json.loads(k.deliverables)
+            # Normalize: strings → dicts (alte Datenformate absichern)
+            deliverables = [
+                d if isinstance(d, dict) else {'text': str(d), 'done': False}
+                for d in (raw if isinstance(raw, list) else [])
+            ]
         except Exception:
             deliverables = []
 
