@@ -1,0 +1,545 @@
+{% extends "base.html" %}
+{% block title %}Content Studio — {{ selected_account.name if selected_account else 'Übersicht' }}{% endblock %}
+{% block page_title %}CONTENT STUDIO{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:0;height:calc(100vh - 120px);max-width:1400px;margin:-8px -16px 0">
+
+  <!-- ── Linke Seiten-Liste ──────────────────────────────────── -->
+  <div style="width:220px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;padding:12px 8px">
+    <div style="font-size:10px;letter-spacing:1.5px;color:var(--muted);font-weight:700;padding:4px 8px 10px;text-transform:uppercase">Meine Seiten</div>
+
+    {% for acc in studio_accounts %}
+    <a href="{{ url_for('content_studio_account', account_id=acc.id) }}"
+       style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;text-decoration:none;margin-bottom:2px;
+              background:{% if selected_account and selected_account.id == acc.id %}var(--accent){% else %}transparent{% endif %};
+              color:{% if selected_account and selected_account.id == acc.id %}white{% else %}var(--text){% endif %}">
+      <div style="width:28px;height:28px;border-radius:8px;background:{% if selected_account and selected_account.id == acc.id %}rgba(255,255,255,.2){% else %}rgba(99,102,241,.15){% endif %};
+                  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">
+        {{ acc.name[0].upper() }}
+      </div>
+      <div style="min-width:0">
+        <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ acc.name }}</div>
+        <div style="font-size:10px;opacity:.6">@{{ acc.handle or '—' }}</div>
+      </div>
+    </a>
+    {% endfor %}
+
+    <!-- Seite hinzufügen -->
+    <button onclick="openAddModal()"
+            style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;
+                   border:1.5px dashed var(--border);background:none;cursor:pointer;width:100%;
+                   color:var(--muted);font-size:12px;margin-top:8px;transition:all .2s"
+            onmouseover="this.style.borderColor='var(--accent2)';this.style.color='var(--accent2)'"
+            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+      <i class="fa-solid fa-plus" style="font-size:11px"></i> Seite hinzufügen
+    </button>
+  </div>
+
+  <!-- ── Rechter Workspace ───────────────────────────────────── -->
+  <div style="flex:1;overflow-y:auto;padding:24px 28px" id="workspace">
+
+    {% if not selected_account %}
+    <!-- Empty State -->
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center">
+      <div style="font-size:56px;margin-bottom:20px">🎨</div>
+      <div style="font-family:var(--font-display);font-size:22px;margin-bottom:8px">Content Studio</div>
+      <div style="font-size:14px;color:var(--muted);max-width:380px;line-height:1.6;margin-bottom:24px">
+        Dein persönlicher Workspace für jede Seite.<br>
+        Füge eine Seite hinzu — Claude lernt sie kennen und hilft dir mit maßgeschneidertem Content.
+      </div>
+      <button onclick="openAddModal()" class="btn btn-primary" style="font-size:14px;padding:10px 24px">
+        <i class="fa-solid fa-plus"></i> Erste Seite hinzufügen
+      </button>
+    </div>
+
+    {% elif not selected_account.ideen_context or not selected_account.ideen_context.onboarding_done %}
+    <!-- Onboarding Wizard -->
+    <div id="onboardingWrap" style="max-width:680px">
+      <div style="margin-bottom:24px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <div style="width:40px;height:40px;border-radius:12px;background:rgba(99,102,241,.15);
+                      display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:var(--accent2)">
+            {{ selected_account.name[0].upper() }}
+          </div>
+          <div>
+            <div style="font-family:var(--font-display);font-size:18px">{{ selected_account.name }}</div>
+            <div style="font-size:12px;color:var(--muted)">@{{ selected_account.handle or '—' }} · Onboarding</div>
+          </div>
+        </div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.6">
+          Damit Claude deinen Content 100% versteht, beantworte kurz ein paar Fragen.
+          Danach stellt Claude gezielte Nachfragen — und erstellt dann eine vollständige Seiten-DNA.
+        </div>
+      </div>
+
+      <!-- Fortschrittsleiste -->
+      <div style="display:flex;gap:6px;margin-bottom:28px" id="progressBar">
+        <div class="prog-dot active" id="dot1"></div>
+        <div style="flex:1;height:3px;background:var(--border);border-radius:2px;align-self:center"><div id="prog1" style="height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width .4s"></div></div>
+        <div class="prog-dot" id="dot2"></div>
+        <div style="flex:1;height:3px;background:var(--border);border-radius:2px;align-self:center"><div id="prog2" style="height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width .4s"></div></div>
+        <div class="prog-dot" id="dot3"></div>
+      </div>
+
+      <!-- STEP 1: Basis-Info -->
+      <div id="step1">
+        <div style="font-family:var(--font-display);font-size:14px;margin-bottom:16px;color:var(--accent2)">
+          SCHRITT 1 — Erzähl mir von dieser Seite
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div>
+            <label class="form-label">Was ist das Konzept dieser Seite? <span style="color:#f43f5e">*</span></label>
+            <textarea id="ob_konzept" rows="2" class="input-field"
+              placeholder="z.B. Humor-Seite über das Leben in Frankfurt, mit lokalem Bezug und täglichen Memes"
+              style="resize:vertical">{{ selected_account.ideen_context.konzept or '' if selected_account.ideen_context else '' }}</textarea>
+          </div>
+          <div>
+            <label class="form-label">Wer ist deine Zielgruppe? <span style="color:#f43f5e">*</span></label>
+            <textarea id="ob_zielgruppe" rows="2" class="input-field"
+              placeholder="z.B. 18–35 Jahre, Frankfurter & Menschen mit Frankfurt-Bezug, die lokal vernetzt sind">{{ selected_account.ideen_context.zielgruppe or '' if selected_account.ideen_context else '' }}</textarea>
+          </div>
+          <div>
+            <label class="form-label">Welchen Ton / Stil nutzt du?</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px" id="tonBtns">
+              {% for t in ['Humorvoll', 'Informativ', 'Inspirierend', 'Provokant', 'Emotional', 'Locker & direkt', 'Professionell'] %}
+              <button type="button" onclick="toggleTon(this)"
+                      style="padding:5px 12px;border-radius:20px;border:1.5px solid var(--border);background:none;cursor:pointer;font-size:12px;color:var(--text);transition:all .2s">{{ t }}</button>
+              {% endfor %}
+            </div>
+            <input type="text" id="ob_tonalitaet" class="input-field"
+              placeholder="Eigene Beschreibung (optional)"
+              value="{{ selected_account.ideen_context.tonalitaet or '' if selected_account.ideen_context else '' }}"
+              style="margin-top:4px">
+          </div>
+          <div>
+            <label class="form-label">Welche Hauptthemen postest du?</label>
+            <input type="text" id="ob_themen" class="input-field"
+              placeholder="z.B. Lokale News, Memes, Events, Stadtleben, Wetter-Witze"
+              value="{{ selected_account.ideen_context.themen or '' if selected_account.ideen_context else '' }}">
+          </div>
+          <div>
+            <label class="form-label">Was macht diese Seite einzigartig? (USP)</label>
+            <textarea id="ob_usp" rows="2" class="input-field"
+              placeholder="z.B. Als Einziger posten wir täglich lokale Memes die nur Frankfurter verstehen, mit echtem Community-Bezug">{{ selected_account.ideen_context.usp or '' if selected_account.ideen_context else '' }}</textarea>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;justify-content:flex-end">
+          <button onclick="step1Submit()" class="btn btn-primary" id="step1Btn">
+            Weiter — Claude stellt Fragen <i class="fa-solid fa-arrow-right" style="margin-left:6px"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- STEP 2: Claude-Fragen -->
+      <div id="step2" style="display:none">
+        <div style="font-family:var(--font-display);font-size:14px;margin-bottom:6px;color:var(--accent2)">
+          SCHRITT 2 — Claude fragt nach
+        </div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:20px">
+          Basierend auf deinen Angaben hat Claude gezielte Fragen generiert. Beantworte sie so detailliert wie möglich.
+        </div>
+        <div id="questionsContainer" style="display:flex;flex-direction:column;gap:16px"></div>
+
+        <div style="margin-top:24px;display:flex;gap:10px;justify-content:flex-end">
+          <button onclick="goStep(1)" class="btn btn-ghost">Zurück</button>
+          <button onclick="step2Submit()" class="btn btn-primary" id="step2Btn">
+            Seiten-DNA generieren <i class="fa-solid fa-dna" style="margin-left:6px"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- STEP 3: Generierung läuft -->
+      <div id="step3" style="display:none;text-align:center;padding:40px 0">
+        <div style="font-size:40px;margin-bottom:16px">🧬</div>
+        <div style="font-family:var(--font-display);font-size:16px;margin-bottom:8px">Claude analysiert deine Seite…</div>
+        <div style="font-size:13px;color:var(--muted)">Erstelle die Seiten-DNA. Das dauert ca. 10–20 Sekunden.</div>
+        <div style="margin-top:20px;display:flex;justify-content:center;gap:6px">
+          <div class="pulse-dot"></div><div class="pulse-dot" style="animation-delay:.2s"></div><div class="pulse-dot" style="animation-delay:.4s"></div>
+        </div>
+      </div>
+    </div>
+
+    {% else %}
+    <!-- Content Workspace (Onboarding abgeschlossen) -->
+    <div style="max-width:860px">
+      <!-- Header -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;gap:16px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:44px;height:44px;border-radius:12px;background:rgba(99,102,241,.15);
+                      display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:var(--accent2)">
+            {{ selected_account.name[0].upper() }}
+          </div>
+          <div>
+            <div style="font-family:var(--font-display);font-size:20px">{{ selected_account.name }}</div>
+            <div style="font-size:12px;color:var(--muted)">@{{ selected_account.handle or '—' }} ·
+              <span style="color:var(--success)"><i class="fa-solid fa-circle-check"></i> Seiten-DNA bereit</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="openDNA()" class="btn btn-ghost" style="font-size:12px">
+            <i class="fa-solid fa-dna"></i> Seiten-DNA
+          </button>
+          <button onclick="if(confirm('Onboarding zurücksetzen?'))resetOnboarding()" class="btn btn-ghost" style="font-size:12px;color:var(--muted)">
+            <i class="fa-solid fa-rotate-left"></i> Reset
+          </button>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px">
+        {% for tab in [('ideen', 'fa-lightbulb', 'Content-Ideen'), ('analyse', 'fa-chart-simple', 'Analyse & DNA')] %}
+        <button onclick="switchTab('{{ tab[0] }}')" id="tab-{{ tab[0] }}"
+                style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:13px;
+                       font-weight:600;color:var(--muted);border-bottom:2px solid transparent;
+                       transition:all .2s;{% if loop.first %}color:var(--accent2);border-bottom-color:var(--accent2);{% endif %}">
+          <i class="fa-solid {{ tab[1] }}" style="margin-right:6px"></i>{{ tab[2] }}
+        </button>
+        {% endfor %}
+      </div>
+
+      <!-- Tab: Content-Ideen -->
+      <div id="tab-content-ideen">
+        <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:flex-start">
+          <textarea id="ideenExtra" rows="2" class="input-field" style="flex:1;min-width:200px;resize:none"
+            placeholder="Aktuelles Thema / Anlass / Wunsch (optional) — z.B. 'Fasching steht an' oder 'Fokus auf Reels'"></textarea>
+          <button onclick="generateIdeas()" class="btn btn-primary" id="ideenBtn" style="align-self:flex-end">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Ideen generieren
+          </button>
+        </div>
+
+        <div id="ideenResult"></div>
+
+        {% if selected_account.ideen_context and selected_account.ideen_context.generated_ideas %}
+        <script>
+          window._savedIdeas = {{ selected_account.ideen_context.generated_ideas | safe }};
+        </script>
+        {% endif %}
+      </div>
+
+      <!-- Tab: Analyse & DNA -->
+      <div id="tab-content-analyse" style="display:none">
+        <div class="card" style="padding:20px;margin-bottom:16px">
+          <div style="font-family:var(--font-display);font-size:13px;margin-bottom:12px;color:var(--accent2)">SEITEN-DNA</div>
+          <div id="dnaText" style="font-size:13px;line-height:1.8;white-space:pre-wrap;color:var(--text)">
+{{ selected_account.ideen_context.page_analysis or '—' if selected_account.ideen_context else '—' }}</div>
+        </div>
+
+        <!-- Basis-Info -->
+        <div class="card" style="padding:20px">
+          <div style="font-family:var(--font-display);font-size:13px;margin-bottom:16px;color:var(--accent2)">BASIS-INFO</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            {% for label, val in [
+              ('Konzept', selected_account.ideen_context.konzept),
+              ('Zielgruppe', selected_account.ideen_context.zielgruppe),
+              ('Ton', selected_account.ideen_context.tonalitaet),
+              ('Themen', selected_account.ideen_context.themen),
+              ('USP', selected_account.ideen_context.usp),
+            ] if selected_account.ideen_context %}
+            <div {% if label == 'Konzept' or label == 'USP' %}style="grid-column:1/-1"{% endif %}>
+              <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">{{ label }}</div>
+              <div style="font-size:13px;color:var(--text)">{{ val or '—' }}</div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- ── Seite-Hinzufügen Modal ──────────────────────────────── -->
+<div id="addModal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeAddModal()">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(500px,95vw);max-height:80vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div style="font-family:var(--font-display);font-size:15px">SEITE HINZUFÜGEN</div>
+      <button onclick="closeAddModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px">
+      Wähle eine Seite aus deinen Accounts. Nach dem Hinzufügen startet das Onboarding.
+    </div>
+    <input type="text" id="addModalSearch" class="input-field" placeholder="Suchen…" oninput="filterAddList(this.value)" style="margin-bottom:12px">
+    <div id="addModalList" style="display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto">
+      {% for acc in all_accounts %}
+      <div class="add-item" data-name="{{ acc.name.lower() }}" data-handle="{{ (acc.handle or '').lower() }}"
+           style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;
+                  border:1.5px solid {% if acc.ideen_context and acc.ideen_context.studio_active %}var(--success){% else %}var(--border){% endif %};
+                  cursor:pointer;transition:border-color .2s"
+           onclick="toggleStudio({{ acc.id }}, this)">
+        <div style="width:32px;height:32px;border-radius:8px;background:rgba(99,102,241,.12);
+                    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:var(--accent2);flex-shrink:0">
+          {{ acc.name[0].upper() }}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600">{{ acc.name }}</div>
+          <div style="font-size:11px;color:var(--muted)">@{{ acc.handle or '—' }}</div>
+        </div>
+        <div style="flex-shrink:0;font-size:11px" id="addState-{{ acc.id }}">
+          {% if acc.ideen_context and acc.ideen_context.studio_active %}
+          <span style="color:var(--success)"><i class="fa-solid fa-circle-check"></i> Im Studio</span>
+          {% else %}
+          <span style="color:var(--muted)"><i class="fa-regular fa-circle"></i> Hinzufügen</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div style="margin-top:16px;text-align:right">
+      <button onclick="closeAddModal()" class="btn btn-ghost">Fertig</button>
+    </div>
+  </div>
+</div>
+
+<!-- DNA Modal -->
+<div id="dnaModal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(700px,95vw);max-height:85vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-family:var(--font-display);font-size:15px">🧬 SEITEN-DNA</div>
+      <button onclick="document.getElementById('dnaModal').style.display='none'" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+    <div id="dnaModalText" style="font-size:13px;line-height:1.8;white-space:pre-wrap;color:var(--text)"></div>
+  </div>
+</div>
+
+<style>
+.prog-dot {
+  width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border);
+  background: var(--surface); display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: var(--muted); flex-shrink: 0;
+  transition: all .3s;
+}
+.prog-dot.active { background: var(--accent); border-color: var(--accent); color: white; }
+.prog-dot.done   { background: var(--success); border-color: var(--success); color: white; }
+.pulse-dot {
+  width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
+  animation: pulse 1.2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:.3;transform:scale(.7)} 50%{opacity:1;transform:scale(1)} }
+.idea-card {
+  border: 1px solid var(--border); border-radius: 12px; padding: 16px;
+  transition: border-color .2s;
+}
+.idea-card:hover { border-color: var(--accent2); }
+.format-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ACCOUNT_ID = {{ selected_account.id if selected_account else 'null' }};
+let _questions = [];
+let _basicsData = {};
+
+// ── Ton-Buttons ────────────────────────────────────────────────
+function toggleTon(btn) {
+  btn.style.background = btn.style.background ? '' : 'var(--accent)';
+  btn.style.color      = btn.style.color === 'white' ? 'var(--text)' : 'white';
+  btn.style.borderColor = btn.style.background ? 'var(--accent)' : 'var(--border)';
+  const selected = [...document.querySelectorAll('#tonBtns button')]
+    .filter(b => b.style.background === 'var(--accent)')
+    .map(b => b.textContent.trim());
+  const custom = document.getElementById('ob_tonalitaet').value.replace(/^[^,]+,\s*/, '').trim();
+  document.getElementById('ob_tonalitaet').value = selected.join(', ') + (custom ? ', ' + custom : '');
+}
+
+// ── Progress-Stepper ────────────────────────────────────────────
+function goStep(n) {
+  [1,2,3].forEach(i => {
+    document.getElementById('step'+i).style.display = i === n ? 'block' : 'none';
+  });
+  const dots = ['dot1','dot2','dot3'];
+  dots.forEach((id, idx) => {
+    const d = document.getElementById(id);
+    d.className = 'prog-dot' + (idx+1 < n ? ' done' : '') + (idx+1 === n ? ' active' : '');
+    d.textContent = idx+1 < n ? '✓' : (idx+1);
+  });
+  document.getElementById('prog1').style.width = n > 1 ? '100%' : '0%';
+  document.getElementById('prog2').style.width = n > 2 ? '100%' : '0%';
+}
+
+// ── STEP 1 ─────────────────────────────────────────────────────
+async function step1Submit() {
+  const konzept    = document.getElementById('ob_konzept').value.trim();
+  const zielgruppe = document.getElementById('ob_zielgruppe').value.trim();
+  if (!konzept || !zielgruppe) { showToast('Konzept und Zielgruppe sind Pflichtfelder', 'error'); return; }
+
+  _basicsData = {
+    konzept,
+    zielgruppe,
+    tonalitaet: document.getElementById('ob_tonalitaet').value.trim(),
+    themen:     document.getElementById('ob_themen').value.trim(),
+    usp:        document.getElementById('ob_usp').value.trim(),
+  };
+
+  const btn = document.getElementById('step1Btn');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Speichern…';
+
+  // Basics speichern
+  await fetch(`/api/content-studio/${ACCOUNT_ID}/save-basics`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(_basicsData)
+  });
+
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Claude generiert Fragen…';
+
+  // Claude-Fragen holen
+  const r = await fetch(`/api/content-studio/${ACCOUNT_ID}/generate-questions`, {method:'POST'});
+  const res = await r.json();
+  btn.disabled = false; btn.innerHTML = 'Weiter — Claude stellt Fragen <i class="fa-solid fa-arrow-right" style="margin-left:6px"></i>';
+
+  if (!res.ok) { showToast(res.error || 'Fehler beim Generieren', 'error'); return; }
+
+  _questions = res.questions;
+  renderQuestions(_questions);
+  goStep(2);
+}
+
+function renderQuestions(qs) {
+  const container = document.getElementById('questionsContainer');
+  container.innerHTML = qs.map((q, i) => `
+    <div style="background:var(--surface2, rgba(255,255,255,.03));border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px;color:var(--text)">${i+1}. ${q.frage}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;font-style:italic">${q.erklaerung || ''}</div>
+      <textarea data-q="${i}" rows="3" class="input-field" style="resize:vertical"
+        placeholder="Deine Antwort…"></textarea>
+    </div>
+  `).join('');
+}
+
+// ── STEP 2 ─────────────────────────────────────────────────────
+async function step2Submit() {
+  const answers = [...document.querySelectorAll('#questionsContainer textarea')]
+    .map((ta, i) => ({frage: _questions[i]?.frage || '', antwort: ta.value.trim()}));
+
+  const btn = document.getElementById('step2Btn');
+  btn.disabled = true;
+  goStep(3);
+
+  const r = await fetch(`/api/content-studio/${ACCOUNT_ID}/complete-onboarding`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({qa: answers})
+  });
+  const res = await r.json();
+
+  if (res.ok) {
+    showToast('Seiten-DNA erstellt! 🧬', 'success');
+    setTimeout(() => location.reload(), 1200);
+  } else {
+    showToast(res.error || 'Fehler', 'error');
+    goStep(2);
+    btn.disabled = false;
+  }
+}
+
+// ── Content-Ideen ──────────────────────────────────────────────
+async function generateIdeas() {
+  if (!ACCOUNT_ID) return;
+  const extra = document.getElementById('ideenExtra')?.value.trim() || '';
+  const btn   = document.getElementById('ideenBtn');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generiere…';
+  document.getElementById('ideenResult').innerHTML =
+    '<div style="text-align:center;padding:40px;color:var(--muted)"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px"></i><div style="margin-top:12px;font-size:13px">Claude denkt nach…</div></div>';
+
+  const r = await fetch(`/api/content-studio/${ACCOUNT_ID}/generate-ideas`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({extra})
+  });
+  const res = await r.json();
+  btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Ideen generieren';
+
+  if (!res.ok) { showToast(res.error || 'Fehler', 'error'); document.getElementById('ideenResult').innerHTML=''; return; }
+  renderIdeas(res.ideas);
+}
+
+function renderIdeas(ideas) {
+  if (!ideas || !ideas.length) { document.getElementById('ideenResult').innerHTML = '<div style="color:var(--muted);text-align:center;padding:24px">Keine Ideen generiert.</div>'; return; }
+  const colors = {reel:'#a855f7', feed:'#3b82f6', karussell:'#f59e0b', story:'#10b981'};
+  document.getElementById('ideenResult').innerHTML =
+    `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:4px">` +
+    ideas.map((idea, i) => `
+      <div class="idea-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span class="format-badge" style="background:${colors[idea.format]||'#6366f1'}22;color:${colors[idea.format]||'#6366f1'}">
+            ${idea.format || 'feed'}
+          </span>
+          <span style="font-size:11px;color:var(--muted)">${idea.tag || ''}</span>
+        </div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:6px;color:var(--text)">${idea.titel || ''}</div>
+        <div style="font-size:12px;color:var(--accent2);font-style:italic;margin-bottom:8px">"${idea.hook || ''}"</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:8px">${idea.beschreibung || ''}</div>
+        <div style="font-size:11px;color:var(--success);border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+          <i class="fa-solid fa-check" style="margin-right:4px"></i>${idea.warum || ''}
+        </div>
+      </div>
+    `).join('') + '</div>';
+}
+
+// ── Tabs ────────────────────────────────────────────────────────
+function switchTab(name) {
+  ['ideen','analyse'].forEach(t => {
+    document.getElementById('tab-content-'+t).style.display = t===name ? 'block' : 'none';
+    const btn = document.getElementById('tab-'+t);
+    if(btn) {
+      btn.style.color = t===name ? 'var(--accent2)' : 'var(--muted)';
+      btn.style.borderBottomColor = t===name ? 'var(--accent2)' : 'transparent';
+    }
+  });
+}
+
+// ── DNA Modal ───────────────────────────────────────────────────
+function openDNA() {
+  const text = document.getElementById('dnaText')?.textContent || '—';
+  document.getElementById('dnaModalText').textContent = text;
+  document.getElementById('dnaModal').style.display = 'flex';
+}
+
+// ── Seite Hinzufügen Modal ──────────────────────────────────────
+function openAddModal() { document.getElementById('addModal').style.display = 'flex'; }
+function closeAddModal() { document.getElementById('addModal').style.display = 'none'; location.reload(); }
+
+function filterAddList(q) {
+  document.querySelectorAll('.add-item').forEach(el => {
+    const match = el.dataset.name.includes(q.toLowerCase()) || el.dataset.handle.includes(q.toLowerCase());
+    el.style.display = match ? '' : 'none';
+  });
+}
+
+async function toggleStudio(accountId, el) {
+  const r    = await fetch(`/api/content-studio/${accountId}/toggle`, {method:'POST'});
+  const res  = await r.json();
+  const stateEl = document.getElementById('addState-'+accountId);
+  if (res.active) {
+    el.style.borderColor = 'var(--success)';
+    stateEl.innerHTML = '<span style="color:var(--success)"><i class="fa-solid fa-circle-check"></i> Im Studio</span>';
+  } else {
+    el.style.borderColor = 'var(--border)';
+    stateEl.innerHTML = '<span style="color:var(--muted)"><i class="fa-regular fa-circle"></i> Hinzufügen</span>';
+  }
+}
+
+async function resetOnboarding() {
+  await fetch(`/api/content-studio/${ACCOUNT_ID}/reset-onboarding`, {method:'POST'});
+  location.reload();
+}
+
+// ── Init ────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Gespeicherte Ideen anzeigen
+  if (window._savedIdeas && window._savedIdeas.length) {
+    renderIdeas(window._savedIdeas);
+  }
+  // Fortschritt-Dots initialisieren
+  const dot1 = document.getElementById('dot1');
+  if (dot1) { dot1.textContent = '1'; document.getElementById('dot2').textContent='2'; document.getElementById('dot3').textContent='3'; }
+});
+</script>
+{% endblock %}

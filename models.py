@@ -776,6 +776,11 @@ class AccountIdeenContext(db.Model):
     analyse_feedback = db.Column(db.Text)    # Korrekturen/Kontext vom Account-Inhaber
     analyse_category = db.Column(db.String(100))  # Kategorie für geteilte Regeln (z.B. "Stadtmemes")
     updated_at       = db.Column(db.DateTime, default=datetime.utcnow)
+    # Content Studio
+    studio_active    = db.Column(db.Boolean, default=False)   # manuell zum Studio hinzugefügt
+    onboarding_done  = db.Column(db.Boolean, default=False)   # Onboarding abgeschlossen
+    usp              = db.Column(db.Text)                     # Alleinstellungsmerkmal
+    onboarding_qa    = db.Column(db.Text)                     # JSON: [{frage, antwort}]
     account         = db.relationship('Account', backref=db.backref('ideen_context', uselist=False))
 
 

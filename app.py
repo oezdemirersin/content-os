@@ -85,17 +85,23 @@ def _invalidate_ep_cache() -> None:
 
 @app.context_processor
 def inject_globals():
-    # Vorrat-Gesamtzahl für Nav-Badge
     try:
         vorrat_total = db.session.query(func.count(ContentItem.id))\
             .filter(ContentItem.status.in_(['draft', 'ready', 'in_progress', 'scheduled']))\
             .scalar() or 0
     except Exception:
         vorrat_total = 0
+    try:
+        studio_accounts = db.session.query(Account).join(
+            AccountIdeenContext, AccountIdeenContext.account_id == Account.id
+        ).filter(AccountIdeenContext.studio_active == True).order_by(Account.name).all()
+    except Exception:
+        studio_accounts = []
     return {
         'now': datetime.utcnow,
         'emergency_pause_active': _is_emergency_paused(),
         'vorrat_total': vorrat_total,
+        'studio_accounts': studio_accounts,
     }
 
 @app.template_filter('from_json')
@@ -599,6 +605,14 @@ def init_db():
                 konzept TEXT, zielgruppe TEXT, tonalitaet TEXT, themen TEXT,
                 last_generated TIMESTAMP, generated_ideas TEXT,
                 updated_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('ALTER TABLE account_ideen_context ADD COLUMN IF NOT EXISTS past_posts_json TEXT')
+            safe_alter('ALTER TABLE account_ideen_context ADD COLUMN IF NOT EXISTS page_analysis TEXT')
+            safe_alter('ALTER TABLE account_ideen_context ADD COLUMN IF NOT EXISTS analyse_feedback TEXT')
+            safe_alter('ALTER TABLE account_ideen_context ADD COLUMN IF NOT EXISTS analyse_category VARCHAR(100)')
+            safe_alter('ALTER TABLE account_ideen_context ADD COLUMN IF NOT EXISTS studio_active BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE account_ideen_context ADD COLUMN IF NOT EXISTS onboarding_done BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE account_ideen_context ADD COLUMN IF NOT EXISTS usp TEXT')
+            safe_alter('ALTER TABLE account_ideen_context ADD COLUMN IF NOT EXISTS onboarding_qa TEXT')
             # ── Wetter-System ────────────────────────────────────────────
             safe_alter('ALTER TABLE content_folder ADD COLUMN IF NOT EXISTS trigger_condition VARCHAR(50)')
             safe_alter('''CREATE TABLE IF NOT EXISTS weather_cache (
@@ -780,6 +794,14 @@ def init_db():
                 safe_alter('ALTER TABLE account_ideen_context ADD COLUMN analyse_feedback TEXT')
             if 'analyse_category' not in aic_cols:
                 safe_alter('ALTER TABLE account_ideen_context ADD COLUMN analyse_category VARCHAR(100)')
+            if 'studio_active' not in aic_cols:
+                safe_alter('ALTER TABLE account_ideen_context ADD COLUMN studio_active BOOLEAN DEFAULT 0')
+            if 'onboarding_done' not in aic_cols:
+                safe_alter('ALTER TABLE account_ideen_context ADD COLUMN onboarding_done BOOLEAN DEFAULT 0')
+            if 'usp' not in aic_cols:
+                safe_alter('ALTER TABLE account_ideen_context ADD COLUMN usp TEXT')
+            if 'onboarding_qa' not in aic_cols:
+                safe_alter('ALTER TABLE account_ideen_context ADD COLUMN onboarding_qa TEXT')
             # content_folder: Wetter-Trigger
             if 'trigger_condition' not in cf_cols:
                 safe_alter('ALTER TABLE content_folder ADD COLUMN trigger_condition VARCHAR(50)')
@@ -11430,6 +11452,306 @@ def koop_rechnung(kid):
         account=account,
         today=datetime.utcnow().date(),
     )
+
+
+# ─────────────────────── CONTENT STUDIO ───────────────────────
+
+@app.route('/content-studio')
+@login_required
+def content_studio():
+    studio_accs = Account.query.join(
+        AccountIdeenContext, AccountIdeenContext.account_id == Account.id
+    ).filter(AccountIdeenContext.studio_active == True).order_by(Account.name).all()
+    all_accounts = Account.query.filter(
+        Account.status.in_(['active', 'pause'])
+    ).order_by(Account.name).all()
+    # Ensure every account has an AccountIdeenContext
+    studio_ids = {a.id for a in studio_accs}
+    for acc in all_accounts:
+        if not acc.ideen_context:
+            db.session.add(AccountIdeenContext(account_id=acc.id))
+    db.session.commit()
+    first = studio_accs[0] if studio_accs else None
+    return render_template('content_studio.html',
+        studio_accounts=studio_accs,
+        all_accounts=all_accounts,
+        selected_account=first,
+        active_page='studio')
+
+
+@app.route('/content-studio/<int:account_id>')
+@login_required
+def content_studio_account(account_id):
+    acc = Account.query.get_or_404(account_id)
+    studio_accs = Account.query.join(
+        AccountIdeenContext, AccountIdeenContext.account_id == Account.id
+    ).filter(AccountIdeenContext.studio_active == True).order_by(Account.name).all()
+    all_accounts = Account.query.filter(
+        Account.status.in_(['active', 'pause'])
+    ).order_by(Account.name).all()
+    if not acc.ideen_context:
+        ctx = AccountIdeenContext(account_id=account_id)
+        db.session.add(ctx)
+        db.session.commit()
+    return render_template('content_studio.html',
+        studio_accounts=studio_accs,
+        all_accounts=all_accounts,
+        selected_account=acc,
+        active_page='studio')
+
+
+@app.route('/api/content-studio/<int:account_id>/toggle', methods=['POST'])
+@login_required
+def studio_toggle(account_id):
+    acc = Account.query.get_or_404(account_id)
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx:
+        ctx = AccountIdeenContext(account_id=account_id)
+        db.session.add(ctx)
+    ctx.studio_active = not ctx.studio_active
+    db.session.commit()
+    return jsonify({'ok': True, 'active': ctx.studio_active})
+
+
+@app.route('/api/content-studio/<int:account_id>/info', methods=['GET'])
+@login_required
+def studio_get_info(account_id):
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx:
+        return jsonify({})
+    qa = []
+    if ctx.onboarding_qa:
+        try: qa = json.loads(ctx.onboarding_qa)
+        except: pass
+    ideas = []
+    if ctx.generated_ideas:
+        try: ideas = json.loads(ctx.generated_ideas)
+        except: pass
+    return jsonify({
+        'konzept':       ctx.konzept or '',
+        'zielgruppe':    ctx.zielgruppe or '',
+        'tonalitaet':    ctx.tonalitaet or '',
+        'themen':        ctx.themen or '',
+        'usp':           ctx.usp or '',
+        'page_analysis': ctx.page_analysis or '',
+        'onboarding_done': bool(ctx.onboarding_done),
+        'studio_active': bool(ctx.studio_active),
+        'onboarding_qa': qa,
+        'generated_ideas': ideas,
+        'last_generated': ctx.last_generated.isoformat() if ctx.last_generated else None,
+    })
+
+
+@app.route('/api/content-studio/<int:account_id>/save-basics', methods=['POST'])
+@login_required
+def studio_save_basics(account_id):
+    """Speichert Basis-Info (Step 1 des Onboardings)."""
+    acc = Account.query.get_or_404(account_id)
+    d = request.get_json() or {}
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx:
+        ctx = AccountIdeenContext(account_id=account_id, studio_active=True)
+        db.session.add(ctx)
+    ctx.konzept    = d.get('konzept', '').strip()
+    ctx.zielgruppe = d.get('zielgruppe', '').strip()
+    ctx.tonalitaet = d.get('tonalitaet', '').strip()
+    ctx.themen     = d.get('themen', '').strip()
+    ctx.usp        = d.get('usp', '').strip()
+    ctx.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/content-studio/<int:account_id>/generate-questions', methods=['POST'])
+@login_required
+def studio_generate_questions(account_id):
+    """Claude analysiert Basis-Info und generiert gezielte Nachfragen (Step 2)."""
+    acc = Account.query.get_or_404(account_id)
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx:
+        return jsonify({'ok': False, 'error': 'Zuerst Basis-Info speichern'}), 400
+
+    api_key = get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Claude API-Key'}), 400
+
+    prompt = f"""Du bist ein Social-Media-Stratege der einen Instagram-Account 100% verstehen will.
+
+Account: {acc.name} (@{acc.handle or 'unbekannt'})
+Plattform: Instagram
+Konzept: {ctx.konzept or 'nicht angegeben'}
+Zielgruppe: {ctx.zielgruppe or 'nicht angegeben'}
+Ton/Stil: {ctx.tonalitaet or 'nicht angegeben'}
+Themen: {ctx.themen or 'nicht angegeben'}
+USP/Alleinstellungsmerkmal: {ctx.usp or 'nicht angegeben'}
+
+Stelle 6 präzise Fragen um diesen Account wirklich zu verstehen. Die Fragen sollen:
+- Spezifisch für DIESEN Account sein (nicht generisch)
+- Dir helfen einzigartigen Content zu erstellen
+- Auf Content-Formate, Posting-Rhythmus, Engagement, Konkurrenz, Herausforderungen eingehen
+- Praxis-orientiert sein (was funktioniert, was nicht)
+
+Antworte NUR mit einem JSON-Array: [{{"frage": "...", "erklaerung": "Warum ich das frage: ..."}}]"""
+
+    try:
+        import anthropic as _ant
+        client = _ant.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=1200,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        raw = msg.content[0].text.strip()
+        # JSON aus Antwort extrahieren
+        import re as _re
+        m = _re.search(r'\[[\s\S]*\]', raw)
+        questions = json.loads(m.group(0)) if m else []
+        return jsonify({'ok': True, 'questions': questions})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/content-studio/<int:account_id>/complete-onboarding', methods=['POST'])
+@login_required
+def studio_complete_onboarding(account_id):
+    """Speichert Q&A-Antworten und generiert die vollständige Seiten-DNA."""
+    acc = Account.query.get_or_404(account_id)
+    d = request.get_json() or {}
+    qa_pairs = d.get('qa', [])  # [{frage, antwort}, ...]
+
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx:
+        return jsonify({'ok': False, 'error': 'Context nicht gefunden'}), 404
+
+    ctx.onboarding_qa = json.dumps(qa_pairs, ensure_ascii=False)
+
+    api_key = get_setting('anthropic_api_key')
+    if not api_key:
+        ctx.onboarding_done = True
+        db.session.commit()
+        return jsonify({'ok': True, 'analysis': ''})
+
+    qa_text = '\n'.join([f"F: {q['frage']}\nA: {q.get('antwort', '(keine Antwort)')}" for q in qa_pairs])
+    prompt = f"""Du bist ein Social-Media-Experte. Erstelle eine umfassende Seiten-DNA für diesen Instagram-Account.
+
+ACCOUNT: {acc.name} (@{acc.handle or '?'})
+KONZEPT: {ctx.konzept or ''}
+ZIELGRUPPE: {ctx.zielgruppe or ''}
+TON: {ctx.tonalitaet or ''}
+THEMEN: {ctx.themen or ''}
+USP: {ctx.usp or ''}
+
+VERTIEFENDE Q&A:
+{qa_text}
+
+Erstelle eine strukturierte Seiten-DNA mit diesen Abschnitten (Markdown-Format):
+## 🧬 Seiten-DNA: {acc.name}
+### Kernidentität
+### Zielgruppe (detailliert)
+### Content-Säulen (3-5 Hauptthemen mit Gewichtung)
+### Ton & Sprache
+### Was funktioniert / Was vermeiden
+### Posting-Strategie
+### Einzigartige Stärken
+### Optimierungspotenzial
+
+Sei konkret, spezifisch und praxis-orientiert. Kein Allgemein-Blabla."""
+
+    try:
+        import anthropic as _ant
+        client = _ant.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=2000,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        analysis = msg.content[0].text.strip()
+        ctx.page_analysis  = analysis
+        ctx.onboarding_done = True
+        ctx.updated_at     = datetime.utcnow()
+        db.session.commit()
+        return jsonify({'ok': True, 'analysis': analysis})
+    except Exception as e:
+        ctx.onboarding_done = True
+        db.session.commit()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/content-studio/<int:account_id>/generate-ideas', methods=['POST'])
+@login_required
+def studio_generate_ideas(account_id):
+    """Generiert Content-Ideen basierend auf der Seiten-DNA."""
+    acc = Account.query.get_or_404(account_id)
+    d = request.get_json() or {}
+    extra = d.get('extra', '')  # optionaler Kontext vom User (aktuelles Thema, etc.)
+
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if not ctx:
+        return jsonify({'ok': False, 'error': 'Kein Kontext'}), 404
+
+    api_key = get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Claude API-Key'}), 400
+
+    dna = ctx.page_analysis or ''
+    if not dna:
+        nl = '\n'
+        dna = f"Konzept: {ctx.konzept}{nl}Zielgruppe: {ctx.zielgruppe}{nl}Ton: {ctx.tonalitaet}{nl}Themen: {ctx.themen}"
+    qa_text = ''
+    if ctx.onboarding_qa:
+        try:
+            qa = json.loads(ctx.onboarding_qa)
+            qa_text = '\n'.join([f"- {q['frage']}: {q.get('antwort','')}" for q in qa])
+        except: pass
+
+    prompt = f"""Du bist Content-Stratege für den Instagram-Account "{acc.name}" (@{acc.handle or '?'}).
+
+SEITEN-DNA:
+{dna}
+
+{f"AKTUELLER KONTEXT VOM BETREIBER: {extra}" if extra else ""}
+
+Generiere 8 konkrete Content-Ideen für die nächsten 2 Wochen.
+Jede Idee muss:
+- Zum einzigartigen Stil dieser Seite passen
+- Einen klaren Hook haben (erste Zeile die stoppt)
+- Ein konkretes Format nennen (Reel, Karussell, Feed-Post, Story)
+- Einen Posting-Tag/Zeitfenster empfehlen
+
+Format als JSON-Array:
+[{{"titel": "...", "hook": "...", "format": "reel|feed|karussell|story", "beschreibung": "...", "warum": "Warum das zur Seite passt", "tag": "Mo|Di|Mi|Do|Fr|Sa|So"}}]"""
+
+    try:
+        import anthropic as _ant
+        client = _ant.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=2500,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        raw = msg.content[0].text.strip()
+        import re as _re
+        m = _re.search(r'\[[\s\S]*\]', raw)
+        ideas = json.loads(m.group(0)) if m else []
+        ctx.generated_ideas = json.dumps(ideas, ensure_ascii=False)
+        ctx.last_generated  = datetime.utcnow()
+        db.session.commit()
+        return jsonify({'ok': True, 'ideas': ideas})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/content-studio/<int:account_id>/reset-onboarding', methods=['POST'])
+@login_required
+def studio_reset_onboarding(account_id):
+    ctx = AccountIdeenContext.query.filter_by(account_id=account_id).first()
+    if ctx:
+        ctx.onboarding_done = False
+        ctx.onboarding_qa   = None
+        ctx.page_analysis   = None
+        ctx.konzept = ctx.zielgruppe = ctx.tonalitaet = ctx.themen = ctx.usp = None
+        db.session.commit()
+    return jsonify({'ok': True})
 
 
 # ─────────────────────── ERROR HANDLERS ───────────────────────
