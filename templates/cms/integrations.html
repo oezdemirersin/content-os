@@ -149,7 +149,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface2);border-radius:10px;margin-bottom:20px">
         <div>
           <div style="font-size:13px;font-weight:600">Automatischer täglicher Sync</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px">Jeden Tag um Mitternacht automatisch alle Follower-Zahlen holen</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Jeden Tag um 23 Uhr (Berliner Zeit) alle Follower-Zahlen automatisch holen</div>
         </div>
         <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;cursor:pointer">
           <input type="checkbox" name="ig_auto_sync" id="autoSyncCb" {{ 'checked' if auto_sync else '' }}
@@ -167,16 +167,38 @@
       </div>
 
       <!-- ── SPEICHERN ──────────────────────────────────────── -->
-      <div style="display:flex;gap:10px">
-        <button type="submit" class="btn btn-primary" style="flex:1">
-          <i class="fa-solid fa-floppy-disk"></i> Einstellungen speichern
-        </button>
-        <a href="{{ url_for('bulk_follower_update_page') }}" class="btn btn-ghost" style="font-size:12px;white-space:nowrap">
-          Zum Follower-Update →
-        </a>
-      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">
+        <i class="fa-solid fa-floppy-disk"></i> Einstellungen speichern
+      </button>
 
     </form>
+
+    <!-- ── MANUELLER SYNC ────────────────────────────────────── -->
+    <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:12px">JETZT MANUELL AKTUALISIEREN</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button id="manSyncBtn" onclick="startManualSync()" class="btn btn-primary" style="background:linear-gradient(135deg,#6366f1,#a855f7);border:none">
+          <i class="fa-solid fa-rotate" id="manSyncIcon"></i>
+          Alle Follower jetzt aktualisieren
+        </button>
+        <span id="manSyncStatus" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+
+      <!-- Fortschritt -->
+      <div id="manProgressWrap" style="display:none;margin-top:14px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
+          <span id="manProgressLabel" style="color:var(--muted)">Verbinde…</span>
+          <span id="manProgressPct" style="color:var(--accent);font-weight:700">0%</span>
+        </div>
+        <div style="background:var(--surface2);border-radius:20px;height:5px;overflow:hidden">
+          <div id="manProgressBar" style="height:100%;background:linear-gradient(90deg,#6366f1,#a855f7);border-radius:20px;width:0%;transition:width .4s"></div>
+        </div>
+      </div>
+
+      <!-- Ergebnis -->
+      <div id="manSyncResult" style="display:none;margin-top:14px;padding:14px;background:var(--surface2);border-radius:10px;font-size:12px"></div>
+    </div>
+
   </div>
 
   <!-- ── ANTHROPIC / CLAUDE ──────────────────────────────────── -->
@@ -495,6 +517,94 @@ function showTestResult(ok, msg) {
   el.style.display = 'block';
   el.style.color = ok ? 'var(--success)' : 'var(--danger)';
   el.innerHTML = `<i class="fa-solid fa-${ok ? 'circle-check' : 'circle-xmark'}"></i> ${msg}`;
+}
+
+// ── Manueller Follower-Sync ───────────────────────────────────
+let _manPollTimer = null;
+
+async function startManualSync() {
+  const btn    = document.getElementById('manSyncBtn');
+  const icon   = document.getElementById('manSyncIcon');
+  const status = document.getElementById('manSyncStatus');
+  const prog   = document.getElementById('manProgressWrap');
+  const result = document.getElementById('manSyncResult');
+
+  btn.disabled = true;
+  icon.className = 'fa-solid fa-rotate fa-spin';
+  status.textContent = '';
+  prog.style.display = 'block';
+  result.style.display = 'none';
+  manSetProgress(0, 'Verbinde mit Instagram…');
+
+  try {
+    const r = await fetch('/api/analytics/sync-followers-apify', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}
+    }).then(r => r.json());
+
+    if (!r.ok) { manEndSync(false, r.error); return; }
+    manSetProgress(5, `Rufe ${r.total} Accounts ab…`);
+    _manPollTimer = setInterval(manPollStatus, 2000);
+  } catch(e) {
+    manEndSync(false, 'Netzwerkfehler: ' + e.message);
+  }
+}
+
+async function manPollStatus() {
+  try {
+    const s = await fetch('/api/analytics/sync-followers-apify/status').then(r => r.json());
+    if (s.running) {
+      manSetProgress(s.progress || 5, s.current ? `@${s.current} …` : 'Läuft…');
+      return;
+    }
+    clearInterval(_manPollTimer); _manPollTimer = null;
+    if (s.error) { manEndSync(false, s.error); return; }
+    manSetProgress(100, 'Fertig!');
+    manShowResult(s.result);
+    manEndSync(true);
+  } catch(e) { console.error(e); }
+}
+
+function manSetProgress(pct, label) {
+  document.getElementById('manProgressBar').style.width  = pct + '%';
+  document.getElementById('manProgressPct').textContent  = pct + '%';
+  document.getElementById('manProgressLabel').textContent = label;
+}
+
+function manEndSync(ok, errMsg) {
+  const btn  = document.getElementById('manSyncBtn');
+  const icon = document.getElementById('manSyncIcon');
+  const status = document.getElementById('manSyncStatus');
+  btn.disabled = false;
+  icon.className = 'fa-solid fa-rotate';
+  if (!ok) {
+    document.getElementById('manProgressWrap').style.display = 'none';
+    status.style.color = 'var(--danger)';
+    status.textContent = '✗ ' + (errMsg || 'Fehler');
+  }
+}
+
+function manShowResult(result) {
+  if (!result) return;
+  const el = document.getElementById('manSyncResult');
+  const details = result.details || [];
+  const errors  = result.errors  || [];
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div style="font-weight:700;margin-bottom:10px;color:var(--success)">
+      <i class="fa-solid fa-circle-check"></i>
+      ${result.updated} von ${result.total_queried} aktualisiert
+      ${errors.length ? `<span style="color:var(--warning);font-weight:400;margin-left:8px">⚠ ${errors.length} Fehler</span>` : ''}
+    </div>
+    ${details.slice(0,8).map(u => `
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600">${u.name} <span style="color:var(--muted);font-weight:400">@${u.handle}</span></span>
+        <span style="color:${u.delta>0?'var(--success)':u.delta<0?'var(--danger)':'var(--muted)'};font-weight:700">
+          ${u.delta>0?'+':''}${u.delta.toLocaleString('de-DE')}
+          <span style="color:var(--muted);font-weight:400;margin-left:6px">${u.new.toLocaleString('de-DE')}</span>
+        </span>
+      </div>`).join('')}
+    ${details.length > 8 ? `<div style="color:var(--muted);padding-top:6px">…${details.length-8} weitere</div>` : ''}`;
+  showToast(`✅ ${result.updated} Follower aktualisiert`, 'success');
 }
 
 async function generateCronToken() {
