@@ -97,11 +97,16 @@ def inject_globals():
         ).filter(AccountIdeenContext.studio_active == True).order_by(Account.name).all()
     except Exception:
         studio_accounts = []
+    try:
+        changelog_unread = get_changelog_unread_count()
+    except Exception:
+        changelog_unread = 0
     return {
         'now': datetime.utcnow,
         'emergency_pause_active': _is_emergency_paused(),
         'vorrat_total': vorrat_total,
         'studio_accounts': studio_accounts,
+        'changelog_unread': changelog_unread,
     }
 
 @app.template_filter('from_json')
@@ -558,6 +563,8 @@ def init_db():
                 content_item_id INTEGER REFERENCES content_item(id),
                 reminder_sent BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter("ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS koop_type VARCHAR(30) DEFAULT 'paid_post'")
+            safe_alter("ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'EUR'")
             safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_name VARCHAR(200)')
             safe_alter("ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) DEFAULT 'offen'")
             safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS start_date DATE')
@@ -767,6 +774,8 @@ def init_db():
                 start_date DATE, deliverables TEXT, partner_rating INTEGER)''')
             koop_cols = [c['name'] for c in inspector.get_columns('kooperation')]
             for _col, _ddl in [
+                ('koop_type',           "ALTER TABLE kooperation ADD COLUMN koop_type VARCHAR(30) DEFAULT 'paid_post'"),
+                ('currency',            "ALTER TABLE kooperation ADD COLUMN currency VARCHAR(3) DEFAULT 'EUR'"),
                 ('contact_name',        'ALTER TABLE kooperation ADD COLUMN contact_name VARCHAR(200)'),
                 ('payment_status',      "ALTER TABLE kooperation ADD COLUMN payment_status VARCHAR(20) DEFAULT 'offen'"),
                 ('start_date',          'ALTER TABLE kooperation ADD COLUMN start_date DATE'),
@@ -916,6 +925,23 @@ def init_db():
         if not Category.query.filter_by(name='Memes').first():
             db.session.add(Category(name='Memes', color='#f59e0b', icon='face-laugh'))
             db.session.commit()
+
+        # ── Changelog-Seed: initiale Einträge ────────────────────────
+        try:
+            if not get_changelog():
+                add_changelog_entry(
+                    'Rechnung-Fix + To-Do Tab + Changelog',
+                    [
+                        'Rechnung: Jinja2 ns.__setattr__ Bug behoben (500-Fehler weg)',
+                        'Rechnung: koop_type & currency Migrations für PostgreSQL ergänzt',
+                        'To-Do / Ideen Tab mit CRUD (Kategorien, Priorität, Abgehaken)',
+                        'Changelog-System: rote Badge auf "Heute" bei neuen Updates',
+                        'Content Studio Sidebar: ein Eintrag statt N Sub-Links',
+                    ],
+                    'feature'
+                )
+        except Exception:
+            pass
 
 init_db()
 
@@ -1995,6 +2021,42 @@ def set_setting(key, value):
     s.updated_at = datetime.utcnow()
 
 
+def get_changelog():
+    """Gibt alle Changelog-Einträge aus AppSettings zurück."""
+    raw = get_setting('changelog', '[]')
+    try:
+        return json.loads(raw)
+    except Exception:
+        return []
+
+def add_changelog_entry(title, items, entry_type='feature'):
+    """Fügt einen neuen Eintrag zum Changelog hinzu (max 30). Keine DB-Commit nötig."""
+    import uuid
+    entries = get_changelog()
+    entries.insert(0, {
+        'id': str(uuid.uuid4())[:8],
+        'title': title,
+        'items': items,
+        'type': entry_type,
+        'date': datetime.utcnow().strftime('%Y-%m-%d'),
+    })
+    set_setting('changelog', json.dumps(entries[:30], ensure_ascii=False))
+    db.session.commit()
+
+def get_changelog_unread_count():
+    """Zählt Einträge seit dem letzten Dismiss."""
+    dismissed_at = get_setting('changelog_dismissed_at')
+    entries = get_changelog()
+    if not dismissed_at:
+        return len(entries)
+    from datetime import date as _date
+    try:
+        cutoff = dismissed_at[:10]  # YYYY-MM-DD
+        return sum(1 for e in entries if e.get('date', '0') > cutoff)
+    except Exception:
+        return 0
+
+
 def _set_follower_count(acc, new_count):
     """
     Zentrale Funktion für Follower-Updates.
@@ -2294,8 +2356,18 @@ def heute():
         days_map=days_map,
         posts_today=posts_today,
         open_alerts=open_alerts,
+        changelog=get_changelog()[:5],
+        changelog_unread=get_changelog_unread_count(),
         now=now,
         active_page='heute')
+
+
+@app.route('/api/changelog/dismiss', methods=['POST'])
+@login_required
+def changelog_dismiss():
+    set_setting('changelog_dismissed_at', datetime.utcnow().strftime('%Y-%m-%d'))
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 # ─────────────────────── ACCOUNTS ───────────────────────
