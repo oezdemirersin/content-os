@@ -1940,8 +1940,10 @@ def schedule_automations():
             with app.app_context():
                 now = datetime.utcnow()
 
-                # ── Täglicher Follower-Sync + Snapshot um Mitternacht (00:00–00:59) ──
-                if now.hour == 0:
+                # ── Täglicher Follower-Sync + Snapshot um 23:xx Berliner Zeit ──
+                from zoneinfo import ZoneInfo
+                now_berlin = datetime.now(ZoneInfo('Europe/Berlin'))
+                if now_berlin.hour == 23:
                     auto_sync_row = AppSettings.query.filter_by(key='ig_auto_sync').first()
                     auto_sync_on  = (not auto_sync_row) or (auto_sync_row.value != '0')
                     if auto_sync_on and not _ig_sync_status['running']:
