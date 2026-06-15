@@ -22,7 +22,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     InspirationSource, InspirationPost,
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
-                    Partner, AiUsageLog)
+                    Partner, AiUsageLog, AppTodo)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -632,6 +632,14 @@ def init_db():
             # ── media_item: Duplikat-Hash ────────────────────────────────
             safe_alter('ALTER TABLE media_item ADD COLUMN IF NOT EXISTS image_hash VARCHAR(64)')
             safe_alter('CREATE INDEX IF NOT EXISTS ix_media_item_image_hash ON media_item(image_hash)')
+            safe_alter('''CREATE TABLE IF NOT EXISTS app_todo (
+                id SERIAL PRIMARY KEY,
+                text TEXT NOT NULL,
+                category VARCHAR(50) DEFAULT \'idee\',
+                done BOOLEAN DEFAULT FALSE,
+                priority INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW())''')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -832,6 +840,15 @@ def init_db():
             mi_cols = [c['name'] for c in inspector.get_columns('media_item')]
             if 'image_hash' not in mi_cols:
                 safe_alter('ALTER TABLE media_item ADD COLUMN image_hash VARCHAR(64)')
+            # app_todo
+            safe_alter('''CREATE TABLE IF NOT EXISTS app_todo (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                category VARCHAR(50) DEFAULT 'idee',
+                done BOOLEAN DEFAULT 0,
+                priority INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
             try:
                 ct_cols = [c['name'] for c in inspector.get_columns('content_template')]
@@ -11751,6 +11768,83 @@ def studio_reset_onboarding(account_id):
         ctx.page_analysis   = None
         ctx.konzept = ctx.zielgruppe = ctx.tonalitaet = ctx.themen = ctx.usp = None
         db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────── TO-DO ────────────────────────────────
+
+@app.route('/todos')
+@login_required
+def todos():
+    items = AppTodo.query.order_by(AppTodo.done.asc(), AppTodo.priority.desc(), AppTodo.created_at.desc()).all()
+    # Erste Nutzung: Content-Studio-Philosophie-Notiz vorausfüllen
+    if not items:
+        seed = AppTodo(
+            text='Jede Seite im Content Studio bekommt eine eigene maßgeschneiderte „Fabrik" '
+                 '— kein generisches Formular, sondern ein UI das genau zu dieser Content-Art passt. '
+                 'Vorgehen: Seite im Chat erklären → ich designe das perfekte Layout.',
+            category='feature',
+            priority=1
+        )
+        db.session.add(seed)
+        db.session.commit()
+        items = [seed]
+    return render_template('todos.html', active_page='todos', items=items)
+
+
+@app.route('/api/todos', methods=['GET'])
+@login_required
+def api_todos_list():
+    items = AppTodo.query.order_by(AppTodo.done.asc(), AppTodo.priority.desc(), AppTodo.created_at.desc()).all()
+    return jsonify([{
+        'id': t.id, 'text': t.text, 'category': t.category,
+        'done': t.done, 'priority': t.priority,
+        'created_at': t.created_at.isoformat() if t.created_at else None
+    } for t in items])
+
+
+@app.route('/api/todos', methods=['POST'])
+@login_required
+def api_todo_create():
+    data = request.get_json() or {}
+    text = (data.get('text') or '').strip()
+    if not text:
+        return jsonify({'ok': False, 'error': 'Text erforderlich'}), 400
+    t = AppTodo(
+        text=text,
+        category=data.get('category', 'idee'),
+        priority=int(data.get('priority', 0)),
+        done=False
+    )
+    db.session.add(t)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': t.id})
+
+
+@app.route('/api/todos/<int:tid>', methods=['PUT'])
+@login_required
+def api_todo_update(tid):
+    t = AppTodo.query.get_or_404(tid)
+    data = request.get_json() or {}
+    if 'text' in data:
+        t.text = data['text'].strip() or t.text
+    if 'category' in data:
+        t.category = data['category']
+    if 'done' in data:
+        t.done = bool(data['done'])
+    if 'priority' in data:
+        t.priority = int(data['priority'])
+    t.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/todos/<int:tid>', methods=['DELETE'])
+@login_required
+def api_todo_delete(tid):
+    t = AppTodo.query.get_or_404(tid)
+    db.session.delete(t)
+    db.session.commit()
     return jsonify({'ok': True})
 
 

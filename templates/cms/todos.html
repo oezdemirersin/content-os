@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}To-Do & Ideen — Content OS{% endblock %}
+{% block page_title %}TO-DO & IDEEN{% endblock %}
+
+{% block content %}
+<div style="max-width:860px" x-data="todoApp()" x-init="init()">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap">
+    <div style="font-size:13px;color:var(--muted)">
+      Ideen, Features, Bugs und Notizen — alles an einem Ort
+    </div>
+    <button @click="openAdd()" class="btn btn-primary">
+      <i class="fa-solid fa-plus"></i> Neue Notiz
+    </button>
+  </div>
+
+  <!-- Filter-Tabs -->
+  <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+    <template x-for="tab in tabs" :key="tab.key">
+      <button @click="activeTab = tab.key"
+              :style="activeTab === tab.key
+                ? 'background:var(--accent2);color:#fff'
+                : 'background:var(--surface2);color:var(--muted)'"
+              style="border:none;cursor:pointer;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;transition:all .15s"
+              x-text="tab.label + (counts[tab.key] > 0 ? ' (' + counts[tab.key] + ')' : '')"></button>
+    </template>
+  </div>
+
+  <!-- Items -->
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <template x-for="item in filtered" :key="item.id">
+      <div class="card todo-card" :class="{'todo-done': item.done}"
+           style="padding:14px 16px;display:flex;gap:12px;align-items:flex-start;transition:opacity .2s"
+           :style="item.done ? 'opacity:.55' : ''">
+
+        <!-- Checkbox -->
+        <button @click="toggleDone(item)"
+                style="flex-shrink:0;width:20px;height:20px;border-radius:6px;border:2px solid;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-top:1px;transition:all .15s"
+                :style="item.done
+                  ? 'background:var(--success);border-color:var(--success);color:#fff'
+                  : 'background:transparent;border-color:var(--muted);color:transparent'">
+          <i class="fa-solid fa-check" style="font-size:10px"></i>
+        </button>
+
+        <!-- Content -->
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;line-height:1.5;color:var(--text)"
+               :style="item.done ? 'text-decoration:line-through' : ''"
+               x-text="item.text"></div>
+          <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span :class="'badge badge-cat-' + item.category"
+                  style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;text-transform:uppercase"
+                  x-text="catLabel(item.category)"></span>
+            <template x-if="item.priority === 1">
+              <span style="font-size:10px;color:#f59e0b;font-weight:700">
+                <i class="fa-solid fa-star" style="font-size:9px"></i> Hoch
+              </span>
+            </template>
+            <span style="font-size:10px;color:var(--muted)" x-text="formatDate(item.created_at)"></span>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button @click="openEdit(item)" class="icon-btn" title="Bearbeiten">
+            <i class="fa-solid fa-pen" style="font-size:10px"></i>
+          </button>
+          <button @click="deleteItem(item)" class="icon-btn" style="color:var(--danger)" title="Löschen">
+            <i class="fa-solid fa-trash" style="font-size:10px"></i>
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <div x-show="filtered.length === 0" style="padding:60px 20px;text-align:center;color:var(--muted)">
+      <i class="fa-solid fa-circle-check" style="font-size:32px;margin-bottom:12px;display:block;opacity:.3"></i>
+      <div x-text="activeTab === 'done' ? 'Noch nichts erledigt.' : 'Keine Einträge in dieser Kategorie.'"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Add/Edit Modal -->
+<div id="todoModal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeTodoModal()">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(520px,95vw)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div style="font-family:var(--font-display);font-size:15px" id="todoModalTitle">NEUE NOTIZ</div>
+      <button onclick="closeTodoModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+
+    <input type="hidden" id="editTodoId">
+
+    <div style="margin-bottom:14px">
+      <label class="form-label">Text *</label>
+      <textarea id="todoText" rows="4" class="input-field" placeholder="Was möchtest du notieren oder umsetzen?"></textarea>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px">
+      <div>
+        <label class="form-label">Kategorie</label>
+        <select id="todoCategory" class="select-field">
+          <option value="idee">💡 Idee</option>
+          <option value="feature">⚙️ Feature</option>
+          <option value="bug">🐛 Bug</option>
+          <option value="notiz">📝 Notiz</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Priorität</label>
+        <select id="todoPriority" class="select-field">
+          <option value="0">Normal</option>
+          <option value="1">⭐ Hoch</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeTodoModal()" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="saveTodo()" class="btn btn-primary" id="todoSaveBtn">
+        <i class="fa-solid fa-save"></i> Speichern
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+.badge-cat-idee    { background:rgba(99,102,241,.15); color:#818cf8; }
+.badge-cat-feature { background:rgba(16,185,129,.15); color:#34d399; }
+.badge-cat-bug     { background:rgba(239,68,68,.15);  color:#f87171; }
+.badge-cat-notiz   { background:rgba(245,158,11,.15); color:#fbbf24; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const _initialItems = {{ items | tojson }};
+
+function todoApp() {
+  return {
+    items: [],
+    activeTab: 'all',
+    tabs: [
+      { key: 'all',     label: 'Alle' },
+      { key: 'idee',    label: 'Ideen' },
+      { key: 'feature', label: 'Features' },
+      { key: 'bug',     label: 'Bugs' },
+      { key: 'notiz',   label: 'Notizen' },
+      { key: 'done',    label: 'Erledigt' },
+    ],
+    get counts() {
+      const c = { all: 0, idee: 0, feature: 0, bug: 0, notiz: 0, done: 0 };
+      for (const i of this.items) {
+        if (i.done) { c.done++; continue; }
+        c.all++;
+        if (c[i.category] !== undefined) c[i.category]++;
+      }
+      return c;
+    },
+    get filtered() {
+      if (this.activeTab === 'done') return this.items.filter(i => i.done);
+      if (this.activeTab === 'all')  return this.items.filter(i => !i.done);
+      return this.items.filter(i => !i.done && i.category === this.activeTab);
+    },
+    init() { this.items = _initialItems; },
+    catLabel(c) {
+      return { idee:'💡 Idee', feature:'⚙️ Feature', bug:'🐛 Bug', notiz:'📝 Notiz' }[c] || c;
+    },
+    formatDate(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return d.toLocaleDateString('de-DE', { day:'2-digit', month:'short', year:'numeric' });
+    },
+    openAdd() {
+      document.getElementById('editTodoId').value = '';
+      document.getElementById('todoText').value = '';
+      document.getElementById('todoCategory').value = 'idee';
+      document.getElementById('todoPriority').value = '0';
+      document.getElementById('todoModalTitle').textContent = 'NEUE NOTIZ';
+      document.getElementById('todoModal').style.display = 'flex';
+      setTimeout(() => document.getElementById('todoText').focus(), 50);
+    },
+    openEdit(item) {
+      document.getElementById('editTodoId').value = item.id;
+      document.getElementById('todoText').value = item.text;
+      document.getElementById('todoCategory').value = item.category;
+      document.getElementById('todoPriority').value = String(item.priority);
+      document.getElementById('todoModalTitle').textContent = 'NOTIZ BEARBEITEN';
+      document.getElementById('todoModal').style.display = 'flex';
+    },
+    async toggleDone(item) {
+      item.done = !item.done;
+      await fetch(`/api/todos/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ done: item.done })
+      });
+    },
+    async deleteItem(item) {
+      if (!confirm('Eintrag löschen?')) return;
+      await fetch(`/api/todos/${item.id}`, { method: 'DELETE' });
+      this.items = this.items.filter(i => i.id !== item.id);
+    },
+  };
+}
+
+function closeTodoModal() {
+  document.getElementById('todoModal').style.display = 'none';
+}
+
+async function saveTodo() {
+  const id   = document.getElementById('editTodoId').value;
+  const text = document.getElementById('todoText').value.trim();
+  if (!text) { showToast('Text erforderlich', 'error'); return; }
+
+  const btn = document.getElementById('todoSaveBtn');
+  btn.disabled = true;
+
+  const payload = {
+    text,
+    category: document.getElementById('todoCategory').value,
+    priority: parseInt(document.getElementById('todoPriority').value),
+  };
+
+  const url    = id ? `/api/todos/${id}` : '/api/todos';
+  const method = id ? 'PUT' : 'POST';
+  const r   = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const res = await r.json();
+  btn.disabled = false;
+
+  if (res.ok) {
+    showToast('Gespeichert', 'success');
+    closeTodoModal();
+    setTimeout(() => location.reload(), 600);
+  } else {
+    showToast(res.error || 'Fehler', 'error');
+  }
+}
+</script>
+{% endblock %}

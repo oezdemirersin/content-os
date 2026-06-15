@@ -822,3 +822,15 @@ class WeatherTriggerLog(db.Model):
     city_name     = db.Column(db.String(100))
     temperature   = db.Column(db.Float)
     account       = db.relationship('Account', backref='weather_trigger_logs')
+
+
+class AppTodo(db.Model):
+    """Interne To-Do- und Ideen-Liste für Features, Bugs und Notizen."""
+    __tablename__ = 'app_todo'
+    id         = db.Column(db.Integer, primary_key=True)
+    text       = db.Column(db.Text, nullable=False)
+    category   = db.Column(db.String(50), default='idee')   # idee | feature | bug | notiz
+    done       = db.Column(db.Boolean, default=False)
+    priority   = db.Column(db.Integer, default=0)           # 0=normal, 1=hoch
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

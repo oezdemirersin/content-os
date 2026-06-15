@@ -436,7 +436,7 @@
           {% set text = d.get('text') or '' %}
           {% set price = (k.amount or 0) / (deliverables | length) %}
           {% set line_total = price %}
-          {% set _ = ns.__setattr__('total', ns.total + line_total) %}
+          {% set ns.total = ns.total + line_total %}
           <tr>
             <td class="pos-num">{{ ns.row }}</td>
             <td>
