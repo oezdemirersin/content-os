@@ -12,6 +12,10 @@
     <a href="{{ url_for('accounts_export_csv') }}" class="btn btn-ghost" title="Accounts exportieren">
       <i class="fa-solid fa-download"></i> Export
     </a>
+    <button onclick="syncFollowersNow()" id="syncFollowersBtn" class="btn btn-ghost"
+            title="Alle Follower per Instagram API aktualisieren">
+      <i class="fa-solid fa-rotate" id="syncFollowersIcon"></i> Follower-Sync
+    </button>
     <button onclick="document.getElementById('bulkFollowerModal').style.display='flex'" class="btn btn-ghost" title="Follower bulk-aktualisieren">
       <i class="fa-solid fa-users"></i> Follower
     </button>
@@ -665,6 +669,27 @@ async function toggleAnalytics(accountId, btn) {
     showToast('Netzwerkfehler', 'error');
   }
   btn.disabled = false;
+}
+
+async function syncFollowersNow() {
+  const btn = document.getElementById('syncFollowersBtn');
+  const icon = document.getElementById('syncFollowersIcon');
+  btn.disabled = true;
+  icon.className = 'fa-solid fa-spinner fa-spin';
+  try {
+    const r = await fetch('/api/analytics/sync-followers-apify', {method:'POST'}).then(r=>r.json());
+    if(r.ok || r.total !== undefined){
+      showToast(`Follower-Sync gestartet (${r.total||0} Accounts, Methode: ${r.method||'?'}) — läuft im Hintergrund`, 'success');
+    } else {
+      showToast(r.error || 'Fehler beim Starten', 'error');
+    }
+  } catch(e) {
+    showToast('Netzwerkfehler', 'error');
+  }
+  setTimeout(() => {
+    btn.disabled = false;
+    icon.className = 'fa-solid fa-rotate';
+  }, 3000);
 }
 </script>
 {% endblock %}

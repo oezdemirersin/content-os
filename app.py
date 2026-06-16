@@ -5865,6 +5865,7 @@ def api_bulk_import():
     """Mehrere Dateien hochladen → je MediaItem + ContentItem erstellen."""
     files = request.files.getlist('files')
     category_id = request.form.get('category_id', type=int)
+    folder_id   = request.form.get('folder_id', type=int)
     account_ids = request.form.getlist('account_ids', type=int)
     label_ids   = request.form.getlist('label_ids', type=int)
     content_type = request.form.get('content_type', 'feed')
@@ -5920,6 +5921,7 @@ def api_bulk_import():
             status='ready',
             content_type=content_type,
             category_id=category_id,
+            folder_id=folder_id,
         )
         db.session.add(ci)
         db.session.flush()

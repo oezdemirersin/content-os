@@ -111,13 +111,17 @@
         </div>
 
         <div>
-          <label class="form-label">Kategorie</label>
-          <select id="catSelect" class="select-field">
-            <option value="">Keine</option>
-            {% for c in categories %}
-            <option value="{{ c.id }}">{{ c.name }}</option>
-            {% endfor %}
-          </select>
+          <label class="form-label">Vorratskategorie <span style="font-size:10px;color:var(--muted)">(nach Account-Auswahl)</span></label>
+          <div style="display:flex;gap:6px">
+            <select id="folderSelect" class="select-field" style="flex:1" disabled>
+              <option value="">— zuerst Account wählen —</option>
+            </select>
+            <button type="button" id="addFolderBtn" onclick="openAddFolder()" disabled
+                    style="flex-shrink:0;padding:8px 12px;border-radius:10px;border:1px solid var(--border);
+                           background:var(--surface2);color:var(--muted);cursor:pointer;font-size:13px">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -254,6 +258,9 @@ function updateAccountInfo() {
   badge.style.display = 'block';
   badge.innerHTML = `<i class="fa-solid fa-clock"></i> Frequenz: <b>${freqLabel}</b> · ca. ${postsPerMonth} Posts/Monat`;
   if (selectedFiles.length > 0) btn.disabled = false;
+  // Vorratskategorien laden
+  const accId = document.getElementById('accountSelect').value;
+  loadFolders(accId);
 }
 
 // ── Datei-Handling ────────────────────────────────────────────
@@ -345,7 +352,7 @@ async function startUpload() {
   document.getElementById('progressWrap').style.display = 'block';
   document.getElementById('previewGrid').style.display  = 'none';
 
-  const category_id  = document.getElementById('catSelect').value;
+  const folder_id    = document.getElementById('folderSelect').value;
   const content_type = document.getElementById('typeSelect').value;
   const chunkSize    = 10;
   uploadedItems      = [];
@@ -354,7 +361,7 @@ async function startUpload() {
     const chunk = selectedFiles.slice(i, i + chunkSize);
     const fd = new FormData();
     chunk.forEach(f => fd.append('files', f));
-    if (category_id) fd.append('category_id', category_id);
+    fd.append('folder_id', folder_id || '');
     fd.append('content_type', content_type);
     fd.append('account_ids', accountId);   // für ContentItem-Verknüpfung
 
@@ -657,6 +664,42 @@ function pickCaption(rowIdx, el) {
   if (inp) inp.value = cap;
   const sugg = document.getElementById(`capSuggestions-${rowIdx}`);
   if (sugg) sugg.style.display = 'none';
+}
+
+// ── Vorratskategorien ─────────────────────────────────────────────
+async function loadFolders(accountId) {
+  const sel = document.getElementById('folderSelect');
+  const addBtn = document.getElementById('addFolderBtn');
+  if (!accountId) {
+    sel.innerHTML = '<option value="">— zuerst Account wählen —</option>';
+    sel.disabled = true; addBtn.disabled = true; return;
+  }
+  sel.disabled = false; addBtn.disabled = false;
+  sel.innerHTML = '<option value="">Lädt…</option>';
+  try {
+    const folders = await fetch(`/api/folders?account=${accountId}`).then(r=>r.json());
+    sel.innerHTML = '<option value="">Keine Kategorie</option>' +
+      folders.map(f=>`<option value="${f.id}">${f.name}</option>`).join('');
+  } catch(e) {
+    sel.innerHTML = '<option value="">Fehler beim Laden</option>';
+  }
+}
+
+function openAddFolder() {
+  const accountId = document.getElementById('accountSelect').value;
+  if (!accountId) return;
+  const name = prompt('Name der neuen Vorratskategorie:');
+  if (!name || !name.trim()) return;
+  fetch('/api/folders', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: name.trim(), account_id: parseInt(accountId)})
+  }).then(r=>r.json()).then(r=>{
+    if (r.ok || r.id) {
+      showToast('Kategorie erstellt', 'success');
+      loadFolders(accountId);
+    } else showToast(r.error || 'Fehler', 'error');
+  });
 }
 </script>
 {% endblock %}
