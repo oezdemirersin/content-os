@@ -22,7 +22,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     InspirationSource, InspirationPost,
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
-                    Partner, AiUsageLog, AppTodo, Ausgabe)
+                    Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -657,6 +657,17 @@ def init_db():
                 notizen TEXT,
                 beleg_url VARCHAR(500),
                 created_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS abo_kosten (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(200) NOT NULL,
+                betrag FLOAT NOT NULL,
+                intervall VARCHAR(20) DEFAULT \'monatlich\',
+                aktiv BOOLEAN DEFAULT TRUE,
+                kategorie VARCHAR(100) DEFAULT \'Software & Tools\',
+                finanzamt BOOLEAN DEFAULT TRUE,
+                notizen TEXT,
+                start_datum DATE,
+                created_at TIMESTAMP DEFAULT NOW())''')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -878,6 +889,18 @@ def init_db():
                 finanzamt BOOLEAN DEFAULT 1,
                 notizen TEXT,
                 beleg_url VARCHAR(500),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            # abo_kosten
+            safe_alter('''CREATE TABLE IF NOT EXISTS abo_kosten (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(200) NOT NULL,
+                betrag FLOAT NOT NULL,
+                intervall VARCHAR(20) DEFAULT 'monatlich',
+                aktiv BOOLEAN DEFAULT 1,
+                kategorie VARCHAR(100) DEFAULT 'Software & Tools',
+                finanzamt BOOLEAN DEFAULT 1,
+                notizen TEXT,
+                start_datum DATE,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
             try:
@@ -10735,11 +10758,21 @@ def _check_koop_reminders():
 
 # ── Ausgaben ──────────────────────────────────────────────────
 
-AUSGABE_KATEGORIEN = [
+DEFAULT_AUSGABE_KATEGORIEN = [
     'Software & Tools', 'Equipment & Hardware', 'Marketing & Werbung',
     'Freelancer & Dienstleister', 'Büro & Verwaltung', 'Reise & Transport',
     'Weiterbildung', 'Sonstiges'
 ]
+
+def get_ausgabe_kategorien():
+    raw = get_setting('ausgabe_kategorien')
+    if raw:
+        try:
+            return json.loads(raw)
+        except Exception:
+            pass
+    return DEFAULT_AUSGABE_KATEGORIEN[:]
+
 
 @app.route('/ausgaben')
 @login_required
@@ -10754,15 +10787,12 @@ def ausgaben():
     finanzamt_sum = sum(a.betrag for a in alle if a.finanzamt)
     privat_sum    = sum(a.betrag for a in alle if not a.finanzamt)
 
-    # Monatliche Summen für Chart
     monate_fa  = [0.0] * 12
     monate_prv = [0.0] * 12
     for a in alle:
         m = a.datum.month - 1
-        if a.finanzamt:
-            monate_fa[m]  += a.betrag
-        else:
-            monate_prv[m] += a.betrag
+        if a.finanzamt: monate_fa[m]  += a.betrag
+        else:           monate_prv[m] += a.betrag
 
     items = [{
         'id': a.id, 'titel': a.titel, 'betrag': a.betrag,
@@ -10770,6 +10800,21 @@ def ausgaben():
         'finanzamt': a.finanzamt, 'notizen': a.notizen or '',
         'beleg_url': a.beleg_url or '',
     } for a in alle]
+
+    # Abos
+    abos_all = AboKosten.query.order_by(AboKosten.aktiv.desc(), AboKosten.name).all()
+    def monatlich(a):
+        if a.intervall == 'jährlich':     return round(a.betrag / 12, 2)
+        if a.intervall == 'quartalsweise': return round(a.betrag / 3, 2)
+        return a.betrag
+    abo_items = [{
+        'id': a.id, 'name': a.name, 'betrag': a.betrag, 'intervall': a.intervall,
+        'aktiv': a.aktiv, 'kategorie': a.kategorie, 'finanzamt': a.finanzamt,
+        'notizen': a.notizen or '', 'start_datum': a.start_datum.isoformat() if a.start_datum else '',
+        'monatlich': monatlich(a),
+    } for a in abos_all]
+    abo_monatlich = sum(monatlich(a) for a in abos_all if a.aktiv)
+    abo_jaehrlich  = round(abo_monatlich * 12, 2)
 
     jahre = db.session.query(
         db.extract('year', Ausgabe.datum)
@@ -10783,8 +10828,79 @@ def ausgaben():
         items=items, jahr=jahr, jahre=jahre,
         gesamt=gesamt, finanzamt_sum=finanzamt_sum, privat_sum=privat_sum,
         monate_fa=monate_fa, monate_prv=monate_prv,
-        kategorien=AUSGABE_KATEGORIEN,
+        kategorien=get_ausgabe_kategorien(),
+        abo_items=abo_items, abo_monatlich=abo_monatlich, abo_jaehrlich=abo_jaehrlich,
     )
+
+
+@app.route('/api/ausgaben/kategorien', methods=['GET'])
+@login_required
+def ausgabe_kategorien_get():
+    return jsonify({'ok': True, 'kategorien': get_ausgabe_kategorien()})
+
+
+@app.route('/api/ausgaben/kategorien', methods=['POST'])
+@login_required
+def ausgabe_kategorien_save():
+    d = request.json or {}
+    kategorien = [k.strip() for k in d.get('kategorien', []) if k.strip()]
+    if not kategorien:
+        return jsonify({'ok': False, 'error': 'Mindestens eine Kategorie nötig'}), 400
+    set_setting('ausgabe_kategorien', json.dumps(kategorien, ensure_ascii=False))
+    db.session.commit()
+    return jsonify({'ok': True, 'kategorien': kategorien})
+
+
+@app.route('/api/abos', methods=['POST'])
+@login_required
+def abo_create():
+    from datetime import date as _date
+    d = request.json or {}
+    try:
+        a = AboKosten(
+            name      = d['name'].strip(),
+            betrag    = float(d['betrag']),
+            intervall = d.get('intervall', 'monatlich'),
+            aktiv     = bool(d.get('aktiv', True)),
+            kategorie = d.get('kategorie', 'Software & Tools'),
+            finanzamt = bool(d.get('finanzamt', True)),
+            notizen   = d.get('notizen', '').strip() or None,
+            start_datum = _date.fromisoformat(d['start_datum']) if d.get('start_datum') else None,
+        )
+        db.session.add(a)
+        db.session.commit()
+        return jsonify({'ok': True, 'id': a.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+
+@app.route('/api/abos/<int:aid>', methods=['PUT'])
+@login_required
+def abo_update(aid):
+    from datetime import date as _date
+    a = AboKosten.query.get_or_404(aid)
+    d = request.json or {}
+    if 'name'       in d: a.name       = d['name'].strip()
+    if 'betrag'     in d: a.betrag     = float(d['betrag'])
+    if 'intervall'  in d: a.intervall  = d['intervall']
+    if 'aktiv'      in d: a.aktiv      = bool(d['aktiv'])
+    if 'kategorie'  in d: a.kategorie  = d['kategorie']
+    if 'finanzamt'  in d: a.finanzamt  = bool(d['finanzamt'])
+    if 'notizen'    in d: a.notizen    = d['notizen'].strip() or None
+    if 'start_datum' in d:
+        a.start_datum = _date.fromisoformat(d['start_datum']) if d['start_datum'] else None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/abos/<int:aid>', methods=['DELETE'])
+@login_required
+def abo_delete(aid):
+    a = AboKosten.query.get_or_404(aid)
+    db.session.delete(a)
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/ausgaben', methods=['POST'])

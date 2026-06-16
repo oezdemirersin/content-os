@@ -824,6 +824,21 @@ class WeatherTriggerLog(db.Model):
     account       = db.relationship('Account', backref='weather_trigger_logs')
 
 
+class AboKosten(db.Model):
+    """Wiederkehrende Abonnement-Kosten (monatlich, quartalsweise, jährlich)."""
+    __tablename__ = 'abo_kosten'
+    id         = db.Column(db.Integer, primary_key=True)
+    name       = db.Column(db.String(200), nullable=False)
+    betrag     = db.Column(db.Float, nullable=False)
+    intervall  = db.Column(db.String(20), default='monatlich')  # monatlich | quartalsweise | jährlich
+    aktiv      = db.Column(db.Boolean, default=True)
+    kategorie  = db.Column(db.String(100), default='Software & Tools')
+    finanzamt  = db.Column(db.Boolean, default=True)
+    notizen    = db.Column(db.Text)
+    start_datum= db.Column(db.Date)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class Ausgabe(db.Model):
     """Betriebsausgaben — mit Finanzamt-Kennzeichnung."""
     __tablename__ = 'ausgabe'
