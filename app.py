@@ -653,8 +653,10 @@ def init_db():
                 category VARCHAR(50) DEFAULT \'idee\',
                 done BOOLEAN DEFAULT FALSE,
                 priority INTEGER DEFAULT 0,
+                image_path VARCHAR(500),
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('ALTER TABLE app_todo ADD COLUMN IF NOT EXISTS image_path VARCHAR(500)')
             safe_alter('''CREATE TABLE IF NOT EXISTS ausgabe (
                 id SERIAL PRIMARY KEY,
                 titel VARCHAR(200) NOT NULL,
@@ -905,8 +907,12 @@ def init_db():
                 category VARCHAR(50) DEFAULT 'idee',
                 done BOOLEAN DEFAULT 0,
                 priority INTEGER DEFAULT 0,
+                image_path VARCHAR(500),
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            at_cols = [c['name'] for c in inspector.get_columns('app_todo')]
+            if 'image_path' not in at_cols:
+                safe_alter('ALTER TABLE app_todo ADD COLUMN image_path VARCHAR(500)')
             # ausgabe
             safe_alter('''CREATE TABLE IF NOT EXISTS ausgabe (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -12603,6 +12609,7 @@ def todos():
     items_data = [{
         'id': t.id, 'text': t.text, 'category': t.category or 'idee',
         'done': bool(t.done), 'priority': t.priority or 0,
+        'image_path': t.image_path or '',
         'created_at': t.created_at.isoformat() if t.created_at else None
     } for t in items]
     return render_template('todos.html', active_page='todos', items=items_data)
@@ -12661,6 +12668,41 @@ def api_todo_delete(tid):
     t = AppTodo.query.get_or_404(tid)
     db.session.delete(t)
     db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/todos/<int:tid>/image', methods=['POST'])
+@login_required
+def api_todo_image(tid):
+    import pathlib, uuid
+    t = AppTodo.query.get_or_404(tid)
+    f = request.files.get('image')
+    if not f or not f.filename:
+        return jsonify({'ok': False, 'error': 'Kein Bild'}), 400
+    upload_dir = pathlib.Path(app.root_path) / 'static' / 'uploads' / 'todo_images'
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else 'jpg'
+    fname = f"{uuid.uuid4().hex}.{ext}"
+    f.save(upload_dir / fname)
+    t.image_path = f"/static/uploads/todo_images/{fname}"
+    db.session.commit()
+    return jsonify({'ok': True, 'image_path': t.image_path})
+
+
+@app.route('/api/todos/<int:tid>/image', methods=['DELETE'])
+@login_required
+def api_todo_image_delete(tid):
+    import pathlib
+    t = AppTodo.query.get_or_404(tid)
+    if t.image_path:
+        try:
+            p = pathlib.Path(app.root_path) / t.image_path.lstrip('/')
+            if p.exists():
+                p.unlink()
+        except Exception:
+            pass
+        t.image_path = None
+        db.session.commit()
     return jsonify({'ok': True})
 
 

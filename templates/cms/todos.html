@@ -3,13 +3,11 @@
 {% block page_title %}TO-DO & IDEEN{% endblock %}
 
 {% block content %}
-<div style="max-width:860px" x-data="todoApp()" x-init="init()">
+<div style="max-width:900px" x-data="todoApp()" x-init="init()">
 
   <!-- Header -->
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap">
-    <div style="font-size:13px;color:var(--muted)">
-      Ideen, Features, Bugs und Notizen — alles an einem Ort
-    </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;gap:12px;flex-wrap:wrap">
+    <div style="font-size:13px;color:var(--muted)">Ideen, Features, Bugs und Notizen — alles an einem Ort</div>
     <div style="display:flex;gap:8px">
       <button onclick="openCatManager()" class="btn btn-ghost" style="font-size:12px">
         <i class="fa-solid fa-tags"></i> Kategorien
@@ -21,63 +19,84 @@
   </div>
 
   <!-- Filter-Tabs -->
-  <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+  <div style="display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap">
     <template x-for="tab in tabs" :key="tab.key">
       <button @click="activeTab = tab.key"
               class="fchip" :class="activeTab === tab.key ? 'active' : ''"
-              x-text="tab.label + (counts[tab.key] > 0 ? ' (' + counts[tab.key] + ')' : '')"></button>
+              x-text="tab.label + (counts[tab.key] > 0 ? ' · ' + counts[tab.key] : '')"></button>
     </template>
   </div>
 
-  <!-- Items -->
-  <div style="display:flex;flex-direction:column;gap:8px">
+  <!-- Items Grid -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
     <template x-for="item in filtered" :key="item.id">
-      <div class="card todo-card" :class="{'todo-done': item.done}"
-           style="padding:14px 16px;display:flex;gap:12px;align-items:flex-start;transition:opacity .2s"
-           :style="item.done ? 'opacity:.55' : ''">
 
-        <!-- Checkbox -->
-        <button @click="toggleDone(item)"
-                style="flex-shrink:0;width:20px;height:20px;border-radius:6px;border:2px solid;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-top:1px;transition:all .15s"
-                :style="item.done
-                  ? 'background:var(--success);border-color:var(--success);color:#fff'
-                  : 'background:transparent;border-color:var(--muted);color:transparent'">
-          <i class="fa-solid fa-check" style="font-size:10px"></i>
-        </button>
+      <div class="todo-card-new" :class="{'todo-done-card': item.done}"
+           :style="`border-left:4px solid ${catColor(item.category)}`">
 
-        <!-- Content -->
-        <div style="flex:1;min-width:0">
-          <div style="font-size:13px;line-height:1.5;color:var(--text)"
-               :style="item.done ? 'text-decoration:line-through' : ''"
-               x-text="item.text"></div>
-          <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <span :class="'badge badge-cat-' + item.category"
-                  style="font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;text-transform:uppercase"
-                  x-text="catLabel(item.category)"></span>
-            <template x-if="item.priority === 1">
-              <span style="font-size:10px;color:#f59e0b;font-weight:700">
-                <i class="fa-solid fa-star" style="font-size:9px"></i> Hoch
-              </span>
-            </template>
-            <span style="font-size:10px;color:var(--muted)" x-text="formatDate(item.created_at)"></span>
+        <!-- Bild (falls vorhanden) -->
+        <template x-if="item.image_path">
+          <div style="position:relative;margin:-16px -16px 12px -16px">
+            <img :src="item.image_path" style="width:100%;height:140px;object-fit:cover;border-radius:10px 10px 0 0;display:block">
+            <button @click="removeImage(item)"
+                    style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.55);border:none;color:#fff;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </template>
+
+        <!-- Kategorie-Pill + Prio -->
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px"
+                :style="`background:${catColor(item.category)}20;color:${catColor(item.category)}`"
+                x-text="catLabel(item.category)"></span>
+          <template x-if="item.priority === 1">
+            <span style="font-size:10px;color:#f59e0b;font-weight:700">⭐ Hoch</span>
+          </template>
+          <span style="margin-left:auto;font-size:10px;color:var(--muted)" x-text="formatDate(item.created_at)"></span>
+        </div>
+
+        <!-- Text -->
+        <div style="font-size:13px;line-height:1.55;color:var(--text);flex:1"
+             :style="item.done ? 'text-decoration:line-through;opacity:.5' : ''"
+             x-text="item.text"></div>
+
+        <!-- Aktionen -->
+        <div style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+
+          <!-- Erledigt-Toggle -->
+          <button @click="toggleDone(item)"
+                  style="display:flex;align-items:center;gap:6px;background:none;border:1px solid;border-radius:20px;padding:4px 10px;cursor:pointer;font-size:11px;font-weight:600;transition:all .15s"
+                  :style="item.done
+                    ? 'border-color:var(--success);color:var(--success);background:rgba(34,197,94,.1)'
+                    : 'border-color:var(--border);color:var(--muted)'">
+            <i :class="item.done ? 'fa-solid fa-rotate-left' : 'fa-solid fa-check'" style="font-size:10px"></i>
+            <span x-text="item.done ? 'Wiederholen' : 'Erledigt'"></span>
+          </button>
+
+          <div style="margin-left:auto;display:flex;gap:4px">
+            <!-- Bild hinzufügen -->
+            <label :title="item.image_path ? 'Bild ersetzen' : 'Bild hinzufügen'"
+                   style="cursor:pointer;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;border:1px solid var(--border);color:var(--muted);transition:all .15s"
+                   onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'">
+              <i class="fa-solid fa-image" style="font-size:11px"></i>
+              <input type="file" accept="image/*" style="display:none" @change="uploadImage(item, $event)">
+            </label>
+            <button @click="openEdit(item)" class="icon-btn" title="Bearbeiten" style="width:28px;height:28px;border-radius:7px">
+              <i class="fa-solid fa-pen" style="font-size:10px"></i>
+            </button>
+            <button @click="deleteItem(item)" class="icon-btn" style="color:var(--danger);width:28px;height:28px;border-radius:7px" title="Löschen">
+              <i class="fa-solid fa-trash" style="font-size:10px"></i>
+            </button>
           </div>
         </div>
-
-        <!-- Actions -->
-        <div style="display:flex;gap:4px;flex-shrink:0">
-          <button @click="openEdit(item)" class="icon-btn" title="Bearbeiten">
-            <i class="fa-solid fa-pen" style="font-size:10px"></i>
-          </button>
-          <button @click="deleteItem(item)" class="icon-btn" style="color:var(--danger)" title="Löschen">
-            <i class="fa-solid fa-trash" style="font-size:10px"></i>
-          </button>
-        </div>
       </div>
+
     </template>
 
-    <div x-show="filtered.length === 0" style="padding:60px 20px;text-align:center;color:var(--muted)">
-      <i class="fa-solid fa-circle-check" style="font-size:32px;margin-bottom:12px;display:block;opacity:.3"></i>
-      <div x-text="activeTab === 'done' ? 'Noch nichts erledigt.' : 'Keine Einträge in dieser Kategorie.'"></div>
+    <div x-show="filtered.length === 0" style="grid-column:1/-1;padding:60px 20px;text-align:center;color:var(--muted)">
+      <i class="fa-solid fa-circle-check" style="font-size:40px;margin-bottom:14px;display:block;opacity:.2"></i>
+      <div x-text="activeTab === 'done' ? 'Noch nichts erledigt.' : 'Keine Einträge hier.'"></div>
     </div>
   </div>
 
@@ -86,20 +105,28 @@
 <!-- Add/Edit Modal -->
 <div id="todoModal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
      onclick="if(event.target===this)closeTodoModal()">
-  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(520px,95vw)">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
-      <div style="font-family:var(--font-display);font-size:15px" id="todoModalTitle">NEUE NOTIZ</div>
+  <div style="background:var(--surface);border-radius:18px;padding:28px;width:min(540px,95vw);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div style="font-family:var(--font-display);font-size:15px;letter-spacing:.3px" id="todoModalTitle">NEUE NOTIZ</div>
       <button onclick="closeTodoModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
     </div>
 
     <input type="hidden" id="editTodoId">
 
-    <div style="margin-bottom:14px">
-      <label class="form-label">Text *</label>
-      <textarea id="todoText" rows="4" class="input-field" placeholder="Was möchtest du notieren oder umsetzen?"></textarea>
+    <!-- Bild-Vorschau im Modal -->
+    <div id="todoImgPreview" style="display:none;margin-bottom:14px;position:relative">
+      <img id="todoImgPreviewImg" style="width:100%;max-height:180px;object-fit:cover;border-radius:10px;display:block">
+      <button onclick="clearModalImage()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.6);border:none;color:#fff;border-radius:50%;width:26px;height:26px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px">
+    <div style="margin-bottom:14px">
+      <label class="form-label">Text *</label>
+      <textarea id="todoText" rows="4" class="input-field" placeholder="Was möchtest du notieren oder umsetzen?" style="resize:vertical"></textarea>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
       <div>
         <label class="form-label">Kategorie</label>
         <select id="todoCategory" class="select-field">
@@ -118,6 +145,17 @@
       </div>
     </div>
 
+    <!-- Bild Upload -->
+    <div style="margin-bottom:20px">
+      <label class="form-label">Bild (optional)</label>
+      <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px dashed var(--border);border-radius:10px;cursor:pointer;transition:all .15s"
+             onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+        <i class="fa-solid fa-image" style="color:var(--muted);font-size:16px"></i>
+        <span style="font-size:13px;color:var(--muted)" id="todoImgLabel">Bild auswählen…</span>
+        <input type="file" id="todoImageFile" accept="image/*" style="display:none" onchange="previewModalImage(this)">
+      </label>
+    </div>
+
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button onclick="closeTodoModal()" class="btn btn-ghost">Abbrechen</button>
       <button onclick="saveTodo()" class="btn btn-primary" id="todoSaveBtn">
@@ -130,30 +168,41 @@
 <!-- Kategorie-Manager Modal -->
 <div id="catManagerModal" style="display:none;position:fixed;inset:0;z-index:600;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
      onclick="if(event.target===this)closeCatManager()">
-  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(420px,95vw)">
+  <div style="background:var(--surface);border-radius:18px;padding:28px;width:min(400px,95vw)">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
-      <div style="font-family:var(--font-display);font-size:15px">KATEGORIEN VERWALTEN</div>
+      <div style="font-family:var(--font-display);font-size:15px">KATEGORIEN</div>
       <button onclick="closeCatManager()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
     </div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">
-      Eigene Kategorien ergänzen die eingebauten (Ideen, Features, Bugs, Notizen).
-    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Eigene Kategorien ergänzen die eingebauten.</div>
     <div id="catManagerList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px"></div>
     <div style="display:flex;gap:8px">
       <input type="text" id="catManagerNew" class="input-field" placeholder="Neue Kategorie…" style="flex:1"
              onkeydown="if(event.key==='Enter')addCustomCat()">
       <button onclick="addCustomCat()" class="btn btn-primary" style="font-size:12px">
-        <i class="fa-solid fa-plus"></i> Hinzufügen
+        <i class="fa-solid fa-plus"></i>
       </button>
     </div>
   </div>
 </div>
 
 <style>
-.badge-cat-idee    { background:rgba(99,102,241,.15); color:#818cf8; }
-.badge-cat-feature { background:rgba(16,185,129,.15); color:#34d399; }
-.badge-cat-bug     { background:rgba(239,68,68,.15);  color:#f87171; }
-.badge-cat-notiz   { background:rgba(245,158,11,.15); color:#fbbf24; }
+.todo-card-new {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow .15s, transform .1s;
+  cursor: default;
+}
+.todo-card-new:hover {
+  box-shadow: 0 4px 20px rgba(0,0,0,.12);
+  transform: translateY(-1px);
+}
+.todo-done-card {
+  opacity: .55;
+}
 </style>
 {% endblock %}
 
@@ -161,12 +210,22 @@
 <script>
 const _initialItems = {{ items | tojson }};
 
+const CAT_COLORS = {
+  idee:    '#818cf8',
+  feature: '#34d399',
+  bug:     '#f87171',
+  notiz:   '#fbbf24',
+};
+const CAT_LABELS = {
+  idee:'💡 Idee', feature:'⚙️ Feature', bug:'🐛 Bug', notiz:'📝 Notiz'
+};
+
 function todoApp() {
   return {
     items: [],
     activeTab: 'all',
     customCats: [],
-    get allTabs() {
+    get tabs() {
       const builtin = [
         { key: 'all',     label: 'Alle' },
         { key: 'idee',    label: '💡 Ideen' },
@@ -178,16 +237,14 @@ function todoApp() {
       ];
       return builtin;
     },
-    // keep tabs as alias so the template x-for="tab in tabs" still works
-    get tabs() { return this.allTabs; },
     get counts() {
-      const c = { all: 0, idee: 0, feature: 0, bug: 0, notiz: 0, done: 0 };
+      const c = { all:0, idee:0, feature:0, bug:0, notiz:0, done:0 };
       for (const cat of this.customCats) c['custom_' + cat] = 0;
       for (const i of this.items) {
         if (i.done) { c.done++; continue; }
         c.all++;
-        const key = this.customCats.includes(i.category) ? 'custom_' + i.category : i.category;
-        if (c[key] !== undefined) c[key]++;
+        const ck = this.customCats.includes(i.category) ? 'custom_' + i.category : i.category;
+        if (c[ck] !== undefined) c[ck]++;
         else if (c[i.category] !== undefined) c[i.category]++;
       }
       return c;
@@ -207,21 +264,20 @@ function todoApp() {
         const r = await fetch('/api/todo-categories');
         this.customCats = await r.json();
         refreshCategorySelect(this.customCats);
-      } catch(e) { console.warn('custom cats:', e); }
+      } catch(e) {}
     },
-    catLabel(c) {
-      return { idee:'💡 Idee', feature:'⚙️ Feature', bug:'🐛 Bug', notiz:'📝 Notiz' }[c] || c;
-    },
+    catLabel(c) { return CAT_LABELS[c] || c; },
+    catColor(c) { return CAT_COLORS[c] || '#94a3b8'; },
     formatDate(iso) {
       if (!iso) return '';
-      const d = new Date(iso);
-      return d.toLocaleDateString('de-DE', { day:'2-digit', month:'short', year:'numeric' });
+      return new Date(iso).toLocaleDateString('de-DE', {day:'2-digit', month:'short', year:'numeric'});
     },
     openAdd() {
       document.getElementById('editTodoId').value = '';
       document.getElementById('todoText').value = '';
       document.getElementById('todoCategory').value = 'idee';
       document.getElementById('todoPriority').value = '0';
+      clearModalImage();
       document.getElementById('todoModalTitle').textContent = 'NEUE NOTIZ';
       document.getElementById('todoModal').style.display = 'flex';
       setTimeout(() => document.getElementById('todoText').focus(), 50);
@@ -232,20 +288,43 @@ function todoApp() {
       document.getElementById('todoCategory').value = item.category;
       document.getElementById('todoPriority').value = String(item.priority);
       document.getElementById('todoModalTitle').textContent = 'NOTIZ BEARBEITEN';
+      // Show existing image if any
+      if (item.image_path) {
+        document.getElementById('todoImgPreviewImg').src = item.image_path;
+        document.getElementById('todoImgPreview').style.display = 'block';
+        document.getElementById('todoImgLabel').textContent = 'Bild ersetzen…';
+      } else {
+        clearModalImage();
+      }
       document.getElementById('todoModal').style.display = 'flex';
     },
     async toggleDone(item) {
       item.done = !item.done;
       await fetch(`/api/todos/${item.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ done: item.done })
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({done: item.done})
       });
     },
     async deleteItem(item) {
       if (!confirm('Eintrag löschen?')) return;
-      await fetch(`/api/todos/${item.id}`, { method: 'DELETE' });
+      await fetch(`/api/todos/${item.id}`, {method:'DELETE'});
       this.items = this.items.filter(i => i.id !== item.id);
+    },
+    async uploadImage(item, event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const fd = new FormData();
+      fd.append('image', file);
+      const r = await fetch(`/api/todos/${item.id}/image`, {method:'POST', body:fd}).then(r=>r.json());
+      if (r.ok) {
+        item.image_path = r.image_path + '?t=' + Date.now();
+        showToast('Bild gespeichert', 'success');
+      } else showToast('Fehler beim Hochladen', 'error');
+    },
+    async removeImage(item) {
+      await fetch(`/api/todos/${item.id}/image`, {method:'DELETE'});
+      item.image_path = '';
+      showToast('Bild entfernt', 'info');
     },
   };
 }
@@ -254,80 +333,23 @@ function closeTodoModal() {
   document.getElementById('todoModal').style.display = 'none';
 }
 
-// ── Custom Category Manager ─────────────────────────────────
-let _customCats = [];
-
-function refreshCategorySelect(cats) {
-  _customCats = cats || [];
-  const sel = document.getElementById('todoCategory');
-  if (!sel) return;
-  // Remove any previously added custom options
-  [...sel.options].filter(o => o.dataset.custom).forEach(o => o.remove());
-  for (const cat of _customCats) {
-    const opt = document.createElement('option');
-    opt.value = cat;
-    opt.textContent = cat;
-    opt.dataset.custom = '1';
-    sel.appendChild(opt);
-  }
+function previewModalImage(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('todoImgPreviewImg').src = e.target.result;
+    document.getElementById('todoImgPreview').style.display = 'block';
+    document.getElementById('todoImgLabel').textContent = file.name;
+  };
+  reader.readAsDataURL(file);
 }
 
-function renderCatManagerList() {
-  const list = document.getElementById('catManagerList');
-  if (!list) return;
-  if (_customCats.length === 0) {
-    list.innerHTML = '<div style="font-size:12px;color:var(--muted);opacity:.6;text-align:center;padding:8px 0">Noch keine eigenen Kategorien</div>';
-    return;
-  }
-  list.innerHTML = _customCats.map((cat, i) => `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:8px;background:var(--surface2)">
-      <span style="font-size:13px">${cat}</span>
-      <button onclick="removeCustomCat(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
-    </div>`).join('');
-}
-
-async function saveCustomCats() {
-  await fetch('/api/todo-categories', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(_customCats)
-  });
-  refreshCategorySelect(_customCats);
-}
-
-async function openCatManager() {
-  try {
-    const r = await fetch('/api/todo-categories');
-    _customCats = await r.json();
-  } catch(e) { _customCats = []; }
-  renderCatManagerList();
-  refreshCategorySelect(_customCats);
-  document.getElementById('catManagerModal').style.display = 'flex';
-}
-
-function closeCatManager() {
-  document.getElementById('catManagerModal').style.display = 'none';
-}
-
-async function addCustomCat() {
-  const inp = document.getElementById('catManagerNew');
-  const val = (inp.value || '').trim();
-  if (!val) return;
-  if (_customCats.includes(val)) { showToast('Kategorie existiert bereits', 'error'); return; }
-  _customCats.push(val);
-  inp.value = '';
-  renderCatManagerList();
-  await saveCustomCats();
-  showToast('Kategorie gespeichert', 'success');
-}
-
-async function removeCustomCat(idx) {
-  _customCats.splice(idx, 1);
-  renderCatManagerList();
-  await saveCustomCats();
-  showToast('Kategorie entfernt', 'info');
+function clearModalImage() {
+  document.getElementById('todoImgPreview').style.display = 'none';
+  document.getElementById('todoImgPreviewImg').src = '';
+  document.getElementById('todoImgLabel').textContent = 'Bild auswählen…';
+  document.getElementById('todoImageFile').value = '';
 }
 
 async function saveTodo() {
@@ -346,17 +368,86 @@ async function saveTodo() {
 
   const url    = id ? `/api/todos/${id}` : '/api/todos';
   const method = id ? 'PUT' : 'POST';
-  const r   = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  const res = await r.json();
+  const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}).then(r=>r.json());
   btn.disabled = false;
 
-  if (res.ok) {
-    showToast('Gespeichert', 'success');
-    closeTodoModal();
-    setTimeout(() => location.reload(), 600);
-  } else {
-    showToast(res.error || 'Fehler', 'error');
+  if (!res.ok) { showToast(res.error || 'Fehler', 'error'); return; }
+
+  // Upload image if selected
+  const imgFile = document.getElementById('todoImageFile').files[0];
+  const todoId  = id || res.id;
+  if (imgFile && todoId) {
+    const fd = new FormData();
+    fd.append('image', imgFile);
+    await fetch(`/api/todos/${todoId}/image`, {method:'POST', body:fd});
   }
+
+  showToast('Gespeichert', 'success');
+  closeTodoModal();
+  setTimeout(() => location.reload(), 500);
+}
+
+// ── Custom Category Manager ──────────────────────────────────
+let _customCats = [];
+
+function refreshCategorySelect(cats) {
+  _customCats = cats || [];
+  const sel = document.getElementById('todoCategory');
+  if (!sel) return;
+  [...sel.options].filter(o => o.dataset.custom).forEach(o => o.remove());
+  for (const cat of _customCats) {
+    const opt = document.createElement('option');
+    opt.value = cat; opt.textContent = cat; opt.dataset.custom = '1';
+    sel.appendChild(opt);
+  }
+}
+
+function renderCatManagerList() {
+  const list = document.getElementById('catManagerList');
+  if (!list) return;
+  if (_customCats.length === 0) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--muted);opacity:.6;text-align:center;padding:8px 0">Noch keine eigenen Kategorien</div>';
+    return;
+  }
+  list.innerHTML = _customCats.map((cat, i) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:8px;background:var(--surface2)">
+      <span style="font-size:13px">${cat}</span>
+      <button onclick="removeCustomCat(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>`).join('');
+}
+
+async function saveCustomCats() {
+  await fetch('/api/todo-categories', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(_customCats)});
+  refreshCategorySelect(_customCats);
+}
+
+async function openCatManager() {
+  try { const r = await fetch('/api/todo-categories'); _customCats = await r.json(); } catch(e) { _customCats = []; }
+  renderCatManagerList();
+  refreshCategorySelect(_customCats);
+  document.getElementById('catManagerModal').style.display = 'flex';
+}
+function closeCatManager() { document.getElementById('catManagerModal').style.display = 'none'; }
+
+async function addCustomCat() {
+  const inp = document.getElementById('catManagerNew');
+  const val = (inp.value || '').trim();
+  if (!val) return;
+  if (_customCats.includes(val)) { showToast('Existiert bereits', 'error'); return; }
+  _customCats.push(val);
+  inp.value = '';
+  renderCatManagerList();
+  await saveCustomCats();
+  showToast('Kategorie hinzugefügt', 'success');
+}
+
+async function removeCustomCat(idx) {
+  _customCats.splice(idx, 1);
+  renderCatManagerList();
+  await saveCustomCats();
+  showToast('Entfernt', 'info');
 }
 </script>
 {% endblock %}
