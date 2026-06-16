@@ -3710,11 +3710,26 @@ def analytics_growth():
     rows = q.group_by(func.date(AnalyticsSnapshot.recorded_at)).all()
     snap_dict = {str(r.d): int(r.total or 0) for r in rows}
 
+    # Für heute: echten Account.follower_count nutzen falls noch kein Snapshot
+    today_iso = today.isoformat()
+    if not snap_dict.get(today_iso):
+        fq = db.session.query(func.sum(Account.follower_count)).filter(
+            Account.status == 'active', Account.hide_in_analytics == False
+        )
+        if account_id:
+            fq = fq.filter(Account.id == account_id)
+        snap_dict[today_iso] = int(fq.scalar() or 0)
+
     labels, data = [], []
+    last_known = 0
     for i in range(days - 1, -1, -1):
         day = today - timedelta(days=i)
         labels.append(day.strftime('%d.%m'))
-        data.append(snap_dict.get(day.isoformat(), 0))
+        val = snap_dict.get(day.isoformat(), 0)
+        if val > 0:
+            last_known = val
+        # Forward-fill: Lücken nach dem ersten bekannten Wert mit letztem Wert füllen
+        data.append(val if val > 0 else (last_known if last_known > 0 else 0))
 
     # Wachstums-Statistiken berechnen
     non_zero = [v for v in data if v > 0]
