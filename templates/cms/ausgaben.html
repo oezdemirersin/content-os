@@ -538,7 +538,7 @@
     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:300px;overflow-y:auto">
       <template x-for="(kat, idx) in kategorien" :key="idx">
         <div style="display:flex;gap:8px;align-items:center">
-          <input type="text" :value="kat" @input="kategorien[idx]=$event.target.value"
+          <input type="text" x-model="kategorien[idx]"
                  class="input-field" style="flex:1;padding:7px 10px;font-size:12px">
           <button @click="kategorien.splice(idx,1)" class="icon-btn" style="color:var(--danger);flex-shrink:0">
             <i class="fa-solid fa-trash" style="font-size:10px"></i>
@@ -572,9 +572,9 @@ const _geplant    = {{ geplant_items    | tojson }};
 const _initBudget = {{ geplant_budget   | tojson }};
 const MONATE = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
-// Abos nur für den aktuellen Monat ins Chart
-const _aboChartData = Array(12).fill(0);
-_aboChartData[new Date().getMonth()] = Math.round(_aboMo * 100) / 100;
+// Abos für alle vergangenen Monate + aktuellen Monat
+const _curMonth = new Date().getMonth(); // 0 = Jan … 11 = Dez
+const _aboChartData = Array.from({length:12}, (_,i) => i <= _curMonth ? Math.round(_aboMo * 100) / 100 : 0);
 
 new Chart(document.getElementById('ausgabenChart'), {
   type: 'bar',
