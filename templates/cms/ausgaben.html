@@ -94,33 +94,43 @@
         <i class="fa-solid fa-plus"></i> Abo hinzufügen
       </button>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px" x-show="abos.length>0">
+    <div style="display:flex;flex-direction:column;gap:6px" x-show="abos.length>0">
       <template x-for="abo in abos" :key="abo.id">
-        <div class="card" style="padding:12px 14px;display:flex;gap:10px;align-items:center;border:1px solid var(--border)"
-             :style="!abo.aktiv?'opacity:.45':''">
-          <!-- Toggle -->
-          <label style="position:relative;display:inline-block;width:32px;height:18px;cursor:pointer;flex-shrink:0">
-            <input type="checkbox" :checked="abo.aktiv" @change="toggleAbo(abo)" style="opacity:0;width:0;height:0;position:absolute">
-            <span :style="abo.aktiv?'background:var(--accent)':'background:var(--surface2)'"
-                  style="position:absolute;inset:0;border-radius:20px;border:1px solid var(--border);transition:.2s;cursor:pointer">
-              <span :style="abo.aktiv?'left:15px':'left:2px'"
-                    style="position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;top:2px;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.3)"></span>
-            </span>
-          </label>
-          <!-- Info -->
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--border);transition:opacity .2s"
+             :style="!abo.aktiv?'opacity:.4':'background:var(--surface2)'">
+
+          <!-- Aktiv-Toggle -->
+          <div style="flex-shrink:0;position:relative;width:34px;height:18px;cursor:pointer" @click="toggleAbo(abo)">
+            <div :style="abo.aktiv?'background:var(--accent)':'background:var(--border)'"
+                 style="position:absolute;inset:0;border-radius:20px;transition:.2s"></div>
+            <div :style="abo.aktiv?'left:18px':'left:2px'"
+                 style="position:absolute;width:14px;height:14px;top:2px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>
+          </div>
+
+          <!-- Name + Meta -->
           <div style="flex:1;min-width:0">
-            <div style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" x-text="abo.name"></div>
-            <div style="font-size:10px;color:var(--muted)" x-text="intervalLabel(abo.intervall)"></div>
+            <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" x-text="abo.name"></div>
+            <div style="display:flex;gap:8px;margin-top:2px;align-items:center;flex-wrap:wrap">
+              <span style="font-size:10px;color:var(--muted)" x-text="intervalLabel(abo.intervall)"></span>
+              <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--surface);color:var(--muted)" x-text="abo.kategorie"></span>
+              <span x-show="abo.finanzamt"  style="font-size:10px;color:#10b981;font-weight:700">✓ FA</span>
+              <span x-show="!abo.finanzamt" style="font-size:10px;color:#f59e0b;font-weight:700">⊘</span>
+              <span x-show="!abo.aktiv" style="font-size:10px;color:var(--muted)">Pausiert</span>
+            </div>
           </div>
+
           <!-- Betrag -->
-          <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:13px;font-weight:800;color:#a855f7" x-text="abo.betrag.toLocaleString('de-DE',{minimumFractionDigits:2})+' €'"></div>
-            <div x-show="abo.intervall!=='monatlich'" style="font-size:9px;color:var(--muted)" x-text="'≈ '+abo.monatlich.toLocaleString('de-DE',{minimumFractionDigits:2})+' €/Mo'"></div>
+          <div style="text-align:right;flex-shrink:0;min-width:80px">
+            <div style="font-size:14px;font-weight:800;color:#a855f7"
+                 x-text="abo.betrag.toLocaleString('de-DE',{minimumFractionDigits:2})+' €'"></div>
+            <div x-show="abo.intervall!=='monatlich'" style="font-size:10px;color:var(--muted)"
+                 x-text="'≈ '+abo.monatlich.toLocaleString('de-DE',{minimumFractionDigits:2})+' €/Mo'"></div>
           </div>
+
           <!-- Actions -->
-          <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">
-            <button @click="openEditAbo(abo)" class="icon-btn" style="width:22px;height:22px"><i class="fa-solid fa-pen" style="font-size:9px"></i></button>
-            <button @click="deleteAbo(abo)" class="icon-btn" style="width:22px;height:22px;color:var(--danger)"><i class="fa-solid fa-trash" style="font-size:9px"></i></button>
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button @click="openEditAbo(abo)" class="icon-btn"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
+            <button @click="deleteAbo(abo)"   class="icon-btn" style="color:var(--danger)"><i class="fa-solid fa-trash" style="font-size:10px"></i></button>
           </div>
         </div>
       </template>
@@ -538,15 +548,15 @@
     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-height:300px;overflow-y:auto">
       <template x-for="(kat, idx) in kategorien" :key="idx">
         <div style="display:flex;gap:8px;align-items:center">
-          <input type="text" x-model="kategorien[idx]"
-                 class="input-field" style="flex:1;padding:7px 10px;font-size:12px">
+          <input type="text" x-model="kat.v"
+                 class="input-field" style="flex:1;padding:7px 10px;font-size:12px" placeholder="Kategoriename">
           <button @click="kategorien.splice(idx,1)" class="icon-btn" style="color:var(--danger);flex-shrink:0">
             <i class="fa-solid fa-trash" style="font-size:10px"></i>
           </button>
         </div>
       </template>
     </div>
-    <button @click="kategorien.push('')" class="btn btn-ghost" style="width:100%;margin-bottom:12px;font-size:12px">
+    <button @click="kategorien.push({v:''})" class="btn btn-ghost" style="width:100%;margin-bottom:12px;font-size:12px">
       <i class="fa-solid fa-plus"></i> Kategorie hinzufügen
     </button>
     <div style="display:flex;gap:10px;justify-content:flex-end">
@@ -623,12 +633,12 @@ function ausgabenApp() {
       this.ausgaben   = _ausgaben;
       this.abos       = _abos;
       this.geplant    = _geplant;
-      this.kategorien = [..._kategorien];
+      this.kategorien = _kategorien.map(k => ({v: k}));
       this.budget     = _initBudget;
       this.budgetInput = _initBudget > 0 ? _initBudget : '';
-      fillKatSelect('eAKategorie',   this.kategorien);
-      fillKatSelect('eAboKategorie', this.kategorien);
-      fillKatSelect('eGKategorie',   this.kategorien);
+      fillKatSelect('eAKategorie',   _kategorien);
+      fillKatSelect('eAboKategorie', _kategorien);
+      fillKatSelect('eGKategorie',   _kategorien);
     },
 
     saveAboToggle() {
@@ -670,7 +680,7 @@ function ausgabenApp() {
       document.getElementById('eGUrl').value       = '';
       document.getElementById('eGBetrag').value    = '';
       document.getElementById('eGPrio').value      = 'mittel';
-      document.getElementById('eGKategorie').value = this.kategorien[0] || '';
+      document.getElementById('eGKategorie').value = this.kategorien[0]?.v || '';
       document.getElementById('eGNotizen').value   = '';
       document.getElementById('geplantModalTitle').textContent = 'GEPLANTE AUSGABE';
       document.getElementById('geplantModal').style.display = 'flex';
@@ -715,7 +725,7 @@ function ausgabenApp() {
       document.getElementById('eATitel').value      = '';
       document.getElementById('eABetrag').value     = '';
       document.getElementById('eADatum').value      = new Date().toISOString().split('T')[0];
-      document.getElementById('eAKategorie').value  = this.kategorien[0] || '';
+      document.getElementById('eAKategorie').value  = this.kategorien[0]?.v || '';
       document.getElementById('eAFinanzamt').value  = '1';
       document.getElementById('eANotizen').value    = '';
       document.getElementById('eABelegUrl').value   = '';
@@ -754,7 +764,7 @@ function ausgabenApp() {
       document.getElementById('eAboName').value           = '';
       document.getElementById('eAboBetrag').value         = '';
       document.getElementById('eAboIntervallModal').value = 'monatlich';
-      document.getElementById('eAboKategorie').value      = this.kategorien[0] || '';
+      document.getElementById('eAboKategorie').value      = this.kategorien[0]?.v || '';
       document.getElementById('eAboFinanzamt').value      = '1';
       document.getElementById('eAboStart').value          = '';
       document.getElementById('eAboNotizen').value        = '';
@@ -788,7 +798,7 @@ function ausgabenApp() {
     },
 
     async saveKategorien() {
-      const kat = this.kategorien.filter(k=>k.trim());
+      const kat = this.kategorien.map(k => k.v.trim()).filter(Boolean);
       const r = await fetch('/api/ausgaben/kategorien', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({kategorien: kat})
