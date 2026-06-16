@@ -188,6 +188,16 @@
       background:var(--danger); border-radius:50%; border:1.5px solid var(--surface);
     }
 
+    /* ── Filter-Chips (globale Klasse für Tab-Filter) ── */
+    .fchip {
+      padding:5px 14px; border-radius:20px; font-size:12px; font-weight:600;
+      cursor:pointer; border:none; outline:none; appearance:none;
+      background:var(--surface2); color:var(--muted);
+      transition:background .15s, color .15s;
+    }
+    .fchip:hover { background:var(--surface); color:var(--text); }
+    .fchip.active { background:var(--accent); color:#fff; }
+
     /* ── Flash ── */
     .flash-bar { padding:0 32px 0; }
     .flash-msg {

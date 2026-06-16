@@ -19,10 +19,7 @@
   <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
     <template x-for="tab in tabs" :key="tab.key">
       <button @click="activeTab = tab.key"
-              :style="activeTab === tab.key
-                ? 'background:var(--accent2);color:#fff'
-                : 'background:var(--surface2);color:var(--muted)'"
-              style="border:none;cursor:pointer;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;transition:all .15s"
+              class="fchip" :class="activeTab === tab.key ? 'active' : ''"
               x-text="tab.label + (counts[tab.key] > 0 ? ' (' + counts[tab.key] + ')' : '')"></button>
     </template>
   </div>

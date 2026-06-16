@@ -48,8 +48,7 @@
   <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
     <template x-for="f in filter_tabs" :key="f.key">
       <button @click="activeFilter = f.key"
-              :style="activeFilter === f.key ? 'background:var(--accent2);color:#fff' : 'background:var(--surface2);color:var(--muted)'"
-              style="border:none;cursor:pointer;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;transition:all .15s"
+              class="fchip" :class="activeFilter === f.key ? 'active' : ''"
               x-text="f.label + (filterCount(f.key) > 0 ? ' (' + filterCount(f.key) + ')' : '')"></button>
     </template>
   </div>
