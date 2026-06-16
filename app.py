@@ -11079,6 +11079,7 @@ def geplant_budget_save():
     try:
         val = float(d.get('budget', 0))
         set_setting('geplant_budget', str(val))
+        db.session.commit()
         return jsonify({'ok': True, 'budget': val})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
