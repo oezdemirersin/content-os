@@ -149,10 +149,19 @@
         Setze feste Termine für bestimmte Posts — der Rest wird automatisch nach der Posting-Frequenz verteilt.
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <label class="form-label" style="margin:0;white-space:nowrap">Uhrzeit</label>
       <input type="time" id="postTime" value="18:00"
              class="input-field" style="width:110px;font-size:13px;padding:6px 10px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">
+        <input type="checkbox" id="randomTimeToggle" onchange="toggleRandomTime()" style="accent-color:var(--accent)">
+        Random-Zeit
+      </label>
+      <div id="randomTimeRange" style="display:none;align-items:center;gap:6px">
+        <input type="time" id="randomTimeFrom" value="10:00" class="input-field" style="width:100px;font-size:12px;padding:5px 8px">
+        <span style="font-size:12px;color:var(--muted)">–</span>
+        <input type="time" id="randomTimeTo" value="20:00" class="input-field" style="width:100px;font-size:12px;padding:5px 8px">
+      </div>
     </div>
   </div>
 
@@ -396,17 +405,25 @@ function buildScheduleGrid(accountId) {
   grid.innerHTML = uploadedItems.map((item, i) => `
     <div class="schedule-row" id="srow-${i}" data-ci="${item.id}">
       <!-- Thumbnail -->
-      <div style="width:56px;height:56px;border-radius:8px;overflow:hidden;
+      <div style="width:56px;height:56px;border-radius:8px;overflow:hidden;position:relative;
                   background:var(--surface2);flex-shrink:0">
         ${item.thumb
           ? `<img src="${item.thumb}" style="width:100%;height:100%;object-fit:cover">`
           : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-image" style="color:var(--muted)"></i></div>'}
+        <button onclick="deleteScheduleItem(${i})"
+                style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);border:none;
+                       color:white;border-radius:50%;width:18px;height:18px;cursor:pointer;
+                       font-size:9px;display:flex;align-items:center;justify-content:center;
+                       padding:0;line-height:1" title="Beitrag entfernen">
+          <i class="fa-solid fa-trash"></i>
+        </button>
       </div>
 
       <!-- Caption -->
       <div style="flex:1">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <div style="font-size:12px;color:var(--muted)">${item.title}</div>
+          <input type="text" id="name-${i}" value="${item.title || ''}" placeholder="Beitragsname…"
+                 class="input-field" style="font-size:11px;padding:4px 8px;margin-bottom:4px;width:100%">
           ${item.thumb ? `<button onclick="generateCaptions(${i}, ${item.id})"
             id="capBtn-${i}"
             style="border:none;background:rgba(99,102,241,.15);color:#818cf8;border-radius:6px;
@@ -444,6 +461,31 @@ function buildScheduleGrid(accountId) {
   `).join('');
 
   updateCounters();
+}
+
+function toggleRandomTime() {
+  const checked = document.getElementById('randomTimeToggle').checked;
+  document.getElementById('postTime').style.display        = checked ? 'none' : '';
+  document.getElementById('randomTimeRange').style.display = checked ? 'flex' : 'none';
+}
+
+function getScheduleTime() {
+  if (document.getElementById('randomTimeToggle')?.checked) {
+    const from = document.getElementById('randomTimeFrom').value || '10:00';
+    const to   = document.getElementById('randomTimeTo').value   || '20:00';
+    const [fh, fm] = from.split(':').map(Number);
+    const [th, tm] = to.split(':').map(Number);
+    const totalFrom = fh * 60 + fm;
+    const totalTo   = th * 60 + tm;
+    const rand = Math.floor(Math.random() * (totalTo - totalFrom + 1)) + totalFrom;
+    return `${String(Math.floor(rand / 60)).padStart(2, '0')}:${String(rand % 60).padStart(2, '0')}`;
+  }
+  return document.getElementById('postTime').value || '18:00';
+}
+
+function deleteScheduleItem(idx) {
+  uploadedItems.splice(idx, 1);
+  buildScheduleGrid(document.getElementById('accountSelect').value);
 }
 
 function toggleFixed(i, isFixed) {
@@ -515,9 +557,9 @@ function previewAutoDistribution() {
   });
 
   // Simuliere ab heute
-  const postTime = document.getElementById('postTime').value || '18:00';
+  const previewTime = getScheduleTime();
   let candidate = new Date();
-  candidate.setHours(...postTime.split(':').map(Number), 0, 0);
+  candidate.setHours(...previewTime.split(':').map(Number), 0, 0);
   if (candidate <= new Date()) candidate.setDate(candidate.getDate() + 1);
 
   const slots = [];
@@ -532,7 +574,7 @@ function previewAutoDistribution() {
   const days = ['So','Mo','Di','Mi','Do','Fr','Sa'];
   const listEl = document.getElementById('autoPreviewList');
   listEl.innerHTML = slots.map(d =>
-    `<div>📅 ${days[d.getDay()]} ${d.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric'})} · ${postTime} Uhr</div>`
+    `<div>📅 ${days[d.getDay()]} ${d.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric'})} · ${getScheduleTime()} Uhr</div>`
   ).join('');
 
   document.getElementById('autoPreview').style.display = 'block';
@@ -543,16 +585,16 @@ async function submitSchedule() {
   const accountId = document.getElementById('accountSelect').value;
   if (!accountId) { showToast('Kein Account ausgewählt.', 'warning'); return; }
 
-  const postTime = document.getElementById('postTime').value || '18:00';
-
   const items = uploadedItems.map((item, i) => {
     const dateIn  = document.getElementById(`date-${i}`);
     const capIn   = document.getElementById(`cap-${i}`);
+    const nameIn  = document.getElementById(`name-${i}`);
     const hasDate = dateIn && dateIn.style.display !== 'none' && dateIn.value;
     return {
       content_item_id: item.id,
       scheduled_at:    hasDate ? dateIn.value : null,
       caption:         capIn ? capIn.value.trim() : '',
+      name:            nameIn ? nameIn.value.trim() : '',
     };
   });
 
@@ -563,7 +605,7 @@ async function submitSchedule() {
   const res = await fetch(`/api/accounts/${accountId}/batch-schedule`, {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({items, post_time: postTime})
+    body: JSON.stringify({items, post_time: getScheduleTime()})
   }).then(r => r.json());
 
   btn.disabled = false;

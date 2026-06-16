@@ -10,9 +10,14 @@
     <div style="font-size:13px;color:var(--muted)">
       Ideen, Features, Bugs und Notizen — alles an einem Ort
     </div>
-    <button @click="openAdd()" class="btn btn-primary">
-      <i class="fa-solid fa-plus"></i> Neue Notiz
-    </button>
+    <div style="display:flex;gap:8px">
+      <button onclick="openCatManager()" class="btn btn-ghost" style="font-size:12px">
+        <i class="fa-solid fa-tags"></i> Kategorien
+      </button>
+      <button @click="openAdd()" class="btn btn-primary">
+        <i class="fa-solid fa-plus"></i> Neue Notiz
+      </button>
+    </div>
   </div>
 
   <!-- Filter-Tabs -->
@@ -122,6 +127,28 @@
   </div>
 </div>
 
+<!-- Kategorie-Manager Modal -->
+<div id="catManagerModal" style="display:none;position:fixed;inset:0;z-index:600;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeCatManager()">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(420px,95vw)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div style="font-family:var(--font-display);font-size:15px">KATEGORIEN VERWALTEN</div>
+      <button onclick="closeCatManager()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">
+      Eigene Kategorien ergänzen die eingebauten (Ideen, Features, Bugs, Notizen).
+    </div>
+    <div id="catManagerList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px"></div>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="catManagerNew" class="input-field" placeholder="Neue Kategorie…" style="flex:1"
+             onkeydown="if(event.key==='Enter')addCustomCat()">
+      <button onclick="addCustomCat()" class="btn btn-primary" style="font-size:12px">
+        <i class="fa-solid fa-plus"></i> Hinzufügen
+      </button>
+    </div>
+  </div>
+</div>
+
 <style>
 .badge-cat-idee    { background:rgba(99,102,241,.15); color:#818cf8; }
 .badge-cat-feature { background:rgba(16,185,129,.15); color:#34d399; }
@@ -138,29 +165,50 @@ function todoApp() {
   return {
     items: [],
     activeTab: 'all',
-    tabs: [
-      { key: 'all',     label: 'Alle' },
-      { key: 'idee',    label: 'Ideen' },
-      { key: 'feature', label: 'Features' },
-      { key: 'bug',     label: 'Bugs' },
-      { key: 'notiz',   label: 'Notizen' },
-      { key: 'done',    label: 'Erledigt' },
-    ],
+    customCats: [],
+    get allTabs() {
+      const builtin = [
+        { key: 'all',     label: 'Alle' },
+        { key: 'idee',    label: '💡 Ideen' },
+        { key: 'feature', label: '⚙️ Features' },
+        { key: 'bug',     label: '🐛 Bugs' },
+        { key: 'notiz',   label: '📝 Notizen' },
+        ...this.customCats.map(c => ({ key: 'custom_' + c, label: c })),
+        { key: 'done',    label: '✓ Erledigt' },
+      ];
+      return builtin;
+    },
+    // keep tabs as alias so the template x-for="tab in tabs" still works
+    get tabs() { return this.allTabs; },
     get counts() {
       const c = { all: 0, idee: 0, feature: 0, bug: 0, notiz: 0, done: 0 };
+      for (const cat of this.customCats) c['custom_' + cat] = 0;
       for (const i of this.items) {
         if (i.done) { c.done++; continue; }
         c.all++;
-        if (c[i.category] !== undefined) c[i.category]++;
+        const key = this.customCats.includes(i.category) ? 'custom_' + i.category : i.category;
+        if (c[key] !== undefined) c[key]++;
+        else if (c[i.category] !== undefined) c[i.category]++;
       }
       return c;
     },
     get filtered() {
       if (this.activeTab === 'done') return this.items.filter(i => i.done);
       if (this.activeTab === 'all')  return this.items.filter(i => !i.done);
+      if (this.activeTab.startsWith('custom_')) {
+        const cat = this.activeTab.slice(7);
+        return this.items.filter(i => !i.done && i.category === cat);
+      }
       return this.items.filter(i => !i.done && i.category === this.activeTab);
     },
-    init() { this.items = _initialItems; },
+    async init() {
+      this.items = _initialItems;
+      try {
+        const r = await fetch('/api/todo-categories');
+        this.customCats = await r.json();
+        refreshCategorySelect(this.customCats);
+      } catch(e) { console.warn('custom cats:', e); }
+    },
     catLabel(c) {
       return { idee:'💡 Idee', feature:'⚙️ Feature', bug:'🐛 Bug', notiz:'📝 Notiz' }[c] || c;
     },
@@ -204,6 +252,82 @@ function todoApp() {
 
 function closeTodoModal() {
   document.getElementById('todoModal').style.display = 'none';
+}
+
+// ── Custom Category Manager ─────────────────────────────────
+let _customCats = [];
+
+function refreshCategorySelect(cats) {
+  _customCats = cats || [];
+  const sel = document.getElementById('todoCategory');
+  if (!sel) return;
+  // Remove any previously added custom options
+  [...sel.options].filter(o => o.dataset.custom).forEach(o => o.remove());
+  for (const cat of _customCats) {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    opt.dataset.custom = '1';
+    sel.appendChild(opt);
+  }
+}
+
+function renderCatManagerList() {
+  const list = document.getElementById('catManagerList');
+  if (!list) return;
+  if (_customCats.length === 0) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--muted);opacity:.6;text-align:center;padding:8px 0">Noch keine eigenen Kategorien</div>';
+    return;
+  }
+  list.innerHTML = _customCats.map((cat, i) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:8px;background:var(--surface2)">
+      <span style="font-size:13px">${cat}</span>
+      <button onclick="removeCustomCat(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>`).join('');
+}
+
+async function saveCustomCats() {
+  await fetch('/api/todo-categories', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(_customCats)
+  });
+  refreshCategorySelect(_customCats);
+}
+
+async function openCatManager() {
+  try {
+    const r = await fetch('/api/todo-categories');
+    _customCats = await r.json();
+  } catch(e) { _customCats = []; }
+  renderCatManagerList();
+  refreshCategorySelect(_customCats);
+  document.getElementById('catManagerModal').style.display = 'flex';
+}
+
+function closeCatManager() {
+  document.getElementById('catManagerModal').style.display = 'none';
+}
+
+async function addCustomCat() {
+  const inp = document.getElementById('catManagerNew');
+  const val = (inp.value || '').trim();
+  if (!val) return;
+  if (_customCats.includes(val)) { showToast('Kategorie existiert bereits', 'error'); return; }
+  _customCats.push(val);
+  inp.value = '';
+  renderCatManagerList();
+  await saveCustomCats();
+  showToast('Kategorie gespeichert', 'success');
+}
+
+async function removeCustomCat(idx) {
+  _customCats.splice(idx, 1);
+  renderCatManagerList();
+  await saveCustomCats();
+  showToast('Kategorie entfernt', 'info');
 }
 
 async function saveTodo() {

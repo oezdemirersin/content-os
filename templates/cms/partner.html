@@ -39,6 +39,14 @@
     </div>
   </div>
 
+  <!-- Account-Filter -->
+  <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center">
+    <input type="text" id="partnerAccountFilter" class="input-field" style="width:200px;font-size:13px"
+           placeholder="Nach Seite filtern…" oninput="filterPartners()">
+    <button onclick="document.getElementById('partnerAccountFilter').value='';filterPartners()"
+            class="btn btn-ghost" style="font-size:12px">Alle</button>
+  </div>
+
   <!-- Partner-Tabelle -->
   <div class="card" style="overflow:hidden">
     {% if partners %}
@@ -57,7 +65,7 @@
       </thead>
       <tbody>
         {% for p in partners %}
-        <tr>
+        <tr data-accounts="{{ p.account_ids or '' }}">
           <td>
             <div style="font-size:13px;font-weight:600;color:var(--text)">{{ p.name }}</div>
             {% if p.company %}<div style="font-size:11px;color:var(--muted)">{{ p.company }}</div>{% endif %}
@@ -71,6 +79,9 @@
             {% if p.category %}
             <span class="badge" style="background:rgba(99,102,241,.15);color:#818cf8">{{ p.category }}</span>
             {% else %}<span style="color:var(--muted)">—</span>{% endif %}
+            {% if p.account_ids %}
+            <div style="font-size:11px;color:var(--muted);margin-top:3px">{{ p.account_ids }}</div>
+            {% endif %}
           </td>
           <td>
             {% if p.email %}
@@ -110,6 +121,9 @@
               <button onclick="editPartner({{ p.id }})" class="icon-btn" title="Bearbeiten">
                 <i class="fa-solid fa-pen"></i>
               </button>
+              <a href="/api/partner/{{ p.id }}/pdf" class="icon-btn" title="Als PDF" target="_blank">
+                <i class="fa-solid fa-file-pdf"></i>
+              </a>
               <a href="{{ url_for('kooperationen') }}?partner={{ p.name }}" class="icon-btn" title="Kooperationen anzeigen">
                 <i class="fa-solid fa-handshake"></i>
               </a>
@@ -172,6 +186,10 @@
         <label class="form-label">Kategorie</label>
         <input type="text" id="partnerCategory" class="input-field" placeholder="z.B. Gastronomie, Mode, Sport">
       </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Seiten (mit welchen Accounts wurde kooperiert?)</label>
+        <input type="text" id="partnerAccounts" class="input-field" placeholder="z.B. Darmstadtschau, Frankfurtschau">
+      </div>
       <div>
         <label class="form-label">Status</label>
         <select id="partnerStatus" class="select-field">
@@ -217,6 +235,7 @@ function openPartnerModal(data) {
   document.getElementById('partnerPhone').value   = data?.phone || '';
   document.getElementById('partnerWebsite').value = data?.website || '';
   document.getElementById('partnerCategory').value = data?.category || '';
+  document.getElementById('partnerAccounts').value = data?.account_ids || '';
   document.getElementById('partnerStatus').value  = data?.status || 'aktiv';
   document.getElementById('partnerRating').value  = data?.rating || '';
   document.getElementById('partnerNotes').value   = data?.notes || '';
@@ -249,8 +268,9 @@ async function savePartner() {
     email:    document.getElementById('partnerEmail').value.trim(),
     phone:    document.getElementById('partnerPhone').value.trim(),
     website:  document.getElementById('partnerWebsite').value.trim(),
-    category: document.getElementById('partnerCategory').value.trim(),
-    status:   document.getElementById('partnerStatus').value,
+    category:    document.getElementById('partnerCategory').value.trim(),
+    account_ids: document.getElementById('partnerAccounts').value.trim(),
+    status:      document.getElementById('partnerStatus').value,
     rating:   document.getElementById('partnerRating').value || null,
     notes:    document.getElementById('partnerNotes').value.trim(),
   };
@@ -267,6 +287,14 @@ async function savePartner() {
   } else {
     showToast(res.error || 'Fehler', 'error');
   }
+}
+
+function filterPartners() {
+  const filter = document.getElementById('partnerAccountFilter').value.toLowerCase().trim();
+  document.querySelectorAll('tbody tr[data-accounts]').forEach(row => {
+    const accounts = (row.getAttribute('data-accounts') || '').toLowerCase();
+    row.style.display = (!filter || accounts.includes(filter)) ? '' : 'none';
+  });
 }
 
 async function deletePartner(id, name) {

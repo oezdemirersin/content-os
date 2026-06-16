@@ -336,23 +336,6 @@ def seed_data():
                 created_by_id=owner.id
             ))
 
-    # Demo AutomationRules
-    db.session.flush()
-    all_accs = Account.query.all()
-    rules = [
-        AutomationRule(account_id=all_accs[0].id, name='Frankfurt RSS', rule_type='rss', active=True,
-                       source_config=json.dumps({'url': 'https://www.faz.net/rss/aktuell/', 'keywords': ['Frankfurt']}),
-                       run_interval_minutes=60),
-        AutomationRule(account_id=all_accs[6].id, name='BVL Lebensmittelwarnungen', rule_type='food_warning', active=True,
-                       source_config=json.dumps({'url': 'https://www.bvl.bund.de/rss', 'keywords': []}),
-                       run_interval_minutes=30),
-        AutomationRule(name='Deutschland News', rule_type='city_news', active=False,
-                       source_config=json.dumps({'sources': ['dpa', 'apa']}),
-                       run_interval_minutes=120),
-    ]
-    for r in rules:
-        db.session.add(r)
-
     # Sample content
     sample = [
         ('Milka Schokolade Rückruf — Warnung für ganz Deutschland', 'Lebensmittelwarnungen', 'ready'),
@@ -376,6 +359,15 @@ def seed_data():
 def init_db():
     with app.app_context():
         db.create_all()
+
+        # Veraltete Seed-AutomationRules löschen
+        try:
+            for bad_name in ['Frankfurt RSS', 'BVL Lebensmittelwarnungen', 'Deutschland News']:
+                AutomationRule.query.filter_by(name=bad_name).delete()
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
         from sqlalchemy import text, inspect
 
         is_postgres = 'postgresql' in str(db.engine.url)
@@ -943,6 +935,21 @@ def init_db():
                 content_idee TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
+            # Neue Felder: Partner, Kooperation (SQLite)
+            try:
+                p_cols   = [c['name'] for c in inspector.get_columns('partner')]
+                if 'account_ids' not in p_cols:
+                    safe_alter('ALTER TABLE partner ADD COLUMN account_ids TEXT')
+                k_cols   = [c['name'] for c in inspector.get_columns('kooperation')]
+                if 'contact_company' not in k_cols:
+                    safe_alter('ALTER TABLE kooperation ADD COLUMN contact_company VARCHAR(200)')
+                if 'contact_street' not in k_cols:
+                    safe_alter('ALTER TABLE kooperation ADD COLUMN contact_street VARCHAR(200)')
+                if 'contact_city' not in k_cols:
+                    safe_alter('ALTER TABLE kooperation ADD COLUMN contact_city VARCHAR(200)')
+            except Exception:
+                pass
+
             try:
                 ct_cols = [c['name'] for c in inspector.get_columns('content_template')]
                 for col, ddl in [
@@ -959,6 +966,12 @@ def init_db():
                         safe_alter(ddl)
             except Exception:
                 pass
+
+        # ── Neue Felder: Partner, Kooperation ──────────────────────
+        safe_alter('ALTER TABLE partner ADD COLUMN IF NOT EXISTS account_ids TEXT')
+        safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_company VARCHAR(200)')
+        safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_street VARCHAR(200)')
+        safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_city VARCHAR(200)')
 
         # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
         if is_postgres:
@@ -11196,6 +11209,9 @@ def koop_list():
             'currency': k.currency or 'EUR',
             'notes': k.notes or '',
             'contact_name': k.contact_name or '',
+            'contact_company': k.contact_company or '',
+            'contact_street': k.contact_street or '',
+            'contact_city': k.contact_city or '',
             'payment_status': k.payment_status or 'offen',
             'deliverables': delivs,
             'partner_rating': k.partner_rating,
@@ -11226,6 +11242,9 @@ def koop_create():
         currency=d.get('currency', 'EUR'),
         notes=d.get('notes', '').strip(),
         contact_name=d.get('contact_name', '').strip() or None,
+        contact_company=d.get('contact_company', '').strip() or None,
+        contact_street=d.get('contact_street', '').strip() or None,
+        contact_city=d.get('contact_city', '').strip() or None,
         payment_status=d.get('payment_status', 'offen'),
         deliverables=json.dumps(d.get('deliverables', []), ensure_ascii=False) if d.get('deliverables') else None,
         partner_rating=int(d['partner_rating']) if d.get('partner_rating') else None,
@@ -11259,6 +11278,12 @@ def koop_update(kid):
     k.notes           = d.get('notes', k.notes or '').strip()
     k.account_id      = d.get('account_id') or k.account_id
     k.contact_name    = d.get('contact_name', k.contact_name or '').strip() or None
+    contact_company = d.get('contact_company')
+    if contact_company is not None: k.contact_company = contact_company.strip() or None
+    contact_street  = d.get('contact_street')
+    if contact_street  is not None: k.contact_street  = contact_street.strip() or None
+    contact_city    = d.get('contact_city')
+    if contact_city    is not None: k.contact_city    = contact_city.strip() or None
     k.payment_status  = d.get('payment_status', k.payment_status or 'offen')
     if 'campaign_name' in d:
         k.campaign_name = d['campaign_name'].strip() or None
@@ -11534,7 +11559,8 @@ def api_partner_list():
         'email': p.email or '', 'phone': p.phone or '',
         'website': p.website or '', 'category': p.category or '',
         'status': p.status, 'rating': p.rating,
-        'notes': p.notes or ''
+        'notes': p.notes or '',
+        'account_ids': p.account_ids or '',
     } for p in partners])
 
 
@@ -11549,7 +11575,8 @@ def api_partner_create():
         email=d.get('email', ''), phone=d.get('phone', ''),
         website=d.get('website', ''), category=d.get('category', ''),
         status=d.get('status', 'aktiv'), rating=d.get('rating'),
-        notes=d.get('notes', '')
+        notes=d.get('notes', ''),
+        account_ids=d.get('account_ids', '') or None,
     )
     db.session.add(p)
     db.session.commit()
@@ -11561,7 +11588,7 @@ def api_partner_create():
 def api_partner_update(pid):
     p = Partner.query.get_or_404(pid)
     d = request.get_json() or {}
-    for field in ['name', 'company', 'email', 'phone', 'website', 'category', 'status', 'notes']:
+    for field in ['name', 'company', 'email', 'phone', 'website', 'category', 'status', 'notes', 'account_ids']:
         if field in d:
             setattr(p, field, d[field])
     if 'rating' in d:
@@ -12007,6 +12034,7 @@ INVOICE_SETTINGS_KEYS = [
     'invoice_sender_tax_number', 'invoice_sender_vat_number',
     'invoice_sender_is_kleinunternehmer',
     'invoice_prefix', 'invoice_payment_days',
+    'invoice_logo_b64',
 ]
 
 
@@ -12027,6 +12055,20 @@ def invoice_settings_save():
     for k in INVOICE_SETTINGS_KEYS:
         if k in d:
             set_setting(k, str(d[k]))
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/invoice/logo', methods=['POST'])
+@login_required
+def invoice_logo_upload():
+    import base64
+    f = request.files.get('logo')
+    if not f:
+        return jsonify({'ok': False, 'error': 'No file'})
+    data = base64.b64encode(f.read()).decode()
+    mime = f.mimetype or 'image/png'
+    set_setting('invoice_logo_b64', f'data:{mime};base64,{data}')
     db.session.commit()
     return jsonify({'ok': True})
 
@@ -12484,6 +12526,26 @@ def api_todo_update(tid):
 def api_todo_delete(tid):
     t = AppTodo.query.get_or_404(tid)
     db.session.delete(t)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/todo-categories', methods=['GET'])
+@login_required
+def todo_categories_get():
+    raw = get_setting('todo_categories', '[]')
+    try:
+        cats = json.loads(raw)
+    except Exception:
+        cats = []
+    return jsonify(cats)
+
+
+@app.route('/api/todo-categories', methods=['POST'])
+@login_required
+def todo_categories_save():
+    cats = request.get_json() or []
+    set_setting('todo_categories', json.dumps(cats))
     db.session.commit()
     return jsonify({'ok': True})
 

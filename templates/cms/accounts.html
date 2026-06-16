@@ -9,6 +9,9 @@
     <div style="font-size:13px;color:var(--muted)">{{ pagination.total }} Accounts gefunden</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button onclick="toggleSelectionMode()" id="selectionModeBtn" class="btn btn-ghost">
+      <i class="fa-solid fa-check-square"></i> <span id="selectionModeBtnLabel">Auswählen</span>
+    </button>
     <a href="{{ url_for('accounts_export_csv') }}" class="btn btn-ghost" title="Accounts exportieren">
       <i class="fa-solid fa-download"></i> Export
     </a>
@@ -182,7 +185,7 @@
 </div>
 
 <!-- Bulk bar -->
-<div id="accBulkBar" style="display:none;align-items:center;gap:12px;padding:12px 20px;
+<div id="accBulkBar" class="acc-col-check" style="align-items:center;gap:12px;padding:12px 20px;
      background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);
      border-radius:10px;margin-bottom:16px">
   <span id="accBulkCount" style="font-size:13px;font-weight:600;color:var(--accent2)"></span>
@@ -258,7 +261,7 @@
   <table class="table">
     <thead>
       <tr>
-        <th style="width:40px">
+        <th style="width:40px" class="acc-col-check">
           <input type="checkbox" id="selectAllAccs" onchange="toggleAllAccs(this)"
                  style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer">
         </th>
@@ -268,14 +271,13 @@
         <th class="sortable" data-col="3" onclick="sortTable(3)" style="text-align:center;cursor:pointer;user-select:none">Vorrat <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th style="text-align:center">Status</th>
         <th style="text-align:center">Priorität</th>
-        <th style="text-align:center">Ziel/Wo</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for acc in accounts %}
       <tr>
-        <td>
+        <td class="acc-col-check">
           <input type="checkbox" class="acc-checkbox" data-id="{{ acc.id }}" onchange="updateAccBulk()"
                  style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer">
         </td>
@@ -365,14 +367,6 @@
           <span style="font-size:11px;font-weight:700;color:var(--muted)">● Niedrig</span>
           {% endif %}
         </td>
-        <td style="text-align:center">
-          {% set ppw = acc.posts_per_week or 0 %}
-          <button onclick="editWeeklyGoal({{ acc.id }}, {{ ppw }})"
-                  title="Posting-Ziel pro Woche setzen"
-                  style="background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:6px;font-size:12px;font-weight:700;color:{% if ppw > 0 %}var(--accent2){% else %}var(--muted){% endif %}">
-            {% if ppw > 0 %}{{ ppw }}x{% else %}—{% endif %}
-          </button>
-        </td>
         <td>
           <div style="display:flex;gap:2px" class="row-actions">
             <a href="{{ url_for('account_detail', account_id=acc.id) }}" class="icon-btn" style="font-size:13px;padding:6px" title="Details">
@@ -443,6 +437,10 @@
 <style>
 /* row-actions immer sichtbar */
 .sortable:hover { color:var(--text) !important; }
+/* Checkbox-Spalte: nur in Auswahl-Modus sichtbar */
+.acc-col-check { display:none !important }
+body.selection-mode .acc-col-check { display:table-cell !important }
+body.selection-mode #accBulkBar { display:flex !important }
 </style>
 <script>
 // ── Posting-Ziel (posts_per_week) ──
@@ -495,14 +493,21 @@ function sortTable(colIndex) {
   rows.forEach(r => tbody.appendChild(r));
 }
 
+function toggleSelectionMode() {
+  const active = document.body.classList.toggle('selection-mode');
+  document.getElementById('selectionModeBtnLabel').textContent = active ? 'Auswahl aufheben' : 'Auswählen';
+  if (!active) {
+    // Deselect all when leaving selection mode
+    document.querySelectorAll('.acc-checkbox').forEach(c => c.checked = false);
+    document.getElementById('selectAllAccs').checked = false;
+  }
+}
 function getAccIds() {
   return Array.from(document.querySelectorAll('.acc-checkbox:checked')).map(c=>parseInt(c.dataset.id));
 }
 function updateAccBulk() {
   const ids = getAccIds();
-  const bar = document.getElementById('accBulkBar');
   document.getElementById('accBulkCount').textContent = ids.length + ' ausgewählt';
-  bar.style.display = ids.length ? 'flex' : 'none';
 }
 function accDeselect() {
   document.querySelectorAll('.acc-checkbox').forEach(c=>c.checked=false);

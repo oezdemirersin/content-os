@@ -735,6 +735,9 @@ class Kooperation(db.Model):
     payment_reminder_sent   = db.Column(db.Boolean, default=False)
     posting_reminder_sent   = db.Column(db.Boolean, default=False)  # 3 Tage vor Posting
     campaign_name           = db.Column(db.String(200))
+    contact_company         = db.Column(db.String(200))
+    contact_street          = db.Column(db.String(200))
+    contact_city            = db.Column(db.String(200))
     partner_id              = db.Column(db.Integer, db.ForeignKey('partner.id'), nullable=True)
     account         = db.relationship('Account', backref='kooperationen')
     content_item    = db.relationship('ContentItem', backref=db.backref('kooperation', uselist=False))
@@ -751,6 +754,7 @@ class Partner(db.Model):
     phone        = db.Column(db.String(100))
     website      = db.Column(db.String(500))
     category     = db.Column(db.String(100))   # z.B. Gastronomie, Mode, Sport
+    account_ids  = db.Column(db.Text)
     status       = db.Column(db.String(20), default='aktiv')  # aktiv / inaktiv / blacklist
     rating       = db.Column(db.Integer)        # 1–5 Sterne
     notes        = db.Column(db.Text)

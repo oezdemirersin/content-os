@@ -166,6 +166,16 @@
           <input id="koopContact" type="text" placeholder="Name, E-Mail" class="finput"></div>
       </div>
 
+      <!-- Kundendaten für Rechnung -->
+      <div><label class="flabel">UNTERNEHMEN DES KUNDEN</label>
+        <input type="text" id="koopContactCompany" class="finput" placeholder="Musterfirma GmbH"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><label class="flabel">STRASSE &amp; HAUSNUMMER</label>
+          <input type="text" id="koopContactStreet" class="finput" placeholder="Musterstraße 1"></div>
+        <div><label class="flabel">PLZ &amp; STADT</label>
+          <input type="text" id="koopContactCity" class="finput" placeholder="60311 Frankfurt"></div>
+      </div>
+
       <!-- Kampagnenname -->
       <div><label class="flabel">KAMPAGNENNAME</label>
         <input id="koopCampaign" type="text" placeholder="z.B. Sommer-Kollektion 2025, Black Friday, …" class="finput"></div>
@@ -992,7 +1002,10 @@ function openKoopModal(koop=null) {
   document.getElementById('koopId').value        = koop?.id || '';
   document.getElementById('koopModalTitle').textContent = koop ? 'KOOP BEARBEITEN' : 'NEUE KOOP';
   document.getElementById('koopPartner').value   = koop?.partner_name || '';
-  document.getElementById('koopContact').value   = koop?.contact_name || '';
+  document.getElementById('koopContact').value        = koop?.contact_name    || '';
+  document.getElementById('koopContactCompany').value = koop?.contact_company || '';
+  document.getElementById('koopContactStreet').value  = koop?.contact_street  || '';
+  document.getElementById('koopContactCity').value    = koop?.contact_city    || '';
   document.getElementById('koopType').value      = koop?.koop_type || 'paid_post';
   document.getElementById('koopStatus').value    = koop?.status || 'anfrage';
   document.getElementById('koopAmount').value    = koop?.amount || '';
@@ -1036,6 +1049,9 @@ async function saveKoop() {
     amount:              document.getElementById('koopAmount').value || null,
     notes:               document.getElementById('koopNotes').value,
     contact_name:        document.getElementById('koopContact').value,
+    contact_company:     document.getElementById('koopContactCompany')?.value || '',
+    contact_street:      document.getElementById('koopContactStreet')?.value  || '',
+    contact_city:        document.getElementById('koopContactCity')?.value    || '',
     campaign_name:       document.getElementById('koopCampaign').value,
     deliverables:        getDeliverables(),
     posting_dates:       getPostingDates(),
