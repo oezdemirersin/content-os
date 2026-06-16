@@ -839,6 +839,20 @@ class AboKosten(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class GeplantAusgabe(db.Model):
+    """Geplante Ausgaben / Wunschliste — Warenkorb für zukünftige Käufe."""
+    __tablename__ = 'geplant_ausgabe'
+    id          = db.Column(db.Integer, primary_key=True)
+    name        = db.Column(db.String(200), nullable=False)
+    url         = db.Column(db.String(500))
+    betrag      = db.Column(db.Float)
+    kategorie   = db.Column(db.String(100), default='Sonstiges')
+    prioritaet  = db.Column(db.String(20),  default='mittel')  # hoch | mittel | niedrig
+    notizen     = db.Column(db.Text)
+    gekauft     = db.Column(db.Boolean, default=False)
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class Ausgabe(db.Model):
     """Betriebsausgaben — mit Finanzamt-Kennzeichnung."""
     __tablename__ = 'ausgabe'

@@ -22,7 +22,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     InspirationSource, InspirationPost,
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
-                    Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten)
+                    Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -668,6 +668,16 @@ def init_db():
                 notizen TEXT,
                 start_datum DATE,
                 created_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS geplant_ausgabe (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(200) NOT NULL,
+                url VARCHAR(500),
+                betrag FLOAT,
+                kategorie VARCHAR(100) DEFAULT \'Sonstiges\',
+                prioritaet VARCHAR(20) DEFAULT \'mittel\',
+                notizen TEXT,
+                gekauft BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW())''')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -901,6 +911,16 @@ def init_db():
                 finanzamt BOOLEAN DEFAULT 1,
                 notizen TEXT,
                 start_datum DATE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS geplant_ausgabe (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(200) NOT NULL,
+                url VARCHAR(500),
+                betrag FLOAT,
+                kategorie VARCHAR(100) DEFAULT 'Sonstiges',
+                prioritaet VARCHAR(20) DEFAULT 'mittel',
+                notizen TEXT,
+                gekauft BOOLEAN DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
             try:
@@ -10830,6 +10850,16 @@ def ausgaben():
         monate_fa=monate_fa, monate_prv=monate_prv,
         kategorien=get_ausgabe_kategorien(),
         abo_items=abo_items, abo_monatlich=abo_monatlich, abo_jaehrlich=abo_jaehrlich,
+        geplant_items=[{
+            'id': g.id, 'name': g.name, 'url': g.url or '',
+            'betrag': g.betrag, 'kategorie': g.kategorie,
+            'prioritaet': g.prioritaet, 'notizen': g.notizen or '',
+            'gekauft': g.gekauft,
+        } for g in GeplantAusgabe.query.order_by(
+            GeplantAusgabe.gekauft.asc(),
+            GeplantAusgabe.prioritaet.asc(),
+            GeplantAusgabe.created_at.desc()
+        ).all()],
     )
 
 
@@ -10960,6 +10990,76 @@ def ausgabe_update(aid):
 def ausgabe_delete(aid):
     a = Ausgabe.query.get_or_404(aid)
     db.session.delete(a)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ── Geplante Ausgaben ──────────────────────────────────────────
+@app.route('/api/geplant', methods=['POST'])
+@login_required
+def geplant_create():
+    d = request.json or {}
+    try:
+        g = GeplantAusgabe(
+            name       = d['name'].strip(),
+            url        = d.get('url', '').strip() or None,
+            betrag     = float(d['betrag']) if d.get('betrag') else None,
+            kategorie  = d.get('kategorie', 'Sonstiges'),
+            prioritaet = d.get('prioritaet', 'mittel'),
+            notizen    = d.get('notizen', '').strip() or None,
+        )
+        db.session.add(g)
+        db.session.commit()
+        return jsonify({'ok': True, 'id': g.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+
+@app.route('/api/geplant/<int:gid>', methods=['PUT'])
+@login_required
+def geplant_update(gid):
+    from datetime import date as _date
+    g = GeplantAusgabe.query.get_or_404(gid)
+    d = request.json or {}
+    if 'name'       in d: g.name       = d['name'].strip()
+    if 'url'        in d: g.url        = d['url'].strip() or None
+    if 'betrag'     in d: g.betrag     = float(d['betrag']) if d['betrag'] else None
+    if 'kategorie'  in d: g.kategorie  = d['kategorie']
+    if 'prioritaet' in d: g.prioritaet = d['prioritaet']
+    if 'notizen'    in d: g.notizen    = d['notizen'].strip() or None
+    if 'gekauft'    in d: g.gekauft    = bool(d['gekauft'])
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/geplant/<int:gid>', methods=['DELETE'])
+@login_required
+def geplant_delete(gid):
+    g = GeplantAusgabe.query.get_or_404(gid)
+    db.session.delete(g)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/geplant/<int:gid>/kaufen', methods=['POST'])
+@login_required
+def geplant_kaufen(gid):
+    """Markiert als gekauft und legt optional eine echte Ausgabe an."""
+    from datetime import date as _date
+    g = GeplantAusgabe.query.get_or_404(gid)
+    d = request.json or {}
+    g.gekauft = True
+    if g.betrag and d.get('als_ausgabe', True):
+        a = Ausgabe(
+            titel     = g.name,
+            betrag    = float(d.get('betrag', g.betrag)),
+            kategorie = g.kategorie,
+            datum     = _date.fromisoformat(d['datum']) if d.get('datum') else _date.today(),
+            finanzamt = bool(d.get('finanzamt', True)),
+            notizen   = g.notizen,
+        )
+        db.session.add(a)
     db.session.commit()
     return jsonify({'ok': True})
 

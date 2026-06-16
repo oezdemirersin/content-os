@@ -5,6 +5,25 @@
 {% block content %}
 <div x-data="ausgabenApp()" x-init="init()">
 
+  <!-- Haupt-Tabs -->
+  <div style="display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--border)">
+    <button @click="mainTab='ausgaben'" class="fchip" :class="mainTab==='ausgaben'?'active':''"
+            style="border-radius:8px 8px 0 0;padding:8px 20px">
+      <i class="fa-solid fa-receipt" style="margin-right:6px;font-size:11px"></i> Ausgaben
+    </button>
+    <button @click="mainTab='geplant'" class="fchip" :class="mainTab==='geplant'?'active':''"
+            style="border-radius:8px 8px 0 0;padding:8px 20px">
+      <i class="fa-solid fa-cart-shopping" style="margin-right:6px;font-size:11px"></i>
+      Geplant
+      <span x-show="geplant.filter(g=>!g.gekauft).length>0"
+            style="margin-left:5px;background:rgba(99,102,241,.3);color:#a5b4fc;border-radius:10px;padding:0 6px;font-size:10px"
+            x-text="geplant.filter(g=>!g.gekauft).length"></span>
+    </button>
+  </div>
+
+  <!-- ═══════════ TAB: AUSGABEN ════════════════════════════════ -->
+  <div x-show="mainTab==='ausgaben'">
+
   <!-- Header -->
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
     <div style="display:flex;align-items:center;gap:8px">
@@ -133,6 +152,99 @@
       Keine Ausgaben.
     </div>
   </div>
+
+  </div><!-- end Ausgaben-Tab -->
+
+  <!-- ═══════════ TAB: GEPLANT ═════════════════════════════════ -->
+  <div x-show="mainTab==='geplant'">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+      <div>
+        <div style="font-size:13px;color:var(--muted)">Wunschliste — Domains, Tools, Services die du kaufen möchtest</div>
+      </div>
+      <button @click="openAddGeplant()" class="btn btn-primary">
+        <i class="fa-solid fa-cart-plus"></i> Hinzufügen
+      </button>
+    </div>
+
+    <!-- Geplant Stats -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+      <div class="card" style="padding:16px">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">OFFEN</div>
+        <div style="font-size:22px;font-weight:800" x-text="geplant.filter(g=>!g.gekauft).length"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px"
+             x-text="geplantSumOffen > 0 ? '≈ '+geplantSumOffen.toLocaleString(\'de-DE\',{minimumFractionDigits:2})+\' €\' : \'Betrag unbekannt\' "></div>
+      </div>
+      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(239,68,68,.08),transparent)">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">HOHE PRIO</div>
+        <div style="font-size:22px;font-weight:800;color:#f87171" x-text="geplant.filter(g=>!g.gekauft&&g.prioritaet==='hoch').length"></div>
+      </div>
+      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(16,185,129,.08),transparent)">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">GEKAUFT</div>
+        <div style="font-size:22px;font-weight:800;color:#10b981" x-text="geplant.filter(g=>g.gekauft).length"></div>
+      </div>
+    </div>
+
+    <!-- Filter-Chips -->
+    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+      <button @click="geplantFilter='offen'"   class="fchip" :class="geplantFilter==='offen'?'active':''">Offen (<span x-text="geplant.filter(g=>!g.gekauft).length"></span>)</button>
+      <button @click="geplantFilter='hoch'"    class="fchip" :class="geplantFilter==='hoch'?'active':''">Hohe Prio</button>
+      <button @click="geplantFilter='gekauft'" class="fchip" :class="geplantFilter==='gekauft'?'active':''">Gekauft (<span x-text="geplant.filter(g=>g.gekauft).length"></span>)</button>
+      <button @click="geplantFilter='alle'"    class="fchip" :class="geplantFilter==='alle'?'active':''">Alle</button>
+    </div>
+
+    <!-- Geplant-Liste -->
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <template x-for="item in filteredGeplant" :key="item.id">
+        <div class="card" style="padding:14px 16px;display:flex;gap:12px;align-items:center"
+             :style="item.gekauft?'opacity:.5':''">
+          <!-- Prio-Dot -->
+          <div style="flex-shrink:0;width:10px;height:10px;border-radius:50%"
+               :style="item.prioritaet==='hoch'?'background:#f87171':item.prioritaet==='mittel'?'background:#fbbf24':'background:#6b7280'"></div>
+
+          <!-- Info -->
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:13px;font-weight:600" x-text="item.name"></span>
+              <a x-show="item.url" :href="item.url" target="_blank" rel="noopener"
+                 style="font-size:10px;color:var(--accent);text-decoration:none">
+                <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:9px"></i> Link
+              </a>
+              <span x-show="item.gekauft" style="font-size:10px;color:#10b981;font-weight:700">✓ Gekauft</span>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:3px;flex-wrap:wrap;align-items:center">
+              <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--surface2);color:var(--muted)" x-text="item.kategorie"></span>
+              <span style="font-size:10px;font-weight:700"
+                    :style="item.prioritaet==='hoch'?'color:#f87171':item.prioritaet==='mittel'?'color:#fbbf24':'color:#6b7280'"
+                    x-text="item.prioritaet==='hoch'?'↑ Hoch':item.prioritaet==='mittel'?'→ Mittel':'↓ Niedrig'"></span>
+            </div>
+            <div x-show="item.notizen" style="font-size:11px;color:var(--muted);margin-top:2px" x-text="item.notizen"></div>
+          </div>
+
+          <!-- Betrag -->
+          <div style="font-size:15px;font-weight:800;flex-shrink:0;color:var(--muted)"
+               x-text="item.betrag ? item.betrag.toLocaleString('de-DE',{minimumFractionDigits:2})+' €' : '— €'"></div>
+
+          <!-- Actions -->
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <template x-if="!item.gekauft">
+              <button @click="openKaufenModal(item)" class="icon-btn" style="color:#10b981" title="Kaufen">
+                <i class="fa-solid fa-check" style="font-size:10px"></i>
+              </button>
+            </template>
+            <button @click="openEditGeplant(item)" class="icon-btn"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
+            <button @click="deleteGeplant(item)" class="icon-btn" style="color:var(--danger)"><i class="fa-solid fa-trash" style="font-size:10px"></i></button>
+          </div>
+        </div>
+      </template>
+      <div x-show="filteredGeplant.length===0" style="padding:50px;text-align:center;color:var(--muted)">
+        <i class="fa-solid fa-cart-shopping" style="font-size:28px;opacity:.3;display:block;margin-bottom:10px"></i>
+        Keine Einträge.
+      </div>
+    </div>
+
+  </div><!-- end Geplant-Tab -->
 
 </div><!-- end app -->
 
@@ -268,6 +380,94 @@
   </div>
 </div>
 
+<!-- ══ MODAL: Geplante Ausgabe ══════════════════════════════════ -->
+<div id="geplantModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeModal('geplantModal')">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(520px,95vw);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div style="font-family:var(--font-display);font-size:14px" id="geplantModalTitle">GEPLANTE AUSGABE</div>
+      <button onclick="closeModal('geplantModal')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+    <input type="hidden" id="eGeplantId">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div style="grid-column:1/-1">
+        <label class="form-label">Name *</label>
+        <input type="text" id="eGName" class="input-field" placeholder="z.B. darmstadtschau.de Domain">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">URL / Link</label>
+        <input type="url" id="eGUrl" class="input-field" placeholder="https://…">
+      </div>
+      <div>
+        <label class="form-label">Geschätzter Betrag (€)</label>
+        <input type="number" id="eGBetrag" class="input-field" placeholder="Optional" step="0.01" min="0">
+      </div>
+      <div>
+        <label class="form-label">Priorität</label>
+        <select id="eGPrio" class="select-field">
+          <option value="hoch">↑ Hoch</option>
+          <option value="mittel" selected>→ Mittel</option>
+          <option value="niedrig">↓ Niedrig</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Kategorie</label>
+        <select id="eGKategorie" class="select-field"></select>
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Notizen</label>
+        <textarea id="eGNotizen" rows="2" class="input-field" placeholder="Warum kaufen? Angebotsfrist? …"></textarea>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeModal('geplantModal')" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="saveGeplant()" class="btn btn-primary"><i class="fa-solid fa-save"></i> Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: Kaufen (Geplant → Ausgabe) ═════════════════════════ -->
+<div id="kaufenModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeModal('kaufenModal')">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(420px,95vw)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div style="font-family:var(--font-display);font-size:14px">GEKAUFT!</div>
+      <button onclick="closeModal('kaufenModal')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:18px" id="kaufenName"></div>
+    <input type="hidden" id="kaufenId">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div>
+        <label class="form-label">Tatsächlicher Betrag (€) *</label>
+        <input type="number" id="kaufenBetrag" class="input-field" step="0.01" min="0">
+      </div>
+      <div>
+        <label class="form-label">Kaufdatum</label>
+        <input type="date" id="kaufenDatum" class="input-field">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Finanzamt</label>
+        <select id="kaufenFinanzamt" class="select-field">
+          <option value="1">✓ Ja — absetzbar</option>
+          <option value="0">⊘ Nein — nicht melden</option>
+        </select>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px">
+      <i class="fa-solid fa-circle-info" style="margin-right:4px"></i>
+      Wird automatisch als Ausgabe gebucht und aus der Planung entfernt.
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeModal('kaufenModal')" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="confirmKaufen()" class="btn btn-primary" style="background:linear-gradient(135deg,#10b981,#059669);border:none">
+        <i class="fa-solid fa-check"></i> Bestätigen & buchen
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ MODAL: Kategorien ═════════════════════════════════════════ -->
 <div id="katModal" x-show="showKatModal" x-cloak
      style="position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
@@ -303,12 +503,13 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
-const _ausgaben   = {{ items     | tojson }};
-const _abos       = {{ abo_items | tojson }};
-const _kategorien = {{ kategorien| tojson }};
-const _monateFA   = {{ monate_fa | tojson }};
-const _monatePRV  = {{ monate_prv| tojson }};
+const _ausgaben   = {{ items         | tojson }};
+const _abos       = {{ abo_items     | tojson }};
+const _kategorien = {{ kategorien    | tojson }};
+const _monateFA   = {{ monate_fa     | tojson }};
+const _monatePRV  = {{ monate_prv    | tojson }};
 const _aboMo      = {{ abo_monatlich | tojson }};
+const _geplant    = {{ geplant_items | tojson }};
 const MONATE = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
 new Chart(document.getElementById('ausgabenChart'), {
@@ -336,24 +537,76 @@ new Chart(document.getElementById('ausgabenChart'), {
 
 function ausgabenApp() {
   return {
+    mainTab: 'ausgaben',
     ausgaben: [],
     abos: [],
+    geplant: [],
     kategorien: [],
     activeFilter: 'alle',
+    geplantFilter: 'offen',
     showKatModal: false,
 
     init() {
       this.ausgaben   = _ausgaben;
       this.abos       = _abos;
+      this.geplant    = _geplant;
       this.kategorien = [..._kategorien];
       fillKatSelect('eAKategorie',   this.kategorien);
       fillKatSelect('eAboKategorie', this.kategorien);
+      fillKatSelect('eGKategorie',   this.kategorien);
     },
 
     get filteredAusgaben() {
       if (this.activeFilter === 'finanzamt') return this.ausgaben.filter(i => i.finanzamt);
       if (this.activeFilter === 'privat')    return this.ausgaben.filter(i => !i.finanzamt);
       return this.ausgaben;
+    },
+
+    get filteredGeplant() {
+      if (this.geplantFilter === 'offen')   return this.geplant.filter(g => !g.gekauft);
+      if (this.geplantFilter === 'hoch')    return this.geplant.filter(g => !g.gekauft && g.prioritaet === 'hoch');
+      if (this.geplantFilter === 'gekauft') return this.geplant.filter(g => g.gekauft);
+      return this.geplant;
+    },
+    get geplantSumOffen() {
+      return this.geplant.filter(g => !g.gekauft && g.betrag).reduce((s, g) => s + g.betrag, 0);
+    },
+
+    openAddGeplant() {
+      document.getElementById('eGeplantId').value = '';
+      document.getElementById('eGName').value     = '';
+      document.getElementById('eGUrl').value      = '';
+      document.getElementById('eGBetrag').value   = '';
+      document.getElementById('eGPrio').value     = 'mittel';
+      document.getElementById('eGKategorie').value= this.kategorien[0] || '';
+      document.getElementById('eGNotizen').value  = '';
+      document.getElementById('geplantModalTitle').textContent = 'GEPLANTE AUSGABE';
+      document.getElementById('geplantModal').style.display = 'flex';
+      setTimeout(() => document.getElementById('eGName').focus(), 50);
+    },
+    openEditGeplant(item) {
+      document.getElementById('eGeplantId').value = item.id;
+      document.getElementById('eGName').value     = item.name;
+      document.getElementById('eGUrl').value      = item.url;
+      document.getElementById('eGBetrag').value   = item.betrag || '';
+      document.getElementById('eGPrio').value     = item.prioritaet;
+      document.getElementById('eGKategorie').value= item.kategorie;
+      document.getElementById('eGNotizen').value  = item.notizen;
+      document.getElementById('geplantModalTitle').textContent = 'BEARBEITEN';
+      document.getElementById('geplantModal').style.display = 'flex';
+    },
+    async deleteGeplant(item) {
+      if (!confirm(`"${item.name}" löschen?`)) return;
+      const r = await fetch(`/api/geplant/${item.id}`, {method:'DELETE'}).then(r=>r.json());
+      if (r.ok) { this.geplant = this.geplant.filter(g => g.id !== item.id); showToast('Gelöscht','success'); }
+    },
+    openKaufenModal(item) {
+      document.getElementById('kaufenId').value       = item.id;
+      document.getElementById('kaufenName').textContent = item.name;
+      document.getElementById('kaufenBetrag').value  = item.betrag || '';
+      document.getElementById('kaufenDatum').value   = new Date().toISOString().split('T')[0];
+      document.getElementById('kaufenFinanzamt').value = '1';
+      document.getElementById('kaufenModal').style.display = 'flex';
     },
 
     formatDate(iso) {
@@ -498,6 +751,44 @@ async function saveAusgabe() {
     body: JSON.stringify(payload)
   }).then(r=>r.json());
   if (r.ok) { showToast('Gespeichert','success'); closeModal('ausgabeModal'); setTimeout(()=>location.reload(),500); }
+  else showToast(r.error||'Fehler','error');
+}
+
+async function saveGeplant() {
+  const id   = document.getElementById('eGeplantId').value;
+  const name = document.getElementById('eGName').value.trim();
+  if (!name) { showToast('Name ist Pflichtfeld','error'); return; }
+  const betrag = document.getElementById('eGBetrag').value;
+  const payload = {
+    name,
+    url:        document.getElementById('eGUrl').value.trim(),
+    betrag:     betrag ? parseFloat(betrag) : null,
+    prioritaet: document.getElementById('eGPrio').value,
+    kategorie:  document.getElementById('eGKategorie').value,
+    notizen:    document.getElementById('eGNotizen').value,
+  };
+  const r = await fetch(id ? `/api/geplant/${id}` : '/api/geplant', {
+    method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  }).then(r=>r.json());
+  if (r.ok) { showToast('Gespeichert','success'); closeModal('geplantModal'); setTimeout(()=>location.reload(),500); }
+  else showToast(r.error||'Fehler','error');
+}
+
+async function confirmKaufen() {
+  const id     = document.getElementById('kaufenId').value;
+  const betrag = parseFloat(document.getElementById('kaufenBetrag').value);
+  if (!id || isNaN(betrag) || betrag <= 0) { showToast('Betrag eingeben','error'); return; }
+  const r = await fetch(`/api/geplant/${id}/kaufen`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      betrag,
+      datum:      document.getElementById('kaufenDatum').value,
+      finanzamt:  document.getElementById('kaufenFinanzamt').value === '1',
+      als_ausgabe: true,
+    })
+  }).then(r=>r.json());
+  if (r.ok) { showToast('Gebucht & als Ausgabe gespeichert ✓','success'); closeModal('kaufenModal'); setTimeout(()=>location.reload(),600); }
   else showToast(r.error||'Fehler','error');
 }
 
