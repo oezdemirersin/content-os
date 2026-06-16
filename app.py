@@ -10919,6 +10919,18 @@ def ausgabe_create():
             beleg_url = d.get('beleg_url', '').strip() or None,
         )
         db.session.add(a)
+        if d.get('abo'):
+            abo = AboKosten(
+                name       = d['titel'].strip(),
+                betrag     = float(d['betrag']),
+                intervall  = d.get('abo_intervall', 'monatlich'),
+                kategorie  = d.get('kategorie', 'Sonstiges'),
+                finanzamt  = bool(d.get('finanzamt', True)),
+                notizen    = d.get('notizen', '').strip() or None,
+                start_datum= _date.fromisoformat(d['datum']),
+                aktiv      = True,
+            )
+            db.session.add(abo)
         db.session.commit()
         return jsonify({'ok': True, 'id': a.id})
     except Exception as e:
