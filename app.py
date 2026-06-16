@@ -3495,6 +3495,35 @@ def media_upload():
                     )
                     continue  # diese Datei überspringen
 
+            # Bildgrößen-Check für Instagram-Kompatibilität
+            if ftype == 'image':
+                try:
+                    from PIL import Image as _PILImage
+                    img = _PILImage.open(io.BytesIO(file_bytes))
+                    w, h = img.size
+                    ratio = w / h if h else 1
+                    # Instagram Feed: 4:5 (0.8) bis 1.91:1
+                    if ratio < 0.75:
+                        flash(
+                            f'⚠️ "{original}" ist zu hoch ({w}×{h}, {ratio:.2f}:1) — '
+                            f'Instagram akzeptiert maximal 4:5 (0.8:1). Bitte zuschneiden.',
+                            'warning'
+                        )
+                    elif ratio > 1.92:
+                        flash(
+                            f'⚠️ "{original}" ist zu breit ({w}×{h}, {ratio:.2f}:1) — '
+                            f'Instagram akzeptiert maximal 1.91:1. Bitte zuschneiden.',
+                            'warning'
+                        )
+                    elif w < 1080:
+                        flash(
+                            f'⚠️ "{original}" ist zu niedrig aufgelöst ({w}×{h}) — '
+                            f'mindestens 1080px Breite empfohlen.',
+                            'warning'
+                        )
+                except Exception:
+                    pass
+
             cl = _cloudinary_upload(io.BytesIO(file_bytes), original)
 
             if cl:
@@ -11556,21 +11585,6 @@ def koop_generate_invoice_number(kid):
 @app.route('/kooperationen/<int:kid>/rechnung')
 @login_required
 def koop_rechnung(kid):
-    import traceback as _tb
-    try:
-        return _koop_rechnung_inner(kid)
-    except Exception as _e:
-        _trace = _tb.format_exc()
-        try:
-            set_setting('rechnung_last_error', f'{type(_e).__name__}: {_e}\n\n{_trace[:2000]}')
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-        return f'<pre style="padding:20px;font-size:12px;background:#111;color:#f87171;white-space:pre-wrap">' \
-               f'RECHNUNG FEHLER (ID {kid}):\n\n{_trace}</pre>', 500
-
-
-def _koop_rechnung_inner(kid):
     k = Kooperation.query.get_or_404(kid)
     settings = {key: get_setting(key, '') for key in INVOICE_SETTINGS_KEYS}
     settings.setdefault('invoice_sender_is_kleinunternehmer', 'true')
