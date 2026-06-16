@@ -39,15 +39,31 @@
     </button>
   </div>
 
-  <!-- Stats -->
+  <!-- Stats + Abo-Toggle -->
+  <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:6px;gap:6px">
+    <span style="font-size:11px;color:var(--muted)">Abos im Überblick einbeziehen</span>
+    <label style="position:relative;display:inline-block;width:36px;height:20px;cursor:pointer">
+      <input type="checkbox" x-model="includeAbos" @change="saveAboToggle()" style="opacity:0;width:0;height:0;position:absolute">
+      <span :style="includeAbos?'background:var(--accent)':'background:var(--surface2)'"
+            style="position:absolute;inset:0;border-radius:20px;border:1px solid var(--border);transition:.2s">
+        <span :style="includeAbos?'left:18px':'left:2px'"
+              style="position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;top:2px;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+      </span>
+    </label>
+  </div>
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
     <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(99,102,241,.1),rgba(99,102,241,.03))">
       <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">GESAMT {{ jahr }}</div>
-      <div style="font-size:22px;font-weight:800">{{ "%.2f"|format(gesamt) }} €</div>
+      <div style="font-size:22px;font-weight:800" x-text="({{ gesamt }} + (includeAbos ? _aboMo : 0)).toLocaleString('de-DE',{minimumFractionDigits:2})+' €'"></div>
+      <div x-show="includeAbos" style="font-size:10px;color:#a855f7;margin-top:2px"
+           x-text="'+ '+_aboMo.toLocaleString(\'de-DE\',{minimumFractionDigits:2})+\' € Abos\'"></div>
     </div>
     <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,.03))">
       <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">FINANZAMT</div>
-      <div style="font-size:22px;font-weight:800;color:#10b981">{{ "%.2f"|format(finanzamt_sum) }} €</div>
+      <div style="font-size:22px;font-weight:800;color:#10b981"
+           x-text="({{ finanzamt_sum }} + (includeAbos ? _aboFaMo : 0)).toLocaleString('de-DE',{minimumFractionDigits:2})+' €'"></div>
+      <div x-show="includeAbos" style="font-size:10px;color:#a855f7;margin-top:2px"
+           x-text="'+ '+_aboFaMo.toLocaleString(\'de-DE\',{minimumFractionDigits:2})+\' € Abos\'"></div>
     </div>
     <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(245,158,11,.03))">
       <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">NICHT GEMELDET</div>
@@ -160,12 +176,52 @@
 
     <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
-      <div>
-        <div style="font-size:13px;color:var(--muted)">Wunschliste — Domains, Tools, Services die du kaufen möchtest</div>
-      </div>
+      <div style="font-size:13px;color:var(--muted)">Wunschliste — Domains, Tools, Services die du kaufen möchtest</div>
       <button @click="openAddGeplant()" class="btn btn-primary">
         <i class="fa-solid fa-cart-plus"></i> Hinzufügen
       </button>
+    </div>
+
+    <!-- Budget-Block -->
+    <div class="card" style="padding:18px;margin-bottom:14px;background:linear-gradient(135deg,rgba(99,102,241,.08),transparent)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:2px">BUDGET</div>
+          <div x-show="!editBudget" style="display:flex;align-items:baseline;gap:8px">
+            <span style="font-size:24px;font-weight:800" x-text="budget > 0 ? budget.toLocaleString('de-DE',{minimumFractionDigits:2})+' €' : 'Kein Budget gesetzt'"></span>
+            <button @click="startEditBudget()" class="icon-btn" style="font-size:10px"><i class="fa-solid fa-pen"></i></button>
+          </div>
+          <div x-show="editBudget" style="display:flex;align-items:center;gap:6px;margin-top:4px">
+            <input type="number" x-model="budgetInput" @keydown.enter="saveBudget()" @keydown.escape="editBudget=false"
+                   class="input-field" style="width:140px;padding:6px 10px;font-size:14px" placeholder="0.00" step="0.01" min="0">
+            <button @click="saveBudget()" class="btn btn-primary" style="padding:6px 12px;font-size:12px">Speichern</button>
+            <button @click="editBudget=false" class="btn btn-ghost" style="padding:6px 10px;font-size:12px">✕</button>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:var(--muted)">Geplant (mit Betrag)</div>
+          <div style="font-size:18px;font-weight:700" x-text="geplantSumOffen.toLocaleString('de-DE',{minimumFractionDigits:2})+' €'"></div>
+          <div x-show="budget > 0" style="font-size:11px;margin-top:2px"
+               :style="geplantSumOffen > budget ? 'color:#f87171' : 'color:#10b981'"
+               x-text="geplantSumOffen > budget
+                 ? '⚠ '+( geplantSumOffen - budget).toLocaleString(\'de-DE\',{minimumFractionDigits:2})+\' € über Budget\'
+                 : (budget - geplantSumOffen).toLocaleString(\'de-DE\',{minimumFractionDigits:2})+\' € noch verfügbar\'"></div>
+        </div>
+      </div>
+      <!-- Progress Bar -->
+      <div x-show="budget > 0">
+        <div style="height:8px;border-radius:4px;background:var(--surface2);overflow:hidden">
+          <div :style="'width:'+Math.min(geplantSumOffen/budget*100,100)+'%;height:100%;border-radius:4px;transition:width .4s;background:'+(geplantSumOffen>budget?'#f87171':'linear-gradient(90deg,#6366f1,#a855f7)')"
+          ></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px">
+          <span x-text="Math.round(geplantSumOffen/budget*100)+'% verplant'"></span>
+          <span x-text="budget.toLocaleString('de-DE',{minimumFractionDigits:2})+' € Budget'"></span>
+        </div>
+      </div>
+      <div x-show="budget === 0" style="font-size:11px;color:var(--muted)">
+        Klicke auf den Stift um ein Budget festzulegen.
+      </div>
     </div>
 
     <!-- Geplant Stats -->
@@ -174,7 +230,7 @@
         <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">OFFEN</div>
         <div style="font-size:22px;font-weight:800" x-text="geplant.filter(g=>!g.gekauft).length"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px"
-             x-text="geplantSumOffen > 0 ? '≈ '+geplantSumOffen.toLocaleString(\'de-DE\',{minimumFractionDigits:2})+\' €\' : \'Betrag unbekannt\' "></div>
+             x-text="geplantSumOffen > 0 ? '≈ '+geplantSumOffen.toLocaleString('de-DE',{minimumFractionDigits:2})+' €' : 'Betrag unbekannt'"></div>
       </div>
       <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(239,68,68,.08),transparent)">
         <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">HOHE PRIO</div>
@@ -183,6 +239,8 @@
       <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(16,185,129,.08),transparent)">
         <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">GEKAUFT</div>
         <div style="font-size:22px;font-weight:800;color:#10b981" x-text="geplant.filter(g=>g.gekauft).length"></div>
+        <div x-show="geplantSumGekauft>0" style="font-size:11px;color:var(--muted);margin-top:2px"
+             x-text="geplantSumGekauft.toLocaleString('de-DE',{minimumFractionDigits:2})+' €'"></div>
       </div>
     </div>
 
@@ -503,30 +561,41 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
-const _ausgaben   = {{ items         | tojson }};
-const _abos       = {{ abo_items     | tojson }};
-const _kategorien = {{ kategorien    | tojson }};
-const _monateFA   = {{ monate_fa     | tojson }};
-const _monatePRV  = {{ monate_prv    | tojson }};
-const _aboMo      = {{ abo_monatlich | tojson }};
-const _geplant    = {{ geplant_items | tojson }};
+const _ausgaben   = {{ items            | tojson }};
+const _abos       = {{ abo_items        | tojson }};
+const _kategorien = {{ kategorien       | tojson }};
+const _monateFA   = {{ monate_fa        | tojson }};
+const _monatePRV  = {{ monate_prv       | tojson }};
+const _aboMo      = {{ abo_monatlich    | tojson }};
+const _aboFaMo    = {{ abo_finanzamt_mo | tojson }};
+const _geplant    = {{ geplant_items    | tojson }};
+const _initBudget = {{ geplant_budget   | tojson }};
 const MONATE = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+// Abos nur für den aktuellen Monat ins Chart
+const _aboChartData = Array(12).fill(0);
+_aboChartData[new Date().getMonth()] = Math.round(_aboMo * 100) / 100;
 
 new Chart(document.getElementById('ausgabenChart'), {
   type: 'bar',
   data: {
     labels: MONATE,
     datasets: [
-      { label: 'Finanzamt',      data: _monateFA,                                        backgroundColor: 'rgba(16,185,129,.75)',  borderRadius: 4, stack:'s' },
-      { label: 'Nicht gemeldet', data: _monatePRV,                                       backgroundColor: 'rgba(245,158,11,.65)', borderRadius: 4, stack:'s' },
-      { label: 'Abos (fix)',     data: Array(12).fill(Math.round(_aboMo * 100) / 100),   backgroundColor: 'rgba(168,85,247,.55)',  borderRadius: 4, stack:'s' },
+      { label: 'Finanzamt',       data: _monateFA,     backgroundColor: 'rgba(16,185,129,.75)', borderRadius: 4, stack:'s' },
+      { label: 'Nicht gemeldet',  data: _monatePRV,    backgroundColor: 'rgba(245,158,11,.65)', borderRadius: 4, stack:'s' },
+      { label: 'Abos (akt. Mo.)', data: _aboChartData, backgroundColor: 'rgba(168,85,247,.65)', borderRadius: 4, stack:'s' },
     ],
   },
   options: {
     responsive: true,
     plugins: {
       legend: { labels: { color: '#94a3b8', font: { size: 11 } } },
-      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.raw.toLocaleString('de-DE',{minimumFractionDigits:2})} €` } }
+      tooltip: {
+        callbacks: {
+          label: ctx => ctx.raw > 0 ? ` ${ctx.dataset.label}: ${ctx.raw.toLocaleString('de-DE',{minimumFractionDigits:2})} €` : null,
+          filter: item => item.raw > 0,
+        }
+      }
     },
     scales: {
       x: { stacked:true, ticks:{color:'#64748b'}, grid:{color:'rgba(255,255,255,.04)'} },
@@ -545,15 +614,25 @@ function ausgabenApp() {
     activeFilter: 'alle',
     geplantFilter: 'offen',
     showKatModal: false,
+    includeAbos: localStorage.getItem('ausgaben_includeAbos') === 'true',
+    budget: 0,
+    budgetInput: '',
+    editBudget: false,
 
     init() {
       this.ausgaben   = _ausgaben;
       this.abos       = _abos;
       this.geplant    = _geplant;
       this.kategorien = [..._kategorien];
+      this.budget     = _initBudget;
+      this.budgetInput = _initBudget > 0 ? _initBudget : '';
       fillKatSelect('eAKategorie',   this.kategorien);
       fillKatSelect('eAboKategorie', this.kategorien);
       fillKatSelect('eGKategorie',   this.kategorien);
+    },
+
+    saveAboToggle() {
+      localStorage.setItem('ausgaben_includeAbos', this.includeAbos);
     },
 
     get filteredAusgaben() {
@@ -568,30 +647,43 @@ function ausgabenApp() {
       if (this.geplantFilter === 'gekauft') return this.geplant.filter(g => g.gekauft);
       return this.geplant;
     },
-    get geplantSumOffen() {
-      return this.geplant.filter(g => !g.gekauft && g.betrag).reduce((s, g) => s + g.betrag, 0);
+    get geplantSumOffen()  { return this.geplant.filter(g => !g.gekauft && g.betrag).reduce((s,g) => s+g.betrag, 0); },
+    get geplantSumGekauft(){ return this.geplant.filter(g =>  g.gekauft && g.betrag).reduce((s,g) => s+g.betrag, 0); },
+
+    startEditBudget() {
+      this.budgetInput = this.budget > 0 ? this.budget : '';
+      this.editBudget = true;
+      this.$nextTick(() => document.querySelector('[x-model="budgetInput"]')?.focus());
+    },
+    async saveBudget() {
+      const val = parseFloat(this.budgetInput) || 0;
+      const r = await fetch('/api/geplant/budget', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({budget: val})
+      }).then(r=>r.json());
+      if (r.ok) { this.budget = val; this.editBudget = false; showToast('Budget gespeichert','success'); }
     },
 
     openAddGeplant() {
-      document.getElementById('eGeplantId').value = '';
-      document.getElementById('eGName').value     = '';
-      document.getElementById('eGUrl').value      = '';
-      document.getElementById('eGBetrag').value   = '';
-      document.getElementById('eGPrio').value     = 'mittel';
-      document.getElementById('eGKategorie').value= this.kategorien[0] || '';
-      document.getElementById('eGNotizen').value  = '';
+      document.getElementById('eGeplantId').value  = '';
+      document.getElementById('eGName').value      = '';
+      document.getElementById('eGUrl').value       = '';
+      document.getElementById('eGBetrag').value    = '';
+      document.getElementById('eGPrio').value      = 'mittel';
+      document.getElementById('eGKategorie').value = this.kategorien[0] || '';
+      document.getElementById('eGNotizen').value   = '';
       document.getElementById('geplantModalTitle').textContent = 'GEPLANTE AUSGABE';
       document.getElementById('geplantModal').style.display = 'flex';
       setTimeout(() => document.getElementById('eGName').focus(), 50);
     },
     openEditGeplant(item) {
-      document.getElementById('eGeplantId').value = item.id;
-      document.getElementById('eGName').value     = item.name;
-      document.getElementById('eGUrl').value      = item.url;
-      document.getElementById('eGBetrag').value   = item.betrag || '';
-      document.getElementById('eGPrio').value     = item.prioritaet;
-      document.getElementById('eGKategorie').value= item.kategorie;
-      document.getElementById('eGNotizen').value  = item.notizen;
+      document.getElementById('eGeplantId').value  = item.id;
+      document.getElementById('eGName').value      = item.name;
+      document.getElementById('eGUrl').value       = item.url;
+      document.getElementById('eGBetrag').value    = item.betrag || '';
+      document.getElementById('eGPrio').value      = item.prioritaet;
+      document.getElementById('eGKategorie').value = item.kategorie;
+      document.getElementById('eGNotizen').value   = item.notizen;
       document.getElementById('geplantModalTitle').textContent = 'BEARBEITEN';
       document.getElementById('geplantModal').style.display = 'flex';
     },
@@ -601,11 +693,11 @@ function ausgabenApp() {
       if (r.ok) { this.geplant = this.geplant.filter(g => g.id !== item.id); showToast('Gelöscht','success'); }
     },
     openKaufenModal(item) {
-      document.getElementById('kaufenId').value       = item.id;
+      document.getElementById('kaufenId').value         = item.id;
       document.getElementById('kaufenName').textContent = item.name;
-      document.getElementById('kaufenBetrag').value  = item.betrag || '';
-      document.getElementById('kaufenDatum').value   = new Date().toISOString().split('T')[0];
-      document.getElementById('kaufenFinanzamt').value = '1';
+      document.getElementById('kaufenBetrag').value     = item.betrag || '';
+      document.getElementById('kaufenDatum').value      = new Date().toISOString().split('T')[0];
+      document.getElementById('kaufenFinanzamt').value  = '1';
       document.getElementById('kaufenModal').style.display = 'flex';
     },
 
@@ -706,6 +798,7 @@ function ausgabenApp() {
         this.showKatModal = false;
         fillKatSelect('eAKategorie',   r.kategorien);
         fillKatSelect('eAboKategorie', r.kategorien);
+        fillKatSelect('eGKategorie',   r.kategorien);
       }
     },
   };

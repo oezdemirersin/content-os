@@ -10833,8 +10833,14 @@ def ausgaben():
         'notizen': a.notizen or '', 'start_datum': a.start_datum.isoformat() if a.start_datum else '',
         'monatlich': monatlich(a),
     } for a in abos_all]
-    abo_monatlich = sum(monatlich(a) for a in abos_all if a.aktiv)
-    abo_jaehrlich  = round(abo_monatlich * 12, 2)
+    abo_monatlich     = sum(monatlich(a) for a in abos_all if a.aktiv)
+    abo_jaehrlich     = round(abo_monatlich * 12, 2)
+    abo_finanzamt_mo  = sum(monatlich(a) for a in abos_all if a.aktiv and a.finanzamt)
+
+    try:
+        geplant_budget = float(get_setting('geplant_budget') or 0)
+    except Exception:
+        geplant_budget = 0.0
 
     jahre = db.session.query(
         db.extract('year', Ausgabe.datum)
@@ -10850,6 +10856,8 @@ def ausgaben():
         monate_fa=monate_fa, monate_prv=monate_prv,
         kategorien=get_ausgabe_kategorien(),
         abo_items=abo_items, abo_monatlich=abo_monatlich, abo_jaehrlich=abo_jaehrlich,
+        abo_finanzamt_mo=abo_finanzamt_mo,
+        geplant_budget=geplant_budget,
         geplant_items=[{
             'id': g.id, 'name': g.name, 'url': g.url or '',
             'betrag': g.betrag, 'kategorie': g.kategorie,
@@ -11062,6 +11070,18 @@ def geplant_kaufen(gid):
         db.session.add(a)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/geplant/budget', methods=['POST'])
+@login_required
+def geplant_budget_save():
+    d = request.json or {}
+    try:
+        val = float(d.get('budget', 0))
+        set_setting('geplant_budget', str(val))
+        return jsonify({'ok': True, 'budget': val})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
 
 
 @app.route('/kooperationen')
