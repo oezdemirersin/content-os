@@ -22,7 +22,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     InspirationSource, InspirationPost,
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
-                    Partner, AiUsageLog, AppTodo)
+                    Partner, AiUsageLog, AppTodo, Ausgabe)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -647,6 +647,16 @@ def init_db():
                 priority INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS ausgabe (
+                id SERIAL PRIMARY KEY,
+                titel VARCHAR(200) NOT NULL,
+                betrag FLOAT NOT NULL,
+                kategorie VARCHAR(100) DEFAULT \'Sonstiges\',
+                datum DATE NOT NULL,
+                finanzamt BOOLEAN DEFAULT TRUE,
+                notizen TEXT,
+                beleg_url VARCHAR(500),
+                created_at TIMESTAMP DEFAULT NOW())''')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -858,6 +868,17 @@ def init_db():
                 priority INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            # ausgabe
+            safe_alter('''CREATE TABLE IF NOT EXISTS ausgabe (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                titel VARCHAR(200) NOT NULL,
+                betrag FLOAT NOT NULL,
+                kategorie VARCHAR(100) DEFAULT 'Sonstiges',
+                datum DATE NOT NULL,
+                finanzamt BOOLEAN DEFAULT 1,
+                notizen TEXT,
+                beleg_url VARCHAR(500),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
             try:
                 ct_cols = [c['name'] for c in inspector.get_columns('content_template')]
@@ -10710,6 +10731,109 @@ def _check_koop_reminders():
                 db.session.commit()
     except Exception as e:
         pass
+
+
+# ── Ausgaben ──────────────────────────────────────────────────
+
+AUSGABE_KATEGORIEN = [
+    'Software & Tools', 'Equipment & Hardware', 'Marketing & Werbung',
+    'Freelancer & Dienstleister', 'Büro & Verwaltung', 'Reise & Transport',
+    'Weiterbildung', 'Sonstiges'
+]
+
+@app.route('/ausgaben')
+@login_required
+def ausgaben():
+    from datetime import date
+    jahr = request.args.get('jahr', date.today().year, type=int)
+    alle = Ausgabe.query.filter(
+        db.extract('year', Ausgabe.datum) == jahr
+    ).order_by(Ausgabe.datum.desc()).all()
+
+    gesamt        = sum(a.betrag for a in alle)
+    finanzamt_sum = sum(a.betrag for a in alle if a.finanzamt)
+    privat_sum    = sum(a.betrag for a in alle if not a.finanzamt)
+
+    # Monatliche Summen für Chart
+    monate_fa  = [0.0] * 12
+    monate_prv = [0.0] * 12
+    for a in alle:
+        m = a.datum.month - 1
+        if a.finanzamt:
+            monate_fa[m]  += a.betrag
+        else:
+            monate_prv[m] += a.betrag
+
+    items = [{
+        'id': a.id, 'titel': a.titel, 'betrag': a.betrag,
+        'kategorie': a.kategorie, 'datum': a.datum.isoformat(),
+        'finanzamt': a.finanzamt, 'notizen': a.notizen or '',
+        'beleg_url': a.beleg_url or '',
+    } for a in alle]
+
+    jahre = db.session.query(
+        db.extract('year', Ausgabe.datum)
+    ).distinct().order_by(db.extract('year', Ausgabe.datum).desc()).all()
+    jahre = [int(r[0]) for r in jahre if r[0]]
+    if date.today().year not in jahre:
+        jahre.insert(0, date.today().year)
+
+    return render_template('ausgaben.html',
+        active_page='ausgaben',
+        items=items, jahr=jahr, jahre=jahre,
+        gesamt=gesamt, finanzamt_sum=finanzamt_sum, privat_sum=privat_sum,
+        monate_fa=monate_fa, monate_prv=monate_prv,
+        kategorien=AUSGABE_KATEGORIEN,
+    )
+
+
+@app.route('/api/ausgaben', methods=['POST'])
+@login_required
+def ausgabe_create():
+    from datetime import date as _date
+    d = request.json or {}
+    try:
+        a = Ausgabe(
+            titel     = d['titel'].strip(),
+            betrag    = float(d['betrag']),
+            kategorie = d.get('kategorie', 'Sonstiges'),
+            datum     = _date.fromisoformat(d['datum']),
+            finanzamt = bool(d.get('finanzamt', True)),
+            notizen   = d.get('notizen', '').strip() or None,
+            beleg_url = d.get('beleg_url', '').strip() or None,
+        )
+        db.session.add(a)
+        db.session.commit()
+        return jsonify({'ok': True, 'id': a.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+
+@app.route('/api/ausgaben/<int:aid>', methods=['PUT'])
+@login_required
+def ausgabe_update(aid):
+    from datetime import date as _date
+    a = Ausgabe.query.get_or_404(aid)
+    d = request.json or {}
+    if 'titel'     in d: a.titel     = d['titel'].strip()
+    if 'betrag'    in d: a.betrag    = float(d['betrag'])
+    if 'kategorie' in d: a.kategorie = d['kategorie']
+    if 'datum'     in d: a.datum     = _date.fromisoformat(d['datum'])
+    if 'finanzamt' in d: a.finanzamt = bool(d['finanzamt'])
+    if 'notizen'   in d: a.notizen   = d['notizen'].strip() or None
+    if 'beleg_url' in d: a.beleg_url = d['beleg_url'].strip() or None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/ausgaben/<int:aid>', methods=['DELETE'])
+@login_required
+def ausgabe_delete(aid):
+    a = Ausgabe.query.get_or_404(aid)
+    db.session.delete(a)
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/kooperationen')

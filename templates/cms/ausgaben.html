@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% block title %}Ausgaben — Content OS{% endblock %}
+{% block page_title %}AUSGABEN{% endblock %}
+
+{% block content %}
+<div x-data="ausgabenApp()" x-init="init()">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <select onchange="location.href='?jahr='+this.value" class="select-field" style="width:100px">
+        {% for j in jahre %}
+        <option value="{{ j }}" {{ 'selected' if j == jahr }}>{{ j }}</option>
+        {% endfor %}
+      </select>
+      <span style="font-size:13px;color:var(--muted)">Betriebsausgaben Übersicht</span>
+    </div>
+    <button @click="openAdd()" class="btn btn-primary">
+      <i class="fa-solid fa-plus"></i> Ausgabe erfassen
+    </button>
+  </div>
+
+  <!-- Stats -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px">
+    <div class="card" style="padding:20px;background:linear-gradient(135deg,rgba(99,102,241,.1),rgba(99,102,241,.03))">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:6px">GESAMT {{ jahr }}</div>
+      <div style="font-size:28px;font-weight:800;color:var(--text)">{{ "%.2f"|format(gesamt) }} €</div>
+    </div>
+    <div class="card" style="padding:20px;background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,.03))">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:6px">FINANZAMT-RELEVANT</div>
+      <div style="font-size:28px;font-weight:800;color:#10b981">{{ "%.2f"|format(finanzamt_sum) }} €</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">steuerlich absetzbar</div>
+    </div>
+    <div class="card" style="padding:20px;background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(245,158,11,.03))">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:6px">NICHT GEMELDET</div>
+      <div style="font-size:28px;font-weight:800;color:#f59e0b">{{ "%.2f"|format(privat_sum) }} €</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">nicht ans Finanzamt</div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="card" style="padding:24px;margin-bottom:20px">
+    <div style="font-family:var(--font-display);font-size:13px;letter-spacing:.3px;margin-bottom:16px">MONATLICHE AUSGABEN {{ jahr }}</div>
+    <canvas id="ausgabenChart" height="80"></canvas>
+  </div>
+
+  <!-- Filter -->
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <template x-for="f in filter_tabs" :key="f.key">
+      <button @click="activeFilter = f.key"
+              :style="activeFilter === f.key ? 'background:var(--accent2);color:#fff' : 'background:var(--surface2);color:var(--muted)'"
+              style="border:none;cursor:pointer;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;transition:all .15s"
+              x-text="f.label + (filterCount(f.key) > 0 ? ' (' + filterCount(f.key) + ')' : '')"></button>
+    </template>
+  </div>
+
+  <!-- Liste -->
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <template x-for="item in filtered" :key="item.id">
+      <div class="card" style="padding:14px 16px;display:flex;gap:14px;align-items:center">
+
+        <!-- Finanzamt-Badge -->
+        <div style="flex-shrink:0;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center"
+             :style="item.finanzamt ? 'background:rgba(16,185,129,.15)' : 'background:rgba(245,158,11,.12)'">
+          <i class="fa-solid"
+             :class="item.finanzamt ? 'fa-landmark' : 'fa-eye-slash'"
+             :style="item.finanzamt ? 'color:#10b981' : 'color:#f59e0b'"
+             style="font-size:14px"></i>
+        </div>
+
+        <!-- Info -->
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--text)" x-text="item.titel"></div>
+          <div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--surface2);color:var(--muted)" x-text="item.kategorie"></span>
+            <span style="font-size:11px;color:var(--muted)" x-text="formatDate(item.datum)"></span>
+            <template x-if="item.finanzamt">
+              <span style="font-size:10px;color:#10b981;font-weight:700">✓ Finanzamt</span>
+            </template>
+            <template x-if="!item.finanzamt">
+              <span style="font-size:10px;color:#f59e0b;font-weight:700">⊘ Nicht gemeldet</span>
+            </template>
+          </div>
+          <template x-if="item.notizen">
+            <div style="font-size:11px;color:var(--muted);margin-top:4px" x-text="item.notizen"></div>
+          </template>
+        </div>
+
+        <!-- Betrag -->
+        <div style="font-size:16px;font-weight:800;color:var(--text);flex-shrink:0" x-text="item.betrag.toLocaleString('de-DE', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €'"></div>
+
+        <!-- Actions -->
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button @click="openEdit(item)" class="icon-btn" title="Bearbeiten">
+            <i class="fa-solid fa-pen" style="font-size:10px"></i>
+          </button>
+          <button @click="deleteItem(item)" class="icon-btn" style="color:var(--danger)" title="Löschen">
+            <i class="fa-solid fa-trash" style="font-size:10px"></i>
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <div x-show="filtered.length === 0" style="padding:60px 20px;text-align:center;color:var(--muted)">
+      <i class="fa-solid fa-receipt" style="font-size:32px;margin-bottom:12px;display:block;opacity:.3"></i>
+      <div>Keine Ausgaben in dieser Kategorie.</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal -->
+<div id="ausgabeModal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeModal()">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(540px,95vw);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div style="font-family:var(--font-display);font-size:15px" id="modalTitle">AUSGABE ERFASSEN</div>
+      <button onclick="closeModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+
+    <input type="hidden" id="editId">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div style="grid-column:1/-1">
+        <label class="form-label">Titel *</label>
+        <input type="text" id="fTitel" class="input-field" placeholder="z.B. Adobe Creative Cloud">
+      </div>
+      <div>
+        <label class="form-label">Betrag (€) *</label>
+        <input type="number" id="fBetrag" class="input-field" placeholder="0.00" step="0.01" min="0">
+      </div>
+      <div>
+        <label class="form-label">Datum *</label>
+        <input type="date" id="fDatum" class="input-field">
+      </div>
+      <div>
+        <label class="form-label">Kategorie</label>
+        <select id="fKategorie" class="select-field">
+          {% for k in kategorien %}
+          <option value="{{ k }}">{{ k }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Finanzamt</label>
+        <select id="fFinanzamt" class="select-field">
+          <option value="1">✓ Ja — steuerlich absetzbar</option>
+          <option value="0">⊘ Nein — nicht melden</option>
+        </select>
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Notizen</label>
+        <textarea id="fNotizen" rows="2" class="input-field" placeholder="Optional — Verwendungszweck, Referenz…"></textarea>
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Beleg-URL</label>
+        <input type="url" id="fBelegUrl" class="input-field" placeholder="https://…">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeModal()" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="saveAusgabe()" class="btn btn-primary" id="saveBtn">
+        <i class="fa-solid fa-save"></i> Speichern
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+const _items     = {{ items | tojson }};
+const _monateFA  = {{ monate_fa | tojson }};
+const _monatePRV = {{ monate_prv | tojson }};
+const _kategorien = {{ kategorien | tojson }};
+const MONATE = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+// ── Chart ─────────────────────────────────────────────────────
+new Chart(document.getElementById('ausgabenChart'), {
+  type: 'bar',
+  data: {
+    labels: MONATE,
+    datasets: [
+      {
+        label: 'Finanzamt-relevant',
+        data: _monateFA,
+        backgroundColor: 'rgba(16,185,129,.7)',
+        borderRadius: 6,
+      },
+      {
+        label: 'Nicht gemeldet',
+        data: _monatePRV,
+        backgroundColor: 'rgba(245,158,11,.6)',
+        borderRadius: 6,
+      },
+    ],
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { labels: { color: '#94a3b8', font: { size: 11 } } },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.dataset.label}: ${ctx.raw.toLocaleString('de-DE', {minimumFractionDigits:2})} €`
+        }
+      }
+    },
+    scales: {
+      x: { stacked: true, ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,.04)' } },
+      y: { stacked: true, ticks: { color: '#64748b', callback: v => v.toLocaleString('de-DE') + ' €' }, grid: { color: 'rgba(255,255,255,.04)' } },
+    },
+  },
+});
+
+// ── Alpine App ────────────────────────────────────────────────
+function ausgabenApp() {
+  return {
+    items: [],
+    activeFilter: 'alle',
+    filter_tabs: [
+      { key: 'alle',       label: 'Alle' },
+      { key: 'finanzamt',  label: 'Finanzamt' },
+      { key: 'privat',     label: 'Nicht gemeldet' },
+    ],
+    get filtered() {
+      if (this.activeFilter === 'finanzamt') return this.items.filter(i => i.finanzamt);
+      if (this.activeFilter === 'privat')    return this.items.filter(i => !i.finanzamt);
+      return this.items;
+    },
+    filterCount(key) {
+      if (key === 'alle')      return this.items.length;
+      if (key === 'finanzamt') return this.items.filter(i => i.finanzamt).length;
+      if (key === 'privat')    return this.items.filter(i => !i.finanzamt).length;
+      return 0;
+    },
+    init() { this.items = _items; },
+    formatDate(iso) {
+      if (!iso) return '';
+      const [y, m, d] = iso.split('-');
+      return `${d}.${m}.${y}`;
+    },
+    openAdd() {
+      document.getElementById('editId').value = '';
+      document.getElementById('fTitel').value = '';
+      document.getElementById('fBetrag').value = '';
+      document.getElementById('fDatum').value = new Date().toISOString().split('T')[0];
+      document.getElementById('fKategorie').value = _kategorien[0];
+      document.getElementById('fFinanzamt').value = '1';
+      document.getElementById('fNotizen').value = '';
+      document.getElementById('fBelegUrl').value = '';
+      document.getElementById('modalTitle').textContent = 'AUSGABE ERFASSEN';
+      document.getElementById('ausgabeModal').style.display = 'flex';
+      setTimeout(() => document.getElementById('fTitel').focus(), 50);
+    },
+    openEdit(item) {
+      document.getElementById('editId').value = item.id;
+      document.getElementById('fTitel').value = item.titel;
+      document.getElementById('fBetrag').value = item.betrag;
+      document.getElementById('fDatum').value = item.datum;
+      document.getElementById('fKategorie').value = item.kategorie;
+      document.getElementById('fFinanzamt').value = item.finanzamt ? '1' : '0';
+      document.getElementById('fNotizen').value = item.notizen;
+      document.getElementById('fBelegUrl').value = item.beleg_url;
+      document.getElementById('modalTitle').textContent = 'AUSGABE BEARBEITEN';
+      document.getElementById('ausgabeModal').style.display = 'flex';
+    },
+    async deleteItem(item) {
+      if (!confirm(`"${item.titel}" löschen?`)) return;
+      const r = await fetch(`/api/ausgaben/${item.id}`, { method: 'DELETE' }).then(r => r.json());
+      if (r.ok) {
+        this.items = this.items.filter(i => i.id !== item.id);
+        showToast('Ausgabe gelöscht', 'success');
+      }
+    },
+  };
+}
+
+function closeModal() {
+  document.getElementById('ausgabeModal').style.display = 'none';
+}
+
+async function saveAusgabe() {
+  const id     = document.getElementById('editId').value;
+  const titel  = document.getElementById('fTitel').value.trim();
+  const betrag = parseFloat(document.getElementById('fBetrag').value);
+  if (!titel || isNaN(betrag) || betrag <= 0) {
+    showToast('Titel und Betrag sind Pflichtfelder', 'error'); return;
+  }
+
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+
+  const payload = {
+    titel,
+    betrag,
+    kategorie:  document.getElementById('fKategorie').value,
+    datum:      document.getElementById('fDatum').value,
+    finanzamt:  document.getElementById('fFinanzamt').value === '1',
+    notizen:    document.getElementById('fNotizen').value,
+    beleg_url:  document.getElementById('fBelegUrl').value,
+  };
+
+  const url    = id ? `/api/ausgaben/${id}` : '/api/ausgaben';
+  const method = id ? 'PUT' : 'POST';
+  const r = await fetch(url, {
+    method, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(r => r.json());
+
+  btn.disabled = false;
+  if (r.ok) {
+    showToast('Gespeichert', 'success');
+    closeModal();
+    setTimeout(() => location.reload(), 500);
+  } else {
+    showToast(r.error || 'Fehler', 'error');
+  }
+}
+</script>
+{% endblock %}

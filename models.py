@@ -824,6 +824,20 @@ class WeatherTriggerLog(db.Model):
     account       = db.relationship('Account', backref='weather_trigger_logs')
 
 
+class Ausgabe(db.Model):
+    """Betriebsausgaben — mit Finanzamt-Kennzeichnung."""
+    __tablename__ = 'ausgabe'
+    id         = db.Column(db.Integer, primary_key=True)
+    titel      = db.Column(db.String(200), nullable=False)
+    betrag     = db.Column(db.Float, nullable=False)
+    kategorie  = db.Column(db.String(100), default='Sonstiges')
+    datum      = db.Column(db.Date, nullable=False)
+    finanzamt  = db.Column(db.Boolean, default=True)   # steuerlich absetzbar / meldepflichtig
+    notizen    = db.Column(db.Text)
+    beleg_url  = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class AppTodo(db.Model):
     """Interne To-Do- und Ideen-Liste für Features, Bugs und Notizen."""
     __tablename__ = 'app_todo'

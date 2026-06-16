@@ -429,11 +429,15 @@
       <span style="margin-left:auto;background:rgba(99,102,241,.2);color:var(--accent2);border-radius:10px;
                    font-size:9px;padding:1px 7px;font-weight:700">{{ studio_count }}</span>
     </a>
+    <div class="nav-section">Finanzen</div>
     <a href="{{ url_for('kooperationen') }}" class="nav-item {% if active_page == 'kooperationen' %}active{% endif %}">
       <i class="fa-solid fa-handshake"></i> Kooperationen
     </a>
     <a href="{{ url_for('partner_list') }}" class="nav-sub {% if active_page == 'partner' %}active{% endif %}">
       <i class="fa-solid fa-address-book"></i> Partner-CRM
+    </a>
+    <a href="{{ url_for('ausgaben') }}" class="nav-sub {% if active_page == 'ausgaben' %}active{% endif %}">
+      <i class="fa-solid fa-receipt"></i> Ausgaben
     </a>
 
     <div class="nav-section">System</div>
