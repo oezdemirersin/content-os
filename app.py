@@ -163,11 +163,27 @@ _cloudinary_url = os.environ.get('CLOUDINARY_URL')
 if _cloudinary_url:
     cloudinary.config(cloudinary_url=_cloudinary_url)
 
+def _local_upload(file_obj, original_filename):
+    """Fallback: save file locally when Cloudinary is not configured."""
+    import uuid, pathlib
+    upload_dir = pathlib.Path(app.root_path) / 'static' / 'uploads' / 'meme_templates'
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    ext = original_filename.rsplit('.', 1)[-1].lower() if '.' in original_filename else 'bin'
+    fname = f"{uuid.uuid4().hex}.{ext}"
+    dest = upload_dir / fname
+    if hasattr(file_obj, 'read'):
+        dest.write_bytes(file_obj.read())
+    else:
+        dest.write_bytes(file_obj)
+    url = f"/static/uploads/meme_templates/{fname}"
+    return {'secure_url': url, 'public_id': fname, '_local': True}
+
+
 def _cloudinary_upload(file_obj, original_filename):
     """Upload file to Cloudinary (folder: content-os/).
-    Returns Cloudinary result dict on success, None if Cloudinary not configured."""
+    Falls back to local storage if Cloudinary is not configured."""
     if not _cloudinary_url:
-        return None
+        return _local_upload(file_obj, original_filename)
     ext = original_filename.rsplit('.', 1)[-1].lower() if '.' in original_filename else 'bin'
     resource_type = 'video' if ext in {'mp4', 'mov', 'avi', 'webm'} else 'image'
     try:
@@ -182,7 +198,7 @@ def _cloudinary_upload(file_obj, original_filename):
         return result
     except Exception as e:
         app.logger.error(f'Cloudinary upload error: {e}')
-        return None
+        return _local_upload(file_obj, original_filename)
 
 def _cloudinary_delete(public_id, resource_type='image'):
     """Delete asset from Cloudinary by public_id."""
@@ -7087,6 +7103,71 @@ def integrations_save():
     return redirect(url_for('integrations'))
 
 
+@app.route('/api/integrations/export')
+@login_required
+def integrations_export():
+    """Export all API keys and integration settings as JSON for backup."""
+    backup_keys = [
+        'apify_token', 'ig_sync_method', 'ig_auto_sync',
+        'telegram_bot_token', 'anthropic_api_key', 'rapidapi_key', 'cron_token',
+        'invoice_sender_name', 'invoice_sender_street', 'invoice_sender_city',
+        'invoice_sender_email', 'invoice_sender_phone', 'invoice_sender_iban',
+        'invoice_sender_bic', 'invoice_sender_bank_name',
+        'invoice_sender_tax_number', 'invoice_sender_vat_number',
+        'invoice_sender_is_kleinunternehmer', 'invoice_prefix', 'invoice_payment_days',
+        'notif_email', 'notif_days', 'notif_enabled',
+        'koop_preisrechner_settings', 'todo_categories',
+    ]
+    data = {}
+    for key in backup_keys:
+        val = get_setting(key)
+        if val is not None:
+            # Skip binary logo data from backup (too large)
+            if key == 'invoice_logo_b64':
+                continue
+            data[key] = val
+    import json as _json
+    payload = _json.dumps(data, ensure_ascii=False, indent=2)
+    from flask import Response
+    return Response(
+        payload,
+        mimetype='application/json',
+        headers={'Content-Disposition': 'attachment; filename=content-os-keys-backup.json'}
+    )
+
+
+@app.route('/api/integrations/import', methods=['POST'])
+@login_required
+def integrations_import():
+    """Restore API keys from a previously exported JSON backup."""
+    f = request.files.get('backup_file')
+    if not f:
+        return jsonify({'ok': False, 'error': 'Keine Datei'}), 400
+    try:
+        import json as _json
+        data = _json.loads(f.read())
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Ungültige JSON-Datei'}), 400
+    allowed = {
+        'apify_token', 'ig_sync_method', 'ig_auto_sync',
+        'telegram_bot_token', 'anthropic_api_key', 'rapidapi_key', 'cron_token',
+        'invoice_sender_name', 'invoice_sender_street', 'invoice_sender_city',
+        'invoice_sender_email', 'invoice_sender_phone', 'invoice_sender_iban',
+        'invoice_sender_bic', 'invoice_sender_bank_name',
+        'invoice_sender_tax_number', 'invoice_sender_vat_number',
+        'invoice_sender_is_kleinunternehmer', 'invoice_prefix', 'invoice_payment_days',
+        'notif_email', 'notif_days', 'notif_enabled',
+        'koop_preisrechner_settings', 'todo_categories',
+    }
+    count = 0
+    for key, value in data.items():
+        if key in allowed and value is not None:
+            set_setting(key, str(value))
+            count += 1
+    db.session.commit()
+    return jsonify({'ok': True, 'restored': count})
+
+
 @app.route('/api/cron-token/generate', methods=['POST'])
 @login_required
 def cron_token_generate():
@@ -11595,6 +11676,59 @@ def api_partner_update(pid):
         p.rating = int(d['rating']) if d['rating'] else None
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/partner/<int:pid>/pdf')
+@login_required
+def api_partner_pdf(pid):
+    p = Partner.query.get_or_404(pid)
+    koops = Kooperation.query.filter_by(partner_id=pid).order_by(Kooperation.created_at.desc()).all()
+    revenue_paid = sum(k.amount or 0 for k in koops if k.payment_received_at)
+    from flask import render_template_string
+    html = render_template_string("""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>Partner: {{ p.name }}</title>
+<style>
+  body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;color:#111;font-size:13px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:#6b7280;font-size:12px;margin-bottom:24px}
+  .section{margin-bottom:20px}
+  .label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9ca3af;margin-bottom:4px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th{background:#111;color:#fff;padding:8px 10px;font-size:11px;text-align:left}
+  td{padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:12px}
+  .badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700}
+  .aktiv{background:#d1fae5;color:#065f46} .inaktiv{background:#f3f4f6;color:#374151} .blacklist{background:#fee2e2;color:#991b1b}
+  @media print{body{margin:20px}}
+</style>
+</head><body>
+<div style="display:flex;justify-content:space-between;align-items:flex-start">
+  <div><h1>{{ p.name }}</h1>
+  {% if p.company %}<div class="sub">{{ p.company }}</div>{% endif %}</div>
+  <span class="badge {{ p.status }}">{{ p.status | capitalize }}</span>
+</div>
+<div class="section" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  {% if p.email %}<div><div class="label">E-Mail</div>{{ p.email }}</div>{% endif %}
+  {% if p.phone %}<div><div class="label">Telefon</div>{{ p.phone }}</div>{% endif %}
+  {% if p.website %}<div><div class="label">Website</div>{{ p.website }}</div>{% endif %}
+  {% if p.account_ids %}<div><div class="label">Seiten</div>{{ p.account_ids }}</div>{% endif %}
+  {% if p.rating %}<div><div class="label">Bewertung</div>{{ '⭐' * p.rating }}</div>{% endif %}
+  <div><div class="label">Umsatz (bezahlt)</div><b>{{ revenue_paid | round(2) }} €</b></div>
+</div>
+{% if p.notes %}<div class="section"><div class="label">Notizen</div><p style="margin:4px 0;line-height:1.6">{{ p.notes }}</p></div>{% endif %}
+{% if koops %}
+<div class="section"><div class="label">Kooperationen ({{ koops|length }})</div>
+<table><thead><tr><th>Kampagne</th><th>Status</th><th>Betrag</th><th>Datum</th></tr></thead><tbody>
+{% for k in koops %}
+<tr><td>{{ k.campaign_name or k.koop_type }}</td><td>{{ k.status }}</td>
+<td>{% if k.amount %}{{ k.amount }} €{% else %}—{% endif %}</td>
+<td>{{ k.created_at.strftime('%d.%m.%Y') if k.created_at else '—' }}</td></tr>
+{% endfor %}
+</tbody></table></div>{% endif %}
+<div style="margin-top:30px;color:#9ca3af;font-size:11px">Erstellt: {{ p.created_at.strftime('%d.%m.%Y') if p.created_at else '' }} · Content OS</div>
+<script>window.print()</script>
+</body></html>""", p=p, koops=koops, revenue_paid=revenue_paid)
+    return html
 
 
 @app.route('/api/partner/<int:pid>', methods=['DELETE'])
