@@ -460,9 +460,7 @@
     <a href="{{ url_for('automation') }}" class="nav-item {% if active_page == 'automation' %}active{% endif %}">
       <i class="fa-solid fa-robot"></i> Automatisierung
     </a>
-    <a href="{{ url_for('ai_config_list') }}" class="nav-sub {% if active_page == 'ai' %}active{% endif %}">
-      <i class="fa-solid fa-microchip"></i> KI-Zentrale
-    </a>
+
     <a href="{{ url_for('settings') }}" class="nav-item {% if active_page == 'settings' or active_page == 'integrations' %}active{% endif %}">
       <i class="fa-solid fa-gear"></i> Einstellungen
     </a>
@@ -797,7 +795,7 @@ const shortcuts = {
   'g c':'{{ url_for("content_hub") }}','g r':'{{ url_for("content_templates") }}',
   'g k':'{{ url_for("calendar_view") }}','g m':'{{ url_for("media_library") }}',
   'g d':'{{ url_for("dashboard") }}','g n':'{{ url_for("analytics") }}',
-  'g t':'{{ url_for("automation") }}','g i':'{{ url_for("ai_config_list") }}',
+  'g t':'{{ url_for("automation") }}',
   'g e':'{{ url_for("team") }}','g s':'{{ url_for("settings") }}',
 };
 let keySeq='',keyTimer;
@@ -935,7 +933,7 @@ async function saveRefillDays(val) {
     </div>
     <div style="padding:20px 24px;display:grid;grid-template-columns:1fr 1fr;gap:0">
       {% for section, items in [
-        ('Navigation', [('g d','Dashboard'),('g a','Accounts'),('g g','Gruppen'),('g c','Content Hub'),('g r','Templates'),('g k','Kalender'),('g m','Medienbibliothek'),('g n','Analytics'),('g t','Automatisierung'),('g i','KI-Zentrale'),('g e','Team'),('g s','Einstellungen')]),
+        ('Navigation', [('g d','Dashboard'),('g a','Accounts'),('g g','Gruppen'),('g c','Content Hub'),('g r','Templates'),('g k','Kalender'),('g m','Medienbibliothek'),('g n','Analytics'),('g t','Automatisierung'),('g e','Team'),('g s','Einstellungen')]),
         ('Aktionen', [('/','Suche öffnen'),('p','Schnell-Post öffnen'),('n','Neuer Eintrag'),('Esc','Modal schließen / Blur'),('?','Shortcuts anzeigen')]),
       ] %}
       <div style="padding:8px 0 16px">

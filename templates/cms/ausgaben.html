@@ -54,16 +54,16 @@
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
     <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(99,102,241,.1),rgba(99,102,241,.03))">
       <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">GESAMT {{ jahr }}</div>
-      <div style="font-size:22px;font-weight:800" x-text="({{ gesamt }} + (includeAbos ? _aboMo : 0)).toLocaleString('de-DE',{minimumFractionDigits:2})+' €'"></div>
+      <div style="font-size:22px;font-weight:800" x-text="({{ gesamt }} + (includeAbos ? Math.round(_aboMo * _aboMonthFactor * 100)/100 : 0)).toLocaleString('de-DE',{minimumFractionDigits:2})+' €'"></div>
       <div x-show="includeAbos" style="font-size:10px;color:#a855f7;margin-top:2px"
-           x-text="'+ '+_aboMo.toLocaleString(\'de-DE\',{minimumFractionDigits:2})+\' € Abos\'"></div>
+           x-text="'+ '+(Math.round(_aboMo * _aboMonthFactor * 100)/100).toLocaleString(\'de-DE\',{minimumFractionDigits:2})+\' € Abos (×\'+_aboMonthFactor+\'Mo)\'"></div>
     </div>
     <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,.03))">
       <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">FINANZAMT</div>
       <div style="font-size:22px;font-weight:800;color:#10b981"
-           x-text="({{ finanzamt_sum }} + (includeAbos ? _aboFaMo : 0)).toLocaleString('de-DE',{minimumFractionDigits:2})+' €'"></div>
+           x-text="({{ finanzamt_sum }} + (includeAbos ? Math.round(_aboFaMo * _aboMonthFactor * 100)/100 : 0)).toLocaleString('de-DE',{minimumFractionDigits:2})+' €'"></div>
       <div x-show="includeAbos" style="font-size:10px;color:#a855f7;margin-top:2px"
-           x-text="'+ '+_aboFaMo.toLocaleString(\'de-DE\',{minimumFractionDigits:2})+\' € Abos\'"></div>
+           x-text="'+ '+(Math.round(_aboFaMo * _aboMonthFactor * 100)/100).toLocaleString(\'de-DE\',{minimumFractionDigits:2})+\' € Abos (×\'+_aboMonthFactor+\'Mo)\'"></div>
     </div>
     <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(245,158,11,.03))">
       <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">NICHT GEMELDET</div>
@@ -585,6 +585,10 @@ const MONATE = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','No
 // Abos für alle vergangenen Monate + aktuellen Monat
 const _curMonth = new Date().getMonth(); // 0 = Jan … 11 = Dez
 const _aboChartData = Array.from({length:12}, (_,i) => i <= _curMonth ? Math.round(_aboMo * 100) / 100 : 0);
+
+// Monatsfaktor für Jahres-Gesamt: laufendes Jahr → bis inkl. heute, altes Jahr → alle 12
+const _isCurrentYear = {{ jahr }} === new Date().getFullYear();
+const _aboMonthFactor = _isCurrentYear ? new Date().getMonth() + 1 : 12;
 
 new Chart(document.getElementById('ausgabenChart'), {
   type: 'bar',

@@ -604,8 +604,8 @@ function koopCard(k) {
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
         ${k.amount ? `<div style="font-size:15px;font-weight:700;color:var(--success)">${fmt(k.amount)}</div>` : ''}
         <div style="display:flex;gap:5px;margin-top:4px" onclick="event.stopPropagation()">
-          <button onclick="editKoop(${k.id})" style="padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:11px"><i class="fa-solid fa-pen"></i></button>
-          <button onclick="deleteKoop(${k.id})" style="padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:11px"><i class="fa-solid fa-trash"></i></button>
+          <button onclick="event.stopPropagation();editKoop(${k.id})" style="padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:11px"><i class="fa-solid fa-pen"></i></button>
+          <button onclick="event.stopPropagation();deleteKoop(${k.id})" style="padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:11px"><i class="fa-solid fa-trash"></i></button>
         </div>
       </div>
     </div>
@@ -971,7 +971,8 @@ function updatePayProgress() {
   for (let i=1;i<=3;i++) {
     const el = document.getElementById(`pp${i}`);
     if (!el) continue;
-    const circle = el.querySelector('div');
+    const circle = el?.querySelector('div');
+    if (!circle) continue;
     const on = i <= step;
     circle.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
     circle.style.background  = on ? 'var(--accent)' : 'var(--surface)';
@@ -1016,7 +1017,7 @@ function openKoopModal(koop=null) {
   loadDeliverablesToPicker(koop?.deliverables||[]);
 
   if (koop?.account_id) document.getElementById('koopAccount').value = koop.account_id;
-  updatePayProgress();
+  try { updatePayProgress(); } catch(e) { console.warn('updatePayProgress:', e); }
   document.getElementById('koopModal').style.display = 'flex';
 }
 
