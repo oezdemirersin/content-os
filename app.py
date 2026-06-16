@@ -1228,7 +1228,8 @@ def auto_archive_old_content():
             db.session.commit()
 
 
-_last_daily_snap_date = None  # verhindert mehrfaches Laufen pro Tag
+_last_daily_snap_date  = None  # verhindert mehrfaches Laufen pro Tag
+_last_daily_sync_date  = None  # verhindert mehrfachen Follower-Sync pro Tag
 
 def _daily_follower_snapshot():
     """
@@ -1940,17 +1941,21 @@ def schedule_automations():
             with app.app_context():
                 now = datetime.utcnow()
 
-                # ── Täglicher Follower-Sync + Snapshot um 23:xx Berliner Zeit ──
+                # ── Täglicher Follower-Sync + Snapshot um 23:55 Berliner Zeit ──
                 from zoneinfo import ZoneInfo
+                global _last_daily_sync_date
                 now_berlin = datetime.now(ZoneInfo('Europe/Berlin'))
-                if now_berlin.hour == 23:
+                today_berlin = now_berlin.date()
+                if now_berlin.hour == 23 and now_berlin.minute >= 55:
+                    _daily_follower_snapshot()
                     auto_sync_row = AppSettings.query.filter_by(key='ig_auto_sync').first()
                     auto_sync_on  = (not auto_sync_row) or (auto_sync_row.value != '0')
-                    if auto_sync_on and not _ig_sync_status['running']:
+                    if (auto_sync_on and not _ig_sync_status['running']
+                            and _last_daily_sync_date != today_berlin):
+                        _last_daily_sync_date = today_berlin
                         _ig_sync_status.update({'running': True, 'error': None,
                                                 'result': None, 'progress': 0, 'current': ''})
                         threading.Thread(target=_run_ig_follower_sync, daemon=True).start()
-                    _daily_follower_snapshot()
 
                 # ── Telegram: fällige Posts senden ───────────────────────
                 _send_due_telegram_posts()
