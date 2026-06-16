@@ -272,6 +272,102 @@
 .pipe-card:hover { border-color:var(--accent) }
 .fc-active { background:rgba(59,130,246,.15) !important;border-color:var(--accent) !important;color:var(--accent2) !important }
 </style>
+
+<!-- Preisrechner Floating Button -->
+<button onclick="document.getElementById('preisrechnerModal').style.display='flex'"
+        style="position:fixed;bottom:24px;right:24px;z-index:400;width:48px;height:48px;border-radius:50%;
+               background:linear-gradient(135deg,#6366f1,#a855f7);border:none;color:#fff;cursor:pointer;
+               display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(99,102,241,.4)">
+  <i class="fa-solid fa-calculator" style="font-size:16px"></i>
+</button>
+
+<!-- Preisrechner Modal -->
+<div id="preisrechnerModal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(680px,95vw);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div style="font-family:var(--font-display);font-size:14px">KOOP-PREISRECHNER</div>
+      <button onclick="document.getElementById('preisrechnerModal').style.display='none'" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+      <!-- Linke Seite: Inputs -->
+      <div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:14px">EINGABEN</div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label class="form-label">Format</label>
+            <select id="prFormat" class="select-field" onchange="calcPreis()">
+              <option value="story">Story</option>
+              <option value="post">Post (Feed)</option>
+              <option value="reel">Reel</option>
+              <option value="paket">Story + Post (Paket)</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Follower-Anzahl</label>
+            <input type="number" id="prFollower" class="input-field" placeholder="z.B. 15000" oninput="calcPreis()" min="0">
+          </div>
+          <div>
+            <label class="form-label">Engagement-Rate (%)</label>
+            <input type="number" id="prEngagement" class="input-field" placeholder="z.B. 4.5" oninput="calcPreis()" step="0.1" min="0">
+          </div>
+          <button onclick="calcPreis()" class="btn btn-primary" style="margin-top:4px">
+            <i class="fa-solid fa-calculator"></i> Berechnen
+          </button>
+        </div>
+      </div>
+
+      <!-- Rechte Seite: Ergebnis -->
+      <div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:14px">ERGEBNIS</div>
+        <div id="prResultWrap" style="display:none">
+          <div style="background:var(--surface2);border-radius:12px;padding:18px;margin-bottom:16px;text-align:center">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Empfohlener Preis</div>
+            <div id="prMittel" style="font-size:32px;font-weight:800;color:var(--accent)">—</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px">
+              Bereich: <span id="prMin">—</span> – <span id="prMax">—</span>
+            </div>
+          </div>
+          <div style="margin-bottom:12px">
+            <label class="form-label">Manuell überschreiben (€)</label>
+            <input type="number" id="prManual" class="input-field" placeholder="Eigener Preis" step="0.01">
+          </div>
+          <button onclick="prOverwriteKoop()" class="btn btn-primary" style="width:100%">
+            <i class="fa-solid fa-arrow-right"></i> In neue Koop übernehmen
+          </button>
+        </div>
+        <div id="prResultEmpty" style="padding:40px;text-align:center;color:var(--muted)">
+          <i class="fa-solid fa-calculator" style="font-size:28px;opacity:.3;display:block;margin-bottom:10px"></i>
+          Follower eingeben und berechnen
+        </div>
+      </div>
+    </div>
+
+    <!-- Einstellungen (aufklappbar) -->
+    <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+      <button onclick="togglePreisSettings()" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px;padding:0">
+        <i class="fa-solid fa-gear" style="font-size:11px"></i> Einstellungen (Basis €/1.000 Follower)
+        <i class="fa-solid fa-chevron-down" id="prSettingsChevron" style="font-size:9px;transition:transform .2s"></i>
+      </button>
+      <div id="prSettingsBody" style="display:none;margin-top:14px">
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px">
+          <div><label class="form-label">Story (€/1k Follower)</label><input type="number" id="prs_story" class="input-field" step="0.5"></div>
+          <div><label class="form-label">Post (€/1k Follower)</label><input type="number" id="prs_post" class="input-field" step="0.5"></div>
+          <div><label class="form-label">Reel (€/1k Follower)</label><input type="number" id="prs_reel" class="input-field" step="0.5"></div>
+          <div><label class="form-label">Paket (€/1k Follower)</label><input type="number" id="prs_paket" class="input-field" step="0.5"></div>
+          <div><label class="form-label">Engagement-Bonus ≥5% (%)</label><input type="number" id="prs_eng5" class="input-field" step="1"></div>
+          <div><label class="form-label">Engagement-Bonus ≥10% (%)</label><input type="number" id="prs_eng10" class="input-field" step="1"></div>
+          <div><label class="form-label">Min-Faktor (z.B. 0.8)</label><input type="number" id="prs_min" class="input-field" step="0.05"></div>
+          <div><label class="form-label">Max-Faktor (z.B. 1.2)</label><input type="number" id="prs_max" class="input-field" step="0.05"></div>
+        </div>
+        <button onclick="savePreisSettings()" class="btn btn-primary" style="font-size:12px">
+          <i class="fa-solid fa-save"></i> Einstellungen speichern
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -1090,4 +1186,95 @@ async function copyContract() {
   </div>
 </div>
 
+<script>
+// ── Koop-Preisrechner ─────────────────────────────────────────
+let _prSettings = {story:20,post:50,reel:80,paket:60,engagement_bonus_5:20,engagement_bonus_10:40,min_faktor:0.8,max_faktor:1.2};
+
+(async function loadPreisSettings() {
+  try {
+    const r = await fetch('/api/koop-preisrechner/settings').then(r=>r.json());
+    if (r.ok) { _prSettings = r.settings; fillPreisSettingsForm(); }
+  } catch(e) {}
+})();
+
+function fillPreisSettingsForm() {
+  const s = _prSettings;
+  const f = id => document.getElementById(id);
+  if (f('prs_story'))  f('prs_story').value  = s.story  ?? 20;
+  if (f('prs_post'))   f('prs_post').value   = s.post   ?? 50;
+  if (f('prs_reel'))   f('prs_reel').value   = s.reel   ?? 80;
+  if (f('prs_paket'))  f('prs_paket').value  = s.paket  ?? 60;
+  if (f('prs_eng5'))   f('prs_eng5').value   = s.engagement_bonus_5  ?? 20;
+  if (f('prs_eng10'))  f('prs_eng10').value  = s.engagement_bonus_10 ?? 40;
+  if (f('prs_min'))    f('prs_min').value    = s.min_faktor ?? 0.8;
+  if (f('prs_max'))    f('prs_max').value    = s.max_faktor ?? 1.2;
+}
+
+function calcPreis() {
+  const follower    = parseFloat(document.getElementById('prFollower').value) || 0;
+  const engagement  = parseFloat(document.getElementById('prEngagement').value) || 0;
+  const format      = document.getElementById('prFormat').value;
+  if (!follower) return;
+
+  const basisPer1k  = _prSettings[format] || 50;
+  let   basisPreis  = (follower / 1000) * basisPer1k;
+
+  // Engagement-Bonus
+  if (engagement >= 10)      basisPreis *= (1 + (_prSettings.engagement_bonus_10 || 40) / 100);
+  else if (engagement >= 5)  basisPreis *= (1 + (_prSettings.engagement_bonus_5  || 20) / 100);
+
+  const minPreis   = Math.round(basisPreis * (_prSettings.min_faktor || 0.8));
+  const maxPreis   = Math.round(basisPreis * (_prSettings.max_faktor || 1.2));
+  const mittelPreis= Math.round(basisPreis);
+
+  document.getElementById('prMittel').textContent = mittelPreis + ' €';
+  document.getElementById('prMin').textContent    = minPreis + ' €';
+  document.getElementById('prMax').textContent    = maxPreis + ' €';
+  document.getElementById('prManual').value       = mittelPreis;
+  document.getElementById('prResultWrap').style.display  = 'block';
+  document.getElementById('prResultEmpty').style.display = 'none';
+}
+
+function prOverwriteKoop() {
+  const val = document.getElementById('prManual').value || document.getElementById('prMittel').textContent.replace(' €','');
+  const amtField = document.getElementById('newAmount') || document.getElementById('kAmount');
+  if (amtField) {
+    amtField.value = val;
+    document.getElementById('preisrechnerModal').style.display = 'none';
+    showToast('Betrag übernommen: ' + val + ' €', 'success');
+  } else {
+    showToast('Betrag kopiert: ' + val + ' €. Bitte manuell einfügen.', 'info');
+    navigator.clipboard.writeText(val).catch(()=>{});
+    document.getElementById('preisrechnerModal').style.display = 'none';
+  }
+}
+
+function togglePreisSettings() {
+  const body = document.getElementById('prSettingsBody');
+  const chev = document.getElementById('prSettingsChevron');
+  const open = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  chev.style.transform = open ? 'rotate(180deg)' : '';
+  if (open) fillPreisSettingsForm();
+}
+
+async function savePreisSettings() {
+  const s = {
+    story:  parseFloat(document.getElementById('prs_story').value)  || 20,
+    post:   parseFloat(document.getElementById('prs_post').value)   || 50,
+    reel:   parseFloat(document.getElementById('prs_reel').value)   || 80,
+    paket:  parseFloat(document.getElementById('prs_paket').value)  || 60,
+    engagement_bonus_5:  parseFloat(document.getElementById('prs_eng5').value)  || 20,
+    engagement_bonus_10: parseFloat(document.getElementById('prs_eng10').value) || 40,
+    min_faktor: parseFloat(document.getElementById('prs_min').value) || 0.8,
+    max_faktor: parseFloat(document.getElementById('prs_max').value) || 1.2,
+  };
+  const r = await fetch('/api/koop-preisrechner/settings', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({settings: s})
+  }).then(r=>r.json());
+  if (r.ok) { _prSettings = s; showToast('Einstellungen gespeichert', 'success'); }
+  else showToast('Fehler beim Speichern', 'error');
+}
+</script>
 {% endblock %}

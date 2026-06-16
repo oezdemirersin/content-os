@@ -877,3 +877,17 @@ class AppTodo(db.Model):
     priority   = db.Column(db.Integer, default=0)           # 0=normal, 1=hoch
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class LocalEvent(db.Model):
+    """Lokale Events für den Event-Radar in Stadt-Memes."""
+    __tablename__ = 'local_event'
+    id           = db.Column(db.Integer, primary_key=True)
+    name         = db.Column(db.String(200), nullable=False)
+    city         = db.Column(db.String(100))
+    datum        = db.Column(db.Date)
+    beschreibung = db.Column(db.Text)
+    url          = db.Column(db.String(500))
+    kategorie    = db.Column(db.String(50), default='Sonstiges')  # Fest|Markt|Konzert|Sport|Politik|Sonstiges
+    content_idee = db.Column(db.Text)
+    created_at   = db.Column(db.DateTime, default=datetime.utcnow)

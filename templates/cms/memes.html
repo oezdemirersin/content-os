@@ -5,6 +5,19 @@
 {% block content %}
 <div style="max-width:1100px">
 
+  <!-- Tab-Switcher -->
+  <div style="display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--border)">
+    <button onclick="setMemeTab('templates')" id="tab-templates" class="fchip active" style="border-radius:8px 8px 0 0;padding:8px 20px">
+      <i class="fa-solid fa-images" style="margin-right:6px;font-size:11px"></i> Templates
+    </button>
+    <button onclick="setMemeTab('events')" id="tab-events" class="fchip" style="border-radius:8px 8px 0 0;padding:8px 20px">
+      <i class="fa-solid fa-calendar-star" style="margin-right:6px;font-size:11px"></i> Event-Radar
+      {% if events %}<span style="margin-left:5px;background:rgba(245,158,11,.3);color:#fbbf24;border-radius:10px;padding:0 6px;font-size:10px">{{ events|length }}</span>{% endif %}
+    </button>
+  </div>
+
+<div id="memeTab-templates">
+
   <!-- Toolbar -->
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap">
     <div style="font-size:13px;color:var(--muted)">
@@ -225,6 +238,91 @@
 
 </div>
 
+</div><!-- /memeTab-templates -->
+
+<!-- Event-Radar Tab -->
+<div id="memeTab-events" style="display:none" x-data="eventRadar()" x-init="init()">
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div style="font-size:13px;color:var(--muted)">Lokale Events → direkt als Content-Ideen nutzen</div>
+    <button @click="openAdd()" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Event eintragen</button>
+  </div>
+
+  <!-- Filter-Chips -->
+  <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+    <button @click="filter='alle'" class="fchip" :class="filter==='alle'?'active':''">Alle (<span x-text="events.length"></span>)</button>
+    <template x-for="kat in kategorien" :key="kat">
+      <button @click="filter=kat" class="fchip" :class="filter===kat?'active':''" x-text="kat+' ('+events.filter(e=>e.kategorie===kat).length+')'"></button>
+    </template>
+  </div>
+
+  <!-- Events-Liste -->
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <template x-for="ev in filtered" :key="ev.id">
+      <div class="card" style="padding:14px 16px;display:flex;gap:12px;align-items:flex-start">
+        <!-- Kategorie-Badge/Datum-Block -->
+        <div style="flex-shrink:0;width:48px;text-align:center;background:var(--surface2);border-radius:10px;padding:8px 4px">
+          <div style="font-size:18px" x-text="katEmoji(ev.kategorie)"></div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px" x-text="ev.datum ? formatDate(ev.datum) : '—'"></div>
+        </div>
+        <!-- Info -->
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:13px;font-weight:600" x-text="ev.name"></span>
+            <span x-show="ev.city" style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--surface2);color:var(--muted)" x-text="ev.city"></span>
+            <a x-show="ev.url" :href="ev.url" target="_blank" rel="noopener" style="font-size:10px;color:var(--accent)"><i class="fa-solid fa-arrow-up-right-from-square" style="font-size:9px"></i> Link</a>
+          </div>
+          <div x-show="ev.beschreibung" style="font-size:11px;color:var(--muted);margin-top:4px" x-text="ev.beschreibung"></div>
+          <div x-show="ev.content_idee" style="font-size:11px;color:#fbbf24;margin-top:6px;padding:6px 10px;border-radius:8px;background:rgba(245,158,11,.08)">
+            <i class="fa-solid fa-lightbulb" style="margin-right:4px;font-size:10px"></i>
+            <span x-text="ev.content_idee"></span>
+          </div>
+        </div>
+        <!-- Actions -->
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button @click="openEdit(ev)" class="icon-btn"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
+          <button @click="deleteEvent(ev)" class="icon-btn" style="color:var(--danger)"><i class="fa-solid fa-trash" style="font-size:10px"></i></button>
+        </div>
+      </div>
+    </template>
+    <div x-show="filtered.length===0" style="padding:50px;text-align:center;color:var(--muted)">
+      <i class="fa-solid fa-calendar-xmark" style="font-size:28px;opacity:.3;display:block;margin-bottom:10px"></i>
+      Keine Events eingetragen.
+    </div>
+  </div>
+</div>
+
+<!-- Event Modal -->
+<div id="eventModal" style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)document.getElementById('eventModal').style.display='none'">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(520px,95vw);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div style="font-family:var(--font-display);font-size:14px" id="eventModalTitle">EVENT EINTRAGEN</div>
+      <button onclick="document.getElementById('eventModal').style.display='none'" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+    <input type="hidden" id="eEvId">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div style="grid-column:1/-1"><label class="form-label">Name *</label><input type="text" id="eEvName" class="input-field" placeholder="z.B. Weihnachtsmarkt Frankfurt"></div>
+      <div><label class="form-label">Stadt</label><input type="text" id="eEvCity" class="input-field" placeholder="Frankfurt"></div>
+      <div><label class="form-label">Datum</label><input type="date" id="eEvDatum" class="input-field"></div>
+      <div><label class="form-label">Kategorie</label>
+        <select id="eEvKat" class="select-field">
+          <option value="Fest">🎉 Fest</option><option value="Markt">🛍️ Markt</option>
+          <option value="Konzert">🎵 Konzert</option><option value="Sport">⚽ Sport</option>
+          <option value="Politik">🗳️ Politik</option><option value="Sonstiges">📌 Sonstiges</option>
+        </select>
+      </div>
+      <div><label class="form-label">Link / Quelle</label><input type="url" id="eEvUrl" class="input-field" placeholder="https://…"></div>
+      <div style="grid-column:1/-1"><label class="form-label">Beschreibung</label><textarea id="eEvBeschr" rows="2" class="input-field" placeholder="Was passiert da?"></textarea></div>
+      <div style="grid-column:1/-1"><label class="form-label">Content-Idee <span style="color:var(--muted);font-weight:400">(optional)</span></label><textarea id="eEvIdee" rows="2" class="input-field" placeholder="z.B. 'Vorher/Nachher Story vom Aufbau'"></textarea></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="document.getElementById('eventModal').style.display='none'" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="saveEvent()" class="btn btn-primary"><i class="fa-solid fa-save"></i> Speichern</button>
+    </div>
+  </div>
+</div>
+
 <!-- Upload-Modal (Batch) -->
 <div id="uploadModal"
      style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
@@ -309,6 +407,64 @@
 
 {% block scripts %}
 <script>
+const _events = {{ events | tojson }};
+
+function setMemeTab(tab) {
+  ['templates','events'].forEach(t => {
+    document.getElementById('memeTab-'+t).style.display = t===tab ? 'block' : 'none';
+    document.getElementById('tab-'+t).classList.toggle('active', t===tab);
+  });
+}
+
+function eventRadar() {
+  return {
+    events: [],
+    filter: 'alle',
+    kategorien: ['Fest','Markt','Konzert','Sport','Politik','Sonstiges'],
+    init() { this.events = _events; },
+    get filtered() { return this.filter==='alle' ? this.events : this.events.filter(e=>e.kategorie===this.filter); },
+    katEmoji(k) { return {Fest:'🎉',Markt:'🛍️',Konzert:'🎵',Sport:'⚽',Politik:'🗳️',Sonstiges:'📌'}[k]||'📌'; },
+    formatDate(iso) { const [y,m,d]=iso.split('-'); return `${d}.${m}`; },
+    openAdd() {
+      ['eEvId','eEvName','eEvCity','eEvUrl','eEvBeschr','eEvIdee'].forEach(id=>document.getElementById(id).value='');
+      document.getElementById('eEvDatum').value='';
+      document.getElementById('eEvKat').value='Fest';
+      document.getElementById('eventModalTitle').textContent='EVENT EINTRAGEN';
+      document.getElementById('eventModal').style.display='flex';
+      setTimeout(()=>document.getElementById('eEvName').focus(),50);
+    },
+    openEdit(ev) {
+      document.getElementById('eEvId').value=ev.id;
+      document.getElementById('eEvName').value=ev.name;
+      document.getElementById('eEvCity').value=ev.city;
+      document.getElementById('eEvDatum').value=ev.datum;
+      document.getElementById('eEvKat').value=ev.kategorie;
+      document.getElementById('eEvUrl').value=ev.url;
+      document.getElementById('eEvBeschr').value=ev.beschreibung;
+      document.getElementById('eEvIdee').value=ev.content_idee;
+      document.getElementById('eventModalTitle').textContent='EVENT BEARBEITEN';
+      document.getElementById('eventModal').style.display='flex';
+    },
+    async deleteEvent(ev) {
+      if(!confirm(`"${ev.name}" löschen?`))return;
+      const r=await fetch(`/api/events/${ev.id}`,{method:'DELETE'}).then(r=>r.json());
+      if(r.ok){this.events=this.events.filter(e=>e.id!==ev.id);showToast('Gelöscht','success');}
+    },
+  };
+}
+
+async function saveEvent() {
+  const id=document.getElementById('eEvId').value;
+  const name=document.getElementById('eEvName').value.trim();
+  if(!name){showToast('Name ist Pflichtfeld','error');return;}
+  const payload={name,city:document.getElementById('eEvCity').value,datum:document.getElementById('eEvDatum').value,
+    kategorie:document.getElementById('eEvKat').value,url:document.getElementById('eEvUrl').value,
+    beschreibung:document.getElementById('eEvBeschr').value,content_idee:document.getElementById('eEvIdee').value};
+  const r=await fetch(id?`/api/events/${id}`:'/api/events',{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.json());
+  if(r.ok){showToast('Gespeichert','success');document.getElementById('eventModal').style.display='none';setTimeout(()=>location.reload(),500);}
+  else showToast(r.error||'Fehler','error');
+}
+
 // ── Upload (Batch) ────────────────────────────────────────────
 let _uploadFiles = [];   // Array of File objects
 

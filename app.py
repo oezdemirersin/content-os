@@ -22,7 +22,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     InspirationSource, InspirationPost,
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
-                    Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe)
+                    Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -678,6 +678,16 @@ def init_db():
                 notizen TEXT,
                 gekauft BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS local_event (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(200) NOT NULL,
+                city VARCHAR(100),
+                datum DATE,
+                beschreibung TEXT,
+                url VARCHAR(500),
+                kategorie VARCHAR(50) DEFAULT \'Sonstiges\',
+                content_idee TEXT,
+                created_at TIMESTAMP DEFAULT NOW())''')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -921,6 +931,16 @@ def init_db():
                 prioritaet VARCHAR(20) DEFAULT 'mittel',
                 notizen TEXT,
                 gekauft BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS local_event (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(200) NOT NULL,
+                city VARCHAR(100),
+                datum DATE,
+                beschreibung TEXT,
+                url VARCHAR(500),
+                kategorie VARCHAR(50) DEFAULT 'Sonstiges',
+                content_idee TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
             try:
@@ -7503,6 +7523,11 @@ def memes_dashboard():
 
     has_ai_key = bool(os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key'))
 
+    events = LocalEvent.query.order_by(LocalEvent.datum.asc()).all()
+    events_data = [{'id': e.id, 'name': e.name, 'city': e.city or '', 'datum': e.datum.isoformat() if e.datum else '',
+                    'beschreibung': e.beschreibung or '', 'url': e.url or '', 'kategorie': e.kategorie,
+                    'content_idee': e.content_idee or ''} for e in events]
+
     return render_template('memes.html',
         city_profiles=CITY_PROFILES,
         templates=templates,
@@ -7511,6 +7536,7 @@ def memes_dashboard():
         meme_accounts=meme_accounts,
         has_ai_key=has_ai_key,
         cities=list(CITY_PROFILES.keys()),
+        events=events_data,
         active_page='memes')
 
 
@@ -11085,6 +11111,54 @@ def geplant_budget_save():
         return jsonify({'ok': False, 'error': str(e)}), 400
 
 
+@app.route('/api/events', methods=['POST'])
+@login_required
+def event_create():
+    from datetime import date as _date
+    d = request.json or {}
+    try:
+        e = LocalEvent(
+            name=d['name'].strip(), city=d.get('city', '').strip() or None,
+            datum=_date.fromisoformat(d['datum']) if d.get('datum') else None,
+            beschreibung=d.get('beschreibung', '').strip() or None,
+            url=d.get('url', '').strip() or None,
+            kategorie=d.get('kategorie', 'Sonstiges'),
+            content_idee=d.get('content_idee', '').strip() or None,
+        )
+        db.session.add(e)
+        db.session.commit()
+        return jsonify({'ok': True, 'id': e.id})
+    except Exception as ex:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(ex)}), 400
+
+
+@app.route('/api/events/<int:eid>', methods=['PUT'])
+@login_required
+def event_update(eid):
+    from datetime import date as _date
+    e = LocalEvent.query.get_or_404(eid)
+    d = request.json or {}
+    if 'name'         in d: e.name         = d['name'].strip()
+    if 'city'         in d: e.city         = d['city'].strip() or None
+    if 'datum'        in d: e.datum        = _date.fromisoformat(d['datum']) if d['datum'] else None
+    if 'beschreibung' in d: e.beschreibung = d['beschreibung'].strip() or None
+    if 'url'          in d: e.url          = d['url'].strip() or None
+    if 'kategorie'    in d: e.kategorie    = d['kategorie']
+    if 'content_idee' in d: e.content_idee = d['content_idee'].strip() or None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/events/<int:eid>', methods=['DELETE'])
+@login_required
+def event_delete(eid):
+    e = LocalEvent.query.get_or_404(eid)
+    db.session.delete(e)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
 @app.route('/kooperationen')
 @login_required
 def kooperationen():
@@ -11403,6 +11477,32 @@ Nutze HTML-Formatierung (h2, h3, p, ol, strong) damit es druckfertig aussieht.""
         return jsonify({'ok': True, 'html': text})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/koop-preisrechner/settings', methods=['GET'])
+@login_required
+def koop_preisrechner_settings_get():
+    import json as _json
+    raw = get_setting('koop_preisrechner_settings')
+    if raw:
+        try:
+            return jsonify({'ok': True, 'settings': _json.loads(raw)})
+        except:
+            pass
+    default = {'story': 20, 'post': 50, 'reel': 80, 'paket': 60,
+                'engagement_bonus_5': 20, 'engagement_bonus_10': 40,
+                'min_faktor': 0.8, 'max_faktor': 1.2}
+    return jsonify({'ok': True, 'settings': default})
+
+
+@app.route('/api/koop-preisrechner/settings', methods=['POST'])
+@login_required
+def koop_preisrechner_settings_save():
+    import json as _json
+    d = request.json or {}
+    set_setting('koop_preisrechner_settings', _json.dumps(d.get('settings', {})))
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 # ─────────────────────── PARTNER-CRM ────────────────────────────
