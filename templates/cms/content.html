@@ -113,6 +113,21 @@
              style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer">
     </div>
 
+    <!-- Thumbnail -->
+    {% if item.media_items %}
+      {% set first = item.media_items[0] %}
+      {% if first.file_type and 'video' in first.file_type %}
+      <div style="width:100%;height:120px;background:#111;display:flex;align-items:center;justify-content:center;border-radius:10px 10px 0 0">
+        <i class="fa-solid fa-play-circle" style="font-size:32px;color:rgba(255,255,255,.3)"></i>
+      </div>
+      {% elif first.thumbnail_url or first.url %}
+      <div style="width:100%;height:120px;overflow:hidden;border-radius:10px 10px 0 0">
+        <img src="{{ first.thumbnail_url or first.url }}" alt="" style="width:100%;height:100%;object-fit:cover" loading="lazy"
+             onerror="this.parentElement.style.display='none'">
+      </div>
+      {% endif %}
+    {% endif %}
+
     <div style="padding:16px 16px 12px 38px">
       <!-- Meta row -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -172,18 +187,27 @@
 
     <!-- Footer -->
     <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-      <!-- Quick status -->
-      <select onchange="quickStatus({{ item.id }},this)" onclick="event.stopPropagation()"
-              style="background:transparent;border:none;outline:none;cursor:pointer;font-family:var(--font-body);font-size:12px;font-weight:700;
-                color:{% if item.status=='ready' %}var(--success){% elif item.status=='draft' %}var(--muted)
-                {% elif item.status=='in_progress' %}var(--warning){% elif item.status=='scheduled' %}var(--accent2)
-                {% elif item.status=='published' %}var(--accent){% elif item.status=='error' %}var(--danger)
-                {% else %}var(--muted){% endif %}">
-        {% for s,l in [('draft','Entwurf'),('in_progress','In Bearbeitung'),('ready','Bereit'),
-                       ('scheduled','Geplant'),('published','Veröffentlicht'),('archived','Archiviert'),('error','Fehler')] %}
-        <option value="{{ s }}" {% if item.status==s %}selected{% endif %} style="background:var(--surface2);color:var(--text)">{{ l }}</option>
-        {% endfor %}
-      </select>
+      <!-- Quick status + scheduled date -->
+      <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+        <select onchange="quickStatus({{ item.id }},this)" onclick="event.stopPropagation()"
+                style="background:transparent;border:none;outline:none;cursor:pointer;font-family:var(--font-body);font-size:12px;font-weight:700;
+                  color:{% if item.status=='ready' %}var(--success){% elif item.status=='draft' %}var(--muted)
+                  {% elif item.status=='in_progress' %}var(--warning){% elif item.status=='scheduled' %}var(--accent2)
+                  {% elif item.status=='published' %}var(--accent){% elif item.status=='error' %}var(--danger)
+                  {% else %}var(--muted){% endif %}">
+          {% for s,l in [('draft','Entwurf'),('in_progress','In Bearbeitung'),('ready','Bereit'),
+                         ('scheduled','Geplant'),('published','Veröffentlicht'),('archived','Archiviert'),('error','Fehler')] %}
+          <option value="{{ s }}" {% if item.status==s %}selected{% endif %} style="background:var(--surface2);color:var(--text)">{{ l }}</option>
+          {% endfor %}
+        </select>
+        {% set sched_posts = item.scheduled_posts | sort(attribute='scheduled_at') %}
+        {% if sched_posts %}
+        <div style="font-size:10px;color:var(--accent2)">
+          <i class="fa-solid fa-clock" style="font-size:9px"></i>
+          {{ sched_posts[0].scheduled_at.strftime('%d.%m.%Y %H:%M') }}
+        </div>
+        {% endif %}
+      </div>
       <div style="display:flex;gap:2px">
         <a href="{{ url_for('distribute', content_id=item.id) }}" class="icon-btn" style="font-size:12px;padding:5px" title="Verteilen">
           <i class="fa-solid fa-arrows-split-up-and-left"></i>

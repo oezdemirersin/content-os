@@ -243,6 +243,53 @@
   </div>
 </div>
 {% endif %}
+
+<!-- Vergleichs-Panel -->
+<div class="card" style="margin-top:20px;margin-bottom:20px">
+  <div class="card-header">
+    <span class="card-title">ACCOUNT-VERGLEICH</span>
+    <span style="font-size:11px;color:var(--muted)">30-Tage-Verlauf</span>
+  </div>
+  <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
+    <!-- Account selects with VS divider -->
+    <div style="display:grid;grid-template-columns:1fr auto 1fr auto;gap:12px;align-items:end">
+      <div>
+        <label class="form-label">Account A</label>
+        <select id="cmpA" class="select-field">
+          <option value="">Auswählen…</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:center;padding-bottom:6px">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:50%;
+                    width:32px;height:32px;display:flex;align-items:center;justify-content:center;
+                    font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.5px">VS</div>
+      </div>
+      <div>
+        <label class="form-label">Account B</label>
+        <select id="cmpB" class="select-field">
+          <option value="">Auswählen…</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="padding-bottom:2px">
+        <button onclick="loadCompare()" class="btn btn-primary">
+          <i class="fa-solid fa-chart-line"></i> Vergleichen
+        </button>
+      </div>
+    </div>
+    <!-- Side-by-side stat cards -->
+    <div id="compareStats" style="display:flex;gap:12px;min-height:0"></div>
+    <!-- Compare chart -->
+    <div style="height:220px;position:relative">
+      <canvas id="compareChart"></canvas>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -525,40 +572,4 @@ async function loadCompare() {
     </div>`).join('');
 }
 </script>
-
-<!-- Vergleichs-Panel -->
-<div class="card" style="margin-top:20px">
-  <div class="card-header">
-    <span class="card-title">ACCOUNT-VERGLEICH</span>
-  </div>
-  <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
-    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end">
-      <div>
-        <label class="form-label">Account A</label>
-        <select id="cmpA" class="select-field">
-          <option value="">Auswählen…</option>
-          {% for acc in accounts %}
-          <option value="{{ acc.id }}">{{ acc.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label class="form-label">Account B</label>
-        <select id="cmpB" class="select-field">
-          <option value="">Auswählen…</option>
-          {% for acc in accounts %}
-          <option value="{{ acc.id }}">{{ acc.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <button onclick="loadCompare()" class="btn btn-primary">
-        <i class="fa-solid fa-chart-line"></i> Vergleichen
-      </button>
-    </div>
-    <div id="compareStats" style="display:flex;gap:12px"></div>
-    <div style="height:220px;position:relative">
-      <canvas id="compareChart"></canvas>
-    </div>
-  </div>
-</div>
 {% endblock %}

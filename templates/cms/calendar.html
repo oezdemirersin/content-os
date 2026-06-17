@@ -17,14 +17,17 @@
       <i class="fa-solid fa-print"></i> Drucken
     </a>
   </div>
-  <select id="calAccountFilter" onchange="calendar.refetchEvents()"
-          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-                 padding:8px 14px;font-size:13px;color:var(--text);font-family:var(--font-body)">
-    <option value="">Alle Accounts</option>
-    {% for acc in accounts %}
-    <option value="{{ acc.id }}">{{ acc.name }}</option>
-    {% endfor %}
-  </select>
+  <div style="display:flex;align-items:center;gap:8px">
+    <label for="calAccountFilter" style="font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap">Seite:</label>
+    <select id="calAccountFilter"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+                   padding:8px 14px;font-size:13px;color:var(--text);font-family:var(--font-body)">
+      <option value="">Alle Accounts</option>
+      {% for acc in accounts %}
+      <option value="{{ acc.id }}">{{ acc.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
 </div>
 
 <!-- Legend -->
@@ -194,7 +197,16 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   calendar.render();
 
-  document.getElementById('calAccountFilter').addEventListener('change', () => calendar.refetchEvents());
+  // Restore last filter from localStorage
+  const savedAcc = localStorage.getItem('cal_acc_filter');
+  if (savedAcc) {
+    document.getElementById('calAccountFilter').value = savedAcc;
+    calendar.refetchEvents();
+  }
+  document.getElementById('calAccountFilter').addEventListener('change', function() {
+    localStorage.setItem('cal_acc_filter', this.value);
+    calendar.refetchEvents();
+  });
   document.addEventListener('click', e => {
     if (!e.target.closest('#eventPopup') && !e.target.closest('.fc-event') && !e.target.closest('#newPostModal'))
       document.getElementById('eventPopup').style.display = 'none';

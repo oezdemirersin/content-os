@@ -12588,6 +12588,18 @@ def studio_reset_onboarding(account_id):
     return jsonify({'ok': True})
 
 
+@app.route('/api/accounts/<int:account_id>/skip-onboarding', methods=['POST'])
+@login_required
+def api_skip_onboarding(account_id):
+    acc = Account.query.get_or_404(account_id)
+    ctx = acc.ideen_context or AccountIdeenContext(account_id=account_id)
+    ctx.onboarding_done = True
+    if not ctx.id:
+        db.session.add(ctx)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
 # ─────────────────────── TO-DO ────────────────────────────────
 
 @app.route('/todos')

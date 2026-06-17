@@ -98,6 +98,11 @@
           Damit Claude deinen Content 100% versteht, beantworte kurz ein paar Fragen.
           Danach stellt Claude gezielte Nachfragen — und erstellt dann eine vollständige Seiten-DNA.
         </div>
+        <div style="text-align:right;margin-top:12px">
+          <button onclick="skipOnboarding()" class="btn btn-ghost" style="font-size:12px;color:var(--muted)">
+            Überspringen — später ausfüllen →
+          </button>
+        </div>
       </div>
 
       <!-- Fortschrittsleiste -->
@@ -555,6 +560,13 @@ async function toggleStudio(accountId, el) {
 
 async function resetOnboarding() {
   await fetch(`/api/content-studio/${ACCOUNT_ID}/reset-onboarding`, {method:'POST'});
+  location.reload();
+}
+
+async function skipOnboarding() {
+  const accId = {{ selected_account.id if selected_account else 'null' }};
+  if (!accId) return;
+  await fetch(`/api/accounts/${accId}/skip-onboarding`, {method:'POST'});
   location.reload();
 }
 

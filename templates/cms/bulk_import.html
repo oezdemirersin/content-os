@@ -191,6 +191,28 @@
     <div id="autoPreviewList" style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px"></div>
   </div>
 
+  <!-- Karussell-Auswahl-Banner (sichtbar nur im Auswahl-Modus) -->
+  <div id="carouselSelectBanner" style="display:none;padding:12px 16px;
+       background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.3);
+       border-radius:10px;margin-bottom:14px;display:none;
+       align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div style="font-size:13px;color:#a78bfa;font-weight:600">
+      <i class="fa-solid fa-images"></i>
+      Karussell-Modus: Bilder auswählen, die zusammen ein Karussell bilden sollen
+      <span id="carouselSelectCount" style="margin-left:8px;opacity:.75">(0 ausgewählt)</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="confirmCarouselGroup()" id="confirmCarouselBtn"
+              class="btn btn-primary" style="font-size:12px;padding:7px 16px;
+                     background:rgba(139,92,246,.8);border-color:rgba(139,92,246,.6)" disabled>
+        <i class="fa-solid fa-object-group"></i> Zu Karussell zusammenfassen
+      </button>
+      <button onclick="cancelCarouselMode()" class="btn btn-ghost" style="font-size:12px;padding:7px 12px">
+        Abbrechen
+      </button>
+    </div>
+  </div>
+
   <!-- Aktionen -->
   <div style="display:flex;gap:10px">
     <button onclick="submitSchedule()" class="btn btn-primary" id="scheduleBtn"
@@ -199,6 +221,10 @@
     </button>
     <button onclick="previewAutoDistribution()" class="btn btn-ghost" style="font-size:13px">
       <i class="fa-solid fa-eye"></i> Vorschau Auto-Verteilung
+    </button>
+    <button onclick="enterCarouselMode()" class="btn btn-ghost" id="carouselModeBtn"
+            style="font-size:13px;border-color:rgba(139,92,246,.4);color:#a78bfa">
+      <i class="fa-solid fa-images"></i> Karussell erstellen
     </button>
     <button onclick="goToPhase1()" class="btn btn-ghost" style="font-size:13px;margin-left:auto">
       ← Weitere hochladen
@@ -222,6 +248,12 @@
   padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;
   transition:border-color .15s }
 .schedule-row.is-fixed { border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.04) }
+/* Karussell-Auswahl-Modus */
+.carousel-select-mode .schedule-row:not(.carousel-child) { cursor:pointer }
+.carousel-select-mode .schedule-row:not(.carousel-child):hover { border-color:rgba(139,92,246,.5) }
+.schedule-row.carousel-selected { border-color:rgba(139,92,246,.6)!important;background:rgba(139,92,246,.08)!important }
+.schedule-row.carousel-leader { border-color:rgba(139,92,246,.8)!important;background:rgba(139,92,246,.12)!important }
+.schedule-row.carousel-child { margin-left:20px;border-left:3px solid rgba(139,92,246,.5);opacity:.85 }
 </style>
 {% endblock %}
 
@@ -585,18 +617,33 @@ async function submitSchedule() {
   const accountId = document.getElementById('accountSelect').value;
   if (!accountId) { showToast('Kein Account ausgewählt.', 'warning'); return; }
 
-  const items = uploadedItems.map((item, i) => {
-    const dateIn  = document.getElementById(`date-${i}`);
-    const capIn   = document.getElementById(`cap-${i}`);
-    const nameIn  = document.getElementById(`name-${i}`);
-    const hasDate = dateIn && dateIn.style.display !== 'none' && dateIn.value;
-    return {
-      content_item_id: item.id,
-      scheduled_at:    hasDate ? dateIn.value : null,
-      caption:         capIn ? capIn.value.trim() : '',
-      name:            nameIn ? nameIn.value.trim() : '',
-    };
-  });
+  // Collect all child indices that are part of a carousel (skip them as standalone posts)
+  const childIndices = new Set(Object.values(carouselGroups).flat());
+
+  const items = uploadedItems
+    .map((item, i) => {
+      if (childIndices.has(i)) return null; // merged into leader below
+      const dateIn  = document.getElementById(`date-${i}`);
+      const capIn   = document.getElementById(`cap-${i}`);
+      const nameIn  = document.getElementById(`name-${i}`);
+      const hasDate = dateIn && dateIn.style.display !== 'none' && dateIn.value;
+
+      const entry = {
+        content_item_id: item.id,
+        scheduled_at:    hasDate ? dateIn.value : null,
+        caption:         capIn ? capIn.value.trim() : '',
+        name:            nameIn ? nameIn.value.trim() : '',
+      };
+
+      // If this is a carousel leader, attach children as carousel_media
+      if (carouselGroups[i]) {
+        entry.post_type      = 'carousel';
+        entry.carousel_media = carouselGroups[i].map(ci => uploadedItems[ci].id);
+      }
+
+      return entry;
+    })
+    .filter(Boolean);
 
   const btn = document.getElementById('scheduleBtn');
   btn.disabled = true;
@@ -654,6 +701,7 @@ async function submitSchedule() {
 function resetForNewBatch() {
   uploadedItems = [];
   selectedFiles = [];
+  carouselGroups = {};
   document.getElementById('scheduleResult').style.display = 'none';
   document.getElementById('autoPreview').style.display    = 'none';
   document.getElementById('progressWrap').style.display   = 'none';
@@ -706,6 +754,116 @@ function pickCaption(rowIdx, el) {
   if (inp) inp.value = cap;
   const sugg = document.getElementById(`capSuggestions-${rowIdx}`);
   if (sugg) sugg.style.display = 'none';
+}
+
+// ── Karussell-Gruppierung ─────────────────────────────────────────
+let _carouselMode = false;
+let _carouselSelected = new Set(); // indices selected in carousel mode
+// Maps: carouselGroups[leaderIdx] = [childIdx, ...] — leader always first in visual order
+let carouselGroups = {}; // { leaderIdx: [childIdx, ...] }
+
+function enterCarouselMode() {
+  if (uploadedItems.length < 2) {
+    showToast('Mindestens 2 Bilder nötig für ein Karussell.', 'warning');
+    return;
+  }
+  _carouselMode = true;
+  _carouselSelected = new Set();
+  document.getElementById('scheduleGrid').classList.add('carousel-select-mode');
+  document.getElementById('carouselSelectBanner').style.display = 'flex';
+  document.getElementById('carouselModeBtn').style.display = 'none';
+  document.getElementById('scheduleBtn').disabled = true;
+  // Attach click handlers to non-child rows
+  uploadedItems.forEach((_, i) => {
+    const row = document.getElementById(`srow-${i}`);
+    if (row && !row.classList.contains('carousel-child')) {
+      row.addEventListener('click', _carouselRowClick);
+    }
+  });
+}
+
+function _carouselRowClick(e) {
+  // Don't trigger on interactive children
+  if (e.target.closest('button,input,select,a')) return;
+  const row = e.currentTarget;
+  const idx = parseInt(row.id.replace('srow-', ''));
+  if (_carouselSelected.has(idx)) {
+    _carouselSelected.delete(idx);
+    row.classList.remove('carousel-selected');
+  } else {
+    _carouselSelected.add(idx);
+    row.classList.add('carousel-selected');
+  }
+  const count = _carouselSelected.size;
+  document.getElementById('carouselSelectCount').textContent = `(${count} ausgewählt)`;
+  const confirmBtn = document.getElementById('confirmCarouselBtn');
+  confirmBtn.disabled = count < 2;
+}
+
+function cancelCarouselMode() {
+  _carouselMode = false;
+  _carouselSelected.forEach(i => {
+    const row = document.getElementById(`srow-${i}`);
+    if (row) row.classList.remove('carousel-selected');
+  });
+  _carouselSelected = new Set();
+  document.getElementById('scheduleGrid').classList.remove('carousel-select-mode');
+  document.getElementById('carouselSelectBanner').style.display = 'none';
+  document.getElementById('carouselModeBtn').style.display = '';
+  document.getElementById('scheduleBtn').disabled = false;
+  // Remove click handlers
+  uploadedItems.forEach((_, i) => {
+    const row = document.getElementById(`srow-${i}`);
+    if (row) row.removeEventListener('click', _carouselRowClick);
+  });
+}
+
+function confirmCarouselGroup() {
+  if (_carouselSelected.size < 2) return;
+  // Sort selected indices in visual (DOM) order
+  const sorted = Array.from(_carouselSelected).sort((a, b) => a - b);
+  const leaderIdx = sorted[0];
+  const children  = sorted.slice(1);
+
+  // Record the group
+  carouselGroups[leaderIdx] = children;
+
+  // Style: leader gets badge, children get indented
+  const leaderRow = document.getElementById(`srow-${leaderIdx}`);
+  leaderRow.classList.remove('carousel-selected');
+  leaderRow.classList.add('carousel-leader');
+
+  // Add a small badge to show it's a carousel leader
+  if (!leaderRow.querySelector('.carousel-leader-badge')) {
+    const badge = document.createElement('div');
+    badge.className = 'carousel-leader-badge';
+    badge.style.cssText = 'position:absolute;top:6px;left:6px;background:rgba(139,92,246,.85);' +
+      'color:white;font-size:9px;font-weight:700;padding:2px 5px;border-radius:4px;pointer-events:none';
+    badge.textContent = `🎠 +${children.length}`;
+    leaderRow.style.position = 'relative';
+    leaderRow.appendChild(badge);
+  }
+
+  children.forEach(ci => {
+    const row = document.getElementById(`srow-${ci}`);
+    if (row) {
+      row.classList.remove('carousel-selected');
+      row.classList.add('carousel-child');
+      row.removeEventListener('click', _carouselRowClick);
+      // Add "part of carousel" label
+      if (!row.querySelector('.carousel-child-label')) {
+        const lbl = document.createElement('div');
+        lbl.className = 'carousel-child-label';
+        lbl.style.cssText = 'grid-column:1/-1;font-size:10px;color:#a78bfa;margin-top:-6px;' +
+          'padding-bottom:2px;display:flex;align-items:center;gap:4px';
+        lbl.innerHTML = '<i class="fa-solid fa-link" style="font-size:9px"></i> Teil des Karussells';
+        row.after(lbl);
+      }
+    }
+  });
+
+  cancelCarouselMode();
+  showToast(`${sorted.length} Bilder zu einem Karussell zusammengefasst.`, 'success');
 }
 
 // ── Vorratskategorien ─────────────────────────────────────────────
