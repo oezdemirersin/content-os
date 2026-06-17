@@ -4099,8 +4099,9 @@ def api_emergency_pause():
 def automation_new():
     if request.method == 'POST':
         d = request.form
+        acc_id = int(d['account_id']) if d.get('account_id') else None
         rule = AutomationRule(
-            account_id=int(d['account_id']) if d.get('account_id') else None,
+            account_id=acc_id,
             name=d['name'],
             rule_type=d.get('rule_type', 'rss'),
             active=d.get('active') == 'on',
@@ -4111,11 +4112,26 @@ def automation_new():
         db.session.add(rule)
         db.session.commit()
         flash('Automatisierung erstellt.', 'success')
+        if d.get('back_url') == 'studio' and acc_id:
+            return redirect(url_for('content_studio_account', account_id=acc_id))
         return redirect(url_for('automation'))
 
     all_accounts = Account.query.order_by(Account.name).all()
+    preselect_account_id = request.args.get('account_id', type=int)
+    back_url = request.args.get('back', '')
     return render_template('automation_form.html',
-        rule=None, accounts=all_accounts, active_page='automation')
+        rule=None, accounts=all_accounts, active_page='automation',
+        preselect_account_id=preselect_account_id, back_url=back_url)
+
+
+@app.route('/automation/<int:rule_id>/delete', methods=['POST'])
+@login_required
+def automation_delete(rule_id):
+    rule = AutomationRule.query.get_or_404(rule_id)
+    AutomationRunLog.query.filter_by(rule_id=rule_id).delete(synchronize_session='fetch')
+    db.session.delete(rule)
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/automation/<int:rule_id>/toggle', methods=['POST'])
@@ -12310,7 +12326,8 @@ def content_studio():
         studio_accounts=studio_accs,
         all_accounts=all_accounts,
         selected_account=first,
-        active_page='studio')
+        active_page='studio',
+        automation_rules=[])
 
 
 @app.route('/content-studio/<int:account_id>')
@@ -12327,11 +12344,14 @@ def content_studio_account(account_id):
         ctx = AccountIdeenContext(account_id=account_id)
         db.session.add(ctx)
         db.session.commit()
+    automation_rules = AutomationRule.query.filter_by(account_id=account_id)\
+        .order_by(AutomationRule.active.desc(), AutomationRule.name).all()
     return render_template('content_studio.html',
         studio_accounts=studio_accs,
         all_accounts=all_accounts,
         selected_account=acc,
-        active_page='studio')
+        active_page='studio',
+        automation_rules=automation_rules)
 
 
 @app.route('/api/content-studio/<int:account_id>/toggle', methods=['POST'])

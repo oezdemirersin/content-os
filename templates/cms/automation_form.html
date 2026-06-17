@@ -4,11 +4,16 @@
 
 {% block content %}
 <div style="margin-bottom:20px">
+  {% if back_url == 'studio' and preselect_account_id %}
+  <a href="{{ url_for('content_studio_account', account_id=preselect_account_id) }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Content Studio</a>
+  {% else %}
   <a href="{{ url_for('automation') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Automatisierung</a>
+  {% endif %}
 </div>
 
 <div style="max-width:640px;display:flex;flex-direction:column;gap:16px">
   <form method="post" style="display:contents">
+    {% if back_url %}<input type="hidden" name="back_url" value="{{ back_url }}">{% endif %}
 
     <div class="card">
       <div class="card-header"><span class="card-title">GRUNDKONFIGURATION</span></div>
@@ -35,7 +40,7 @@
             <select name="account_id" class="select-field">
               <option value="">Alle / Kein</option>
               {% for acc in accounts %}
-              <option value="{{ acc.id }}">{{ acc.name }}</option>
+              <option value="{{ acc.id }}" {% if (preselect_account_id and acc.id == preselect_account_id) or (rule and rule.account_id == acc.id) %}selected{% endif %}>{{ acc.name }}</option>
               {% endfor %}
             </select>
           </div>

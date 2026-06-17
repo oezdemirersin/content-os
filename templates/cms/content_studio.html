@@ -223,7 +223,7 @@
 
       <!-- Tabs -->
       <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px">
-        {% for tab in [('ideen', 'fa-lightbulb', 'Content-Ideen'), ('analyse', 'fa-chart-simple', 'Analyse & DNA')] %}
+        {% for tab in [('ideen', 'fa-lightbulb', 'Content-Ideen'), ('analyse', 'fa-chart-simple', 'Analyse & DNA'), ('automation', 'fa-bolt', 'Automatisierung')] %}
         <button onclick="switchTab('{{ tab[0] }}')" id="tab-{{ tab[0] }}"
                 style="padding:10px 18px;border:none;background:none;cursor:pointer;font-size:13px;
                        font-weight:600;color:var(--muted);border-bottom:2px solid transparent;
@@ -249,6 +249,69 @@
         <script>
           window._savedIdeas = {{ selected_account.ideen_context.generated_ideas | safe }};
         </script>
+        {% endif %}
+      </div>
+
+      <!-- Tab: Automatisierung -->
+      <div id="tab-content-automation" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div style="font-size:12px;color:var(--muted)">
+            {% if automation_rules is defined %}{{ automation_rules|length }}{% else %}0{% endif %} Automation(en) für diese Seite
+          </div>
+          <a href="/automation/new?account_id={{ selected_account.id }}&back=studio" class="btn btn-primary" style="font-size:12px">
+            <i class="fa-solid fa-plus"></i> Neue Automation
+          </a>
+        </div>
+
+        {% if automation_rules is defined and automation_rules %}
+        <div style="display:flex;flex-direction:column;gap:8px">
+          {% for rule in automation_rules %}
+          <div class="card" style="padding:14px 16px;display:flex;align-items:center;gap:12px" id="studio-rule-{{ rule.id }}">
+            <!-- Toggle -->
+            <button onclick="studioToggleRule({{ rule.id }}, this)"
+                    style="position:relative;width:36px;height:20px;border-radius:10px;border:none;cursor:pointer;
+                           flex-shrink:0;transition:background .2s;
+                           background:{% if rule.active %}var(--accent){% else %}var(--surface2){% endif %}">
+              <span class="rule-thumb"
+                    style="position:absolute;top:3px;{% if rule.active %}right:3px{% else %}left:3px{% endif %};
+                           width:14px;height:14px;background:white;border-radius:50%;transition:all .2s;
+                           box-shadow:0 1px 4px rgba(0,0,0,.3)"></span>
+            </button>
+
+            <!-- Info -->
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ rule.name }}</div>
+              <div style="display:flex;gap:8px;margin-top:3px;align-items:center;flex-wrap:wrap">
+                <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--surface2);color:var(--muted)">{{ rule.rule_type }}</span>
+                <span style="font-size:10px;color:var(--muted)"><i class="fa-solid fa-clock" style="margin-right:3px"></i>alle {{ rule.run_interval_minutes }}min</span>
+                {% if rule.last_run_at %}<span style="font-size:10px;color:var(--muted)">Zuletzt: {{ rule.last_run_at.strftime('%d.%m %H:%M') }}</span>{% endif %}
+                {% if rule.error_count > 0 %}<span style="font-size:10px;color:var(--danger)">{{ rule.error_count }} Fehler</span>{% endif %}
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div style="display:flex;gap:4px;flex-shrink:0">
+              <button onclick="studioRunRule({{ rule.id }}, this)" class="icon-btn" title="Jetzt ausführen">
+                <i class="fa-solid fa-play" style="font-size:11px"></i>
+              </button>
+              <a href="/automation" class="icon-btn" title="Alle Automationen" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:var(--muted)">
+                <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px"></i>
+              </a>
+              <button onclick="studioDeleteRule({{ rule.id }})" class="icon-btn" style="color:var(--danger)" title="Löschen">
+                <i class="fa-solid fa-trash" style="font-size:11px"></i>
+              </button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div style="padding:60px 20px;text-align:center;color:var(--muted)">
+          <i class="fa-solid fa-robot" style="font-size:32px;display:block;margin-bottom:12px;opacity:.3"></i>
+          <div style="font-size:13px;margin-bottom:16px">Noch keine Automationen für diese Seite</div>
+          <a href="/automation/new?account_id={{ selected_account.id }}&back=studio" class="btn btn-primary" style="font-size:13px;padding:9px 20px">
+            <i class="fa-solid fa-plus"></i> Erste Automation erstellen
+          </a>
+        </div>
         {% endif %}
       </div>
 
@@ -517,7 +580,7 @@ function renderIdeas(ideas) {
 
 // ── Tabs ────────────────────────────────────────────────────────
 function switchTab(name) {
-  ['ideen','analyse'].forEach(t => {
+  ['ideen','analyse','automation'].forEach(t => {
     document.getElementById('tab-content-'+t).style.display = t===name ? 'block' : 'none';
     const btn = document.getElementById('tab-'+t);
     if(btn) {
@@ -525,6 +588,40 @@ function switchTab(name) {
       btn.style.borderBottomColor = t===name ? 'var(--accent2)' : 'transparent';
     }
   });
+}
+
+// ── Automation-Tab Funktionen ────────────────────────────────────
+async function studioToggleRule(id, btn) {
+  const r = await fetch(`/automation/${id}/toggle`, {method:'POST'}).then(r=>r.json());
+  btn.style.background = r.active ? 'var(--accent)' : 'var(--surface2)';
+  const thumb = btn.querySelector('.rule-thumb');
+  if (thumb) {
+    thumb.style.right = r.active ? '3px' : '';
+    thumb.style.left  = r.active ? '' : '3px';
+  }
+  showToast(r.active ? 'Aktiviert' : 'Pausiert', 'success');
+}
+
+async function studioRunRule(id, btn) {
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="font-size:11px"></i>';
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/automation/${id}/run`, {method:'POST'}).then(r=>r.json());
+    showToast(`Ausgeführt: ${r.created||0} neue Items erstellt`, 'success');
+  } catch(e) {
+    showToast('Fehler beim Ausführen', 'error');
+  }
+  btn.innerHTML = '<i class="fa-solid fa-play" style="font-size:11px"></i>';
+  btn.disabled = false;
+}
+
+async function studioDeleteRule(id) {
+  if (!confirm('Automation löschen?')) return;
+  const r = await fetch(`/automation/${id}/delete`, {method:'POST'}).then(r=>r.json());
+  if (r.ok) {
+    document.getElementById(`studio-rule-${id}`)?.remove();
+    showToast('Gelöscht', 'success');
+  }
 }
 
 // ── DNA Modal ───────────────────────────────────────────────────
