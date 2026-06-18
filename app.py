@@ -22,7 +22,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     InspirationSource, InspirationPost,
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
-                    Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf)
+                    Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf,
+                    WatchlistSeite)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -372,6 +373,484 @@ def seed_data():
     print("✅ Seed data created")
 
 
+WATCHLIST_SEED = [
+    ("Berlin", 3685265, [
+        ("Pankow","ca. 427.000 Einwohner"),("Mitte","ca. 397.000 Einwohner"),
+        ("Tempelhof-Schöneberg","ca. 357.000 Einwohner"),("Charlottenburg-Wilmersdorf","ca. 340.000 Einwohner"),
+        ("Neukölln","ca. 330.000 Einwohner"),("Steglitz-Zehlendorf","ca. 310.000 Einwohner"),
+        ("Lichtenberg","ca. 308.000 Einwohner"),("Treptow-Köpenick","ca. 294.000 Einwohner"),
+        ("Friedrichshain-Kreuzberg","ca. 293.000 Einwohner"),("Marzahn-Hellersdorf","ca. 293.000 Einwohner"),
+        ("Reinickendorf","ca. 268.000 Einwohner"),("Spandau","ca. 260.000 Einwohner"),
+    ],[
+        "Hertha BSC","1. FC Union Berlin","BFC Dynamo"
+    ],[
+        ("Freie Universität Berlin","ca. 38.000 Studierende"),
+        ("Humboldt-Universität zu Berlin","ca. 36.000 Studierende"),
+        ("Technische Universität Berlin","ca. 35.000 Studierende"),
+    ]),
+    ("Hamburg", 1862565, [
+        ("Wandsbek","ca. 456.000 Einwohner"),("Hamburg-Nord","ca. 328.000 Einwohner"),
+        ("Hamburg-Mitte","ca. 315.000 Einwohner"),("Altona","ca. 281.000 Einwohner"),
+        ("Eimsbüttel","ca. 276.000 Einwohner"),("Harburg","ca. 178.000 Einwohner"),
+        ("Bergedorf","ca. 134.000 Einwohner"),
+    ],[
+        "Hamburger SV","FC St. Pauli","Altona 93"
+    ],[
+        ("Universität Hamburg","ca. 42.000 Studierende"),
+        ("HAW Hamburg","ca. 16.000 Studierende"),
+    ]),
+    ("München", 1505036, [
+        ("Ramersdorf-Perlach","ca. 119.000 Einwohner"),("Neuhausen-Nymphenburg","ca. 101.000 Einwohner"),
+        ("Thalkirchen-Obersendling-Forstenried-Fürstenried-Solln","ca. 99.000 Einwohner"),
+        ("Bogenhausen","ca. 94.000 Einwohner"),
+    ],[
+        "FC Bayern München","TSV 1860 München","Türkgücü München"
+    ],[
+        ("LMU München","ca. 54.000 Studierende"),
+        ("Technische Universität München","ca. 52.000 Studierende"),
+        ("Hochschule München","ca. 19.000 Studierende"),
+    ]),
+    ("Köln", 1025523, [
+        ("Lindenthal","ca. 153.000 Einwohner"),("Mülheim","ca. 152.000 Einwohner"),
+        ("Innenstadt","ca. 128.000 Einwohner"),("Kalk","ca. 126.000 Einwohner"),
+        ("Nippes","ca. 118.000 Einwohner"),("Porz","ca. 113.000 Einwohner"),
+        ("Rodenkirchen","ca. 112.000 Einwohner"),("Ehrenfeld","ca. 110.000 Einwohner"),
+        ("Chorweiler","ca. 83.000 Einwohner"),
+    ],[
+        "1. FC Köln","Viktoria Köln","Fortuna Köln"
+    ],[
+        ("Universität zu Köln","ca. 46.000 Studierende"),
+        ("TH Köln","ca. 17.500 Studierende"),
+    ]),
+    ("Frankfurt am Main", 756021, [],[
+        "Eintracht Frankfurt","FSV Frankfurt","Rot-Weiss Frankfurt"
+    ],[
+        ("Goethe-Universität Frankfurt","ca. 41.000 Studierende"),
+        ("Frankfurt University of Applied Sciences","ca. 15.000 Studierende"),
+    ]),
+    ("Düsseldorf", 619444, [
+        ("Stadtbezirk 3","ca. 123.000 Einwohner"),("Stadtbezirk 9","ca. 101.000 Einwohner"),
+        ("Stadtbezirk 10","ca. 100.000 Einwohner"),("Stadtbezirk 6","ca. 90.000 Einwohner"),
+    ],[
+        "Fortuna Düsseldorf","TuRU Düsseldorf","Rather SV"
+    ],[
+        ("Heinrich-Heine-Universität Düsseldorf","ca. 35.000 Studierende"),
+    ]),
+    ("Stuttgart", 612663, [],[
+        "VfB Stuttgart","Stuttgarter Kickers","VfB Stuttgart II"
+    ],[
+        ("Universität Stuttgart","ca. 24.000 Studierende"),
+    ]),
+    ("Leipzig", 611850, [
+        ("Süd","ca. 110.000 Einwohner"),("Ost","ca. 106.000 Einwohner"),
+        ("Nordost","ca. 104.000 Einwohner"),("West","ca. 96.000 Einwohner"),
+    ],[
+        "RB Leipzig","1. FC Lokomotive Leipzig","BSG Chemie Leipzig"
+    ],[
+        ("Universität Leipzig","ca. 30.000 Studierende"),
+    ]),
+    ("Dortmund", 600880, [],[
+        "Borussia Dortmund","Türkspor Dortmund","ASC 09 Dortmund"
+    ],[
+        ("Technische Universität Dortmund","ca. 32.000 Studierende"),
+        ("Fachhochschule Dortmund","ca. 15.000 Studierende"),
+    ]),
+    ("Bremen", 588413, [
+        ("Ost","ca. 116.000 Einwohner"),("Süd","ca. 124.000 Einwohner"),
+    ],[
+        "Werder Bremen","Bremer SV","FC Oberneuland"
+    ],[
+        ("Universität Bremen","ca. 18.000 Studierende"),
+    ]),
+    ("Essen", 573618, [
+        ("Stadtbezirk II","ca. 95.000 Einwohner"),("Stadtbezirk V","ca. 108.000 Einwohner"),
+    ],[
+        "Rot-Weiss Essen","Schwarz-Weiß Essen","ETB Schwarz-Weiß Essen"
+    ],[
+        ("Universität Duisburg-Essen","ca. 42.000 Studierende gesamt"),
+    ]),
+    ("Dresden", 564904, [
+        ("Neustadt","ca. 156.000 Einwohner"),("Prohlis","ca. 121.000 Einwohner"),
+    ],[
+        "Dynamo Dresden","Dresdner SC","Borea Dresden"
+    ],[
+        ("Technische Universität Dresden","ca. 30.000 Studierende"),
+    ]),
+    ("Nürnberg", 531159, [
+        ("Südliche Außenstadt","ca. 104.000 Einwohner"),
+    ],[
+        "1. FC Nürnberg","ASV Nürnberg","SpVgg Mögeldorf"
+    ],[]),
+    ("Hannover", 522803, [
+        ("Vahrenwald-List","ca. 91.000 Einwohner"),
+    ],[
+        "Hannover 96","HSC Hannover","Arminia Hannover"
+    ],[
+        ("Leibniz Universität Hannover","ca. 27.000 Studierende"),
+    ]),
+    ("Duisburg", 500810, [
+        ("Duisburg-Mitte","ca. 112.000 Einwohner"),("Duisburg-Süd","ca. 81.000 Einwohner"),
+    ],[
+        "MSV Duisburg","VfB Homberg","Hamborn 07"
+    ],[
+        ("Universität Duisburg-Essen","ca. 42.000 Studierende gesamt"),
+    ]),
+    ("Bochum", 358880, [],[
+        "VfL Bochum","SG Wattenscheid 09","DJK TuS Hordel"
+    ],[
+        ("Ruhr-Universität Bochum","ca. 42.000 Studierende"),
+    ]),
+    ("Wuppertal", 357243, [],[
+        "Wuppertaler SV","Cronenberger SC","FSV Vohwinkel"
+    ],[
+        ("Bergische Universität Wuppertal","ca. 23.000 Studierende"),
+    ]),
+    ("Bielefeld", 331419, [],[
+        "Arminia Bielefeld","VfB Fichte Bielefeld","TuS Dornberg"
+    ],[
+        ("Universität Bielefeld","ca. 25.000 Studierende"),
+    ]),
+    ("Bonn", 323587, [
+        ("Stadtbezirk Bonn","ca. 150.000 Einwohner"),
+    ],[
+        "Bonner SC","FV Endenich","SSV Bornheim"
+    ],[
+        ("Universität Bonn","ca. 32.000 Studierende"),
+    ]),
+    ("Mannheim", 318035, [],[
+        "Waldhof Mannheim","VfR Mannheim","TSV Amicitia Viernheim"
+    ],[]),
+    ("Karlsruhe", 309050, [],[
+        "Karlsruher SC","ASV Durlach","SVK Beiertheim"
+    ],[
+        ("Karlsruher Institut für Technologie (KIT)","ca. 22.000 Studierende"),
+    ]),
+    ("Münster", 306368, [
+        ("Mitte","ca. 124.000 Einwohner"),
+    ],[
+        "Preußen Münster","SC Münster 08","TuS Hiltrup"
+    ],[
+        ("Universität Münster","ca. 42.000 Studierende"),
+    ]),
+    ("Augsburg", 301786, [],[
+        "FC Augsburg","TSV Schwaben Augsburg","Türkspor Augsburg"
+    ],[
+        ("Universität Augsburg","ca. 20.000 Studierende"),
+    ]),
+    ("Wiesbaden", 288850, [],[
+        "SV Wehen Wiesbaden","FV Biebrich 02","SpVgg Sonnenberg"
+    ],[]),
+    ("Gelsenkirchen", 266199, [],[
+        "FC Schalke 04","SSV Buer","SV Horst-Emscher 08"
+    ],[]),
+    ("Mönchengladbach", 267176, [
+        ("Nord","ca. 87.000 Einwohner"),("Süd","ca. 87.000 Einwohner"),
+    ],[
+        "Borussia Mönchengladbach","1. FC Mönchengladbach","Sportfreunde Neuwerk"
+    ],[]),
+    ("Aachen", 263703, [
+        ("Aachen-Mitte","ca. 153.000 Einwohner"),
+    ],[
+        "Alemannia Aachen","SV Eilendorf","VfL 05 Aachen"
+    ],[
+        ("RWTH Aachen","ca. 47.000 Studierende"),
+    ]),
+    ("Braunschweig", 252811, [],[
+        "Eintracht Braunschweig","BSC Acosta","Freie Turner Braunschweig"
+    ],[
+        ("Technische Universität Braunschweig","ca. 17.000 Studierende"),
+    ]),
+    ("Kiel", 251842, [],[
+        "Holstein Kiel","Kilia Kiel","Inter Türkspor Kiel"
+    ],[
+        ("Christian-Albrechts-Universität zu Kiel","ca. 24.000 Studierende"),
+    ]),
+    ("Chemnitz", 245618, [],[
+        "Chemnitzer FC","VfB Fortuna Chemnitz","BSC Rapid Chemnitz"
+    ],[]),
+    ("Magdeburg", 244494, [],[
+        "1. FC Magdeburg","MSV Börde Magdeburg","VfB Ottersleben"
+    ],[]),
+    ("Freiburg im Breisgau", 237460, [],[
+        "SC Freiburg","Freiburger FC","FC Denzlingen"
+    ],[
+        ("Universität Freiburg","ca. 24.000 Studierende"),
+    ]),
+    ("Krefeld", 230738, [],[
+        "KFC Uerdingen","VfR Fischeln","SC St. Tönis"
+    ],[
+        ("Hochschule Niederrhein","ca. 25.000 Studierende gesamt"),
+    ]),
+    ("Halle (Saale)", 226186, [],[
+        "Hallescher FC","VfL Halle 96","SG Union Halle-Neustadt"
+    ],[
+        ("Martin-Luther-Universität Halle-Wittenberg","ca. 20.000 Studierende"),
+    ]),
+    ("Mainz", 224684, [],[
+        "1. FSV Mainz 05","TSV Schott Mainz","SV Gonsenheim"
+    ],[
+        ("Johannes Gutenberg-Universität Mainz","ca. 31.000 Studierende"),
+    ]),
+    ("Erfurt", 218793, [],[
+        "FC Rot-Weiß Erfurt","FC Erfurt Nord","SV Empor Erfurt"
+    ],[]),
+    ("Lübeck", 217061, [],[
+        "VfB Lübeck","1. FC Phönix Lübeck","Eichholzer SV"
+    ],[]),
+    ("Oberhausen", 213178, [
+        ("Sterkrade","ca. 87.000 Einwohner"),
+    ],[
+        "Rot-Weiß Oberhausen","Arminia Klosterhardt","Sterkrade-Nord"
+    ],[]),
+    ("Rostock", 205307, [
+        ("Ortsamtsbereich Mitte","ca. 84.000 Einwohner"),
+    ],[
+        "Hansa Rostock","Rostocker FC","SV Warnemünde Fußball"
+    ],[]),
+    ("Kassel", 197230, [],[
+        "KSV Hessen Kassel","CSC 03 Kassel","TSV Wolfsanger"
+    ],[
+        ("Universität Kassel","ca. 23.000 Studierende"),
+    ]),
+    ("Hagen", 189983, [
+        ("Stadtbezirk Mitte","ca. 100.000 Einwohner"),
+    ],[
+        "SpVg Hagen 11","SSV Hagen","SV Hohenlimburg 1910"
+    ],[
+        ("FernUniversität in Hagen","ca. 67.000 Studierende"),
+    ]),
+    ("Potsdam", 184754, [],[
+        "SV Babelsberg 03","Fortuna Babelsberg","Potsdamer Kickers"
+    ],[
+        ("Universität Potsdam","ca. 22.000 Studierende"),
+    ]),
+    ("Saarbrücken", 182859, [
+        ("Mitte","ca. 123.000 Einwohner"),
+    ],[
+        "1. FC Saarbrücken","SV Saar 05 Saarbrücken","FC Rastpfuhl"
+    ],[
+        ("Universität des Saarlandes","ca. 16.500 Studierende"),
+    ]),
+    ("Hamm", 179108, [
+        ("Hamm-Mitte","ca. 88.000 Einwohner"),
+    ],[
+        "Hammer SpVg","Westfalia Rhynern","TuS Uentrop"
+    ],[]),
+    ("Ludwigshafen am Rhein", 177222, [],[
+        "Arminia Ludwigshafen","FSV Oggersheim","Ludwigshafener SC"
+    ],[]),
+    ("Oldenburg", 177055, [],[
+        "VfB Oldenburg","VfL Oldenburg","GVO Oldenburg"
+    ],[
+        ("Universität Oldenburg","ca. 18.000 Studierende"),
+    ]),
+    ("Mülheim an der Ruhr", 171674, [],[
+        "1. FC Mülheim","VfB Speldorf","Mülheimer FC 97"
+    ],[]),
+    ("Leverkusen", 168299, [],[
+        "Bayer 04 Leverkusen","SV Schlebusch","SC Leverkusen"
+    ],[]),
+    ("Darmstadt", 167029, [],[
+        "SV Darmstadt 98","Rot-Weiß Darmstadt","FCA Darmstadt"
+    ],[
+        ("Technische Universität Darmstadt","ca. 25.000 Studierende"),
+    ]),
+    ("Osnabrück", 166257, [],[
+        "VfL Osnabrück","Blau-Weiß Schinkel","SSC Dodesheide"
+    ],[]),
+    ("Solingen", 164621, [
+        ("Solingen-Mitte","ca. 89.000 Einwohner"),
+    ],[
+        "1. FC Solingen","VfB Solingen","BV Gräfrath"
+    ],[]),
+    ("Paderborn", 155906, [
+        ("Kernstadt","ca. 88.000 Einwohner"),
+    ],[
+        "SC Paderborn 07","Delbrücker SC","SV Heide Paderborn"
+    ],[
+        ("Universität Paderborn","ca. 20.000 Studierende"),
+    ]),
+    ("Herne", 156266, [
+        ("Herne-Mitte","ca. 86.000 Einwohner"),
+    ],[
+        "DSC Wanne-Eickel","SV Sodingen","SV Wanne 11"
+    ],[]),
+    ("Heidelberg", 155756, [],[
+        "Heidelberger SC","FC Victoria Bammental","TSG 62/09 Weinheim"
+    ],[
+        ("Universität Heidelberg","ca. 29.000 Studierende"),
+    ]),
+    ("Neuss", 153767, [],[
+        "VfR Neuss","Holzheimer SG","DJK Novesia Neuss"
+    ],[]),
+    ("Regensburg", 151517, [],[
+        "SSV Jahn Regensburg","Freier TuS Regensburg","SV Fortuna Regensburg"
+    ],[
+        ("Universität Regensburg","ca. 21.000 Studierende"),
+    ]),
+    ("Ingolstadt", 140799, [],[
+        "FC Ingolstadt 04","MTV Ingolstadt","VfB Eichstätt"
+    ],[]),
+    ("Pforzheim", 134912, [],[
+        "1. CfR Pforzheim","GU-Türk. SV Pforzheim","1. FC Ispringen"
+    ],[]),
+    ("Würzburg", 133753, [],[
+        "Würzburger Kickers","Würzburger FV","TSV Lengfeld"
+    ],[
+        ("Universität Würzburg","ca. 27.000 Studierende"),
+    ]),
+    ("Offenbach am Main", 132746, [],[
+        "Kickers Offenbach","Spvgg. 03 Neu-Isenburg","TSG Neu-Isenburg"
+    ],[]),
+    ("Fürth", 131344, [],[
+        "SpVgg Greuther Fürth","ASV Fürth","SG Quelle Fürth"
+    ],[]),
+    ("Heilbronn", 131986, [],[
+        "FC Union Heilbronn","VfR Heilbronn","TSG Heilbronn"
+    ],[]),
+    ("Ulm", 129882, [],[
+        "SSV Ulm 1846","TSV Neu-Ulm","FV Illertissen"
+    ],[]),
+    ("Wolfsburg", 129813, [],[
+        "VfL Wolfsburg","Lupo Martini Wolfsburg","SSV Vorsfelde"
+    ],[]),
+    ("Göttingen", 130521, [],[
+        "1. SC Göttingen 05","SVG Göttingen","RSV Göttingen 05"
+    ],[
+        ("Universität Göttingen","ca. 28.000 Studierende"),
+    ]),
+    ("Reutlingen", 118852, [
+        ("Kernstadt","ca. 87.000 Einwohner"),
+    ],[
+        "SSV Reutlingen 05","TSG Reutlingen","VfL Pfullingen"
+    ],[]),
+    ("Bremerhaven", 118502, [
+        ("Stadtbezirk Mitte","ca. 81.000 Einwohner"),
+    ],[
+        "OSC Bremerhaven","Leher TS","ESC Geestemünde"
+    ],[]),
+    ("Bottrop", 118482, [],[
+        "VfB Bottrop","SV Rhenania Bottrop","Batenbrocker Ruhrpott Kicker"
+    ],[]),
+    ("Erlangen", 116450, [],[
+        "ATSV Erlangen","FSV Erlangen-Bruck","SC Eltersdorf"
+    ],[
+        ("FAU Erlangen-Nürnberg","ca. 39.000 Studierende gesamt"),
+    ]),
+    ("Recklinghausen", 114851, [],[
+        "FC 96 Recklinghausen","SV Hochlar 28","SpVgg Erkenschwick"
+    ],[]),
+    ("Remscheid", 113333, [],[
+        "FC Remscheid","1. Spvg Remscheid","BV 10 Remscheid"
+    ],[]),
+    ("Koblenz", 113378, [],[
+        "TuS Koblenz","Rot-Weiss Koblenz","FC Cosmos Koblenz"
+    ],[]),
+    ("Bergisch Gladbach", 111174, [],[
+        "SV Bergisch Gladbach 09","TV Herkenrath","FC Bensberg"
+    ],[]),
+    ("Jena", 109725, [],[
+        "FC Carl Zeiss Jena","SV Schott Jena","FC Thüringen Jena"
+    ],[
+        ("Friedrich-Schiller-Universität Jena","ca. 17.500 Studierende"),
+    ]),
+    ("Salzgitter", 104433, [],[
+        "SV Union Salzgitter","FC Germania Bleckenstedt","SC Gitter"
+    ],[]),
+    ("Trier", 104342, [],[
+        "Eintracht Trier","FSV Trier-Tarforst","SV Trier-Irsch"
+    ],[]),
+    ("Siegen", 102450, [
+        ("Siegen-Mitte/Kernstadt","ca. 85.000 Einwohner"),
+    ],[
+        "Sportfreunde Siegen","1. FC Kaan-Marienborn","TSV Weißtal"
+    ],[
+        ("Universität Siegen","ca. 17.000 Studierende"),
+    ]),
+    ("Moers", 101298, [
+        ("Moers-Mitte","ca. 82.000 Einwohner"),
+    ],[
+        "GSV Moers","SV Scherpenberg","VfL Repelen"
+    ],[]),
+    ("Gütersloh", 99854, [
+        ("Kernstadt","ca. 84.000 Einwohner"),
+    ],[
+        "FC Gütersloh","SV Avenwedde","Aramäer Gütersloh"
+    ],[]),
+    ("Kaiserslautern", 100426, [],[
+        "1. FC Kaiserslautern","SV Morlautern","TSG Kaiserslautern"
+    ],[
+        ("RPTU Kaiserslautern-Landau","ca. 20.000 Studierende gesamt"),
+    ]),
+    ("Hildesheim", 98207, [
+        ("Kernstadt","ca. 86.000 Einwohner"),
+    ],[
+        "VfV 06 Hildesheim","SV Borussia Hildesheim","PSV Grün-Weiß Hildesheim"
+    ],[]),
+    ("Schwerin", 98308, [],[
+        "FC Mecklenburg Schwerin","MSV Pampow","SG Dynamo Schwerin"
+    ],[]),
+    ("Hanau", 97956, [],[
+        "Hanauer FC 93","SC 1960 Hanau","TSV 1860 Hanau"
+    ],[]),
+    ("Flensburg", 95568, [],[
+        "SC Weiche Flensburg 08","Flensburg 08","TSB Flensburg"
+    ],[]),
+    ("Esslingen am Neckar", 96182, [],[
+        "FC Esslingen","TSV Berkheim","SV 1845 Esslingen"
+    ],[]),
+    ("Gera", 95608, [],[
+        "Bischofswerdaer FV 08","BSG Wismut Gera","1. FC Gera 03"
+    ],[]),
+    ("Cottbus", 95123, [],[
+        "Energie Cottbus","VfB Krieschow","SV Wacker Ströbitz"
+    ],[]),
+    ("Düren", 94539, [],[
+        "1. FC Düren","Dürener Spielverein","GFC Düren 09"
+    ],[]),
+    ("Ludwigsburg", 92858, [],[
+        "MTV Ludwigsburg","SGV Freiberg Fußball","FSV 08 Bietigheim-Bissingen"
+    ],[]),
+    ("Tübingen", 92322, [],[
+        "Tübinger SV 1845","SV 03 Tübingen","TSG Tübingen"
+    ],[
+        ("Universität Tübingen","ca. 28.000 Studierende"),
+    ]),
+    ("Iserlohn", 91317, [],[
+        "Iserlohner TS","FC Iserlohn","ASSV Letmathe"
+    ],[]),
+    ("Witten", 91474, [],[
+        "TuS Stockum","SV Herbede","Wittener Sportfreunde"
+    ],[]),
+    ("Villingen-Schwenningen", 89756, [],[
+        "FC 08 Villingen","BFC Villingen","BSV Schwenningen"
+    ],[]),
+    ("Ratingen", 88914, [],[
+        "Ratingen 04/19","TuS 08 Lintorf","DJK Sparta Bilk"
+    ],[]),
+    ("Gießen", 89179, [],[
+        "FC Gießen","TSV Klein-Linden","MTV 1846 Gießen"
+    ],[
+        ("Justus-Liebig-Universität Gießen","ca. 25.000 Studierende"),
+    ]),
+    ("Zwickau", 87410, [],[
+        "FSV Zwickau","Planitzer SC","SV 1861 Kirchberg"
+    ],[]),
+    ("Konstanz", 86919, [],[
+        "SC Konstanz-Wollmatingen","FC Konstanz","SV Allensbach"
+    ],[]),
+    ("Marl", 86899, [],[
+        "TSV Marl-Hüls","SpVgg Marl","DJK Germania Lenkerbeck"
+    ],[]),
+    ("Worms", 86753, [],[
+        "Wormatia Worms","TuS Neuhausen","SV Horchheim"
+    ],[]),
+    ("Lünen", 85844, [],[
+        "Lüner SV","BV Brambauer-Lünen","Viktoria Lünen"
+    ],[]),
+]
+
+
 def init_db():
     with app.app_context():
         db.create_all()
@@ -719,6 +1198,21 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT NOW())''')
             safe_alter('ALTER TABLE seiten_kauf ADD COLUMN IF NOT EXISTS einigungspreis FLOAT')
             safe_alter('ALTER TABLE seiten_kauf ADD COLUMN IF NOT EXISTS in_geplant BOOLEAN DEFAULT FALSE')
+            safe_alter('''CREATE TABLE IF NOT EXISTS watchlist_seite (
+                id SERIAL PRIMARY KEY,
+                stadt VARCHAR(100) NOT NULL,
+                ziel_typ VARCHAR(20),
+                ziel_name VARCHAR(200) NOT NULL,
+                ziel_meta VARCHAR(200),
+                platform VARCHAR(30) DEFAULT \'Instagram\',
+                url VARCHAR(500),
+                handle VARCHAR(100),
+                follower INTEGER,
+                letzte_aktivitaet VARCHAR(50),
+                seiten_status VARCHAR(30) DEFAULT \'nicht_gesucht\',
+                notizen TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW())''')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -1004,6 +1498,21 @@ def init_db():
                     safe_alter('ALTER TABLE seiten_kauf ADD COLUMN in_geplant BOOLEAN DEFAULT 0')
             except Exception:
                 pass
+            safe_alter('''CREATE TABLE IF NOT EXISTS watchlist_seite (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stadt VARCHAR(100) NOT NULL,
+                ziel_typ VARCHAR(20),
+                ziel_name VARCHAR(200) NOT NULL,
+                ziel_meta VARCHAR(200),
+                platform VARCHAR(30) DEFAULT 'Instagram',
+                url VARCHAR(500),
+                handle VARCHAR(100),
+                follower INTEGER,
+                letzte_aktivitaet VARCHAR(50),
+                seiten_status VARCHAR(30) DEFAULT 'nicht_gesucht',
+                notizen TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
             # Neue Felder: Partner, Kooperation (SQLite)
             try:
@@ -11041,6 +11550,7 @@ def ausgaben():
     if date.today().year not in jahre:
         jahre.insert(0, date.today().year)
 
+    _seed_watchlist()
     return render_template('ausgaben.html',
         active_page='ausgaben',
         items=items, jahr=jahr, jahre=jahre,
@@ -11154,6 +11664,115 @@ def seitenkauf_von_geplant(sid):
     s.in_geplant = False
     db.session.commit()
     return jsonify({'ok': True})
+
+
+def _seed_watchlist():
+    """Seed watchlist_seite table from WATCHLIST_SEED if empty."""
+    if WatchlistSeite.query.first():
+        return 0
+    count = 0
+    for (stadt, ew, bezirke, vereine, unis) in WATCHLIST_SEED:
+        meta_stadt = f"ca. {ew:,} Einwohner".replace(',', '.')
+        db.session.add(WatchlistSeite(stadt=stadt, ziel_typ='stadtseite',
+            ziel_name=f"{stadt} – Stadtseite", ziel_meta=meta_stadt))
+        count += 1
+        for (bname, bmeta) in bezirke:
+            db.session.add(WatchlistSeite(stadt=stadt, ziel_typ='bezirk',
+                ziel_name=bname, ziel_meta=bmeta))
+            count += 1
+        for vname in vereine:
+            db.session.add(WatchlistSeite(stadt=stadt, ziel_typ='verein',
+                ziel_name=vname, ziel_meta='Fußballverein'))
+            count += 1
+        for (uname, umeta) in unis:
+            db.session.add(WatchlistSeite(stadt=stadt, ziel_typ='uni',
+                ziel_name=uname, ziel_meta=umeta))
+            count += 1
+    db.session.commit()
+    return count
+
+
+@app.route('/api/watchlist/stadtseiten', methods=['GET'])
+@login_required
+def watchlist_list():
+    q = WatchlistSeite.query
+    if request.args.get('stadt'):
+        q = q.filter_by(stadt=request.args['stadt'])
+    if request.args.get('ziel_typ'):
+        q = q.filter_by(ziel_typ=request.args['ziel_typ'])
+    if request.args.get('status'):
+        q = q.filter_by(seiten_status=request.args['status'])
+    items = q.order_by(WatchlistSeite.ziel_typ, WatchlistSeite.id).all()
+    return jsonify([{
+        'id': s.id, 'stadt': s.stadt, 'ziel_typ': s.ziel_typ,
+        'ziel_name': s.ziel_name, 'ziel_meta': s.ziel_meta or '',
+        'platform': s.platform or 'Instagram', 'url': s.url or '',
+        'handle': s.handle or '', 'follower': s.follower,
+        'letzte_aktivitaet': s.letzte_aktivitaet or '',
+        'seiten_status': s.seiten_status or 'nicht_gesucht',
+        'notizen': s.notizen or '',
+    } for s in items])
+
+
+@app.route('/api/watchlist/stadtseiten', methods=['POST'])
+@login_required
+def watchlist_create():
+    d = request.json or {}
+    if not d.get('ziel_name') or not d.get('stadt'):
+        return jsonify({'ok': False, 'error': 'Fehlende Pflichtfelder'}), 400
+    s = WatchlistSeite(
+        stadt=d['stadt'], ziel_typ=d.get('ziel_typ','stadtseite'),
+        ziel_name=d['ziel_name'], ziel_meta=d.get('ziel_meta'),
+        platform=d.get('platform','Instagram'), url=d.get('url'),
+        handle=d.get('handle'), follower=d.get('follower'),
+        letzte_aktivitaet=d.get('letzte_aktivitaet'),
+        seiten_status=d.get('seiten_status','nicht_gesucht'),
+        notizen=d.get('notizen'),
+    )
+    db.session.add(s)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': s.id})
+
+
+@app.route('/api/watchlist/stadtseiten/<int:sid>', methods=['PUT'])
+@login_required
+def watchlist_update(sid):
+    s = WatchlistSeite.query.get_or_404(sid)
+    d = request.json or {}
+    for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','notizen','ziel_name','ziel_meta']:
+        if f in d:
+            setattr(s, f, d[f])
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/watchlist/stadtseiten/<int:sid>', methods=['DELETE'])
+@login_required
+def watchlist_delete(sid):
+    s = WatchlistSeite.query.get_or_404(sid)
+    db.session.delete(s)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/watchlist/seed', methods=['POST'])
+@login_required
+def watchlist_seed():
+    n = _seed_watchlist()
+    return jsonify({'ok': True, 'created': n})
+
+
+@app.route('/api/watchlist/staedte', methods=['GET'])
+@login_required
+def watchlist_staedte():
+    """Returns list of cities with entry counts."""
+    from sqlalchemy import func
+    rows = db.session.query(
+        WatchlistSeite.stadt,
+        func.count(WatchlistSeite.id).label('total'),
+        func.sum(db.case((WatchlistSeite.url != None, 1), else_=0)).label('gefunden'),
+    ).group_by(WatchlistSeite.stadt).order_by(WatchlistSeite.stadt).all()
+    return jsonify([{'stadt': r.stadt, 'total': r.total, 'gefunden': r.gefunden or 0} for r in rows])
 
 
 @app.route('/api/ausgaben/kategorien', methods=['GET'])

@@ -907,6 +907,26 @@ class SeitenKauf(db.Model):
     updated_at        = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class WatchlistSeite(db.Model):
+    """Stadtseiten-Watchlist — Targets für Seitenakquisition per Stadt."""
+    __tablename__ = 'watchlist_seite'
+    id                = db.Column(db.Integer, primary_key=True)
+    stadt             = db.Column(db.String(100), nullable=False, index=True)
+    ziel_typ          = db.Column(db.String(20))   # stadtseite|bezirk|verein|uni
+    ziel_name         = db.Column(db.String(200), nullable=False)
+    ziel_meta         = db.Column(db.String(200))  # z.B. "ca. 427.000 Einwohner" oder "ca. 38.000 Studierende"
+    platform          = db.Column(db.String(30), default='Instagram')
+    url               = db.Column(db.String(500))
+    handle            = db.Column(db.String(100))
+    follower          = db.Column(db.Integer)
+    letzte_aktivitaet = db.Column(db.String(50))   # Freitext "Oktober 2024"
+    seiten_status     = db.Column(db.String(30), default='nicht_gesucht')
+    # nicht_gesucht | nichts_gefunden | inaktiv | gelegentlich | aktiv | nicht_erreichbar | interesse | kein_interesse
+    notizen           = db.Column(db.Text)
+    created_at        = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at        = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class LocalEvent(db.Model):
     """Lokale Events für den Event-Radar in Stadt-Memes."""
     __tablename__ = 'local_event'
