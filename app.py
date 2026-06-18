@@ -11792,14 +11792,31 @@ def watchlist_seed():
 @app.route('/api/watchlist/staedte', methods=['GET'])
 @login_required
 def watchlist_staedte():
-    """Returns list of cities with entry counts."""
+    """Returns list of cities with entry counts and population."""
+    import re
     from sqlalchemy import func
     rows = db.session.query(
         WatchlistSeite.stadt,
         func.count(WatchlistSeite.id).label('total'),
         func.sum(db.case((WatchlistSeite.url != None, 1), else_=0)).label('gefunden'),
     ).group_by(WatchlistSeite.stadt).order_by(WatchlistSeite.stadt).all()
-    return jsonify([{'stadt': r.stadt, 'total': r.total, 'gefunden': r.gefunden or 0} for r in rows])
+
+    # Get population from ziel_meta of the stadtseite entry per city
+    ew_map = {}
+    stadtseiten = WatchlistSeite.query.filter_by(ziel_typ='stadtseite').all()
+    for s in stadtseiten:
+        if s.ziel_meta:
+            m = re.search(r'[\d\.]+', s.ziel_meta.replace('.', ''))
+            if m:
+                try:
+                    ew_map[s.stadt] = int(m.group())
+                except ValueError:
+                    pass
+
+    return jsonify([{
+        'stadt': r.stadt, 'total': r.total, 'gefunden': r.gefunden or 0,
+        'ew': ew_map.get(r.stadt, 0),
+    } for r in rows])
 
 
 @app.route('/api/watchlist/sonstige', methods=['GET'])

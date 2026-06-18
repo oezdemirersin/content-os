@@ -118,6 +118,18 @@
         <option value="kein_interesse">Kein Interesse</option>
         <option value="kontaktiert">Kontaktiert</option>
       </select>
+      <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <button @click="sortBy='alpha'"
+                :style="sortBy==='alpha'?'background:var(--accent);color:#fff;':''"
+                style="font-size:11px;padding:7px 12px;background:none;border:none;cursor:pointer;color:var(--muted)">
+          <i class="fa-solid fa-arrow-down-a-z"></i> A–Z
+        </button>
+        <button @click="sortBy='ew'"
+                :style="sortBy==='ew'?'background:var(--accent);color:#fff;':''"
+                style="font-size:11px;padding:7px 12px;background:none;border:none;cursor:pointer;color:var(--muted);border-left:1px solid var(--border)">
+          <i class="fa-solid fa-arrow-down-wide-short"></i> Einwohner
+        </button>
+      </div>
       <button @click="expandAll()" class="btn btn-ghost" style="font-size:11px;padding:8px 12px">
         <i class="fa-solid fa-list-ul"></i> Alle öffnen
       </button>
@@ -137,6 +149,9 @@
               <i class="fa-solid fa-chevron-right"
                  :style="'font-size:9px;color:var(--muted);transition:transform .2s;transform:rotate('+(city.expanded?'90':'0')+'deg)'"></i>
               <span style="font-size:13px;font-weight:700" x-text="city.stadt"></span>
+              <span x-show="city.ew > 0"
+                    style="font-size:10px;color:var(--muted);background:var(--surface2);padding:1px 7px;border-radius:5px"
+                    x-text="city.ew >= 1000000 ? (city.ew/1000000).toFixed(1).replace('.0','')+'M' : Math.round(city.ew/1000)+'K'"></span>
             </div>
             <div style="display:flex;align-items:center;gap:14px">
               <i x-show="city.loading" class="fa-solid fa-spinner fa-spin" style="color:var(--muted);font-size:11px"></i>
@@ -500,6 +515,7 @@ function watchlistApp() {
     },
 
     scanning: false,
+    sortBy: 'alpha',
 
     async init() {
       await this.loadCities();
@@ -508,9 +524,15 @@ function watchlistApp() {
     get totalEintraege() { return this.cities.reduce((a,c)=>a+c.total,0); },
     get totalGefunden()  { return this.cities.reduce((a,c)=>a+c.gefunden,0); },
     get filteredCities() {
-      if (!this.search) return this.cities;
-      const s = this.search.toLowerCase();
-      return this.cities.filter(c=>c.stadt.toLowerCase().includes(s));
+      let c = this.cities;
+      if (this.search) {
+        const s = this.search.toLowerCase();
+        c = c.filter(x=>x.stadt.toLowerCase().includes(s));
+      }
+      if (this.sortBy === 'ew') {
+        c = [...c].sort((a,b) => (b.ew||0) - (a.ew||0));
+      }
+      return c;
     },
     get filteredSonstige() {
       let e = this.sonstigeEntries;
