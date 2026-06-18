@@ -447,6 +447,11 @@
       <i class="fa-solid fa-receipt"></i> Ausgaben
     </a>
 
+    <div class="nav-section">Zukunft</div>
+    <a href="{{ url_for('seiten_watchlist') }}" class="nav-item {% if active_page == 'watchlist' %}active{% endif %}">
+      <i class="fa-solid fa-binoculars"></i> Seiten Watchlist
+    </a>
+
     <div class="nav-section">System</div>
     <a href="{{ url_for('todos') }}" class="nav-item {% if active_page == 'todos' %}active{% endif %}">
       <i class="fa-solid fa-list-check"></i> To-Do / Ideen

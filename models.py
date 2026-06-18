@@ -920,11 +920,24 @@ class WatchlistSeite(db.Model):
     handle            = db.Column(db.String(100))
     follower          = db.Column(db.Integer)
     letzte_aktivitaet = db.Column(db.String(50))   # Freitext "Oktober 2024"
+    wl_kategorie      = db.Column(db.String(50), default='stadtseite', index=True)  # stadtseite | sonstige | custom
     seiten_status     = db.Column(db.String(30), default='nicht_gesucht')
     # nicht_gesucht | nichts_gefunden | inaktiv | gelegentlich | aktiv | nicht_erreichbar | interesse | kein_interesse
     notizen           = db.Column(db.Text)
+    kontaktiert_am    = db.Column(db.DateTime)
     created_at        = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at        = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    snapshots = db.relationship('WatchlistFollowerSnapshot', backref='seite', lazy='dynamic', cascade='all, delete-orphan')
+
+
+class WatchlistFollowerSnapshot(db.Model):
+    """Follower-Snapshot für Wachstumstracking der Watchlist-Seiten."""
+    __tablename__ = 'watchlist_follower_snapshot'
+    id         = db.Column(db.Integer, primary_key=True)
+    seite_id   = db.Column(db.Integer, db.ForeignKey('watchlist_seite.id'), nullable=False, index=True)
+    follower   = db.Column(db.Integer, nullable=False)
+    scanned_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class LocalEvent(db.Model):

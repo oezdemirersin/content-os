@@ -1,0 +1,771 @@
+{% extends "cms/base.html" %}
+{% block title %}Seiten Watchlist{% endblock %}
+{% block content %}
+
+<style>
+.wl-city-header{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;cursor:pointer;user-select:none;transition:background .12s}
+.wl-city-header:hover{background:rgba(255,255,255,.025)}
+.wl-entry-row{display:grid;grid-template-columns:130px minmax(0,1.2fr) minmax(0,2fr) 130px;align-items:center;border-bottom:1px solid var(--border)}
+.wl-entry-row>*{padding:10px 14px}
+.wl-entry-row:last-child{border-bottom:none}
+.wl-entry-row:hover{background:rgba(255,255,255,.02)}
+.wl-status-badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;font-size:9.5px;font-weight:700;white-space:nowrap;letter-spacing:.3px}
+.wl-section-hdr{display:flex;align-items:center;gap:8px;padding:7px 14px 6px;font-size:10px;font-weight:700;letter-spacing:.8px;color:var(--muted);background:rgba(0,0,0,.15)}
+.wl-growth-pos{font-size:10px;font-weight:700;color:#22c55e;padding:1px 5px;border-radius:4px;background:rgba(34,197,94,.12)}
+.wl-growth-neg{font-size:10px;font-weight:700;color:#f43f5e;padding:1px 5px;border-radius:4px;background:rgba(244,63,94,.12)}
+.wl-kontakt-badge{font-size:9px;font-weight:700;color:#60a5fa;background:rgba(96,165,250,.12);padding:2px 7px;border-radius:5px;white-space:nowrap}
+.wl-kontakt-warn{color:#f59e0b!important;background:rgba(245,158,11,.12)!important}
+.sonstige-row{display:grid;grid-template-columns:110px minmax(0,1fr) minmax(0,1.4fr) 130px 90px;align-items:center;border-bottom:1px solid var(--border)}
+.sonstige-row>*{padding:10px 12px}
+.sonstige-row:hover{background:rgba(255,255,255,.02)}
+</style>
+
+<div x-data="watchlistApp()" x-init="init()">
+
+  <!-- Page Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+    <div>
+      <h1 style="font-family:var(--font-display);font-size:20px;margin:0 0 4px">SEITEN WATCHLIST</h1>
+      <div style="font-size:12px;color:var(--muted)">Targets für Seitenakquisition — Stadtseiten, Vereine, Hochschulen und mehr</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button @click="openSonstigeAdd()" class="btn btn-ghost" style="font-size:11px;padding:8px 12px">
+        <i class="fa-solid fa-plus"></i> Eintrag
+      </button>
+      <button @click="bulkScan()" class="btn btn-ghost" style="font-size:11px;padding:8px 12px"
+              :disabled="scanning" :style="scanning?'opacity:.5;cursor:not-allowed':''">
+        <i class="fa-solid" :class="scanning?'fa-spinner fa-spin':'fa-signal'"></i>
+        &nbsp;<span x-text="scanning?'Scanne...':'Follower scannen'"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Category Sub-Tabs -->
+  <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border)">
+    <button @click="activeTab='stadtseiten'"
+            :class="activeTab==='stadtseiten'?'fchip active':'fchip'"
+            style="border-radius:8px 8px 0 0;margin-bottom:-1px">
+      <i class="fa-solid fa-city" style="font-size:11px"></i>
+      Stadtseiten
+      <span x-show="totalGefunden>0"
+            style="background:rgba(34,197,94,.2);color:#22c55e;border-radius:10px;font-size:9px;padding:1px 7px;font-weight:700;margin-left:4px"
+            x-text="totalGefunden"></span>
+    </button>
+    <button @click="activeTab='sonstige'; if(!sonstigeLoaded) loadSonstige()"
+            :class="activeTab==='sonstige'?'fchip active':'fchip'"
+            style="border-radius:8px 8px 0 0;margin-bottom:-1px">
+      <i class="fa-solid fa-globe" style="font-size:11px"></i>
+      Sonstige
+      <span x-show="sonstigeEntries.length>0"
+            style="background:rgba(99,102,241,.2);color:#818cf8;border-radius:10px;font-size:9px;padding:1px 7px;font-weight:700;margin-left:4px"
+            x-text="sonstigeEntries.length"></span>
+    </button>
+  </div>
+
+  <!-- Global loading -->
+  <div x-show="!loaded" style="text-align:center;padding:80px 20px;color:var(--muted)">
+    <i class="fa-solid fa-spinner fa-spin" style="font-size:28px;margin-bottom:14px;display:block;color:#818cf8"></i>
+    <div style="font-size:13px">Lade Watchlist...</div>
+  </div>
+
+  <!-- ═══ TAB: STADTSEITEN ════════════════════════════════════ -->
+  <div x-show="loaded && activeTab==='stadtseiten'">
+
+    <!-- Stats -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
+      <div class="card" style="padding:14px 16px;background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(99,102,241,.03));border-left:3px solid #6366f1">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">STÄDTE</div>
+        <div style="font-size:26px;font-weight:800;color:#818cf8" x-text="cities.length"></div>
+      </div>
+      <div class="card" style="padding:14px 16px;background:linear-gradient(135deg,rgba(245,158,11,.12),rgba(245,158,11,.03));border-left:3px solid #f59e0b">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">EINTRÄGE</div>
+        <div style="font-size:26px;font-weight:800;color:#f59e0b" x-text="totalEintraege"></div>
+      </div>
+      <div class="card" style="padding:14px 16px;background:linear-gradient(135deg,rgba(34,197,94,.12),rgba(34,197,94,.03));border-left:3px solid #22c55e">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">GEFUNDEN</div>
+        <div style="font-size:26px;font-weight:800;color:#22c55e" x-text="totalGefunden"></div>
+      </div>
+      <div class="card" style="padding:14px 16px;background:linear-gradient(135deg,rgba(168,85,247,.12),rgba(168,85,247,.03));border-left:3px solid #a855f7">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">ABDECKUNG</div>
+        <div style="font-size:26px;font-weight:800;color:#c084fc"
+             x-text="totalEintraege>0 ? Math.round(totalGefunden/totalEintraege*100)+'%' : '0%'"></div>
+      </div>
+    </div>
+
+    <!-- Filter Bar -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+      <div style="position:relative;flex:1;min-width:180px;max-width:260px">
+        <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:11px;pointer-events:none"></i>
+        <input type="text" x-model="search" placeholder="Stadt suchen..." class="input-field"
+               style="padding:8px 10px 8px 30px;font-size:12px;width:100%">
+      </div>
+      <select x-model="typFilter" class="select-field" style="font-size:12px;padding:8px 10px">
+        <option value="">Alle Typen</option>
+        <option value="stadtseite">Stadtseiten</option>
+        <option value="bezirk">Bezirke</option>
+        <option value="verein">Vereine</option>
+        <option value="uni">Hochschulen</option>
+      </select>
+      <select x-model="statusFilter" class="select-field" style="font-size:12px;padding:8px 10px">
+        <option value="">Alle Status</option>
+        <option value="nicht_gesucht">Nicht gesucht</option>
+        <option value="nichts_gefunden">Nichts gefunden</option>
+        <option value="aktiv">Aktiv</option>
+        <option value="gelegentlich">Ab &amp; zu aktiv</option>
+        <option value="inaktiv">Inaktiv</option>
+        <option value="nicht_erreichbar">Nicht erreichbar</option>
+        <option value="interesse">Interesse am Verkauf</option>
+        <option value="kein_interesse">Kein Interesse</option>
+        <option value="kontaktiert">Kontaktiert</option>
+      </select>
+      <button @click="expandAll()" class="btn btn-ghost" style="font-size:11px;padding:8px 12px">
+        <i class="fa-solid fa-list-ul"></i> Alle öffnen
+      </button>
+      <button @click="collapseAll()" class="btn btn-ghost" style="font-size:11px;padding:8px 12px"
+              x-show="cities.some(c=>c.expanded)">
+        <i class="fa-solid fa-compress"></i>
+      </button>
+    </div>
+
+    <!-- City Accordion -->
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <template x-for="city in filteredCities" :key="city.stadt">
+        <div class="card" style="overflow:hidden;padding:0">
+
+          <div class="wl-city-header" @click="toggleCity(city)">
+            <div style="display:flex;align-items:center;gap:10px">
+              <i class="fa-solid fa-chevron-right"
+                 :style="'font-size:9px;color:var(--muted);transition:transform .2s;transform:rotate('+(city.expanded?'90':'0')+'deg)'"></i>
+              <span style="font-size:13px;font-weight:700" x-text="city.stadt"></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px">
+              <i x-show="city.loading" class="fa-solid fa-spinner fa-spin" style="color:var(--muted);font-size:11px"></i>
+              <div style="display:flex;align-items:center;gap:7px">
+                <div style="width:72px;height:4px;background:var(--border);border-radius:4px;overflow:hidden">
+                  <div :style="'height:100%;border-radius:4px;transition:width .3s;background:'+(city.gefunden===0?'#334155':(city.gefunden/Math.max(1,city.total)>0.5?'#22c55e':'#f59e0b'))+';width:'+(city.total>0?Math.round(city.gefunden/city.total*100):0)+'%'"></div>
+                </div>
+                <span style="font-size:11px;color:var(--muted);min-width:40px" x-text="city.gefunden+'/'+city.total"></span>
+              </div>
+              <button @click.stop="openAdd(city, '', '')" class="btn btn-ghost"
+                      style="font-size:10px;padding:4px 8px;border-radius:6px">
+                <i class="fa-solid fa-plus"></i>
+              </button>
+            </div>
+          </div>
+
+          <div x-show="city.expanded" style="border-top:1px solid var(--border)">
+            <template x-if="city.loaded">
+              <div>
+                <template x-for="sec in sections" :key="sec.typ">
+                  <div x-show="getEntries(city, sec.typ).length > 0">
+                    <div class="wl-section-hdr" :style="'border-left:3px solid '+sec.color">
+                      <i class="fa-solid" :class="sec.icon" :style="'color:'+sec.color"></i>
+                      <span x-text="sec.label"></span>
+                      <span x-show="sec.typ!=='stadtseite'"
+                            :style="'background:'+sec.color+'25;color:'+sec.color+';border-radius:10px;padding:1px 8px;font-size:10px'"
+                            x-text="getEntries(city, sec.typ).length"></span>
+                      <div style="flex:1"></div>
+                      <button @click="openAdd(city, sec.typ, '')"
+                              class="btn btn-ghost" style="font-size:10px;padding:3px 8px;border-radius:5px">
+                        <i class="fa-solid fa-plus"></i> Hinzufügen
+                      </button>
+                    </div>
+                    <template x-for="e in getEntries(city, sec.typ)" :key="e.id">
+                      <div class="wl-entry-row">
+                        <!-- Status + kontaktiert_am -->
+                        <div>
+                          <span class="wl-status-badge"
+                                :style="'background:'+statusCfg(e.seiten_status).bg+';color:'+statusCfg(e.seiten_status).color"
+                                x-text="statusCfg(e.seiten_status).label"></span>
+                          <div x-show="e.kontaktiert_am" style="margin-top:4px">
+                            <span class="wl-kontakt-badge"
+                                  :class="kontaktiertDays(e.kontaktiert_am)>30?'wl-kontakt-warn':''">
+                              <i class="fa-regular fa-calendar-check" style="font-size:8px;margin-right:2px"></i>
+                              Tag <span x-text="kontaktiertDays(e.kontaktiert_am)||0"></span>
+                            </span>
+                          </div>
+                        </div>
+                        <!-- Name + Meta -->
+                        <div>
+                          <div style="font-size:12px;font-weight:600;line-height:1.3" x-text="e.ziel_name"></div>
+                          <div style="font-size:10px;color:var(--muted);margin-top:2px" x-show="e.ziel_meta" x-text="e.ziel_meta"></div>
+                        </div>
+                        <!-- Page Info -->
+                        <div>
+                          <div x-show="e.url" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <a :href="e.url" target="_blank" rel="noopener"
+                               :style="'display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:'+platformColor(e.platform||'Instagram')+';text-decoration:none'">
+                              <i class="fa-brands" :class="platformIcon(e.platform||'Instagram')"></i>
+                              <span x-text="e.handle?'@'+e.handle:(e.platform||'Link')"></span>
+                            </a>
+                            <span x-show="e.follower" style="font-size:11px;color:#94a3b8;font-weight:600"
+                                  x-text="formatFollowers(e.follower)"></span>
+                            <span x-show="e.wachstum!=null"
+                                  :class="e.wachstum>=0?'wl-growth-pos':'wl-growth-neg'"
+                                  x-text="(e.wachstum>=0?'+':'')+formatFollowers(e.wachstum)"></span>
+                            <span x-show="e.letzte_aktivitaet"
+                                  style="font-size:10px;color:var(--muted);padding:2px 7px;border-radius:5px;background:var(--surface2)"
+                                  x-text="e.letzte_aktivitaet"></span>
+                          </div>
+                          <div x-show="!e.url" style="font-size:11px;color:var(--muted);font-style:italic;display:flex;align-items:center;gap:5px">
+                            <i class="fa-regular fa-circle-dot" style="font-size:9px"></i> Noch kein Link
+                          </div>
+                        </div>
+                        <!-- Actions -->
+                        <div style="display:flex;align-items:center;gap:3px;justify-content:flex-end;flex-wrap:wrap">
+                          <button @click="openEdit(e)" class="icon-btn"
+                                  :title="e.url?'Bearbeiten':'Link hinzufügen'"
+                                  :style="!e.url?'color:#6366f1':''">
+                            <i class="fa-solid" :class="e.url?'fa-pen':'fa-plus'"></i>
+                          </button>
+                          <button x-show="e.handle" @click="scanEntry(e, city)" class="icon-btn"
+                                  title="Follower scannen" :disabled="scanning"
+                                  :style="scanning?'opacity:.4;cursor:not-allowed':'color:#60a5fa'">
+                            <i class="fa-solid fa-signal" style="font-size:10px"></i>
+                          </button>
+                          <button x-show="!!e.url" @click="openAdd(city, e.ziel_typ, e.ziel_name, e.ziel_meta)"
+                                  class="icon-btn" title="Weitere Seite für dasselbe Ziel" style="color:#a855f7">
+                            <i class="fa-solid fa-copy" style="font-size:10px"></i>
+                          </button>
+                          <button x-show="e.seiten_status==='nicht_gesucht'" @click="setNichts(e)"
+                                  class="icon-btn" title="Nichts gefunden" style="color:var(--muted)">
+                            <i class="fa-solid fa-ban"></i>
+                          </button>
+                          <button @click="deleteEntry(e, city)" class="icon-btn"
+                                  title="Löschen" style="color:var(--danger)">
+                            <i class="fa-solid fa-trash"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <div x-show="!city.loaded && city.loading"
+                 style="padding:20px;text-align:center;color:var(--muted);font-size:12px">
+              <i class="fa-solid fa-spinner fa-spin"></i> Lade...
+            </div>
+          </div>
+
+        </div>
+      </template>
+      <div x-show="filteredCities.length===0 && loaded"
+           style="text-align:center;padding:60px;color:var(--muted)">
+        <i class="fa-solid fa-magnifying-glass" style="font-size:22px;margin-bottom:10px;display:block"></i>
+        Keine Städte gefunden.
+      </div>
+    </div>
+
+  </div><!-- end Stadtseiten-Tab -->
+
+  <!-- ═══ TAB: SONSTIGE ══════════════════════════════════════ -->
+  <div x-show="loaded && activeTab==='sonstige'">
+
+    <div x-show="!sonstigeLoaded" style="text-align:center;padding:60px;color:var(--muted)">
+      <i class="fa-solid fa-spinner fa-spin" style="font-size:22px;margin-bottom:10px;display:block"></i>
+      Lade...
+    </div>
+
+    <div x-show="sonstigeLoaded">
+      <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+        <div style="position:relative;flex:1;min-width:160px;max-width:260px">
+          <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:11px;pointer-events:none"></i>
+          <input type="text" x-model="sonstigeSearch" placeholder="Suchen..." class="input-field"
+                 style="padding:8px 10px 8px 30px;font-size:12px;width:100%">
+        </div>
+        <select x-model="sonstigeKatFilter" class="select-field" style="font-size:12px;padding:8px 10px">
+          <option value="">Alle Kategorien</option>
+          <template x-for="k in sonstigeKategorien" :key="k">
+            <option :value="k" x-text="k"></option>
+          </template>
+        </select>
+        <button @click="openSonstigeAdd()" class="btn btn-primary" style="font-size:11px;padding:8px 14px">
+          <i class="fa-solid fa-plus"></i> Eintrag hinzufügen
+        </button>
+      </div>
+
+      <div x-show="filteredSonstige.length===0"
+           style="text-align:center;padding:60px;color:var(--muted)">
+        <i class="fa-solid fa-folder-open" style="font-size:28px;margin-bottom:12px;display:block;color:#334155"></i>
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px">Noch keine Einträge</div>
+        <div style="font-size:12px">Füge Seiten aus anderen Kategorien hinzu (Humor, Lifestyle, News, etc.)</div>
+      </div>
+
+      <div x-show="filteredSonstige.length>0" class="card" style="overflow:hidden;padding:0">
+        <div class="sonstige-row" style="background:var(--surface2);border-bottom:2px solid var(--border)">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--muted)">KATEGORIE</div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--muted)">NAME</div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--muted)">SEITE</div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--muted)">STATUS</div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--muted)">AKTIONEN</div>
+        </div>
+        <template x-for="e in filteredSonstige" :key="e.id">
+          <div class="sonstige-row">
+            <div>
+              <span style="font-size:10px;font-weight:700;background:rgba(99,102,241,.15);color:#818cf8;border-radius:5px;padding:2px 8px"
+                    x-text="e.wl_kategorie"></span>
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:600" x-text="e.ziel_name"></div>
+              <div style="font-size:10px;color:var(--muted)" x-show="e.ziel_meta" x-text="e.ziel_meta"></div>
+            </div>
+            <div>
+              <div x-show="e.url" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <a :href="e.url" target="_blank" rel="noopener"
+                   :style="'display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:'+platformColor(e.platform||'Instagram')+';text-decoration:none'">
+                  <i class="fa-brands" :class="platformIcon(e.platform||'Instagram')"></i>
+                  <span x-text="e.handle?'@'+e.handle:(e.platform||'Link')"></span>
+                </a>
+                <span x-show="e.follower" style="font-size:11px;color:#94a3b8;font-weight:600"
+                      x-text="formatFollowers(e.follower)"></span>
+                <span x-show="e.wachstum!=null"
+                      :class="e.wachstum>=0?'wl-growth-pos':'wl-growth-neg'"
+                      x-text="(e.wachstum>=0?'+':'')+formatFollowers(e.wachstum)"></span>
+              </div>
+              <div x-show="!e.url" style="font-size:11px;color:var(--muted);font-style:italic">Kein Link</div>
+            </div>
+            <div>
+              <span class="wl-status-badge"
+                    :style="'background:'+statusCfg(e.seiten_status).bg+';color:'+statusCfg(e.seiten_status).color"
+                    x-text="statusCfg(e.seiten_status).label"></span>
+              <div x-show="e.kontaktiert_am" style="margin-top:4px">
+                <span class="wl-kontakt-badge"
+                      :class="kontaktiertDays(e.kontaktiert_am)>30?'wl-kontakt-warn':''">
+                  Tag <span x-text="kontaktiertDays(e.kontaktiert_am)||0"></span>
+                </span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <button @click="openSonstigeEdit(e)" class="icon-btn" title="Bearbeiten">
+                <i class="fa-solid fa-pen"></i>
+              </button>
+              <button x-show="e.handle" @click="scanEntry(e, null)" class="icon-btn"
+                      title="Follower scannen" :disabled="scanning"
+                      :style="scanning?'opacity:.4;cursor:not-allowed':'color:#60a5fa'">
+                <i class="fa-solid fa-signal" style="font-size:10px"></i>
+              </button>
+              <button @click="deleteSonstige(e)" class="icon-btn" title="Löschen" style="color:var(--danger)">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+  </div><!-- end Sonstige-Tab -->
+
+  <!-- ══ MODAL ════════════════════════════════════════════════ -->
+  <div x-show="modalOpen" x-cloak
+       style="position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+       @click.self="modalOpen=false">
+    <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(560px,95vw);max-height:90vh;overflow-y:auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div style="font-family:var(--font-display);font-size:14px"
+             x-text="form.id?'SEITE BEARBEITEN':'SEITE HINZUFÜGEN'"></div>
+        <button @click="modalOpen=false" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+      </div>
+      <!-- Target info bar -->
+      <div x-show="!isSonstige"
+           style="font-size:11px;color:var(--muted);margin-bottom:18px;padding:8px 12px;background:var(--surface2);border-radius:8px;display:flex;align-items:center;gap:6px">
+        <i class="fa-solid fa-map-pin" style="font-size:10px"></i>
+        <span x-text="form.stadt" style="font-weight:600"></span>
+        <span x-show="form.ziel_name && !showNameInput" x-text="'— '+form.ziel_name"></span>
+        <span x-show="form.ziel_meta && !showNameInput" x-text="'('+form.ziel_meta+')'" style="color:var(--muted)"></span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <!-- Kategorie (sonstige only) -->
+        <div x-show="isSonstige" style="grid-column:1/-1">
+          <label class="form-label">Kategorie *</label>
+          <input type="text" x-model="form.wl_kategorie" class="input-field"
+                 placeholder="z.B. Humor, Lifestyle, News, Sport…"
+                 list="wl-kat-suggestions">
+          <datalist id="wl-kat-suggestions">
+            <template x-for="k in sonstigeKategorien" :key="k">
+              <option :value="k"></option>
+            </template>
+          </datalist>
+        </div>
+        <!-- Ziel-Name (add-new mode or sonstige) -->
+        <div x-show="showNameInput || isSonstige" style="grid-column:1/-1">
+          <label class="form-label">Name *</label>
+          <input type="text" x-model="form.ziel_name" class="input-field" placeholder="z.B. Schwabing, TuS Musterstadt, Humor-Seite…">
+          <div x-show="!isSonstige" style="display:flex;gap:6px;margin-top:8px">
+            <select x-model="form.ziel_typ" class="select-field" style="font-size:11px;padding:6px 8px;flex:1">
+              <option value="stadtseite">Stadtseite</option>
+              <option value="bezirk">Bezirk / Stadtteil</option>
+              <option value="verein">Fußballverein</option>
+              <option value="uni">Hochschule</option>
+            </select>
+            <input type="text" x-model="form.ziel_meta" class="input-field"
+                   style="font-size:11px;flex:1" placeholder="z.B. ca. 120.000 Einwohner">
+          </div>
+        </div>
+        <!-- Status -->
+        <div style="grid-column:1/-1">
+          <label class="form-label">Status *</label>
+          <select x-model="form.seiten_status" class="select-field">
+            <option value="nicht_gesucht">Noch nicht gesucht</option>
+            <option value="nichts_gefunden">Nichts gefunden</option>
+            <option value="inaktiv">Inaktiv</option>
+            <option value="gelegentlich">Ab &amp; zu aktiv</option>
+            <option value="aktiv">Aktiv</option>
+            <option value="nicht_erreichbar">Nicht erreichbar</option>
+            <option value="interesse">Interesse am Verkauf</option>
+            <option value="kontaktiert">Kontaktiert</option>
+            <option value="kein_interesse">Kein Interesse am Verkauf</option>
+          </select>
+          <div x-show="form.seiten_status==='kontaktiert'"
+               style="font-size:10px;color:#60a5fa;margin-top:5px;display:flex;align-items:center;gap:4px">
+            <i class="fa-regular fa-calendar-check"></i>
+            Kontaktdatum wird beim Speichern automatisch gesetzt.
+          </div>
+        </div>
+        <div>
+          <label class="form-label">Plattform</label>
+          <select x-model="form.platform" class="select-field">
+            <option value="Instagram">Instagram</option>
+            <option value="TikTok">TikTok</option>
+            <option value="YouTube">YouTube</option>
+            <option value="Facebook">Facebook</option>
+            <option value="Twitter">Twitter / X</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">@Handle</label>
+          <input type="text" x-model="form.handle" class="input-field" placeholder="stadtseite_memes">
+        </div>
+        <div style="grid-column:1/-1">
+          <label class="form-label">Profil-URL</label>
+          <input type="url" x-model="form.url" class="input-field" placeholder="https://instagram.com/...">
+        </div>
+        <div>
+          <label class="form-label">Follower</label>
+          <input type="number" x-model="form.follower" class="input-field" placeholder="12500" min="0">
+        </div>
+        <div>
+          <label class="form-label">Letzte Aktivität</label>
+          <input type="text" x-model="form.letzte_aktivitaet" class="input-field" placeholder="z.B. März 2024">
+        </div>
+        <div style="grid-column:1/-1">
+          <label class="form-label">Notizen</label>
+          <textarea x-model="form.notizen" rows="2" class="input-field"
+                    placeholder="Anmerkungen, Kontakt, Besonderheiten…"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button @click="modalOpen=false" class="btn btn-ghost">Abbrechen</button>
+        <button @click="save()" class="btn btn-primary">
+          <i class="fa-solid fa-save"></i> Speichern
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end x-data -->
+
+<script>
+function watchlistApp() {
+  return {
+    loaded: false,
+    activeTab: 'stadtseiten',
+
+    cities: [],
+    search: '',
+    typFilter: '',
+    statusFilter: '',
+    sections: [
+      {typ:'stadtseite', label:'STADTSEITE',  icon:'fa-city',             color:'#6366f1'},
+      {typ:'bezirk',     label:'BEZIRKE',     icon:'fa-map-location-dot', color:'#f59e0b'},
+      {typ:'verein',     label:'VEREINE',     icon:'fa-futbol',           color:'#22c55e'},
+      {typ:'uni',        label:'HOCHSCHULEN', icon:'fa-graduation-cap',   color:'#a855f7'},
+    ],
+
+    sonstigeLoaded: false,
+    sonstigeEntries: [],
+    sonstigeSearch: '',
+    sonstigeKatFilter: '',
+    sonstigeKategorien: [],
+
+    modalOpen: false,
+    showNameInput: false,
+    isSonstige: false,
+    currentCity: null,
+    form: {
+      id:'', wl_kategorie:'stadtseite', stadt:'', ziel_typ:'stadtseite',
+      ziel_name:'', ziel_meta:'', platform:'Instagram',
+      url:'', handle:'', follower:'', letzte_aktivitaet:'',
+      seiten_status:'nicht_gesucht', notizen:'',
+    },
+
+    scanning: false,
+
+    async init() {
+      await this.loadCities();
+    },
+
+    get totalEintraege() { return this.cities.reduce((a,c)=>a+c.total,0); },
+    get totalGefunden()  { return this.cities.reduce((a,c)=>a+c.gefunden,0); },
+    get filteredCities() {
+      if (!this.search) return this.cities;
+      const s = this.search.toLowerCase();
+      return this.cities.filter(c=>c.stadt.toLowerCase().includes(s));
+    },
+    get filteredSonstige() {
+      let e = this.sonstigeEntries;
+      if (this.sonstigeSearch) {
+        const s = this.sonstigeSearch.toLowerCase();
+        e = e.filter(x=>(x.ziel_name||'').toLowerCase().includes(s)||(x.handle||'').toLowerCase().includes(s));
+      }
+      if (this.sonstigeKatFilter) e = e.filter(x=>x.wl_kategorie===this.sonstigeKatFilter);
+      return e;
+    },
+
+    async loadCities() {
+      const data = await fetch('/api/watchlist/staedte').then(r=>r.json());
+      this.cities = data.map(c=>({...c, expanded:false, loading:false, loaded:false, entries:[]}));
+      this.loaded = true;
+    },
+    async loadSonstige() {
+      const data = await fetch('/api/watchlist/sonstige').then(r=>r.json());
+      this.sonstigeEntries = data;
+      this.sonstigeKategorien = [...new Set(data.map(e=>e.wl_kategorie).filter(Boolean))].sort();
+      this.sonstigeLoaded = true;
+    },
+
+    async toggleCity(city) {
+      if (city.expanded) { city.expanded = false; return; }
+      if (!city.loaded) {
+        city.loading = true;
+        city.entries = await fetch('/api/watchlist/stadtseiten?stadt='+encodeURIComponent(city.stadt)).then(r=>r.json());
+        city.loaded  = true;
+        city.loading = false;
+      }
+      city.expanded = true;
+    },
+    getEntries(city, typ) {
+      if (this.typFilter && this.typFilter !== typ) return [];
+      let e = (city.entries||[]).filter(x=>x.ziel_typ===typ);
+      if (this.statusFilter) e = e.filter(x=>x.seiten_status===this.statusFilter);
+      return e;
+    },
+    expandAll() {
+      this.filteredCities.forEach(c=>{ if (!c.loaded) this.toggleCity(c); else c.expanded=true; });
+    },
+    collapseAll() { this.cities.forEach(c=>c.expanded=false); },
+
+    statusCfg(s) {
+      const m = {
+        nicht_gesucht:   {label:'Nicht gesucht',   color:'#64748b', bg:'rgba(100,116,139,.15)'},
+        nichts_gefunden: {label:'Nichts gefunden',  color:'#ef4444', bg:'rgba(239,68,68,.15)'},
+        inaktiv:         {label:'Inaktiv',          color:'#f43f5e', bg:'rgba(244,63,94,.15)'},
+        gelegentlich:    {label:'Ab & zu aktiv',    color:'#f59e0b', bg:'rgba(245,158,11,.15)'},
+        aktiv:           {label:'Aktiv',            color:'#22c55e', bg:'rgba(34,197,94,.15)'},
+        nicht_erreichbar:{label:'Nicht erreichbar', color:'#dc2626', bg:'rgba(220,38,38,.15)'},
+        interesse:       {label:'Interesse',        color:'#6366f1', bg:'rgba(99,102,241,.15)'},
+        kein_interesse:  {label:'Kein Interesse',   color:'#94a3b8', bg:'rgba(148,163,184,.15)'},
+        kontaktiert:     {label:'Kontaktiert',      color:'#60a5fa', bg:'rgba(96,165,250,.15)'},
+      };
+      return m[s]||{label:s||'?', color:'#64748b', bg:'rgba(100,116,139,.15)'};
+    },
+
+    kontaktiertDays(am) {
+      if (!am) return null;
+      return Math.floor((Date.now()-new Date(am))/86400000);
+    },
+
+    platformColor(p) {
+      return {Instagram:'#e1306c',TikTok:'#69c9d0',YouTube:'#ff0000',Facebook:'#1877f2',Twitter:'#1da1f2'}[p]||'#94a3b8';
+    },
+    platformIcon(p) {
+      return {Instagram:'fa-instagram',TikTok:'fa-tiktok',YouTube:'fa-youtube',Facebook:'fa-facebook',Twitter:'fa-x-twitter'}[p]||'fa-globe';
+    },
+    formatFollowers(n) {
+      if (n===null||n===undefined||n==='') return '';
+      n=parseInt(n);
+      if(n>=1000000) return (n/1000000).toFixed(1).replace('.0','')+'M';
+      if(n>=1000)    return (n/1000).toFixed(1).replace('.0','')+'K';
+      return n.toLocaleString('de-DE');
+    },
+
+    openEdit(e) {
+      this.currentCity = this.cities.find(c=>c.stadt===e.stadt)||null;
+      this.isSonstige = false;
+      this.form = {
+        id:e.id, wl_kategorie:'stadtseite', stadt:e.stadt, ziel_typ:e.ziel_typ,
+        ziel_name:e.ziel_name, ziel_meta:e.ziel_meta||'',
+        platform:e.platform||'Instagram', url:e.url||'', handle:e.handle||'',
+        follower:e.follower||'', letzte_aktivitaet:e.letzte_aktivitaet||'',
+        seiten_status:e.seiten_status||'nicht_gesucht', notizen:e.notizen||'',
+      };
+      this.showNameInput = false;
+      this.modalOpen = true;
+    },
+    openAdd(city, typ, prefillName, prefillMeta) {
+      this.currentCity = city;
+      this.isSonstige = false;
+      this.form = {
+        id:'', wl_kategorie:'stadtseite', stadt:city.stadt, ziel_typ:typ||'stadtseite',
+        ziel_name:prefillName||'', ziel_meta:prefillMeta||'',
+        platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
+        seiten_status:'nicht_gesucht', notizen:'',
+      };
+      this.showNameInput = !prefillName;
+      this.modalOpen = true;
+    },
+    openSonstigeAdd() {
+      this.currentCity = null;
+      this.isSonstige = true;
+      this.form = {
+        id:'', wl_kategorie:'sonstige', stadt:'', ziel_typ:'sonstige',
+        ziel_name:'', ziel_meta:'',
+        platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
+        seiten_status:'nicht_gesucht', notizen:'',
+      };
+      this.showNameInput = true;
+      this.modalOpen = true;
+    },
+    openSonstigeEdit(e) {
+      this.currentCity = null;
+      this.isSonstige = true;
+      this.form = {
+        id:e.id, wl_kategorie:e.wl_kategorie||'sonstige', stadt:e.stadt||'', ziel_typ:e.ziel_typ||'sonstige',
+        ziel_name:e.ziel_name, ziel_meta:e.ziel_meta||'',
+        platform:e.platform||'Instagram', url:e.url||'', handle:e.handle||'',
+        follower:e.follower||'', letzte_aktivitaet:e.letzte_aktivitaet||'',
+        seiten_status:e.seiten_status||'nicht_gesucht', notizen:e.notizen||'',
+      };
+      this.showNameInput = false;
+      this.modalOpen = true;
+    },
+
+    async setNichts(e) {
+      const r = await fetch(`/api/watchlist/stadtseiten/${e.id}`,{
+        method:'PUT',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({seiten_status:'nichts_gefunden'})
+      }).then(r=>r.json());
+      if(r.ok){e.seiten_status='nichts_gefunden';showToast('Nichts gefunden markiert','info');}
+    },
+    async deleteEntry(e, city) {
+      if(!confirm(`"${e.ziel_name}" löschen?`)) return;
+      const r = await fetch(`/api/watchlist/stadtseiten/${e.id}`,{method:'DELETE'}).then(r=>r.json());
+      if(r.ok){
+        city.entries = city.entries.filter(x=>x.id!==e.id);
+        city.total   = Math.max(0,city.total-1);
+        if(e.url) city.gefunden = Math.max(0,city.gefunden-1);
+        showToast('Gelöscht','success');
+      }
+    },
+    async deleteSonstige(e) {
+      if(!confirm(`"${e.ziel_name}" löschen?`)) return;
+      const r = await fetch(`/api/watchlist/stadtseiten/${e.id}`,{method:'DELETE'}).then(r=>r.json());
+      if(r.ok){ this.sonstigeEntries=this.sonstigeEntries.filter(x=>x.id!==e.id); showToast('Gelöscht','success'); }
+    },
+
+    async save() {
+      const f = this.form;
+      if(!f.ziel_name){ showToast('Name ist Pflichtfeld','error'); return; }
+      const payload = {
+        platform:f.platform, url:f.url||null, handle:f.handle||null,
+        follower:f.follower?parseInt(f.follower):null,
+        letzte_aktivitaet:f.letzte_aktivitaet||null,
+        seiten_status:f.seiten_status, notizen:f.notizen||null,
+        wl_kategorie:f.wl_kategorie||'stadtseite',
+      };
+      let r;
+      if(f.id){
+        r = await fetch(`/api/watchlist/stadtseiten/${f.id}`,{
+          method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+        }).then(x=>x.json());
+      } else {
+        Object.assign(payload,{
+          stadt:f.stadt||'-', ziel_typ:f.ziel_typ||'sonstige',
+          ziel_name:f.ziel_name, ziel_meta:f.ziel_meta||null,
+        });
+        r = await fetch('/api/watchlist/stadtseiten',{
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+        }).then(x=>x.json());
+      }
+      if(r.ok){
+        showToast('Gespeichert','success');
+        this.modalOpen = false;
+        if(this.isSonstige){
+          await this.loadSonstige();
+        } else {
+          const city = this.currentCity;
+          if(city){
+            city.loading = true;
+            city.entries = await fetch('/api/watchlist/stadtseiten?stadt='+encodeURIComponent(city.stadt)).then(x=>x.json());
+            city.loading = false;
+            city.gefunden = city.entries.filter(x=>x.url).length;
+            city.total    = city.entries.length;
+            // Update kontaktiert_am in-memory
+            if(r.kontaktiert_am){
+              const updated = city.entries.find(x=>x.id===f.id);
+              if(updated) updated.kontaktiert_am = r.kontaktiert_am;
+            }
+          }
+        }
+      } else { showToast(r.error||'Fehler','error'); }
+    },
+
+    // MANUAL-ONLY follower scan — never called automatically
+    async scanEntry(e, city) {
+      if(!e.handle){ showToast('Kein Handle hinterlegt','error'); return; }
+      this.scanning = true;
+      try {
+        const r = await fetch('/api/watchlist/scan-followers',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ids:[e.id]}),
+        }).then(x=>x.json());
+        if(r.ok && r.updated?.length){
+          const u = r.updated[0];
+          e.wachstum = u.wachstum;
+          e.follower = u.follower;
+          // also refresh sonstigeEntries if applicable
+          const idx = this.sonstigeEntries.findIndex(x=>x.id===e.id);
+          if(idx>=0) this.sonstigeEntries[idx] = {...this.sonstigeEntries[idx], follower:u.follower, wachstum:u.wachstum};
+          showToast(`${e.handle}: ${this.formatFollowers(u.follower)} Follower`,'success');
+        } else { showToast(r.error||'Scan fehlgeschlagen','error'); }
+      } catch(ex){ showToast('Netzwerkfehler','error'); }
+      this.scanning = false;
+    },
+
+    async bulkScan() {
+      let ids = [];
+      if(this.activeTab==='stadtseiten'){
+        this.cities.forEach(c=>(c.entries||[]).forEach(e=>{ if(e.handle) ids.push(e.id); }));
+      } else {
+        ids = this.sonstigeEntries.filter(e=>e.handle).map(e=>e.id);
+      }
+      if(!ids.length){ showToast('Keine Handles hinterlegt','info'); return; }
+      if(!confirm(`${ids.length} Einträge scannen? Das kann einen Moment dauern.`)) return;
+      this.scanning = true;
+      try {
+        const r = await fetch('/api/watchlist/scan-followers',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ids}),
+        }).then(x=>x.json());
+        if(r.ok){
+          const map = {};
+          (r.updated||[]).forEach(u=>{ map[u.id]=u; });
+          if(this.activeTab==='stadtseiten'){
+            this.cities.forEach(c=>(c.entries||[]).forEach(e=>{
+              if(map[e.id]){e.follower=map[e.id].follower;e.wachstum=map[e.id].wachstum;}
+            }));
+          } else {
+            this.sonstigeEntries = this.sonstigeEntries.map(e=>
+              map[e.id]?{...e,follower:map[e.id].follower,wachstum:map[e.id].wachstum}:e
+            );
+          }
+          showToast(`${r.scanned} von ${ids.length} Einträgen gescannt`,'success');
+        } else { showToast(r.error||'Scan fehlgeschlagen','error'); }
+      } catch(ex){ showToast('Netzwerkfehler','error'); }
+      this.scanning = false;
+    },
+  };
+}
+</script>
+
+{% endblock %}

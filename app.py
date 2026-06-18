@@ -23,7 +23,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
                     Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf,
-                    WatchlistSeite)
+                    WatchlistSeite, WatchlistFollowerSnapshot)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -1211,8 +1211,16 @@ def init_db():
                 letzte_aktivitaet VARCHAR(50),
                 seiten_status VARCHAR(30) DEFAULT \'nicht_gesucht\',
                 notizen TEXT,
+                kontaktiert_am TIMESTAMP,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS kontaktiert_am TIMESTAMP')
+            safe_alter("ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS wl_kategorie VARCHAR(50) DEFAULT 'stadtseite'")
+            safe_alter('''CREATE TABLE IF NOT EXISTS watchlist_follower_snapshot (
+                id SERIAL PRIMARY KEY,
+                seite_id INTEGER NOT NULL REFERENCES watchlist_seite(id) ON DELETE CASCADE,
+                follower INTEGER NOT NULL,
+                scanned_at TIMESTAMP DEFAULT NOW())''')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -1511,8 +1519,22 @@ def init_db():
                 letzte_aktivitaet VARCHAR(50),
                 seiten_status VARCHAR(30) DEFAULT 'nicht_gesucht',
                 notizen TEXT,
+                kontaktiert_am DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            try:
+                wl_cols = [c['name'] for c in inspector.get_columns('watchlist_seite')]
+                if 'kontaktiert_am' not in wl_cols:
+                    safe_alter('ALTER TABLE watchlist_seite ADD COLUMN kontaktiert_am DATETIME')
+                if 'wl_kategorie' not in wl_cols:
+                    safe_alter("ALTER TABLE watchlist_seite ADD COLUMN wl_kategorie VARCHAR(50) DEFAULT 'stadtseite'")
+            except Exception:
+                pass
+            safe_alter('''CREATE TABLE IF NOT EXISTS watchlist_follower_snapshot (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                seite_id INTEGER NOT NULL REFERENCES watchlist_seite(id),
+                follower INTEGER NOT NULL,
+                scanned_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
             # Neue Felder: Partner, Kooperation (SQLite)
             try:
@@ -11550,7 +11572,6 @@ def ausgaben():
     if date.today().year not in jahre:
         jahre.insert(0, date.today().year)
 
-    _seed_watchlist()
     return render_template('ausgaben.html',
         active_page='ausgaben',
         items=items, jahr=jahr, jahre=jahre,
@@ -11711,6 +11732,8 @@ def watchlist_list():
         'letzte_aktivitaet': s.letzte_aktivitaet or '',
         'seiten_status': s.seiten_status or 'nicht_gesucht',
         'notizen': s.notizen or '',
+        'kontaktiert_am': s.kontaktiert_am.strftime('%Y-%m-%d') if s.kontaktiert_am else None,
+        'wl_kategorie': s.wl_kategorie or 'stadtseite',
     } for s in items])
 
 
@@ -11728,6 +11751,7 @@ def watchlist_create():
         letzte_aktivitaet=d.get('letzte_aktivitaet'),
         seiten_status=d.get('seiten_status','nicht_gesucht'),
         notizen=d.get('notizen'),
+        wl_kategorie=d.get('wl_kategorie','stadtseite'),
     )
     db.session.add(s)
     db.session.commit()
@@ -11739,11 +11763,14 @@ def watchlist_create():
 def watchlist_update(sid):
     s = WatchlistSeite.query.get_or_404(sid)
     d = request.json or {}
-    for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','notizen','ziel_name','ziel_meta']:
+    old_status = s.seiten_status
+    for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','notizen','ziel_name','ziel_meta','wl_kategorie']:
         if f in d:
             setattr(s, f, d[f])
+    if d.get('seiten_status') == 'kontaktiert' and old_status != 'kontaktiert' and not s.kontaktiert_am:
+        s.kontaktiert_am = datetime.utcnow()
     db.session.commit()
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'kontaktiert_am': s.kontaktiert_am.strftime('%Y-%m-%d') if s.kontaktiert_am else None})
 
 
 @app.route('/api/watchlist/stadtseiten/<int:sid>', methods=['DELETE'])
@@ -11773,6 +11800,101 @@ def watchlist_staedte():
         func.sum(db.case((WatchlistSeite.url != None, 1), else_=0)).label('gefunden'),
     ).group_by(WatchlistSeite.stadt).order_by(WatchlistSeite.stadt).all()
     return jsonify([{'stadt': r.stadt, 'total': r.total, 'gefunden': r.gefunden or 0} for r in rows])
+
+
+@app.route('/api/watchlist/sonstige', methods=['GET'])
+@login_required
+def watchlist_sonstige():
+    """Returns all non-stadtseite watchlist entries grouped by wl_kategorie."""
+    q = WatchlistSeite.query.filter(WatchlistSeite.wl_kategorie != 'stadtseite')
+    if request.args.get('kategorie'):
+        q = q.filter_by(wl_kategorie=request.args['kategorie'])
+    items = q.order_by(WatchlistSeite.wl_kategorie, WatchlistSeite.id).all()
+    return jsonify([{
+        'id': s.id, 'wl_kategorie': s.wl_kategorie or 'sonstige',
+        'ziel_typ': s.ziel_typ, 'ziel_name': s.ziel_name, 'ziel_meta': s.ziel_meta or '',
+        'platform': s.platform or 'Instagram', 'url': s.url or '',
+        'handle': s.handle or '', 'follower': s.follower,
+        'letzte_aktivitaet': s.letzte_aktivitaet or '',
+        'seiten_status': s.seiten_status or 'nicht_gesucht',
+        'notizen': s.notizen or '',
+        'kontaktiert_am': s.kontaktiert_am.strftime('%Y-%m-%d') if s.kontaktiert_am else None,
+    } for s in items])
+
+
+@app.route('/api/watchlist/kategorien', methods=['GET'])
+@login_required
+def watchlist_kategorien():
+    """Returns distinct wl_kategorie values in use."""
+    from sqlalchemy import distinct
+    rows = db.session.query(distinct(WatchlistSeite.wl_kategorie)).all()
+    kats = sorted([r[0] for r in rows if r[0] and r[0] != 'stadtseite'])
+    return jsonify({'kategorien': kats})
+
+
+@app.route('/api/watchlist/seite/<int:sid>/snapshots', methods=['GET'])
+@login_required
+def watchlist_snapshots(sid):
+    snaps = WatchlistFollowerSnapshot.query.filter_by(seite_id=sid)\
+        .order_by(WatchlistFollowerSnapshot.scanned_at.desc()).all()
+    return jsonify([{
+        'id': s.id, 'follower': s.follower,
+        'scanned_at': s.scanned_at.strftime('%Y-%m-%d %H:%M'),
+    } for s in snaps])
+
+
+@app.route('/api/watchlist/scan-followers', methods=['POST'])
+@login_required
+def watchlist_scan_followers():
+    """MANUAL-ONLY follower scan via RapidAPI. Never call this automatically."""
+    d = request.json or {}
+    ids = d.get('ids', [])  # list of WatchlistSeite IDs to scan
+    if not ids:
+        return jsonify({'ok': False, 'error': 'Keine IDs angegeben'}), 400
+
+    seiten = WatchlistSeite.query.filter(WatchlistSeite.id.in_(ids)).all()
+    if not seiten:
+        return jsonify({'ok': False, 'error': 'Keine Einträge gefunden'}), 404
+
+    # Only scan entries that have a handle
+    to_scan = [s for s in seiten if s.handle]
+    if not to_scan:
+        return jsonify({'ok': False, 'error': 'Keine Handles hinterlegt'}), 400
+
+    rapidapi_key = get_setting('rapidapi_key') or ''
+    if not rapidapi_key:
+        return jsonify({'ok': False, 'error': 'Kein RapidAPI Key konfiguriert'}), 400
+
+    handles = [s.handle.lstrip('@') for s in to_scan]
+    try:
+        results = _fetch_ig_followers_rapidapi_batch(handles, rapidapi_key)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+    updated = []
+    for s in to_scan:
+        handle_clean = s.handle.lstrip('@')
+        count = results.get(handle_clean)
+        if count is None:
+            continue
+        prev = s.follower
+        s.follower = count
+        snap = WatchlistFollowerSnapshot(seite_id=s.id, follower=count)
+        db.session.add(snap)
+        wachstum = count - prev if prev is not None else None
+        updated.append({
+            'id': s.id, 'handle': s.handle, 'follower': count,
+            'wachstum': wachstum,
+        })
+    db.session.commit()
+    return jsonify({'ok': True, 'updated': updated, 'scanned': len(updated)})
+
+
+@app.route('/seiten-watchlist')
+@login_required
+def seiten_watchlist():
+    _seed_watchlist()
+    return render_template('cms/seiten_watchlist.html', active_page='watchlist')
 
 
 @app.route('/api/ausgaben/kategorien', methods=['GET'])
