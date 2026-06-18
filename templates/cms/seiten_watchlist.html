@@ -5,8 +5,7 @@
 <style>
 .wl-city-header{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;cursor:pointer;user-select:none;transition:background .12s}
 .wl-city-header:hover{background:rgba(255,255,255,.025)}
-.wl-entry-row{display:grid;grid-template-columns:130px minmax(0,1.2fr) minmax(0,2fr) 130px;align-items:center;border-bottom:1px solid var(--border)}
-.wl-entry-row>*{padding:10px 14px}
+.wl-entry-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;border-bottom:1px solid var(--border);padding:7px 14px;gap:10px}
 .wl-entry-row:last-child{border-bottom:none}
 .wl-entry-row:hover{background:rgba(255,255,255,.02)}
 .wl-status-badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;font-size:9.5px;font-weight:700;white-space:nowrap;letter-spacing:.3px}
@@ -182,12 +181,12 @@
                     </div>
                     <template x-for="e in getEntries(city, sec.typ)" :key="e.id">
                       <div class="wl-entry-row">
-                        <!-- Status + kontaktiert_am -->
-                        <div>
+                        <!-- Status -->
+                        <div style="white-space:nowrap">
                           <span class="wl-status-badge"
                                 :style="'background:'+statusCfg(e.seiten_status).bg+';color:'+statusCfg(e.seiten_status).color"
                                 x-text="statusCfg(e.seiten_status).label"></span>
-                          <div x-show="e.kontaktiert_am" style="margin-top:4px">
+                          <div x-show="e.kontaktiert_am" style="margin-top:3px">
                             <span class="wl-kontakt-badge"
                                   :class="kontaktiertDays(e.kontaktiert_am)>30?'wl-kontakt-warn':''">
                               <i class="fa-regular fa-calendar-check" style="font-size:8px;margin-right:2px"></i>
@@ -195,55 +194,34 @@
                             </span>
                           </div>
                         </div>
-                        <!-- Name + Meta -->
-                        <div>
-                          <div style="font-size:12px;font-weight:600;line-height:1.3" x-text="e.ziel_name"></div>
-                          <div style="font-size:10px;color:var(--muted);margin-top:2px" x-show="e.ziel_meta" x-text="e.ziel_meta"></div>
-                        </div>
-                        <!-- Page Info -->
-                        <div>
-                          <div x-show="e.url" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                            <a :href="e.url" target="_blank" rel="noopener"
-                               :style="'display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:'+platformColor(e.platform||'Instagram')+';text-decoration:none'">
-                              <i class="fa-brands" :class="platformIcon(e.platform||'Instagram')"></i>
-                              <span x-text="e.handle?'@'+e.handle:(e.platform||'Link')"></span>
-                            </a>
-                            <span x-show="e.follower" style="font-size:11px;color:#94a3b8;font-weight:600"
-                                  x-text="formatFollowers(e.follower)"></span>
-                            <span x-show="e.wachstum!=null"
-                                  :class="e.wachstum>=0?'wl-growth-pos':'wl-growth-neg'"
-                                  x-text="(e.wachstum>=0?'+':'')+formatFollowers(e.wachstum)"></span>
-                            <span x-show="e.letzte_aktivitaet"
-                                  style="font-size:10px;color:var(--muted);padding:2px 7px;border-radius:5px;background:var(--surface2)"
-                                  x-text="e.letzte_aktivitaet"></span>
-                          </div>
-                          <div x-show="!e.url" style="font-size:11px;color:var(--muted);font-style:italic;display:flex;align-items:center;gap:5px">
-                            <i class="fa-regular fa-circle-dot" style="font-size:9px"></i> Noch kein Link
-                          </div>
+                        <!-- Info: Name · Handle · Follower · Letzte Aktivität -->
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0">
+                          <span style="font-size:12px;font-weight:700;white-space:nowrap" x-text="e.ziel_name"></span>
+                          <a x-show="e.url" :href="e.url" target="_blank" rel="noopener"
+                             :style="'display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;color:'+platformColor(e.platform||'Instagram')+';text-decoration:none'">
+                            <i class="fa-brands" :class="platformIcon(e.platform||'Instagram')" style="font-size:10px"></i>
+                            <span x-text="e.handle?'@'+e.handle:(e.platform||'Link')"></span>
+                          </a>
+                          <span x-show="!e.url" style="font-size:10px;color:var(--muted);font-style:italic">Kein Link</span>
+                          <span x-show="e.follower" style="font-size:11px;color:#94a3b8;font-weight:600" x-text="formatFollowers(e.follower)"></span>
+                          <span x-show="e.wachstum!=null" :class="e.wachstum>=0?'wl-growth-pos':'wl-growth-neg'"
+                                x-text="(e.wachstum>=0?'+':'')+formatFollowers(e.wachstum)"></span>
+                          <span x-show="e.letzte_aktivitaet"
+                                style="font-size:10px;color:var(--muted);padding:1px 6px;border-radius:4px;background:var(--surface2)"
+                                x-text="e.letzte_aktivitaet"></span>
                         </div>
                         <!-- Actions -->
-                        <div style="display:flex;align-items:center;gap:3px;justify-content:flex-end;flex-wrap:wrap">
-                          <button @click="openEdit(e)" class="icon-btn"
-                                  :title="e.url?'Bearbeiten':'Link hinzufügen'"
-                                  :style="!e.url?'color:#6366f1':''">
-                            <i class="fa-solid" :class="e.url?'fa-pen':'fa-plus'"></i>
+                        <div style="display:flex;align-items:center;gap:3px;white-space:nowrap">
+                          <button @click="deleteEntry(e, city)" class="icon-btn" title="Löschen" style="color:var(--danger)">
+                            <i class="fa-solid fa-trash"></i>
                           </button>
-                          <button x-show="e.handle" @click="scanEntry(e, city)" class="icon-btn"
-                                  title="Follower scannen" :disabled="scanning"
-                                  :style="scanning?'opacity:.4;cursor:not-allowed':'color:#60a5fa'">
+                          <button x-show="e.handle" @click="scanEntry(e, city)" class="icon-btn" title="Follower scannen"
+                                  :disabled="scanning" :style="scanning?'opacity:.4;cursor:not-allowed':'color:#60a5fa'">
                             <i class="fa-solid fa-signal" style="font-size:10px"></i>
                           </button>
-                          <button x-show="!!e.url" @click="openAdd(city, e.ziel_typ, e.ziel_name, e.ziel_meta)"
-                                  class="icon-btn" title="Weitere Seite für dasselbe Ziel" style="color:#a855f7">
-                            <i class="fa-solid fa-copy" style="font-size:10px"></i>
-                          </button>
-                          <button x-show="e.seiten_status==='nicht_gesucht'" @click="setNichts(e)"
-                                  class="icon-btn" title="Nichts gefunden" style="color:var(--muted)">
-                            <i class="fa-solid fa-ban"></i>
-                          </button>
-                          <button @click="deleteEntry(e, city)" class="icon-btn"
-                                  title="Löschen" style="color:var(--danger)">
-                            <i class="fa-solid fa-trash"></i>
+                          <button @click="openEdit(e)" class="icon-btn" :title="e.url?'Bearbeiten':'Link hinzufügen'"
+                                  :style="!e.url?'color:#6366f1':''">
+                            <i class="fa-solid" :class="e.url?'fa-pen':'fa-plus'"></i>
                           </button>
                         </div>
                       </div>
@@ -619,7 +597,7 @@ function watchlistApp() {
         follower:e.follower||'', letzte_aktivitaet:e.letzte_aktivitaet||'',
         seiten_status:e.seiten_status||'nicht_gesucht', notizen:e.notizen||'',
       };
-      this.showNameInput = false;
+      this.showNameInput = true;
       this.modalOpen = true;
     },
     openAdd(city, typ, prefillName, prefillMeta) {
@@ -631,7 +609,7 @@ function watchlistApp() {
         platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
         seiten_status:'nicht_gesucht', notizen:'',
       };
-      this.showNameInput = !prefillName;
+      this.showNameInput = true;
       this.modalOpen = true;
     },
     openSonstigeAdd() {
