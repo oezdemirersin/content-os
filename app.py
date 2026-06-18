@@ -22,7 +22,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     InspirationSource, InspirationPost,
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
-                    Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent)
+                    Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -698,6 +698,23 @@ def init_db():
                 kategorie VARCHAR(50) DEFAULT \'Sonstiges\',
                 content_idee TEXT,
                 created_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS seiten_kauf (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(200) NOT NULL,
+                handle VARCHAR(100),
+                platform VARCHAR(30) DEFAULT \'Instagram\',
+                followers INTEGER,
+                engagement_rate FLOAT,
+                nische VARCHAR(100),
+                preis_vorstellung FLOAT,
+                unser_angebot FLOAT,
+                status VARCHAR(30) DEFAULT \'interessant\',
+                kontakt VARCHAR(200),
+                url VARCHAR(500),
+                notizen TEXT,
+                gekauft_am DATE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW())''')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -956,6 +973,23 @@ def init_db():
                 kategorie VARCHAR(50) DEFAULT 'Sonstiges',
                 content_idee TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS seiten_kauf (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(200) NOT NULL,
+                handle VARCHAR(100),
+                platform VARCHAR(30) DEFAULT 'Instagram',
+                followers INTEGER,
+                engagement_rate FLOAT,
+                nische VARCHAR(100),
+                preis_vorstellung FLOAT,
+                unser_angebot FLOAT,
+                status VARCHAR(30) DEFAULT 'interessant',
+                kontakt VARCHAR(200),
+                url VARCHAR(500),
+                notizen TEXT,
+                gekauft_am DATE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
             # Neue Felder: Partner, Kooperation (SQLite)
             try:
@@ -11012,7 +11046,77 @@ def ausgaben():
             GeplantAusgabe.prioritaet.asc(),
             GeplantAusgabe.created_at.desc()
         ).all()],
+        seitenkauf_items=[{
+            'id': s.id, 'name': s.name, 'handle': s.handle or '',
+            'platform': s.platform, 'followers': s.followers,
+            'engagement_rate': s.engagement_rate,
+            'nische': s.nische or '', 'preis_vorstellung': s.preis_vorstellung,
+            'unser_angebot': s.unser_angebot,
+            'status': s.status, 'kontakt': s.kontakt or '',
+            'url': s.url or '', 'notizen': s.notizen or '',
+            'gekauft_am': s.gekauft_am.isoformat() if s.gekauft_am else '',
+        } for s in SeitenKauf.query.order_by(SeitenKauf.created_at.desc()).all()],
     )
+
+
+@app.route('/api/seitenkauf', methods=['GET'])
+@login_required
+def seitenkauf_list():
+    items = SeitenKauf.query.order_by(SeitenKauf.created_at.desc()).all()
+    return jsonify([{
+        'id': s.id, 'name': s.name, 'handle': s.handle or '',
+        'platform': s.platform, 'followers': s.followers,
+        'engagement_rate': s.engagement_rate,
+        'nische': s.nische or '', 'preis_vorstellung': s.preis_vorstellung,
+        'unser_angebot': s.unser_angebot,
+        'status': s.status, 'kontakt': s.kontakt or '',
+        'url': s.url or '', 'notizen': s.notizen or '',
+        'gekauft_am': s.gekauft_am.isoformat() if s.gekauft_am else '',
+    } for s in items])
+
+
+@app.route('/api/seitenkauf', methods=['POST'])
+@login_required
+def seitenkauf_create():
+    d = request.json or {}
+    if not d.get('name'):
+        return jsonify({'ok': False, 'error': 'Name fehlt'}), 400
+    s = SeitenKauf(
+        name=d['name'], handle=d.get('handle'), platform=d.get('platform', 'Instagram'),
+        followers=d.get('followers'), engagement_rate=d.get('engagement_rate'),
+        nische=d.get('nische'), preis_vorstellung=d.get('preis_vorstellung'),
+        unser_angebot=d.get('unser_angebot'), status=d.get('status', 'interessant'),
+        kontakt=d.get('kontakt'), url=d.get('url'), notizen=d.get('notizen'),
+    )
+    db.session.add(s)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': s.id})
+
+
+@app.route('/api/seitenkauf/<int:sid>', methods=['PUT'])
+@login_required
+def seitenkauf_update(sid):
+    s = SeitenKauf.query.get_or_404(sid)
+    d = request.json or {}
+    for field in ['name', 'handle', 'platform', 'followers', 'engagement_rate',
+                  'nische', 'preis_vorstellung', 'unser_angebot', 'status',
+                  'kontakt', 'url', 'notizen']:
+        if field in d:
+            setattr(s, field, d[field])
+    if d.get('status') == 'gekauft' and not s.gekauft_am:
+        from datetime import date as _date
+        s.gekauft_am = _date.today()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/seitenkauf/<int:sid>', methods=['DELETE'])
+@login_required
+def seitenkauf_delete(sid):
+    s = SeitenKauf.query.get_or_404(sid)
+    db.session.delete(s)
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/ausgaben/kategorien', methods=['GET'])

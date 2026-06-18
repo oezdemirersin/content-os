@@ -884,6 +884,27 @@ class AppTodo(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class SeitenKauf(db.Model):
+    """Seiten-Akquisitions-Pipeline — Instagram/TikTok/YouTube Seiten die man kaufen möchte."""
+    __tablename__ = 'seiten_kauf'
+    id                = db.Column(db.Integer, primary_key=True)
+    name              = db.Column(db.String(200), nullable=False)
+    handle            = db.Column(db.String(100))
+    platform          = db.Column(db.String(30), default='Instagram')   # Instagram|TikTok|YouTube|Twitter|Facebook
+    followers         = db.Column(db.Integer)
+    engagement_rate   = db.Column(db.Float)                             # in %
+    nische            = db.Column(db.String(100))
+    preis_vorstellung = db.Column(db.Float)                             # Verkäufer-Preis
+    unser_angebot     = db.Column(db.Float)                             # Unser Angebot
+    status            = db.Column(db.String(30), default='interessant') # interessant|kontaktiert|in_verhandlung|angebot|gekauft|abgesagt
+    kontakt           = db.Column(db.String(200))                       # Name / E-Mail / Telegram
+    url               = db.Column(db.String(500))
+    notizen           = db.Column(db.Text)
+    gekauft_am        = db.Column(db.Date)
+    created_at        = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at        = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class LocalEvent(db.Model):
     """Lokale Events für den Event-Radar in Stadt-Memes."""
     __tablename__ = 'local_event'

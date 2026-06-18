@@ -19,6 +19,14 @@
             style="margin-left:5px;background:rgba(99,102,241,.3);color:#a5b4fc;border-radius:10px;padding:0 6px;font-size:10px"
             x-text="geplant.filter(g=>!g.gekauft).length"></span>
     </button>
+    <button @click="mainTab='seitenkauf'" class="fchip" :class="mainTab==='seitenkauf'?'active':''"
+            style="border-radius:8px 8px 0 0;padding:8px 20px">
+      <i class="fa-solid fa-store" style="margin-right:6px;font-size:11px"></i>
+      Seitenkauf
+      <span x-show="seitenkauf.filter(s=>!['gekauft','abgesagt'].includes(s.status)).length>0"
+            style="margin-left:5px;background:rgba(245,158,11,.25);color:#f59e0b;border-radius:10px;padding:0 6px;font-size:10px"
+            x-text="seitenkauf.filter(s=>!['gekauft','abgesagt'].includes(s.status)).length"></span>
+    </button>
   </div>
 
   <!-- ═══════════ TAB: AUSGABEN ════════════════════════════════ -->
@@ -314,7 +322,190 @@
 
   </div><!-- end Geplant-Tab -->
 
+  <!-- ═══════════ TAB: SEITENKAUF ═════════════════════════════════ -->
+  <div x-show="mainTab==='seitenkauf'">
+
+    <!-- Stats -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(245,158,11,.03))">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">AUF DEM RADAR</div>
+        <div style="font-size:22px;font-weight:800;color:#f59e0b"
+             x-text="seitenkauf.filter(s=>s.status==='interessant').length"></div>
+      </div>
+      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(99,102,241,.1),rgba(99,102,241,.03))">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">IN VERHANDLUNG</div>
+        <div style="font-size:22px;font-weight:800;color:var(--accent2)"
+             x-text="seitenkauf.filter(s=>['kontaktiert','in_verhandlung','angebot'].includes(s.status)).length"></div>
+      </div>
+      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,.03))">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">GEKAUFT</div>
+        <div style="font-size:22px;font-weight:800;color:#10b981"
+             x-text="seitenkauf.filter(s=>s.status==='gekauft').length"></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px"
+             x-show="seitenkauf.filter(s=>s.status==='gekauft'&&s.unser_angebot).length"
+             x-text="'Ø ' + (seitenkauf.filter(s=>s.status===\'gekauft\'&&s.unser_angebot).reduce((a,s)=>a+s.unser_angebot,0) / Math.max(1,seitenkauf.filter(s=>s.status===\'gekauft\'&&s.unser_angebot).length)).toLocaleString(\'de-DE\',{maximumFractionDigits:0}) + ' €'"></div>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">GESAMTBUDGET (ANGEBOTE)</div>
+        <div style="font-size:22px;font-weight:800"
+             x-text="seitenkauf.filter(s=>s.unser_angebot&&!['abgesagt'].includes(s.status)).reduce((a,s)=>a+s.unser_angebot,0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></div>
+      </div>
+    </div>
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <template x-for="[val, label, col] in statusFilters" :key="val">
+          <button @click="skFilter=val" class="fchip" :class="skFilter===val?'active':''"
+                  style="font-size:11px" x-text="label"></button>
+        </template>
+      </div>
+      <button @click="openSKModal()" class="btn btn-primary">
+        <i class="fa-solid fa-plus"></i> Seite eintragen
+      </button>
+    </div>
+
+    <!-- Pipeline-Liste -->
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <template x-for="s in filteredSK" :key="s.id">
+        <div class="card" style="padding:16px;display:flex;gap:14px;align-items:flex-start">
+
+          <!-- Status-Dot -->
+          <div style="flex-shrink:0;margin-top:3px">
+            <div style="width:10px;height:10px;border-radius:50%"
+                 :style="'background:'+statusColor(s.status)"></div>
+          </div>
+
+          <!-- Info -->
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+              <span style="font-size:14px;font-weight:700" x-text="s.name"></span>
+              <span x-show="s.handle" style="font-size:11px;color:var(--muted)" x-text="'@'+s.handle"></span>
+              <span style="font-size:10px;padding:1px 8px;border-radius:10px;font-weight:700"
+                    :style="'background:'+statusColor(s.status)+'22;color:'+statusColor(s.status)"
+                    x-text="statusLabel(s.status)"></span>
+              <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--surface2);color:var(--muted)" x-text="s.platform"></span>
+              <span x-show="s.nische" style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--surface2);color:var(--muted)" x-text="s.nische"></span>
+            </div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--muted)">
+              <span x-show="s.followers"><i class="fa-solid fa-users" style="margin-right:4px"></i><span x-text="(s.followers||0).toLocaleString('de-DE')"></span></span>
+              <span x-show="s.engagement_rate"><i class="fa-solid fa-chart-line" style="margin-right:4px"></i><span x-text="s.engagement_rate+'%'"></span></span>
+              <span x-show="s.kontakt"><i class="fa-solid fa-address-card" style="margin-right:4px"></i><span x-text="s.kontakt"></span></span>
+              <a x-show="s.url" :href="s.url" target="_blank" rel="noopener"
+                 style="color:var(--accent);text-decoration:none;font-size:11px">
+                <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:9px"></i> Profil
+              </a>
+            </div>
+            <div x-show="s.notizen" style="font-size:11px;color:var(--muted);margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px" x-text="s.notizen"></div>
+          </div>
+
+          <!-- Preise -->
+          <div style="flex-shrink:0;text-align:right;min-width:100px">
+            <div x-show="s.preis_vorstellung" style="font-size:11px;color:var(--muted);margin-bottom:2px">
+              Forderung: <span style="font-weight:600" x-text="(s.preis_vorstellung||0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></span>
+            </div>
+            <div x-show="s.unser_angebot" style="font-size:13px;font-weight:800;color:#10b981"
+                 x-text="'Angebot: '+(s.unser_angebot||0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></div>
+            <div x-show="s.preis_vorstellung&&s.unser_angebot" style="font-size:10px;color:var(--muted);margin-top:2px"
+                 x-text="'Diff: '+(s.preis_vorstellung-s.unser_angebot>0?'-':'+')+(Math.abs(s.preis_vorstellung-s.unser_angebot)).toLocaleString('de-DE',{maximumFractionDigits:0})+' €'"></div>
+          </div>
+
+          <!-- Actions -->
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button @click="openSKModal(s)" class="icon-btn"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
+            <button @click="deleteSK(s)" class="icon-btn" style="color:var(--danger)"><i class="fa-solid fa-trash" style="font-size:10px"></i></button>
+          </div>
+        </div>
+      </template>
+      <div x-show="filteredSK.length===0" style="padding:60px;text-align:center;color:var(--muted)">
+        <i class="fa-solid fa-store" style="font-size:28px;opacity:.3;display:block;margin-bottom:10px"></i>
+        Keine Einträge in dieser Kategorie.
+      </div>
+    </div>
+
+  </div><!-- end Seitenkauf-Tab -->
+
 </div><!-- end app -->
+
+<!-- ══ MODAL: Seitenkauf ═══════════════════════════════════════════ -->
+<div id="skModal"
+     style="display:none;position:fixed;inset:0;z-index:500;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+     onclick="if(event.target===this)closeSKModal()">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(600px,95vw);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div style="font-family:var(--font-display);font-size:14px" id="skModalTitle">SEITE EINTRAGEN</div>
+      <button onclick="closeSKModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+    </div>
+    <input type="hidden" id="skId">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div style="grid-column:1/-1">
+        <label class="form-label">Seiten-Name *</label>
+        <input type="text" id="skName" class="input-field" placeholder="z.B. Frankfurt Memes">
+      </div>
+      <div>
+        <label class="form-label">@Handle</label>
+        <input type="text" id="skHandle" class="input-field" placeholder="frankfurt_memes">
+      </div>
+      <div>
+        <label class="form-label">Plattform</label>
+        <select id="skPlatform" class="select-field">
+          <option value="Instagram">Instagram</option>
+          <option value="TikTok">TikTok</option>
+          <option value="YouTube">YouTube</option>
+          <option value="Facebook">Facebook</option>
+          <option value="Twitter">Twitter / X</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Follower</label>
+        <input type="number" id="skFollowers" class="input-field" placeholder="50000" min="0">
+      </div>
+      <div>
+        <label class="form-label">Engagement-Rate (%)</label>
+        <input type="number" id="skEngagement" class="input-field" placeholder="3.5" step="0.1" min="0">
+      </div>
+      <div>
+        <label class="form-label">Nische / Kategorie</label>
+        <input type="text" id="skNische" class="input-field" placeholder="z.B. Humor, Stadtleben">
+      </div>
+      <div>
+        <label class="form-label">Status</label>
+        <select id="skStatus" class="select-field">
+          <option value="interessant">Interessant</option>
+          <option value="kontaktiert">Kontaktiert</option>
+          <option value="in_verhandlung">In Verhandlung</option>
+          <option value="angebot">Angebot gemacht</option>
+          <option value="gekauft">Gekauft ✓</option>
+          <option value="abgesagt">Abgesagt</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Kontakt (Name / E-Mail / TG)</label>
+        <input type="text" id="skKontakt" class="input-field" placeholder="@admin_handle">
+      </div>
+      <div>
+        <label class="form-label">Preisvorstellung Verkäufer (€)</label>
+        <input type="number" id="skPreis" class="input-field" placeholder="2500" step="50" min="0">
+      </div>
+      <div>
+        <label class="form-label">Unser Angebot (€)</label>
+        <input type="number" id="skAngebot" class="input-field" placeholder="1800" step="50" min="0">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Profil-URL</label>
+        <input type="url" id="skUrl" class="input-field" placeholder="https://instagram.com/…">
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Notizen</label>
+        <textarea id="skNotizen" rows="3" class="input-field" placeholder="Besonderheiten, Verhandlungsstand, Warum interessant…"></textarea>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeSKModal()" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="saveSK()" class="btn btn-primary"><i class="fa-solid fa-save"></i> Speichern</button>
+    </div>
+  </div>
+</div>
 
 <!-- ══ MODAL: Ausgabe erfassen / bearbeiten ═══════════════════════ -->
 <div id="ausgabeModal"
@@ -571,15 +762,16 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
-const _ausgaben   = {{ items            | tojson }};
-const _abos       = {{ abo_items        | tojson }};
-const _kategorien = {{ kategorien       | tojson }};
-const _monateFA   = {{ monate_fa        | tojson }};
-const _monatePRV  = {{ monate_prv       | tojson }};
-const _aboMo      = {{ abo_monatlich    | tojson }};
-const _aboFaMo    = {{ abo_finanzamt_mo | tojson }};
-const _geplant    = {{ geplant_items    | tojson }};
-const _initBudget = {{ geplant_budget   | tojson }};
+const _ausgaben      = {{ items               | tojson }};
+const _abos          = {{ abo_items           | tojson }};
+const _kategorien    = {{ kategorien          | tojson }};
+const _monateFA      = {{ monate_fa           | tojson }};
+const _monatePRV     = {{ monate_prv          | tojson }};
+const _aboMo         = {{ abo_monatlich       | tojson }};
+const _aboFaMo       = {{ abo_finanzamt_mo    | tojson }};
+const _geplant       = {{ geplant_items       | tojson }};
+const _initBudget    = {{ geplant_budget      | tojson }};
+const _seitenkauf    = {{ seitenkauf_items    | tojson }};
 const MONATE = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
 // Abos für alle vergangenen Monate + aktuellen Monat
@@ -624,6 +816,8 @@ function ausgabenApp() {
     ausgaben: [],
     abos: [],
     geplant: [],
+    seitenkauf: [],
+    skFilter: 'aktiv',
     kategorien: [],
     activeFilter: 'alle',
     geplantFilter: 'offen',
@@ -632,17 +826,43 @@ function ausgabenApp() {
     budget: 0,
     budgetInput: '',
     editBudget: false,
+    statusFilters: [
+      ['aktiv',        'Aktiv',           '#6366f1'],
+      ['interessant',  'Interessant',     '#f59e0b'],
+      ['kontaktiert',  'Kontaktiert',     '#60a5fa'],
+      ['in_verhandlung','In Verhandlung', '#a855f7'],
+      ['angebot',      'Angebot',         '#f97316'],
+      ['gekauft',      'Gekauft',         '#22c55e'],
+      ['abgesagt',     'Abgesagt',        '#ef4444'],
+      ['alle',         'Alle',            '#64748b'],
+    ],
 
     init() {
       this.ausgaben   = _ausgaben;
       this.abos       = _abos;
       this.geplant    = _geplant;
+      this.seitenkauf = _seitenkauf;
       this.kategorien = _kategorien.map(k => ({v: k}));
       this.budget     = _initBudget;
       this.budgetInput = _initBudget > 0 ? _initBudget : '';
       fillKatSelect('eAKategorie',   _kategorien);
       fillKatSelect('eAboKategorie', _kategorien);
       fillKatSelect('eGKategorie',   _kategorien);
+    },
+
+    get filteredSK() {
+      if (this.skFilter === 'alle')   return this.seitenkauf;
+      if (this.skFilter === 'aktiv')  return this.seitenkauf.filter(s => !['gekauft','abgesagt'].includes(s.status));
+      return this.seitenkauf.filter(s => s.status === this.skFilter);
+    },
+
+    statusColor(s) {
+      return {interessant:'#f59e0b',kontaktiert:'#60a5fa',in_verhandlung:'#a855f7',
+              angebot:'#f97316',gekauft:'#22c55e',abgesagt:'#ef4444'}[s] || '#64748b';
+    },
+    statusLabel(s) {
+      return {interessant:'Interessant',kontaktiert:'Kontaktiert',in_verhandlung:'In Verhandlung',
+              angebot:'Angebot gemacht',gekauft:'Gekauft ✓',abgesagt:'Abgesagt'}[s] || s;
     },
 
     saveAboToggle() {
@@ -801,6 +1021,32 @@ function ausgabenApp() {
       if (r.ok) { this.abos = this.abos.filter(a=>a.id!==abo.id); showToast('Gelöscht','success'); }
     },
 
+    openSKModal(item=null) {
+      const id = item ? item.id : '';
+      document.getElementById('skId').value        = id;
+      document.getElementById('skName').value      = item?.name      || '';
+      document.getElementById('skHandle').value    = item?.handle    || '';
+      document.getElementById('skPlatform').value  = item?.platform  || 'Instagram';
+      document.getElementById('skFollowers').value = item?.followers || '';
+      document.getElementById('skEngagement').value= item?.engagement_rate || '';
+      document.getElementById('skNische').value    = item?.nische    || '';
+      document.getElementById('skStatus').value    = item?.status    || 'interessant';
+      document.getElementById('skKontakt').value   = item?.kontakt   || '';
+      document.getElementById('skPreis').value     = item?.preis_vorstellung || '';
+      document.getElementById('skAngebot').value   = item?.unser_angebot || '';
+      document.getElementById('skUrl').value       = item?.url       || '';
+      document.getElementById('skNotizen').value   = item?.notizen   || '';
+      document.getElementById('skModalTitle').textContent = id ? 'SEITE BEARBEITEN' : 'SEITE EINTRAGEN';
+      document.getElementById('skModal').style.display = 'flex';
+      setTimeout(() => document.getElementById('skName').focus(), 50);
+    },
+
+    async deleteSK(item) {
+      if (!confirm(`"${item.name}" löschen?`)) return;
+      const r = await fetch(`/api/seitenkauf/${item.id}`, {method:'DELETE'}).then(r=>r.json());
+      if (r.ok) { this.seitenkauf = this.seitenkauf.filter(s=>s.id!==item.id); showToast('Gelöscht','success'); }
+    },
+
     async saveKategorien() {
       const kat = this.kategorien.map(k => k.v.trim()).filter(Boolean);
       const r = await fetch('/api/ausgaben/kategorien', {
@@ -835,6 +1081,40 @@ function toggleAboFields() {
 
 function closeModal(id) {
   document.getElementById(id).style.display = 'none';
+}
+
+function closeSKModal() { document.getElementById('skModal').style.display = 'none'; }
+
+async function saveSK() {
+  const id      = document.getElementById('skId').value;
+  const name    = document.getElementById('skName').value.trim();
+  if (!name) { showToast('Name ist Pflichtfeld', 'error'); return; }
+  const payload = {
+    name,
+    handle:            document.getElementById('skHandle').value.trim() || null,
+    platform:          document.getElementById('skPlatform').value,
+    followers:         parseInt(document.getElementById('skFollowers').value) || null,
+    engagement_rate:   parseFloat(document.getElementById('skEngagement').value) || null,
+    nische:            document.getElementById('skNische').value.trim() || null,
+    status:            document.getElementById('skStatus').value,
+    kontakt:           document.getElementById('skKontakt').value.trim() || null,
+    preis_vorstellung: parseFloat(document.getElementById('skPreis').value) || null,
+    unser_angebot:     parseFloat(document.getElementById('skAngebot').value) || null,
+    url:               document.getElementById('skUrl').value.trim() || null,
+    notizen:           document.getElementById('skNotizen').value.trim() || null,
+  };
+  const r = await fetch(id ? `/api/seitenkauf/${id}` : '/api/seitenkauf', {
+    method: id ? 'PUT' : 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  }).then(r => r.json());
+  if (r.ok) {
+    showToast('Gespeichert', 'success');
+    closeSKModal();
+    setTimeout(() => location.reload(), 400);
+  } else {
+    showToast(r.error || 'Fehler', 'error');
+  }
 }
 
 async function saveAusgabe() {
