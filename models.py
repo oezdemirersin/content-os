@@ -922,9 +922,13 @@ class WatchlistSeite(db.Model):
     letzte_aktivitaet = db.Column(db.String(50))   # Freitext "Oktober 2024"
     wl_kategorie      = db.Column(db.String(50), default='stadtseite', index=True)  # stadtseite | sonstige | custom
     seiten_status     = db.Column(db.String(30), default='nicht_gesucht')
-    # nicht_gesucht | nichts_gefunden | inaktiv | gelegentlich | aktiv | nicht_erreichbar | interesse | kein_interesse
+    # nicht_gesucht | nichts_gefunden | nicht_angeschrieben | beobachten | inaktiv | gelegentlich | aktiv
+    # nicht_erreichbar | interesse | kein_interesse | kontaktiert
+    kaufprioritaet    = db.Column(db.String(20), default='keine')  # hoch | mittel | niedrig | keine
     notizen           = db.Column(db.Text)
     kontaktiert_am    = db.Column(db.DateTime)
+    is_deleted        = db.Column(db.Boolean, default=False, index=True)
+    deleted_at        = db.Column(db.DateTime)
     created_at        = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at        = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

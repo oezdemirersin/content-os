@@ -111,6 +111,7 @@
         <option value="nicht_gesucht">Nicht gesucht</option>
         <option value="nichts_gefunden">Nichts gefunden</option>
         <option value="nicht_angeschrieben">Nicht angeschrieben</option>
+        <option value="beobachten">Beobachten</option>
         <option value="aktiv">Aktiv</option>
         <option value="gelegentlich">Ab &amp; zu aktiv</option>
         <option value="inaktiv">Inaktiv</option>
@@ -192,10 +193,16 @@
                             <i class="fa-solid fa-plus"></i> Seite
                           </button>
                         </div>
-                        <!-- Page sub-rows -->
-                        <template x-for="e in group.entries" :key="e.id">
+                        <!-- Freie Chance — nur wenn keine Seite hinterlegt -->
+                        <div x-show="group.pages.length === 0" class="wl-page-row" style="gap:8px;padding-left:28px">
+                          <span style="font-size:11px;color:#94a3b8">⚪ <em>Freie Chance</em> — noch keine Meme-Seite gefunden</span>
+                          <span></span>
+                          <span></span>
+                        </div>
+                        <!-- Page sub-rows (nur Einträge mit URL) -->
+                        <template x-for="e in group.pages" :key="e.id">
                           <div class="wl-page-row">
-                            <!-- Status -->
+                            <!-- Status + Puls-Icon -->
                             <div style="white-space:nowrap">
                               <span class="wl-status-badge"
                                     :style="'background:'+statusCfg(e.seiten_status).bg+';color:'+statusCfg(e.seiten_status).color"
@@ -209,12 +216,15 @@
                             </div>
                             <!-- Info -->
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0">
-                              <a x-show="e.url" :href="e.url" target="_blank" rel="noopener"
+                              <a :href="e.url" target="_blank" rel="noopener"
                                  :style="'display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;color:'+platformColor(e.platform||'Instagram')+';text-decoration:none'">
                                 <i class="fa-brands" :class="platformIcon(e.platform||'Instagram')" style="font-size:10px"></i>
                                 <span x-text="e.handle?'@'+e.handle:(e.platform||'Link')"></span>
                               </a>
-                              <span x-show="!e.url" style="font-size:10px;color:var(--muted);font-style:italic">Kein Link</span>
+                              <!-- Pulse-Icon: nur wenn letzte_aktivitaet bekannt -->
+                              <template x-if="e.letzte_aktivitaet">
+                                <span :title="'Letzter Post: '+e.letzte_aktivitaet" :style="'font-size:9px;'+pulseStyle(e.letzte_aktivitaet)">●</span>
+                              </template>
                               <span x-show="e.follower" style="font-size:11px;color:#94a3b8;font-weight:600" x-text="formatFollowers(e.follower)"></span>
                               <span x-show="e.wachstum!=null" :class="e.wachstum>=0?'wl-growth-pos':'wl-growth-neg'"
                                     x-text="(e.wachstum>=0?'+':'')+formatFollowers(e.wachstum)"></span>
@@ -222,18 +232,17 @@
                                     style="font-size:10px;color:var(--muted);padding:1px 6px;border-radius:4px;background:var(--surface2)"
                                     x-text="e.letzte_aktivitaet"></span>
                             </div>
-                            <!-- Actions -->
+                            <!-- Actions (kein Trash — geht in Papierkorb per Edit-Feld oder separater Aktion) -->
                             <div style="display:flex;align-items:center;gap:3px;white-space:nowrap">
-                              <button @click="deleteEntry(e, city)" class="icon-btn" title="Löschen" style="color:var(--danger)">
+                              <button @click="deleteEntry(e, city)" class="icon-btn" title="In Papierkorb" style="color:var(--danger)">
                                 <i class="fa-solid fa-trash"></i>
                               </button>
                               <button x-show="e.handle" @click="scanEntry(e, city)" class="icon-btn" title="Follower scannen"
                                       :disabled="scanning" :style="scanning?'opacity:.4;cursor:not-allowed':'color:#60a5fa'">
                                 <i class="fa-solid fa-signal" style="font-size:10px"></i>
                               </button>
-                              <button @click="openEdit(e)" class="icon-btn" :title="e.url?'Bearbeiten':'Link hinzufügen'"
-                                      :style="!e.url?'color:#6366f1':''">
-                                <i class="fa-solid" :class="e.url?'fa-pen':'fa-plus'"></i>
+                              <button @click="openEdit(e)" class="icon-btn" title="Bearbeiten">
+                                <i class="fa-solid fa-pen"></i>
                               </button>
                             </div>
                           </div>
@@ -256,6 +265,44 @@
            style="text-align:center;padding:60px;color:var(--muted)">
         <i class="fa-solid fa-magnifying-glass" style="font-size:22px;margin-bottom:10px;display:block"></i>
         Keine Städte gefunden.
+      </div>
+    </div>
+
+    <!-- Papierkorb -->
+    <div style="margin-top:32px;border:1px solid var(--border);border-radius:10px;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--surface2);cursor:pointer"
+           @click="showPapierkorb ? showPapierkorb=false : loadPapierkorb()">
+        <span style="font-size:13px;font-weight:700;color:var(--danger)">
+          <i class="fa-solid fa-trash" style="margin-right:6px"></i> Papierkorb
+        </span>
+        <i class="fa-solid" :class="showPapierkorb?'fa-chevron-up':'fa-chevron-down'" style="font-size:11px;color:var(--muted)"></i>
+      </div>
+      <div x-show="showPapierkorb">
+        <div x-show="!papierkorbLoaded" style="padding:20px;text-align:center;color:var(--muted);font-size:12px">
+          <i class="fa-solid fa-spinner fa-spin"></i> Lade…
+        </div>
+        <div x-show="papierkorbLoaded && papierkorb.length===0"
+             style="padding:20px;text-align:center;color:var(--muted);font-size:12px">
+          Papierkorb ist leer.
+        </div>
+        <template x-for="e in papierkorb" :key="e.id">
+          <div style="display:grid;grid-template-columns:1fr auto;align-items:center;padding:8px 16px;border-bottom:1px solid rgba(255,255,255,.04);gap:10px">
+            <div>
+              <span style="font-size:12px;font-weight:600" x-text="e.ziel_name"></span>
+              <span style="font-size:11px;color:var(--muted);margin-left:6px" x-text="e.stadt"></span>
+              <span x-show="e.handle" style="font-size:10px;color:#60a5fa;margin-left:6px" x-text="'@'+e.handle"></span>
+              <span style="font-size:10px;color:var(--muted);margin-left:6px" x-text="e.deleted_at?'Gelöscht: '+e.deleted_at:''"></span>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button @click="restoreEntry(e)" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:#22c55e;border-color:#22c55e">
+                <i class="fa-solid fa-rotate-left"></i> Wiederherstellen
+              </button>
+              <button @click="permanentDelete(e)" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:var(--danger);border-color:var(--danger)">
+                <i class="fa-solid fa-xmark"></i> Endgültig löschen
+              </button>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -411,6 +458,7 @@
             <option value="nicht_gesucht">Noch nicht gesucht</option>
             <option value="nichts_gefunden">Nichts gefunden</option>
             <option value="nicht_angeschrieben">Gefunden – nicht angeschrieben</option>
+            <option value="beobachten">Beobachten</option>
             <option value="inaktiv">Inaktiv</option>
             <option value="gelegentlich">Ab &amp; zu aktiv</option>
             <option value="aktiv">Aktiv</option>
@@ -424,6 +472,16 @@
             <i class="fa-regular fa-calendar-check"></i>
             Kontaktdatum wird beim Speichern automatisch gesetzt.
           </div>
+        </div>
+        <!-- Kaufpriorität (nur wenn Status kaufrelevant) -->
+        <div x-show="['nicht_angeschrieben','beobachten','interesse','kontaktiert','kein_interesse'].includes(form.seiten_status)">
+          <label class="form-label">Kaufpriorität</label>
+          <select x-model="form.kaufprioritaet" class="select-field">
+            <option value="keine">Keine</option>
+            <option value="niedrig">Niedrig</option>
+            <option value="mittel">Mittel</option>
+            <option value="hoch">Hoch</option>
+          </select>
         </div>
         <div>
           <label class="form-label">Plattform</label>
@@ -500,8 +558,12 @@ function watchlistApp() {
       id:'', wl_kategorie:'stadtseite', stadt:'', ziel_typ:'stadtseite',
       ziel_name:'', ziel_meta:'', platform:'Instagram',
       url:'', handle:'', follower:'', letzte_aktivitaet:'',
-      seiten_status:'nicht_gesucht', notizen:'',
+      seiten_status:'nicht_gesucht', kaufprioritaet:'keine', notizen:'',
     },
+
+    papierkorb: [],
+    papierkorbLoaded: false,
+    showPapierkorb: false,
 
     scanning: false,
     sortBy: 'alpha',
@@ -569,9 +631,12 @@ function watchlistApp() {
         if(!map.has(e.ziel_name)) map.set(e.ziel_name, {name:e.ziel_name, meta:e.ziel_meta||'', entries:[]});
         map.get(e.ziel_name).entries.push(e);
       });
-      let groups = [...map.values()];
+      let groups = [...map.values()].map(g=>({
+        ...g,
+        pages: g.entries.filter(e=>e.url),
+      }));
       if(this.statusFilter)
-        groups = groups.map(g=>({...g, entries:g.entries.filter(e=>e.seiten_status===this.statusFilter)})).filter(g=>g.entries.length>0);
+        groups = groups.map(g=>({...g, pages:g.pages.filter(e=>e.seiten_status===this.statusFilter)})).filter(g=>g.pages.length>0);
       return groups;
     },
     expandAll() {
@@ -584,6 +649,7 @@ function watchlistApp() {
         nicht_gesucht:        {label:'Nicht gesucht',       color:'#64748b', bg:'rgba(100,116,139,.15)'},
         nichts_gefunden:      {label:'Nichts gefunden',     color:'#ef4444', bg:'rgba(239,68,68,.15)'},
         nicht_angeschrieben:  {label:'Nicht angeschrieben', color:'#0ea5e9', bg:'rgba(14,165,233,.15)'},
+        beobachten:           {label:'Beobachten',          color:'#3b82f6', bg:'rgba(59,130,246,.15)'},
         inaktiv:         {label:'Inaktiv',          color:'#f43f5e', bg:'rgba(244,63,94,.15)'},
         gelegentlich:    {label:'Ab & zu aktiv',    color:'#f59e0b', bg:'rgba(245,158,11,.15)'},
         aktiv:           {label:'Aktiv',            color:'#22c55e', bg:'rgba(34,197,94,.15)'},
@@ -598,6 +664,23 @@ function watchlistApp() {
     kontaktiertDays(am) {
       if (!am) return null;
       return Math.floor((Date.now()-new Date(am))/86400000);
+    },
+
+    pulseStyle(letzte) {
+      if (!letzte) return 'display:none';
+      // Parse dd.mm.yyyy or yyyy-mm-dd
+      let d = null;
+      if (/^\d{2}\.\d{2}\.\d{4}$/.test(letzte)) {
+        const [day,mon,yr] = letzte.split('.');
+        d = new Date(+yr, +mon-1, +day);
+      } else {
+        d = new Date(letzte);
+      }
+      if (isNaN(d)) return 'display:none';
+      const days = Math.floor((Date.now()-d)/86400000);
+      if (days <= 30)  return 'color:#22c55e';   // aktiv
+      if (days <= 90)  return 'color:#f59e0b';   // wenig aktiv
+      return 'color:#ef4444';                      // inaktiv
     },
 
     platformColor(p) {
@@ -622,7 +705,8 @@ function watchlistApp() {
         ziel_name:e.ziel_name, ziel_meta:e.ziel_meta||'',
         platform:e.platform||'Instagram', url:e.url||'', handle:e.handle||'',
         follower:e.follower||'', letzte_aktivitaet:e.letzte_aktivitaet||'',
-        seiten_status:e.seiten_status||'nicht_gesucht', notizen:e.notizen||'',
+        seiten_status:e.seiten_status||'nicht_gesucht',
+        kaufprioritaet:e.kaufprioritaet||'keine', notizen:e.notizen||'',
       };
       this.showNameInput = true;
       this.modalOpen = true;
@@ -634,7 +718,7 @@ function watchlistApp() {
         id:'', wl_kategorie:'stadtseite', stadt:city.stadt, ziel_typ:typ||'stadtseite',
         ziel_name:prefillName||'', ziel_meta:prefillMeta||'',
         platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
-        seiten_status:'nicht_gesucht', notizen:'',
+        seiten_status:'nicht_gesucht', kaufprioritaet:'keine', notizen:'',
       };
       this.showNameInput = true;
       this.modalOpen = true;
@@ -646,7 +730,7 @@ function watchlistApp() {
         id:'', wl_kategorie:'sonstige', stadt:'', ziel_typ:'sonstige',
         ziel_name:'', ziel_meta:'',
         platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
-        seiten_status:'nicht_gesucht', notizen:'',
+        seiten_status:'nicht_gesucht', kaufprioritaet:'keine', notizen:'',
       };
       this.showNameInput = true;
       this.modalOpen = true;
@@ -659,7 +743,8 @@ function watchlistApp() {
         ziel_name:e.ziel_name, ziel_meta:e.ziel_meta||'',
         platform:e.platform||'Instagram', url:e.url||'', handle:e.handle||'',
         follower:e.follower||'', letzte_aktivitaet:e.letzte_aktivitaet||'',
-        seiten_status:e.seiten_status||'nicht_gesucht', notizen:e.notizen||'',
+        seiten_status:e.seiten_status||'nicht_gesucht',
+        kaufprioritaet:e.kaufprioritaet||'keine', notizen:e.notizen||'',
       };
       this.showNameInput = false;
       this.modalOpen = true;
@@ -695,8 +780,8 @@ function watchlistApp() {
         platform:f.platform, url:f.url||null, handle:f.handle||null,
         follower:f.follower?parseInt(f.follower):null,
         letzte_aktivitaet:f.letzte_aktivitaet||null,
-        seiten_status:f.seiten_status, notizen:f.notizen||null,
-        wl_kategorie:f.wl_kategorie||'stadtseite',
+        seiten_status:f.seiten_status, kaufprioritaet:f.kaufprioritaet||'keine',
+        notizen:f.notizen||null, wl_kategorie:f.wl_kategorie||'stadtseite',
       };
       let r;
       if(f.id){
@@ -733,6 +818,32 @@ function watchlistApp() {
           }
         }
       } else { showToast(r.error||'Fehler','error'); }
+    },
+
+    async loadPapierkorb() {
+      this.papierkorb = await fetch('/api/watchlist/papierkorb').then(r=>r.json());
+      this.papierkorbLoaded = true;
+      this.showPapierkorb = true;
+    },
+    async restoreEntry(e) {
+      const r = await fetch(`/api/watchlist/stadtseiten/${e.id}/restore`,{method:'POST'}).then(r=>r.json());
+      if(r.ok){
+        this.papierkorb = this.papierkorb.filter(x=>x.id!==e.id);
+        showToast('Wiederhergestellt','success');
+        // Reload city entries if loaded
+        const city = this.cities.find(c=>c.stadt===e.stadt);
+        if(city && city.loaded){
+          city.entries = await fetch('/api/watchlist/stadtseiten?stadt='+encodeURIComponent(e.stadt)).then(x=>x.json());
+          city.gefunden = city.entries.filter(x=>x.url).length;
+          city.total = city.entries.length;
+        }
+      } else { showToast(r.error||'Fehler','error'); }
+    },
+    async permanentDelete(e) {
+      if(!confirm(`"${e.ziel_name}" ENDGÜLTIG löschen? Das kann nicht rückgängig gemacht werden.`)) return;
+      const r = await fetch(`/api/watchlist/stadtseiten/${e.id}/permanent`,{method:'DELETE'}).then(r=>r.json());
+      if(r.ok){ this.papierkorb = this.papierkorb.filter(x=>x.id!==e.id); showToast('Endgültig gelöscht','success'); }
+      else { showToast(r.error||'Fehler','error'); }
     },
 
     // MANUAL-ONLY follower scan — never called automatically

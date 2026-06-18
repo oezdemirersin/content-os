@@ -1216,6 +1216,9 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT NOW())''')
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS kontaktiert_am TIMESTAMP')
             safe_alter("ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS wl_kategorie VARCHAR(50) DEFAULT 'stadtseite'")
+            safe_alter("ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS kaufprioritaet VARCHAR(20) DEFAULT 'keine'")
+            safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP')
             safe_alter('''CREATE TABLE IF NOT EXISTS watchlist_follower_snapshot (
                 id SERIAL PRIMARY KEY,
                 seite_id INTEGER NOT NULL REFERENCES watchlist_seite(id) ON DELETE CASCADE,
@@ -1528,6 +1531,12 @@ def init_db():
                     safe_alter('ALTER TABLE watchlist_seite ADD COLUMN kontaktiert_am DATETIME')
                 if 'wl_kategorie' not in wl_cols:
                     safe_alter("ALTER TABLE watchlist_seite ADD COLUMN wl_kategorie VARCHAR(50) DEFAULT 'stadtseite'")
+                if 'kaufprioritaet' not in wl_cols:
+                    safe_alter("ALTER TABLE watchlist_seite ADD COLUMN kaufprioritaet VARCHAR(20) DEFAULT 'keine'")
+                if 'is_deleted' not in wl_cols:
+                    safe_alter('ALTER TABLE watchlist_seite ADD COLUMN is_deleted BOOLEAN DEFAULT 0')
+                if 'deleted_at' not in wl_cols:
+                    safe_alter('ALTER TABLE watchlist_seite ADD COLUMN deleted_at DATETIME')
             except Exception:
                 pass
             safe_alter('''CREATE TABLE IF NOT EXISTS watchlist_follower_snapshot (
@@ -11731,10 +11740,25 @@ def _seed_watchlist():
     return count
 
 
+def _wl_dict(s):
+    return {
+        'id': s.id, 'stadt': s.stadt, 'ziel_typ': s.ziel_typ,
+        'ziel_name': s.ziel_name, 'ziel_meta': s.ziel_meta or '',
+        'platform': s.platform or 'Instagram', 'url': s.url or '',
+        'handle': s.handle or '', 'follower': s.follower,
+        'letzte_aktivitaet': s.letzte_aktivitaet or '',
+        'seiten_status': s.seiten_status or 'nicht_gesucht',
+        'kaufprioritaet': s.kaufprioritaet or 'keine',
+        'notizen': s.notizen or '',
+        'kontaktiert_am': s.kontaktiert_am.strftime('%Y-%m-%d') if s.kontaktiert_am else None,
+        'wl_kategorie': s.wl_kategorie or 'stadtseite',
+    }
+
+
 @app.route('/api/watchlist/stadtseiten', methods=['GET'])
 @login_required
 def watchlist_list():
-    q = WatchlistSeite.query
+    q = WatchlistSeite.query.filter_by(is_deleted=False)
     if request.args.get('stadt'):
         q = q.filter_by(stadt=request.args['stadt'])
     if request.args.get('ziel_typ'):
@@ -11742,17 +11766,7 @@ def watchlist_list():
     if request.args.get('status'):
         q = q.filter_by(seiten_status=request.args['status'])
     items = q.order_by(WatchlistSeite.ziel_typ, WatchlistSeite.id).all()
-    return jsonify([{
-        'id': s.id, 'stadt': s.stadt, 'ziel_typ': s.ziel_typ,
-        'ziel_name': s.ziel_name, 'ziel_meta': s.ziel_meta or '',
-        'platform': s.platform or 'Instagram', 'url': s.url or '',
-        'handle': s.handle or '', 'follower': s.follower,
-        'letzte_aktivitaet': s.letzte_aktivitaet or '',
-        'seiten_status': s.seiten_status or 'nicht_gesucht',
-        'notizen': s.notizen or '',
-        'kontaktiert_am': s.kontaktiert_am.strftime('%Y-%m-%d') if s.kontaktiert_am else None,
-        'wl_kategorie': s.wl_kategorie or 'stadtseite',
-    } for s in items])
+    return jsonify([_wl_dict(s) for s in items])
 
 
 @app.route('/api/watchlist/stadtseiten', methods=['POST'])
@@ -11768,6 +11782,7 @@ def watchlist_create():
         handle=d.get('handle'), follower=d.get('follower'),
         letzte_aktivitaet=d.get('letzte_aktivitaet'),
         seiten_status=d.get('seiten_status','nicht_gesucht'),
+        kaufprioritaet=d.get('kaufprioritaet','keine'),
         notizen=d.get('notizen'),
         wl_kategorie=d.get('wl_kategorie','stadtseite'),
     )
@@ -11782,7 +11797,7 @@ def watchlist_update(sid):
     s = WatchlistSeite.query.get_or_404(sid)
     d = request.json or {}
     old_status = s.seiten_status
-    for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','notizen','ziel_name','ziel_meta','wl_kategorie']:
+    for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','kaufprioritaet','notizen','ziel_name','ziel_meta','wl_kategorie']:
         if f in d:
             setattr(s, f, d[f])
     if d.get('seiten_status') == 'kontaktiert' and old_status != 'kontaktiert' and not s.kontaktiert_am:
@@ -11794,10 +11809,39 @@ def watchlist_update(sid):
 @app.route('/api/watchlist/stadtseiten/<int:sid>', methods=['DELETE'])
 @login_required
 def watchlist_delete(sid):
+    """Soft-delete: moves to papierkorb instead of permanent deletion."""
+    s = WatchlistSeite.query.get_or_404(sid)
+    s.is_deleted = True
+    s.deleted_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/watchlist/stadtseiten/<int:sid>/restore', methods=['POST'])
+@login_required
+def watchlist_restore(sid):
+    s = WatchlistSeite.query.get_or_404(sid)
+    s.is_deleted = False
+    s.deleted_at = None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/watchlist/stadtseiten/<int:sid>/permanent', methods=['DELETE'])
+@login_required
+def watchlist_delete_permanent(sid):
     s = WatchlistSeite.query.get_or_404(sid)
     db.session.delete(s)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/watchlist/papierkorb', methods=['GET'])
+@login_required
+def watchlist_papierkorb():
+    items = WatchlistSeite.query.filter_by(is_deleted=True)\
+        .order_by(WatchlistSeite.deleted_at.desc()).all()
+    return jsonify([_wl_dict(s) | {'deleted_at': s.deleted_at.strftime('%Y-%m-%d %H:%M') if s.deleted_at else None} for s in items])
 
 
 @app.route('/api/watchlist/seed', methods=['POST'])
@@ -11817,11 +11861,11 @@ def watchlist_staedte():
         WatchlistSeite.stadt,
         func.count(WatchlistSeite.id).label('total'),
         func.sum(db.case((WatchlistSeite.url != None, 1), else_=0)).label('gefunden'),
-    ).group_by(WatchlistSeite.stadt).order_by(WatchlistSeite.stadt).all()
+    ).filter_by(is_deleted=False).group_by(WatchlistSeite.stadt).order_by(WatchlistSeite.stadt).all()
 
     # Get population from ziel_meta of the stadtseite entry per city
     ew_map = {}
-    stadtseiten = WatchlistSeite.query.filter_by(ziel_typ='stadtseite').all()
+    stadtseiten = WatchlistSeite.query.filter_by(ziel_typ='stadtseite', is_deleted=False).all()
     for s in stadtseiten:
         if s.ziel_meta:
             m = re.search(r'[\d\.]+', s.ziel_meta.replace('.', ''))
@@ -11841,20 +11885,11 @@ def watchlist_staedte():
 @login_required
 def watchlist_sonstige():
     """Returns all non-stadtseite watchlist entries grouped by wl_kategorie."""
-    q = WatchlistSeite.query.filter(WatchlistSeite.wl_kategorie != 'stadtseite')
+    q = WatchlistSeite.query.filter(WatchlistSeite.wl_kategorie != 'stadtseite', WatchlistSeite.is_deleted == False)
     if request.args.get('kategorie'):
         q = q.filter_by(wl_kategorie=request.args['kategorie'])
     items = q.order_by(WatchlistSeite.wl_kategorie, WatchlistSeite.id).all()
-    return jsonify([{
-        'id': s.id, 'wl_kategorie': s.wl_kategorie or 'sonstige',
-        'ziel_typ': s.ziel_typ, 'ziel_name': s.ziel_name, 'ziel_meta': s.ziel_meta or '',
-        'platform': s.platform or 'Instagram', 'url': s.url or '',
-        'handle': s.handle or '', 'follower': s.follower,
-        'letzte_aktivitaet': s.letzte_aktivitaet or '',
-        'seiten_status': s.seiten_status or 'nicht_gesucht',
-        'notizen': s.notizen or '',
-        'kontaktiert_am': s.kontaktiert_am.strftime('%Y-%m-%d') if s.kontaktiert_am else None,
-    } for s in items])
+    return jsonify([_wl_dict(s) for s in items])
 
 
 @app.route('/api/watchlist/kategorien', methods=['GET'])
