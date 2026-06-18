@@ -708,13 +708,17 @@ def init_db():
                 nische VARCHAR(100),
                 preis_vorstellung FLOAT,
                 unser_angebot FLOAT,
+                einigungspreis FLOAT,
                 status VARCHAR(30) DEFAULT \'interessant\',
                 kontakt VARCHAR(200),
                 url VARCHAR(500),
                 notizen TEXT,
+                in_geplant BOOLEAN DEFAULT FALSE,
                 gekauft_am DATE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('ALTER TABLE seiten_kauf ADD COLUMN IF NOT EXISTS einigungspreis FLOAT')
+            safe_alter('ALTER TABLE seiten_kauf ADD COLUMN IF NOT EXISTS in_geplant BOOLEAN DEFAULT FALSE')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -983,13 +987,23 @@ def init_db():
                 nische VARCHAR(100),
                 preis_vorstellung FLOAT,
                 unser_angebot FLOAT,
+                einigungspreis FLOAT,
                 status VARCHAR(30) DEFAULT 'interessant',
                 kontakt VARCHAR(200),
                 url VARCHAR(500),
                 notizen TEXT,
+                in_geplant BOOLEAN DEFAULT 0,
                 gekauft_am DATE,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            try:
+                sk_cols = [c['name'] for c in inspector.get_columns('seiten_kauf')]
+                if 'einigungspreis' not in sk_cols:
+                    safe_alter('ALTER TABLE seiten_kauf ADD COLUMN einigungspreis FLOAT')
+                if 'in_geplant' not in sk_cols:
+                    safe_alter('ALTER TABLE seiten_kauf ADD COLUMN in_geplant BOOLEAN DEFAULT 0')
+            except Exception:
+                pass
 
             # Neue Felder: Partner, Kooperation (SQLite)
             try:
@@ -11052,8 +11066,10 @@ def ausgaben():
             'engagement_rate': s.engagement_rate,
             'nische': s.nische or '', 'preis_vorstellung': s.preis_vorstellung,
             'unser_angebot': s.unser_angebot,
+            'einigungspreis': s.einigungspreis,
             'status': s.status, 'kontakt': s.kontakt or '',
             'url': s.url or '', 'notizen': s.notizen or '',
+            'in_geplant': bool(s.in_geplant),
             'gekauft_am': s.gekauft_am.isoformat() if s.gekauft_am else '',
         } for s in SeitenKauf.query.order_by(SeitenKauf.created_at.desc()).all()],
     )
@@ -11069,8 +11085,10 @@ def seitenkauf_list():
         'engagement_rate': s.engagement_rate,
         'nische': s.nische or '', 'preis_vorstellung': s.preis_vorstellung,
         'unser_angebot': s.unser_angebot,
+        'einigungspreis': s.einigungspreis,
         'status': s.status, 'kontakt': s.kontakt or '',
         'url': s.url or '', 'notizen': s.notizen or '',
+        'in_geplant': bool(s.in_geplant),
         'gekauft_am': s.gekauft_am.isoformat() if s.gekauft_am else '',
     } for s in items])
 
@@ -11085,7 +11103,8 @@ def seitenkauf_create():
         name=d['name'], handle=d.get('handle'), platform=d.get('platform', 'Instagram'),
         followers=d.get('followers'), engagement_rate=d.get('engagement_rate'),
         nische=d.get('nische'), preis_vorstellung=d.get('preis_vorstellung'),
-        unser_angebot=d.get('unser_angebot'), status=d.get('status', 'interessant'),
+        unser_angebot=d.get('unser_angebot'), einigungspreis=d.get('einigungspreis'),
+        status=d.get('status', 'interessant'),
         kontakt=d.get('kontakt'), url=d.get('url'), notizen=d.get('notizen'),
     )
     db.session.add(s)
@@ -11099,8 +11118,8 @@ def seitenkauf_update(sid):
     s = SeitenKauf.query.get_or_404(sid)
     d = request.json or {}
     for field in ['name', 'handle', 'platform', 'followers', 'engagement_rate',
-                  'nische', 'preis_vorstellung', 'unser_angebot', 'status',
-                  'kontakt', 'url', 'notizen']:
+                  'nische', 'preis_vorstellung', 'unser_angebot', 'einigungspreis',
+                  'status', 'kontakt', 'url', 'notizen']:
         if field in d:
             setattr(s, field, d[field])
     if d.get('status') == 'gekauft' and not s.gekauft_am:
@@ -11115,6 +11134,24 @@ def seitenkauf_update(sid):
 def seitenkauf_delete(sid):
     s = SeitenKauf.query.get_or_404(sid)
     db.session.delete(s)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/seitenkauf/<int:sid>/zu-geplant', methods=['POST'])
+@login_required
+def seitenkauf_zu_geplant(sid):
+    s = SeitenKauf.query.get_or_404(sid)
+    s.in_geplant = True
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/seitenkauf/<int:sid>/von-geplant', methods=['POST'])
+@login_required
+def seitenkauf_von_geplant(sid):
+    s = SeitenKauf.query.get_or_404(sid)
+    s.in_geplant = False
     db.session.commit()
     return jsonify({'ok': True})
 

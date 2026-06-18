@@ -15,17 +15,17 @@
             style="border-radius:8px 8px 0 0;padding:8px 20px">
       <i class="fa-solid fa-cart-shopping" style="margin-right:6px;font-size:11px"></i>
       Geplant
-      <span x-show="geplant.filter(g=>!g.gekauft).length>0"
+      <span x-show="(geplant.filter(g=>!g.gekauft).length + seitenkauf.filter(s=>s.in_geplant).length)>0"
             style="margin-left:5px;background:rgba(99,102,241,.3);color:#a5b4fc;border-radius:10px;padding:0 6px;font-size:10px"
-            x-text="geplant.filter(g=>!g.gekauft).length"></span>
+            x-text="geplant.filter(g=>!g.gekauft).length + seitenkauf.filter(s=>s.in_geplant).length"></span>
     </button>
     <button @click="mainTab='seitenkauf'" class="fchip" :class="mainTab==='seitenkauf'?'active':''"
             style="border-radius:8px 8px 0 0;padding:8px 20px">
       <i class="fa-solid fa-store" style="margin-right:6px;font-size:11px"></i>
       Seitenkauf
-      <span x-show="seitenkauf.filter(s=>!['gekauft','abgesagt'].includes(s.status)).length>0"
+      <span x-show="skActiveCnt>0"
             style="margin-left:5px;background:rgba(245,158,11,.25);color:#f59e0b;border-radius:10px;padding:0 6px;font-size:10px"
-            x-text="seitenkauf.filter(s=>!['gekauft','abgesagt'].includes(s.status)).length"></span>
+            x-text="skActiveCnt"></span>
     </button>
   </div>
 
@@ -320,6 +320,57 @@
       </div>
     </div>
 
+  <!-- Seitenkäufe die in Geplant verschoben wurden -->
+  <div x-show="seitenkauf.filter(s=>s.in_geplant).length>0" style="margin-top:24px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px">SEITENKÄUFE — KAUFBEREIT</div>
+      <span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(245,158,11,.2);color:#f59e0b;font-weight:700"
+            x-text="seitenkauf.filter(s=>s.in_geplant).length+' Seiten'"></span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <template x-for="s in seitenkauf.filter(s=>s.in_geplant)" :key="'sk-gp-'+s.id">
+        <div class="card" style="padding:14px 16px;display:flex;gap:12px;align-items:center"
+             :style="'border-left:3px solid '+statusColor(s.status)">
+          <!-- Platform-Icon -->
+          <div style="flex-shrink:0;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center"
+               :style="'background:'+platformBg(s.platform)">
+            <i class="fa-brands" :class="platformIcon(s.platform)" style="font-size:16px;color:#fff"></i>
+          </div>
+          <!-- Info -->
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">
+              <span style="font-size:14px;font-weight:700" x-text="s.name"></span>
+              <span x-show="s.handle" style="font-size:12px;color:var(--muted)" x-text="'@'+s.handle"></span>
+              <span style="font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600"
+                    :style="'background:'+statusColor(s.status)+'22;color:'+statusColor(s.status)"
+                    x-text="statusLabel(s.status)"></span>
+            </div>
+            <div style="display:flex;gap:12px;font-size:11px;color:var(--muted);flex-wrap:wrap">
+              <span x-show="s.followers"><i class="fa-solid fa-users" style="margin-right:3px"></i><span x-text="(s.followers||0).toLocaleString('de-DE')"></span></span>
+              <span x-show="s.engagement_rate"><i class="fa-solid fa-chart-line" style="margin-right:3px"></i><span x-text="s.engagement_rate+'%'"></span></span>
+              <span x-show="s.nische" x-text="s.nische"></span>
+            </div>
+          </div>
+          <!-- Preis -->
+          <div style="text-align:right;flex-shrink:0;min-width:100px">
+            <div x-show="s.einigungspreis" style="font-size:16px;font-weight:800;color:#22c55e"
+                 x-text="(s.einigungspreis||0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></div>
+            <div x-show="!s.einigungspreis&&s.unser_angebot" style="font-size:16px;font-weight:800;color:#10b981"
+                 x-text="(s.unser_angebot||0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></div>
+            <div style="font-size:10px;color:var(--muted)" x-text="s.einigungspreis?'Einigungspreis':'Unser Angebot'"></div>
+          </div>
+          <!-- Actions -->
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button @click="moveSKFromGeplant(s)" class="icon-btn" title="Zurück zu Seitenkauf">
+              <i class="fa-solid fa-arrow-left" style="font-size:10px"></i>
+            </button>
+            <button @click="openSKModal(s)" class="icon-btn"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
   </div><!-- end Geplant-Tab -->
 
   <!-- ═══════════ TAB: SEITENKAUF ═════════════════════════════════ -->
@@ -327,37 +378,40 @@
 
     <!-- Stats -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
-      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(245,158,11,.03))">
-        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">AUF DEM RADAR</div>
-        <div style="font-size:22px;font-weight:800;color:#f59e0b"
-             x-text="seitenkauf.filter(s=>s.status==='interessant').length"></div>
+      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(245,158,11,.12),rgba(245,158,11,.03));border-left:3px solid #f59e0b">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:6px">AUF DEM RADAR</div>
+        <div style="font-size:28px;font-weight:800;color:#f59e0b"
+             x-text="seitenkauf.filter(s=>s.status==='interessant'&&!s.in_geplant).length"></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Interessante Seiten</div>
       </div>
-      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(99,102,241,.1),rgba(99,102,241,.03))">
-        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">IN VERHANDLUNG</div>
-        <div style="font-size:22px;font-weight:800;color:var(--accent2)"
-             x-text="seitenkauf.filter(s=>['kontaktiert','in_verhandlung','angebot'].includes(s.status)).length"></div>
+      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(99,102,241,.03));border-left:3px solid #6366f1">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:6px">IN VERHANDLUNG</div>
+        <div style="font-size:28px;font-weight:800;color:#6366f1"
+             x-text="seitenkauf.filter(s=>['kontaktiert','in_verhandlung','angebot'].includes(s.status)&&!s.in_geplant).length"></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Aktive Gespräche</div>
       </div>
-      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,.03))">
-        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">GEKAUFT</div>
-        <div style="font-size:22px;font-weight:800;color:#10b981"
+      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(34,197,94,.12),rgba(34,197,94,.03));border-left:3px solid #22c55e">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:6px">GEKAUFT</div>
+        <div style="font-size:28px;font-weight:800;color:#22c55e"
              x-text="seitenkauf.filter(s=>s.status==='gekauft').length"></div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px"
-             x-show="seitenkauf.filter(s=>s.status==='gekauft'&&s.unser_angebot).length"
-             x-text="'Ø ' + (seitenkauf.filter(s=>s.status===\'gekauft\'&&s.unser_angebot).reduce((a,s)=>a+s.unser_angebot,0) / Math.max(1,seitenkauf.filter(s=>s.status===\'gekauft\'&&s.unser_angebot).length)).toLocaleString(\'de-DE\',{maximumFractionDigits:0}) + ' €'"></div>
+             x-show="seitenkauf.filter(s=>s.status==='gekauft'&&(s.einigungspreis||s.unser_angebot)).length"
+             x-text="'Ø ' + (seitenkauf.filter(s=>s.status===\'gekauft\'&&(s.einigungspreis||s.unser_angebot)).reduce((a,s)=>a+(s.einigungspreis||s.unser_angebot||0),0) / Math.max(1,seitenkauf.filter(s=>s.status===\'gekauft\'&&(s.einigungspreis||s.unser_angebot)).length)).toLocaleString(\'de-DE\',{maximumFractionDigits:0}) + \' €\'"></div>
       </div>
-      <div class="card" style="padding:16px">
-        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">GESAMTBUDGET (ANGEBOTE)</div>
-        <div style="font-size:22px;font-weight:800"
-             x-text="seitenkauf.filter(s=>s.unser_angebot&&!['abgesagt'].includes(s.status)).reduce((a,s)=>a+s.unser_angebot,0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></div>
+      <div class="card" style="padding:16px;background:linear-gradient(135deg,rgba(168,85,247,.12),rgba(168,85,247,.03));border-left:3px solid #a855f7">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:6px">BUDGET (ANGEBOTE)</div>
+        <div style="font-size:22px;font-weight:800;color:#a855f7"
+             x-text="seitenkauf.filter(s=>s.unser_angebot&&!['abgesagt','kein_interesse'].includes(s.status)).reduce((a,s)=>a+s.unser_angebot,0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Summe Angebote</div>
       </div>
     </div>
 
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <!-- Filter + Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <template x-for="[val, label, col] in statusFilters" :key="val">
           <button @click="skFilter=val" class="fchip" :class="skFilter===val?'active':''"
-                  style="font-size:11px" x-text="label"></button>
+                  style="font-size:11px;border-radius:20px;padding:4px 12px" x-text="label"></button>
         </template>
       </div>
       <button @click="openSKModal()" class="btn btn-primary">
@@ -366,52 +420,76 @@
     </div>
 
     <!-- Pipeline-Liste -->
-    <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;flex-direction:column;gap:10px">
       <template x-for="s in filteredSK" :key="s.id">
-        <div class="card" style="padding:16px;display:flex;gap:14px;align-items:flex-start">
+        <div class="card" style="padding:16px;display:flex;gap:14px;align-items:flex-start;transition:box-shadow .15s"
+             :style="'border-left:4px solid '+statusColor(s.status)">
 
-          <!-- Status-Dot -->
-          <div style="flex-shrink:0;margin-top:3px">
-            <div style="width:10px;height:10px;border-radius:50%"
-                 :style="'background:'+statusColor(s.status)"></div>
+          <!-- Platform-Avatar -->
+          <div style="flex-shrink:0;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.2)"
+               :style="'background:'+platformBg(s.platform)">
+            <i class="fa-brands" :class="platformIcon(s.platform)" style="font-size:20px;color:#fff"></i>
           </div>
 
           <!-- Info -->
           <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
-              <span style="font-size:14px;font-weight:700" x-text="s.name"></span>
-              <span x-show="s.handle" style="font-size:11px;color:var(--muted)" x-text="'@'+s.handle"></span>
-              <span style="font-size:10px;padding:1px 8px;border-radius:10px;font-weight:700"
-                    :style="'background:'+statusColor(s.status)+'22;color:'+statusColor(s.status)"
+            <!-- Name + Handle + Status-Pill -->
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+              <span style="font-size:15px;font-weight:700" x-text="s.name"></span>
+              <span x-show="s.handle" style="font-size:12px;color:var(--muted)" x-text="'@'+s.handle"></span>
+              <span style="font-size:11px;padding:3px 12px;border-radius:20px;font-weight:600;letter-spacing:.3px"
+                    :style="'background:'+statusColor(s.status)+'25;color:'+statusColor(s.status)+';border:1px solid '+statusColor(s.status)+'55'"
                     x-text="statusLabel(s.status)"></span>
-              <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--surface2);color:var(--muted)" x-text="s.platform"></span>
-              <span x-show="s.nische" style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--surface2);color:var(--muted)" x-text="s.nische"></span>
             </div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--muted)">
-              <span x-show="s.followers"><i class="fa-solid fa-users" style="margin-right:4px"></i><span x-text="(s.followers||0).toLocaleString('de-DE')"></span></span>
-              <span x-show="s.engagement_rate"><i class="fa-solid fa-chart-line" style="margin-right:4px"></i><span x-text="s.engagement_rate+'%'"></span></span>
-              <span x-show="s.kontakt"><i class="fa-solid fa-address-card" style="margin-right:4px"></i><span x-text="s.kontakt"></span></span>
+            <!-- Platform + Nische + Follower + Engagement -->
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+              <span style="font-size:12px;padding:3px 10px;border-radius:20px;font-weight:600"
+                    :style="'background:'+platformBg(s.platform)+'33;color:'+platformColor(s.platform)"
+                    x-text="s.platform"></span>
+              <span x-show="s.nische" style="font-size:12px;padding:3px 10px;border-radius:20px;background:var(--surface2);color:var(--text);font-weight:500"
+                    x-text="s.nische"></span>
+              <span x-show="s.followers" style="font-size:12px;color:var(--muted)">
+                <i class="fa-solid fa-users" style="margin-right:3px;font-size:10px"></i>
+                <span x-text="formatFollowers(s.followers)"></span>
+              </span>
+              <span x-show="s.engagement_rate" style="font-size:12px;color:#10b981;font-weight:600">
+                <i class="fa-solid fa-chart-line" style="margin-right:3px;font-size:10px"></i>
+                <span x-text="s.engagement_rate+'%'"></span>
+              </span>
+              <span x-show="s.kontakt" style="font-size:12px;color:var(--muted)">
+                <i class="fa-solid fa-address-card" style="margin-right:3px;font-size:10px"></i>
+                <span x-text="s.kontakt"></span>
+              </span>
               <a x-show="s.url" :href="s.url" target="_blank" rel="noopener"
-                 style="color:var(--accent);text-decoration:none;font-size:11px">
-                <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:9px"></i> Profil
+                 style="font-size:12px;color:var(--accent);text-decoration:none;font-weight:500">
+                <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px"></i> Profil
               </a>
             </div>
-            <div x-show="s.notizen" style="font-size:11px;color:var(--muted);margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:6px" x-text="s.notizen"></div>
+            <div x-show="s.notizen" style="font-size:11px;color:var(--muted);margin-top:4px;padding:6px 10px;background:var(--surface2);border-radius:8px;border-left:2px solid var(--border)" x-text="s.notizen"></div>
           </div>
 
           <!-- Preise -->
-          <div style="flex-shrink:0;text-align:right;min-width:100px">
-            <div x-show="s.preis_vorstellung" style="font-size:11px;color:var(--muted);margin-bottom:2px">
+          <div style="flex-shrink:0;text-align:right;min-width:110px">
+            <div x-show="s.einigungspreis" style="font-size:17px;font-weight:800;color:#22c55e"
+                 x-text="(s.einigungspreis||0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></div>
+            <div x-show="s.einigungspreis" style="font-size:10px;color:#22c55e;font-weight:600;margin-bottom:4px">Einigungspreis</div>
+            <div x-show="s.preis_vorstellung" style="font-size:11px;color:var(--muted)">
               Forderung: <span style="font-weight:600" x-text="(s.preis_vorstellung||0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></span>
             </div>
-            <div x-show="s.unser_angebot" style="font-size:13px;font-weight:800;color:#10b981"
+            <div x-show="s.unser_angebot" style="font-size:13px;font-weight:700;color:#6366f1;margin-top:2px"
                  x-text="'Angebot: '+(s.unser_angebot||0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></div>
-            <div x-show="s.preis_vorstellung&&s.unser_angebot" style="font-size:10px;color:var(--muted);margin-top:2px"
+            <div x-show="s.preis_vorstellung&&s.unser_angebot&&!s.einigungspreis"
+                 style="font-size:10px;margin-top:2px"
+                 :style="s.preis_vorstellung>s.unser_angebot?'color:#f97316':'color:#22c55e'"
                  x-text="'Diff: '+(s.preis_vorstellung-s.unser_angebot>0?'-':'+')+(Math.abs(s.preis_vorstellung-s.unser_angebot)).toLocaleString('de-DE',{maximumFractionDigits:0})+' €'"></div>
           </div>
 
           <!-- Actions -->
-          <div style="display:flex;gap:4px;flex-shrink:0">
+          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+            <button @click="moveSKToGeplant(s)" class="icon-btn" title="In Geplant schieben"
+                    style="color:#6366f1;font-size:10px">
+              <i class="fa-solid fa-arrow-right-to-bracket"></i>
+            </button>
             <button @click="openSKModal(s)" class="icon-btn"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
             <button @click="deleteSK(s)" class="icon-btn" style="color:var(--danger)"><i class="fa-solid fa-trash" style="font-size:10px"></i></button>
           </div>
@@ -471,12 +549,14 @@
       <div>
         <label class="form-label">Status</label>
         <select id="skStatus" class="select-field">
-          <option value="interessant">Interessant</option>
-          <option value="kontaktiert">Kontaktiert</option>
-          <option value="in_verhandlung">In Verhandlung</option>
-          <option value="angebot">Angebot gemacht</option>
-          <option value="gekauft">Gekauft ✓</option>
-          <option value="abgesagt">Abgesagt</option>
+          <option value="interessant">🟡 Interessant</option>
+          <option value="kontaktiert">🔵 Kontaktiert</option>
+          <option value="in_verhandlung">🟣 In Verhandlung</option>
+          <option value="angebot">🟠 Angebot gemacht</option>
+          <option value="gekauft">🟢 Gekauft ✓</option>
+          <option value="inaktiv">⚪ Inaktiv (pausiert)</option>
+          <option value="kein_interesse">🔴 Kein Interesse</option>
+          <option value="abgesagt">⛔ Abgesagt</option>
         </select>
       </div>
       <div>
@@ -490,6 +570,10 @@
       <div>
         <label class="form-label">Unser Angebot (€)</label>
         <input type="number" id="skAngebot" class="input-field" placeholder="1800" step="50" min="0">
+      </div>
+      <div>
+        <label class="form-label">Einigungspreis — finaler Preis (€)</label>
+        <input type="number" id="skEinigung" class="input-field" placeholder="2000" step="50" min="0">
       </div>
       <div style="grid-column:1/-1">
         <label class="form-label">Profil-URL</label>
@@ -827,14 +911,16 @@ function ausgabenApp() {
     budgetInput: '',
     editBudget: false,
     statusFilters: [
-      ['aktiv',        'Aktiv',           '#6366f1'],
-      ['interessant',  'Interessant',     '#f59e0b'],
-      ['kontaktiert',  'Kontaktiert',     '#60a5fa'],
-      ['in_verhandlung','In Verhandlung', '#a855f7'],
-      ['angebot',      'Angebot',         '#f97316'],
-      ['gekauft',      'Gekauft',         '#22c55e'],
-      ['abgesagt',     'Abgesagt',        '#ef4444'],
-      ['alle',         'Alle',            '#64748b'],
+      ['aktiv',          'Aktiv',            '#6366f1'],
+      ['interessant',    'Interessant',      '#f59e0b'],
+      ['kontaktiert',    'Kontaktiert',      '#60a5fa'],
+      ['in_verhandlung', 'In Verhandlung',   '#a855f7'],
+      ['angebot',        'Angebot',          '#f97316'],
+      ['inaktiv',        'Inaktiv',          '#94a3b8'],
+      ['kein_interesse', 'Kein Interesse',   '#f43f5e'],
+      ['gekauft',        'Gekauft',          '#22c55e'],
+      ['abgesagt',       'Abgesagt',         '#ef4444'],
+      ['alle',           'Alle',             '#64748b'],
     ],
 
     init() {
@@ -850,19 +936,61 @@ function ausgabenApp() {
       fillKatSelect('eGKategorie',   _kategorien);
     },
 
+    get skActiveCnt() {
+      return this.seitenkauf.filter(s => !['gekauft','abgesagt','kein_interesse','inaktiv'].includes(s.status) && !s.in_geplant).length;
+    },
+
     get filteredSK() {
-      if (this.skFilter === 'alle')   return this.seitenkauf;
-      if (this.skFilter === 'aktiv')  return this.seitenkauf.filter(s => !['gekauft','abgesagt'].includes(s.status));
-      return this.seitenkauf.filter(s => s.status === this.skFilter);
+      const base = this.seitenkauf.filter(s => !s.in_geplant);
+      if (this.skFilter === 'alle')   return base;
+      if (this.skFilter === 'aktiv')  return base.filter(s => !['gekauft','abgesagt','kein_interesse','inaktiv'].includes(s.status));
+      return base.filter(s => s.status === this.skFilter);
     },
 
     statusColor(s) {
-      return {interessant:'#f59e0b',kontaktiert:'#60a5fa',in_verhandlung:'#a855f7',
-              angebot:'#f97316',gekauft:'#22c55e',abgesagt:'#ef4444'}[s] || '#64748b';
+      return {
+        interessant:    '#f59e0b',
+        kontaktiert:    '#60a5fa',
+        in_verhandlung: '#a855f7',
+        angebot:        '#f97316',
+        gekauft:        '#22c55e',
+        inaktiv:        '#94a3b8',
+        kein_interesse: '#f43f5e',
+        abgesagt:       '#ef4444',
+      }[s] || '#64748b';
     },
     statusLabel(s) {
-      return {interessant:'Interessant',kontaktiert:'Kontaktiert',in_verhandlung:'In Verhandlung',
-              angebot:'Angebot gemacht',gekauft:'Gekauft ✓',abgesagt:'Abgesagt'}[s] || s;
+      return {
+        interessant:    'Interessant',
+        kontaktiert:    'Kontaktiert',
+        in_verhandlung: 'In Verhandlung',
+        angebot:        'Angebot gemacht',
+        gekauft:        'Gekauft ✓',
+        inaktiv:        'Inaktiv',
+        kein_interesse: 'Kein Interesse',
+        abgesagt:       'Abgesagt',
+      }[s] || s;
+    },
+    platformColor(p) {
+      return {Instagram:'#e1306c',TikTok:'#69c9d0',YouTube:'#ff0000',Facebook:'#1877f2','Twitter':'#1da1f2'}[p] || '#94a3b8';
+    },
+    platformBg(p) {
+      return {
+        Instagram: 'linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)',
+        TikTok:    'linear-gradient(135deg,#010101,#69c9d0)',
+        YouTube:   'linear-gradient(135deg,#ff0000,#cc0000)',
+        Facebook:  'linear-gradient(135deg,#1877f2,#0c5bcc)',
+        Twitter:   'linear-gradient(135deg,#1da1f2,#0d8dd4)',
+      }[p] || 'linear-gradient(135deg,#475569,#334155)';
+    },
+    platformIcon(p) {
+      return {Instagram:'fa-instagram',TikTok:'fa-tiktok',YouTube:'fa-youtube',Facebook:'fa-facebook',Twitter:'fa-x-twitter'}[p] || 'fa-globe';
+    },
+    formatFollowers(n) {
+      if (!n) return '';
+      if (n >= 1000000) return (n/1000000).toFixed(1).replace('.0','')+'M';
+      if (n >= 1000)    return (n/1000).toFixed(1).replace('.0','')+'K';
+      return n.toLocaleString('de-DE');
     },
 
     saveAboToggle() {
@@ -1023,22 +1151,40 @@ function ausgabenApp() {
 
     openSKModal(item=null) {
       const id = item ? item.id : '';
-      document.getElementById('skId').value        = id;
-      document.getElementById('skName').value      = item?.name      || '';
-      document.getElementById('skHandle').value    = item?.handle    || '';
-      document.getElementById('skPlatform').value  = item?.platform  || 'Instagram';
-      document.getElementById('skFollowers').value = item?.followers || '';
-      document.getElementById('skEngagement').value= item?.engagement_rate || '';
-      document.getElementById('skNische').value    = item?.nische    || '';
-      document.getElementById('skStatus').value    = item?.status    || 'interessant';
-      document.getElementById('skKontakt').value   = item?.kontakt   || '';
-      document.getElementById('skPreis').value     = item?.preis_vorstellung || '';
-      document.getElementById('skAngebot').value   = item?.unser_angebot || '';
-      document.getElementById('skUrl').value       = item?.url       || '';
-      document.getElementById('skNotizen').value   = item?.notizen   || '';
+      document.getElementById('skId').value         = id;
+      document.getElementById('skName').value       = item?.name               || '';
+      document.getElementById('skHandle').value     = item?.handle             || '';
+      document.getElementById('skPlatform').value   = item?.platform           || 'Instagram';
+      document.getElementById('skFollowers').value  = item?.followers          || '';
+      document.getElementById('skEngagement').value = item?.engagement_rate    || '';
+      document.getElementById('skNische').value     = item?.nische             || '';
+      document.getElementById('skStatus').value     = item?.status             || 'interessant';
+      document.getElementById('skKontakt').value    = item?.kontakt            || '';
+      document.getElementById('skPreis').value      = item?.preis_vorstellung  || '';
+      document.getElementById('skAngebot').value    = item?.unser_angebot      || '';
+      document.getElementById('skEinigung').value   = item?.einigungspreis     || '';
+      document.getElementById('skUrl').value        = item?.url                || '';
+      document.getElementById('skNotizen').value    = item?.notizen            || '';
       document.getElementById('skModalTitle').textContent = id ? 'SEITE BEARBEITEN' : 'SEITE EINTRAGEN';
       document.getElementById('skModal').style.display = 'flex';
       setTimeout(() => document.getElementById('skName').focus(), 50);
+    },
+
+    async moveSKToGeplant(item) {
+      const r = await fetch(`/api/seitenkauf/${item.id}/zu-geplant`, {method:'POST'}).then(r=>r.json());
+      if (r.ok) {
+        const idx = this.seitenkauf.findIndex(s=>s.id===item.id);
+        if (idx !== -1) this.seitenkauf[idx].in_geplant = true;
+        showToast('In Geplant verschoben ✓','success');
+      }
+    },
+    async moveSKFromGeplant(item) {
+      const r = await fetch(`/api/seitenkauf/${item.id}/von-geplant`, {method:'POST'}).then(r=>r.json());
+      if (r.ok) {
+        const idx = this.seitenkauf.findIndex(s=>s.id===item.id);
+        if (idx !== -1) this.seitenkauf[idx].in_geplant = false;
+        showToast('Zurück in Seitenkauf','success');
+      }
     },
 
     async deleteSK(item) {
@@ -1100,6 +1246,7 @@ async function saveSK() {
     kontakt:           document.getElementById('skKontakt').value.trim() || null,
     preis_vorstellung: parseFloat(document.getElementById('skPreis').value) || null,
     unser_angebot:     parseFloat(document.getElementById('skAngebot').value) || null,
+    einigungspreis:    parseFloat(document.getElementById('skEinigung').value) || null,
     url:               document.getElementById('skUrl').value.trim() || null,
     notizen:           document.getElementById('skNotizen').value.trim() || null,
   };

@@ -896,10 +896,12 @@ class SeitenKauf(db.Model):
     nische            = db.Column(db.String(100))
     preis_vorstellung = db.Column(db.Float)                             # Verkäufer-Preis
     unser_angebot     = db.Column(db.Float)                             # Unser Angebot
-    status            = db.Column(db.String(30), default='interessant') # interessant|kontaktiert|in_verhandlung|angebot|gekauft|abgesagt
+    status            = db.Column(db.String(30), default='interessant') # interessant|kontaktiert|in_verhandlung|angebot|gekauft|abgesagt|kein_interesse|inaktiv
     kontakt           = db.Column(db.String(200))                       # Name / E-Mail / Telegram
     url               = db.Column(db.String(500))
     notizen           = db.Column(db.Text)
+    einigungspreis    = db.Column(db.Float)                             # Final agreed price
+    in_geplant        = db.Column(db.Boolean, default=False)            # Moved to Geplant tab
     gekauft_am        = db.Column(db.Date)
     created_at        = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at        = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
