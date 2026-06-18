@@ -118,18 +118,12 @@
         <option value="kein_interesse">Kein Interesse</option>
         <option value="kontaktiert">Kontaktiert</option>
       </select>
-      <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden">
-        <button @click="sortBy='alpha'"
-                :style="sortBy==='alpha'?'background:var(--accent);color:#fff;':''"
-                style="font-size:11px;padding:7px 12px;background:none;border:none;cursor:pointer;color:var(--muted)">
-          <i class="fa-solid fa-arrow-down-a-z"></i> A–Z
-        </button>
-        <button @click="sortBy='ew'"
-                :style="sortBy==='ew'?'background:var(--accent);color:#fff;':''"
-                style="font-size:11px;padding:7px 12px;background:none;border:none;cursor:pointer;color:var(--muted);border-left:1px solid var(--border)">
-          <i class="fa-solid fa-arrow-down-wide-short"></i> Einwohner
-        </button>
-      </div>
+      <button @click="sortBy='alpha'" :class="sortBy==='alpha'?'fchip active':'fchip'" style="font-size:11px">
+        <i class="fa-solid fa-arrow-down-a-z"></i> A–Z
+      </button>
+      <button @click="sortBy='ew'" :class="sortBy==='ew'?'fchip active':'fchip'" style="font-size:11px">
+        <i class="fa-solid fa-arrow-down-wide-short"></i> Einwohner
+      </button>
       <button @click="expandAll()" class="btn btn-ghost" style="font-size:11px;padding:8px 12px">
         <i class="fa-solid fa-list-ul"></i> Alle öffnen
       </button>
