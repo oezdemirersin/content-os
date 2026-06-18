@@ -422,74 +422,52 @@
     <!-- Pipeline-Liste -->
     <div style="display:flex;flex-direction:column;gap:10px">
       <template x-for="s in filteredSK" :key="s.id">
-        <div class="card" style="padding:16px;display:flex;gap:14px;align-items:flex-start;transition:box-shadow .15s"
-             :style="'border-left:4px solid '+statusColor(s.status)">
-
-          <!-- Platform-Avatar -->
-          <div style="flex-shrink:0;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.2)"
-               :style="'background:'+platformBg(s.platform)">
-            <i class="fa-brands" :class="platformIcon(s.platform)" style="font-size:15px;color:#fff"></i>
-          </div>
+        <div class="card" style="padding:10px 14px;display:flex;gap:10px;align-items:center"
+             :style="'border-left:3px solid '+statusColor(s.status)">
 
           <!-- Info -->
           <div style="flex:1;min-width:0">
-            <!-- Name + Handle + Status-Pill -->
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-              <span style="font-size:15px;font-weight:700" x-text="s.name"></span>
-              <span x-show="s.handle" style="font-size:12px;color:var(--muted)" x-text="'@'+s.handle"></span>
-              <span style="font-size:11px;padding:3px 12px;border-radius:20px;font-weight:600;letter-spacing:.3px"
-                    :style="'background:'+statusColor(s.status)+'25;color:'+statusColor(s.status)+';border:1px solid '+statusColor(s.status)+'55'"
+            <!-- Zeile 1: Name + Handle + Status + Platform + Nische -->
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+              <span style="font-size:13px;font-weight:700" x-text="s.name"></span>
+              <span x-show="s.handle" style="font-size:11px;color:var(--muted)" x-text="'@'+s.handle"></span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600"
+                    :style="'background:'+statusColor(s.status)+'22;color:'+statusColor(s.status)"
                     x-text="statusLabel(s.status)"></span>
-            </div>
-            <!-- Platform + Nische + Follower + Engagement -->
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
-              <span style="font-size:12px;padding:3px 10px;border-radius:20px;font-weight:600"
-                    :style="'background:'+platformBg(s.platform)+'33;color:'+platformColor(s.platform)"
-                    x-text="s.platform"></span>
-              <span x-show="s.nische" style="font-size:12px;padding:3px 10px;border-radius:20px;background:var(--surface2);color:var(--text);font-weight:500"
+              <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600"
+                    :style="'background:'+platformBg(s.platform)">
+                <i class="fa-brands" :class="platformIcon(s.platform)" style="font-size:11px;color:#fff"></i>
+                <span style="color:#fff" x-text="s.platform"></span>
+              </span>
+              <span x-show="s.nische" style="font-size:11px;padding:2px 8px;border-radius:20px;background:var(--surface2);color:var(--muted)"
                     x-text="s.nische"></span>
-              <span x-show="s.followers" style="font-size:12px;color:var(--muted)">
-                <i class="fa-solid fa-users" style="margin-right:3px;font-size:10px"></i>
-                <span x-text="formatFollowers(s.followers)"></span>
-              </span>
-              <span x-show="s.engagement_rate" style="font-size:12px;color:#10b981;font-weight:600">
-                <i class="fa-solid fa-chart-line" style="margin-right:3px;font-size:10px"></i>
-                <span x-text="s.engagement_rate+'%'"></span>
-              </span>
-              <span x-show="s.kontakt" style="font-size:12px;color:var(--muted)">
-                <i class="fa-solid fa-address-card" style="margin-right:3px;font-size:10px"></i>
-                <span x-text="s.kontakt"></span>
-              </span>
-              <a x-show="s.url" :href="s.url" target="_blank" rel="noopener"
-                 style="font-size:12px;color:var(--accent);text-decoration:none;font-weight:500">
-                <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px"></i> Profil
-              </a>
             </div>
-            <div x-show="s.notizen" style="font-size:11px;color:var(--muted);margin-top:4px;padding:6px 10px;background:var(--surface2);border-radius:8px;border-left:2px solid var(--border)" x-text="s.notizen"></div>
+            <!-- Zeile 2: Stats -->
+            <div style="display:flex;gap:10px;font-size:11px;color:var(--muted);flex-wrap:wrap;align-items:center">
+              <span x-show="s.followers"><i class="fa-solid fa-users" style="margin-right:3px"></i><span x-text="formatFollowers(s.followers)"></span></span>
+              <span x-show="s.engagement_rate" style="color:#10b981;font-weight:600"><i class="fa-solid fa-chart-line" style="margin-right:3px"></i><span x-text="s.engagement_rate+'%'"></span></span>
+              <span x-show="s.kontakt"><i class="fa-solid fa-address-card" style="margin-right:3px"></i><span x-text="s.kontakt"></span></span>
+              <a x-show="s.url" :href="s.url" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none"><i class="fa-solid fa-arrow-up-right-from-square" style="font-size:9px"></i> Profil</a>
+              <span x-show="s.notizen" style="color:var(--muted);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px" x-text="s.notizen"></span>
+            </div>
           </div>
 
-          <!-- Preise -->
-          <div style="flex-shrink:0;text-align:right;min-width:110px">
-            <div x-show="s.einigungspreis" style="font-size:17px;font-weight:800;color:#22c55e"
-                 x-text="(s.einigungspreis||0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></div>
-            <div x-show="s.einigungspreis" style="font-size:10px;color:#22c55e;font-weight:600;margin-bottom:4px">Einigungspreis</div>
-            <div x-show="s.preis_vorstellung" style="font-size:11px;color:var(--muted)">
-              Forderung: <span style="font-weight:600" x-text="(s.preis_vorstellung||0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></span>
-            </div>
-            <div x-show="s.unser_angebot" style="font-size:13px;font-weight:700;color:#6366f1;margin-top:2px"
-                 x-text="'Angebot: '+(s.unser_angebot||0).toLocaleString('de-DE',{minimumFractionDigits:0})+' €'"></div>
-            <div x-show="s.preis_vorstellung&&s.unser_angebot&&!s.einigungspreis"
-                 style="font-size:10px;margin-top:2px"
-                 :style="s.preis_vorstellung>s.unser_angebot?'color:#f97316':'color:#22c55e'"
-                 x-text="'Diff: '+(s.preis_vorstellung-s.unser_angebot>0?'-':'+')+(Math.abs(s.preis_vorstellung-s.unser_angebot)).toLocaleString('de-DE',{maximumFractionDigits:0})+' €'"></div>
+          <!-- Preise kompakt -->
+          <div style="flex-shrink:0;text-align:right;min-width:90px">
+            <div x-show="s.einigungspreis" style="font-size:14px;font-weight:800;color:#22c55e"
+                 x-text="(s.einigungspreis||0).toLocaleString('de-DE',{maximumFractionDigits:0})+' €'"></div>
+            <div x-show="s.einigungspreis" style="font-size:9px;color:#22c55e;font-weight:600">Einigung</div>
+            <div x-show="!s.einigungspreis&&s.unser_angebot" style="font-size:13px;font-weight:700;color:#6366f1"
+                 x-text="(s.unser_angebot||0).toLocaleString('de-DE',{maximumFractionDigits:0})+' €'"></div>
+            <div x-show="!s.einigungspreis&&s.unser_angebot" style="font-size:9px;color:var(--muted)">Angebot</div>
+            <div x-show="!s.unser_angebot&&s.preis_vorstellung" style="font-size:13px;font-weight:600;color:var(--muted)"
+                 x-text="(s.preis_vorstellung||0).toLocaleString('de-DE',{maximumFractionDigits:0})+' €'"></div>
+            <div x-show="!s.unser_angebot&&s.preis_vorstellung" style="font-size:9px;color:var(--muted)">Forderung</div>
           </div>
 
-          <!-- Actions -->
-          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
-            <button @click="moveSKToGeplant(s)" class="icon-btn" title="In Geplant schieben"
-                    style="color:#6366f1;font-size:10px">
-              <i class="fa-solid fa-arrow-right-to-bracket"></i>
-            </button>
+          <!-- Actions inline -->
+          <div style="display:flex;gap:3px;flex-shrink:0">
+            <button @click="moveSKToGeplant(s)" class="icon-btn" title="In Geplant schieben" style="color:#6366f1"><i class="fa-solid fa-arrow-right-to-bracket" style="font-size:10px"></i></button>
             <button @click="openSKModal(s)" class="icon-btn"><i class="fa-solid fa-pen" style="font-size:10px"></i></button>
             <button @click="deleteSK(s)" class="icon-btn" style="color:var(--danger)"><i class="fa-solid fa-trash" style="font-size:10px"></i></button>
           </div>
