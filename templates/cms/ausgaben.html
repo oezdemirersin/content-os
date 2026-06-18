@@ -27,6 +27,14 @@
             style="margin-left:5px;background:rgba(245,158,11,.25);color:#f59e0b;border-radius:10px;padding:0 6px;font-size:10px"
             x-text="skActiveCnt"></span>
     </button>
+    <button @click="mainTab='watchlist'; if(!wlLoaded) loadWatchlist()" class="fchip" :class="mainTab==='watchlist'?'active':''"
+            style="border-radius:8px 8px 0 0;padding:8px 20px">
+      <i class="fa-solid fa-binoculars" style="margin-right:6px;font-size:11px"></i>
+      Seiten Watchlist
+      <span x-show="wlTotalGefunden>0"
+            style="margin-left:5px;background:rgba(99,102,241,.25);color:#818cf8;border-radius:10px;padding:0 6px;font-size:10px"
+            x-text="wlTotalGefunden"></span>
+    </button>
   </div>
 
   <!-- ═══════════ TAB: AUSGABEN ════════════════════════════════ -->
@@ -528,6 +536,291 @@
 
   </div><!-- end Seitenkauf-Tab -->
 
+<style>
+.wl-city-header{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;cursor:pointer;user-select:none;transition:background .12s}
+.wl-city-header:hover{background:rgba(255,255,255,.025)}
+.wl-entry-row{display:grid;grid-template-columns:124px minmax(0,1.2fr) minmax(0,2fr) 106px;align-items:center;border-bottom:1px solid var(--border)}
+.wl-entry-row>*{padding:10px 14px}
+.wl-entry-row:last-child{border-bottom:none}
+.wl-entry-row:hover{background:rgba(255,255,255,.02)}
+.wl-status-badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;font-size:9.5px;font-weight:700;white-space:nowrap;letter-spacing:.3px}
+.wl-section-hdr{display:flex;align-items:center;gap:8px;padding:7px 14px 6px;font-size:10px;font-weight:700;letter-spacing:.8px;color:var(--muted);background:rgba(0,0,0,.15)}
+</style>
+
+  <!-- ═══════════ TAB: SEITEN WATCHLIST ══════════════════════════ -->
+  <div x-show="mainTab==='watchlist'">
+
+    <!-- Loading -->
+    <div x-show="!wlLoaded" style="text-align:center;padding:80px 20px;color:var(--muted)">
+      <i class="fa-solid fa-spinner fa-spin" style="font-size:28px;margin-bottom:14px;display:block;color:#818cf8"></i>
+      <div style="font-size:13px">Lade Watchlist...</div>
+    </div>
+
+    <div x-show="wlLoaded">
+
+      <!-- Stats -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
+        <div class="card" style="padding:14px 16px;background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(99,102,241,.03));border-left:3px solid #6366f1">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">STÄDTE</div>
+          <div style="font-size:26px;font-weight:800;color:#818cf8" x-text="wlCities.length"></div>
+        </div>
+        <div class="card" style="padding:14px 16px;background:linear-gradient(135deg,rgba(245,158,11,.12),rgba(245,158,11,.03));border-left:3px solid #f59e0b">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">EINTRÄGE</div>
+          <div style="font-size:26px;font-weight:800;color:#f59e0b" x-text="wlTotalEintraege"></div>
+        </div>
+        <div class="card" style="padding:14px 16px;background:linear-gradient(135deg,rgba(34,197,94,.12),rgba(34,197,94,.03));border-left:3px solid #22c55e">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">GEFUNDEN</div>
+          <div style="font-size:26px;font-weight:800;color:#22c55e" x-text="wlTotalGefunden"></div>
+        </div>
+        <div class="card" style="padding:14px 16px;background:linear-gradient(135deg,rgba(168,85,247,.12),rgba(168,85,247,.03));border-left:3px solid #a855f7">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:4px">ABDECKUNG</div>
+          <div style="font-size:26px;font-weight:800;color:#c084fc"
+               x-text="wlTotalEintraege>0 ? Math.round(wlTotalGefunden/wlTotalEintraege*100)+'%' : '0%'"></div>
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+        <div style="position:relative;flex:1;min-width:180px;max-width:260px">
+          <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:11px;pointer-events:none"></i>
+          <input type="text" x-model="wlSearch" placeholder="Stadt suchen..." class="input-field"
+                 style="padding:8px 10px 8px 30px;font-size:12px;width:100%">
+        </div>
+        <select x-model="wlTypFilter" class="select-field" style="font-size:12px;padding:8px 10px">
+          <option value="">Alle Typen</option>
+          <option value="stadtseite">Stadtseiten</option>
+          <option value="bezirk">Bezirke</option>
+          <option value="verein">Vereine</option>
+          <option value="uni">Hochschulen</option>
+        </select>
+        <select x-model="wlStatusFilter" class="select-field" style="font-size:12px;padding:8px 10px">
+          <option value="">Alle Status</option>
+          <option value="nicht_gesucht">Nicht gesucht</option>
+          <option value="nichts_gefunden">Nichts gefunden</option>
+          <option value="aktiv">Aktiv</option>
+          <option value="gelegentlich">Ab &amp; zu aktiv</option>
+          <option value="inaktiv">Inaktiv</option>
+          <option value="nicht_erreichbar">Nicht erreichbar</option>
+          <option value="interesse">Interesse am Verkauf</option>
+          <option value="kein_interesse">Kein Interesse</option>
+        </select>
+        <button @click="wlExpandAll()" class="btn btn-ghost" style="font-size:11px;padding:8px 12px">
+          <i class="fa-solid fa-list-ul"></i> Alle öffnen
+        </button>
+        <button @click="wlCollapseAll()" class="btn btn-ghost" style="font-size:11px;padding:8px 12px"
+                x-show="wlCities.some(c=>c.expanded)">
+          <i class="fa-solid fa-compress"></i>
+        </button>
+      </div>
+
+      <!-- City Accordion -->
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <template x-for="city in wlFilteredCities" :key="city.stadt">
+          <div class="card" style="overflow:hidden;padding:0">
+
+            <!-- City Header -->
+            <div class="wl-city-header" @click="wlToggleCity(city)">
+              <div style="display:flex;align-items:center;gap:10px">
+                <i class="fa-solid fa-chevron-right"
+                   :style="'font-size:9px;color:var(--muted);transition:transform .2s;transform:rotate('+(city.expanded?'90':'0')+'deg)'"></i>
+                <span style="font-size:13px;font-weight:700" x-text="city.stadt"></span>
+              </div>
+              <div style="display:flex;align-items:center;gap:14px">
+                <i x-show="city.loading" class="fa-solid fa-spinner fa-spin" style="color:var(--muted);font-size:11px"></i>
+                <div style="display:flex;align-items:center;gap:7px">
+                  <div style="width:72px;height:4px;background:var(--border);border-radius:4px;overflow:hidden">
+                    <div :style="'height:100%;border-radius:4px;transition:width .3s;background:'+(city.gefunden===0?'#334155':(city.gefunden/Math.max(1,city.total)>0.5?'#22c55e':'#f59e0b'))+';width:'+(city.total>0?Math.round(city.gefunden/city.total*100):0)+'%'"></div>
+                  </div>
+                  <span style="font-size:11px;color:var(--muted);min-width:40px" x-text="city.gefunden+'/'+city.total"></span>
+                </div>
+                <button @click.stop="wlOpenAdd(city, '', '')" class="btn btn-ghost"
+                        style="font-size:10px;padding:4px 8px;border-radius:6px" title="Neuen Eintrag hinzufügen">
+                  <i class="fa-solid fa-plus"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- City Content (expanded) -->
+            <div x-show="city.expanded" style="border-top:1px solid var(--border)">
+              <template x-if="city.loaded">
+                <div>
+                  <template x-for="sec in wlSections" :key="sec.typ">
+                    <div x-show="wlGetEntries(city, sec.typ).length > 0">
+                      <!-- Section Header -->
+                      <div class="wl-section-hdr" :style="'border-left:3px solid '+sec.color">
+                        <i class="fa-solid" :class="sec.icon" :style="'color:'+sec.color"></i>
+                        <span x-text="sec.label"></span>
+                        <span x-show="sec.typ!=='stadtseite'"
+                              :style="'background:'+sec.color+'25;color:'+sec.color+';border-radius:10px;padding:1px 8px;font-size:10px'"
+                              x-text="wlGetEntries(city, sec.typ).length"></span>
+                        <div style="flex:1"></div>
+                        <button @click="wlOpenAdd(city, sec.typ, '')"
+                                class="btn btn-ghost" style="font-size:10px;padding:3px 8px;border-radius:5px">
+                          <i class="fa-solid fa-plus"></i> Hinzufügen
+                        </button>
+                      </div>
+                      <!-- Entry Rows -->
+                      <template x-for="e in wlGetEntries(city, sec.typ)" :key="e.id">
+                        <div class="wl-entry-row">
+                          <!-- Status -->
+                          <div>
+                            <span class="wl-status-badge"
+                                  :style="'background:'+wlStatusCfg(e.seiten_status).bg+';color:'+wlStatusCfg(e.seiten_status).color"
+                                  x-text="wlStatusCfg(e.seiten_status).label"></span>
+                          </div>
+                          <!-- Name + Meta -->
+                          <div>
+                            <div style="font-size:12px;font-weight:600;line-height:1.3" x-text="e.ziel_name"></div>
+                            <div style="font-size:10px;color:var(--muted);margin-top:2px" x-show="e.ziel_meta" x-text="e.ziel_meta"></div>
+                          </div>
+                          <!-- Page Info -->
+                          <div>
+                            <div x-show="e.url" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                              <a :href="e.url" target="_blank" rel="noopener"
+                                 :style="'display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:'+platformColor(e.platform||'Instagram')+';text-decoration:none'">
+                                <i class="fa-brands" :class="platformIcon(e.platform||'Instagram')"></i>
+                                <span x-text="e.handle ? '@'+e.handle : (e.platform||'Link')"></span>
+                              </a>
+                              <span x-show="e.follower" style="font-size:11px;color:#94a3b8;font-weight:600"
+                                    x-text="formatFollowers(e.follower)"></span>
+                              <span x-show="e.letzte_aktivitaet"
+                                    style="font-size:10px;color:var(--muted);padding:2px 7px;border-radius:5px;background:var(--surface2)"
+                                    x-text="e.letzte_aktivitaet"></span>
+                            </div>
+                            <div x-show="!e.url" style="font-size:11px;color:var(--muted);font-style:italic;display:flex;align-items:center;gap:5px">
+                              <i class="fa-regular fa-circle-dot" style="font-size:9px"></i> Noch kein Link eingetragen
+                            </div>
+                          </div>
+                          <!-- Actions -->
+                          <div style="display:flex;align-items:center;gap:3px;justify-content:flex-end">
+                            <button @click="wlOpenEdit(e)" class="icon-btn"
+                                    :title="e.url?'Bearbeiten':'Link hinzufügen'"
+                                    :style="!e.url?'color:#6366f1':''">
+                              <i class="fa-solid" :class="e.url?'fa-pen':'fa-plus'"></i>
+                            </button>
+                            <button x-show="!!e.url" @click="wlOpenAdd(city, e.ziel_typ, e.ziel_name, e.ziel_meta)"
+                                    class="icon-btn" title="Weitere Seite für dasselbe Ziel" style="color:#a855f7">
+                              <i class="fa-solid fa-copy" style="font-size:10px"></i>
+                            </button>
+                            <button x-show="e.seiten_status==='nicht_gesucht'" @click="wlSetNichts(e)"
+                                    class="icon-btn" title="Nichts gefunden" style="color:var(--muted)">
+                              <i class="fa-solid fa-ban"></i>
+                            </button>
+                            <button @click="wlDeleteEntry(e, city)" class="icon-btn"
+                                    title="Löschen" style="color:var(--danger)">
+                              <i class="fa-solid fa-trash"></i>
+                            </button>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <div x-show="!city.loaded && city.loading"
+                   style="padding:20px;text-align:center;color:var(--muted);font-size:12px">
+                <i class="fa-solid fa-spinner fa-spin"></i> Lade...
+              </div>
+            </div>
+
+          </div>
+        </template>
+        <div x-show="wlFilteredCities.length===0 && wlLoaded"
+             style="text-align:center;padding:60px;color:var(--muted)">
+          <i class="fa-solid fa-magnifying-glass" style="font-size:22px;margin-bottom:10px;display:block"></i>
+          Keine Städte gefunden.
+        </div>
+      </div>
+
+    </div><!-- end wlLoaded -->
+  </div><!-- end Watchlist-Tab -->
+
+  <!-- ══ MODAL: Watchlist Seite ════════════════════════════════════ -->
+  <div x-show="wlModalOpen" x-cloak
+       style="position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(4px)"
+       @click.self="wlModalOpen=false">
+    <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(540px,95vw);max-height:90vh;overflow-y:auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div style="font-family:var(--font-display);font-size:14px"
+             x-text="wlForm.id ? 'SEITE BEARBEITEN' : 'SEITE HINZUFÜGEN'"></div>
+        <button @click="wlModalOpen=false" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+      </div>
+      <!-- Target Info -->
+      <div style="font-size:11px;color:var(--muted);margin-bottom:18px;padding:8px 12px;background:var(--surface2);border-radius:8px;display:flex;align-items:center;gap:6px">
+        <i class="fa-solid fa-map-pin" style="font-size:10px"></i>
+        <span x-text="wlForm.stadt" style="font-weight:600"></span>
+        <span x-show="wlForm.ziel_name && !wlShowNameInput" x-text="'— '+wlForm.ziel_name"></span>
+        <span x-show="wlForm.ziel_meta && !wlShowNameInput" x-text="'('+wlForm.ziel_meta+')'" style="color:var(--muted)"></span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <!-- Ziel-Name (only in add-new mode) -->
+        <div x-show="wlShowNameInput" style="grid-column:1/-1">
+          <label class="form-label">Ziel-Name *</label>
+          <input type="text" x-model="wlForm.ziel_name" class="input-field" placeholder="z.B. Schwabing, TuS Musterstadt, Uni XY …">
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <select x-model="wlForm.ziel_typ" class="select-field" style="font-size:11px;padding:6px 8px;flex:1">
+              <option value="stadtseite">Stadtseite</option>
+              <option value="bezirk">Bezirk / Stadtteil</option>
+              <option value="verein">Fußballverein</option>
+              <option value="uni">Hochschule</option>
+            </select>
+            <input type="text" x-model="wlForm.ziel_meta" class="input-field"
+                   style="font-size:11px;flex:1" placeholder="z.B. ca. 120.000 Einwohner">
+          </div>
+        </div>
+        <!-- Status -->
+        <div style="grid-column:1/-1">
+          <label class="form-label">Status der Seite *</label>
+          <select x-model="wlForm.seiten_status" class="select-field">
+            <option value="nicht_gesucht">Noch nicht gesucht</option>
+            <option value="nichts_gefunden">Nichts gefunden</option>
+            <option value="inaktiv">Inaktiv</option>
+            <option value="gelegentlich">Ab &amp; zu aktiv</option>
+            <option value="aktiv">Aktiv</option>
+            <option value="nicht_erreichbar">Nicht erreichbar</option>
+            <option value="interesse">Interesse am Verkauf</option>
+            <option value="kein_interesse">Kein Interesse am Verkauf</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Plattform</label>
+          <select x-model="wlForm.platform" class="select-field">
+            <option value="Instagram">Instagram</option>
+            <option value="TikTok">TikTok</option>
+            <option value="YouTube">YouTube</option>
+            <option value="Facebook">Facebook</option>
+            <option value="Twitter">Twitter / X</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">@Handle</label>
+          <input type="text" x-model="wlForm.handle" class="input-field" placeholder="stadtseite_memes">
+        </div>
+        <div style="grid-column:1/-1">
+          <label class="form-label">Profil-URL</label>
+          <input type="url" x-model="wlForm.url" class="input-field" placeholder="https://instagram.com/...">
+        </div>
+        <div>
+          <label class="form-label">Follower</label>
+          <input type="number" x-model="wlForm.follower" class="input-field" placeholder="12500" min="0">
+        </div>
+        <div>
+          <label class="form-label">Letzte Aktivität</label>
+          <input type="text" x-model="wlForm.letzte_aktivitaet" class="input-field" placeholder="z.B. März 2024">
+        </div>
+        <div style="grid-column:1/-1">
+          <label class="form-label">Notizen</label>
+          <textarea x-model="wlForm.notizen" rows="2" class="input-field"
+                    placeholder="Anmerkungen, Kontakt, Besonderheiten…"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button @click="wlModalOpen=false" class="btn btn-ghost">Abbrechen</button>
+        <button @click="wlSave()" class="btn btn-primary"><i class="fa-solid fa-save"></i> Speichern</button>
+      </div>
+    </div>
+  </div>
+
 </div><!-- end app -->
 
 <!-- ══ MODAL: Seitenkauf ═══════════════════════════════════════════ -->
@@ -927,6 +1220,21 @@ function ausgabenApp() {
     geplant: [],
     seitenkauf: [],
     skFilter: 'aktiv',
+    wlLoaded: false,
+    wlCities: [],
+    wlSearch: '',
+    wlTypFilter: '',
+    wlStatusFilter: '',
+    wlModalOpen: false,
+    wlShowNameInput: false,
+    wlCurrentCity: null,
+    wlForm: {id:'',stadt:'',ziel_typ:'stadtseite',ziel_name:'',ziel_meta:'',platform:'Instagram',url:'',handle:'',follower:'',letzte_aktivitaet:'',seiten_status:'nicht_gesucht',notizen:''},
+    wlSections: [
+      {typ:'stadtseite', label:'STADTSEITE',  icon:'fa-city',             color:'#6366f1'},
+      {typ:'bezirk',     label:'BEZIRKE',     icon:'fa-map-location-dot', color:'#f59e0b'},
+      {typ:'verein',     label:'VEREINE',     icon:'fa-futbol',           color:'#22c55e'},
+      {typ:'uni',        label:'HOCHSCHULEN', icon:'fa-graduation-cap',   color:'#a855f7'},
+    ],
     kategorien: [],
     activeFilter: 'alle',
     geplantFilter: 'offen',
@@ -1217,6 +1525,126 @@ function ausgabenApp() {
       const r = await fetch(`/api/seitenkauf/${item.id}`, {method:'DELETE'}).then(r=>r.json());
       if (r.ok) { this.seitenkauf = this.seitenkauf.filter(s=>s.id!==item.id); showToast('Gelöscht','success'); }
     },
+
+    // ── Watchlist ─────────────────────────────────────────────────
+    get wlTotalEintraege() { return this.wlCities.reduce((a,c)=>a+c.total,0); },
+    get wlTotalGefunden()  { return this.wlCities.reduce((a,c)=>a+c.gefunden,0); },
+    get wlFilteredCities() {
+      if (!this.wlSearch) return this.wlCities;
+      const s = this.wlSearch.toLowerCase();
+      return this.wlCities.filter(c=>c.stadt.toLowerCase().includes(s));
+    },
+    async loadWatchlist() {
+      const data = await fetch('/api/watchlist/staedte').then(r=>r.json());
+      this.wlCities = data.map(c=>({...c, expanded:false, loading:false, loaded:false, entries:[]}));
+      this.wlLoaded = true;
+    },
+    async wlToggleCity(city) {
+      if (city.expanded) { city.expanded = false; return; }
+      if (!city.loaded) {
+        city.loading = true;
+        city.entries = await fetch('/api/watchlist/stadtseiten?stadt='+encodeURIComponent(city.stadt)).then(r=>r.json());
+        city.loaded = true;
+        city.loading = false;
+      }
+      city.expanded = true;
+    },
+    wlGetEntries(city, typ) {
+      if (this.wlTypFilter && this.wlTypFilter !== typ) return [];
+      let e = (city.entries||[]).filter(x=>x.ziel_typ===typ);
+      if (this.wlStatusFilter) e = e.filter(x=>x.seiten_status===this.wlStatusFilter);
+      return e;
+    },
+    wlStatusCfg(s) {
+      const m = {
+        nicht_gesucht:   {label:'Nicht gesucht',   color:'#64748b', bg:'rgba(100,116,139,.15)'},
+        nichts_gefunden: {label:'Nichts gefunden',  color:'#ef4444', bg:'rgba(239,68,68,.15)'},
+        inaktiv:         {label:'Inaktiv',          color:'#f43f5e', bg:'rgba(244,63,94,.15)'},
+        gelegentlich:    {label:'Ab & zu aktiv',    color:'#f59e0b', bg:'rgba(245,158,11,.15)'},
+        aktiv:           {label:'Aktiv',            color:'#22c55e', bg:'rgba(34,197,94,.15)'},
+        nicht_erreichbar:{label:'Nicht erreichbar', color:'#dc2626', bg:'rgba(220,38,38,.15)'},
+        interesse:       {label:'Interesse',        color:'#6366f1', bg:'rgba(99,102,241,.15)'},
+        kein_interesse:  {label:'Kein Interesse',   color:'#94a3b8', bg:'rgba(148,163,184,.15)'},
+      };
+      return m[s] || {label:s||'?', color:'#64748b', bg:'rgba(100,116,139,.15)'};
+    },
+    wlOpenEdit(e) {
+      this.wlCurrentCity = this.wlCities.find(c=>c.stadt===e.stadt)||null;
+      this.wlForm = {
+        id: e.id, stadt: e.stadt, ziel_typ: e.ziel_typ, ziel_name: e.ziel_name, ziel_meta: e.ziel_meta||'',
+        platform: e.platform||'Instagram', url: e.url||'', handle: e.handle||'',
+        follower: e.follower||'', letzte_aktivitaet: e.letzte_aktivitaet||'',
+        seiten_status: e.seiten_status||'nicht_gesucht', notizen: e.notizen||'',
+      };
+      this.wlShowNameInput = false;
+      this.wlModalOpen = true;
+    },
+    wlOpenAdd(city, typ, prefillName, prefillMeta) {
+      this.wlCurrentCity = city;
+      this.wlForm = {
+        id:'', stadt: city.stadt, ziel_typ: typ||'stadtseite',
+        ziel_name: prefillName||'', ziel_meta: prefillMeta||'',
+        platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
+        seiten_status:'nicht_gesucht', notizen:'',
+      };
+      this.wlShowNameInput = !prefillName;
+      this.wlModalOpen = true;
+    },
+    async wlSetNichts(e) {
+      const r = await fetch(`/api/watchlist/stadtseiten/${e.id}`, {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({seiten_status:'nichts_gefunden'})
+      }).then(r=>r.json());
+      if (r.ok) { e.seiten_status = 'nichts_gefunden'; showToast('Nichts gefunden markiert','info'); }
+    },
+    async wlDeleteEntry(e, city) {
+      if (!confirm(`"${e.ziel_name}" löschen?`)) return;
+      const r = await fetch(`/api/watchlist/stadtseiten/${e.id}`, {method:'DELETE'}).then(r=>r.json());
+      if (r.ok) {
+        city.entries = city.entries.filter(x=>x.id!==e.id);
+        city.total = Math.max(0, city.total-1);
+        if (e.url) city.gefunden = Math.max(0, city.gefunden-1);
+        showToast('Gelöscht','success');
+      }
+    },
+    async wlSave() {
+      const f = this.wlForm;
+      if (!f.ziel_name) { showToast('Ziel-Name ist Pflichtfeld','error'); return; }
+      const payload = {
+        platform: f.platform, url: f.url||null, handle: f.handle||null,
+        follower: f.follower ? parseInt(f.follower) : null,
+        letzte_aktivitaet: f.letzte_aktivitaet||null,
+        seiten_status: f.seiten_status, notizen: f.notizen||null,
+      };
+      let r;
+      if (f.id) {
+        r = await fetch(`/api/watchlist/stadtseiten/${f.id}`, {
+          method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+        }).then(x=>x.json());
+      } else {
+        Object.assign(payload, {stadt:f.stadt, ziel_typ:f.ziel_typ, ziel_name:f.ziel_name, ziel_meta:f.ziel_meta||null});
+        r = await fetch('/api/watchlist/stadtseiten', {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+        }).then(x=>x.json());
+      }
+      if (r.ok) {
+        showToast('Gespeichert','success');
+        this.wlModalOpen = false;
+        const city = this.wlCurrentCity;
+        if (city) {
+          city.loading = true;
+          city.entries = await fetch('/api/watchlist/stadtseiten?stadt='+encodeURIComponent(city.stadt)).then(x=>x.json());
+          city.loading = false;
+          city.gefunden = city.entries.filter(x=>x.url).length;
+          city.total    = city.entries.length;
+        }
+      } else { showToast(r.error||'Fehler','error'); }
+    },
+    wlExpandAll() {
+      this.wlFilteredCities.forEach(c => { if (!c.loaded) this.wlToggleCity(c); else c.expanded=true; });
+    },
+    wlCollapseAll() { this.wlCities.forEach(c => c.expanded=false); },
+    // ── End Watchlist ──────────────────────────────────────────────
 
     async saveKategorien() {
       const kat = this.kategorien.map(k => k.v.trim()).filter(Boolean);
