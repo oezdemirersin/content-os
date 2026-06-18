@@ -11894,7 +11894,7 @@ def watchlist_scan_followers():
 @login_required
 def seiten_watchlist():
     _seed_watchlist()
-    return render_template('cms/seiten_watchlist.html', active_page='watchlist')
+    return render_template('seiten_watchlist.html', active_page='watchlist')
 
 
 @app.route('/api/ausgaben/kategorien', methods=['GET'])
