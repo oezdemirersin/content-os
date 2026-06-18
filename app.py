@@ -7324,7 +7324,7 @@ _IG_DIRECT_HEADERS = {
 }
 
 
-def _fetch_ig_followers_rapidapi_batch(usernames, rapidapi_key):
+def _fetch_ig_followers_rapidapi_batch(usernames, rapidapi_key, include_last_post=False):
     """
     Ruft Follower-Zahlen für eine Liste von Usernames via RapidAPI ab.
     Probiert mehrere bekannte Instagram-Scraper-APIs durch.
@@ -7369,6 +7369,21 @@ def _fetch_ig_followers_rapidapi_batch(usernames, rapidapi_key):
             d = d.get(k)
         return d
 
+    def _extract_last_post(raw):
+        for path in (['data','last_reel_media'], ['data','latest_reel_media'],
+                     ['data','last_media_at'], ['data','user','last_reel_media']):
+            val = _dig(raw, path)
+            if isinstance(val, (int, float)) and val > 0:
+                return int(val)
+        for ep in (['data','user','edge_owner_to_timeline_media','edges'],
+                   ['graphql','user','edge_owner_to_timeline_media','edges']):
+            edges = _dig(raw, ep)
+            if edges and isinstance(edges, list) and edges:
+                ts = edges[0].get('node', {}).get('taken_at_timestamp')
+                if isinstance(ts, (int, float)) and ts > 0:
+                    return int(ts)
+        return None
+
     # Finde die erste funktionierende API mit einem Test-Username
     working = None
     test_user = usernames[0] if usernames else 'instagram'
@@ -7386,11 +7401,12 @@ def _fetch_ig_followers_rapidapi_batch(usernames, rapidapi_key):
             continue
 
     if not working:
-        return {}, ['RapidAPI: Keine funktionierende Instagram-User-Info-API gefunden. '
-                    'Bitte überprüfe dein Abonnement auf rapidapi.com.']
+        err = ['RapidAPI: Keine funktionierende Instagram-User-Info-API gefunden. '
+               'Bitte überprüfe dein Abonnement auf rapidapi.com.']
+        return ({}, err, {}) if include_last_post else ({}, err)
 
     host, url, mk_params, key_path = working
-    result, errors = {}, []
+    result, errors, last_post_map = {}, [], {}
     hdrs = {'x-rapidapi-key': rapidapi_key, 'x-rapidapi-host': host}
 
     for uname in usernames:
@@ -7401,6 +7417,8 @@ def _fetch_ig_followers_rapidapi_batch(usernames, rapidapi_key):
                 val = _dig(raw, key_path)
                 if isinstance(val, int) and val > 0:
                     result[uname.lower()] = val
+                    if include_last_post:
+                        last_post_map[uname.lower()] = _extract_last_post(raw)
                 else:
                     errors.append(f'@{uname}: keine Follower-Zahl in Antwort')
             elif resp.status_code == 429:
@@ -7411,7 +7429,7 @@ def _fetch_ig_followers_rapidapi_batch(usernames, rapidapi_key):
         except Exception as e:
             errors.append(f'@{uname}: {str(e)[:80]}')
 
-    return result, errors
+    return (result, errors, last_post_map) if include_last_post else (result, errors)
 
 
 def _fetch_ig_followers_direct(username):
@@ -11884,7 +11902,8 @@ def watchlist_scan_followers():
 
     handles = [s.handle.lstrip('@') for s in to_scan]
     try:
-        results = _fetch_ig_followers_rapidapi_batch(handles, rapidapi_key)
+        results, scan_errors, last_post_map = _fetch_ig_followers_rapidapi_batch(
+            handles, rapidapi_key, include_last_post=True)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
@@ -11896,12 +11915,16 @@ def watchlist_scan_followers():
             continue
         prev = s.follower
         s.follower = count
+        ts = last_post_map.get(handle_clean)
+        if ts:
+            s.letzte_aktivitaet = datetime.fromtimestamp(ts).strftime('%d.%m.%Y')
         snap = WatchlistFollowerSnapshot(seite_id=s.id, follower=count)
         db.session.add(snap)
         wachstum = count - prev if prev is not None else None
         updated.append({
             'id': s.id, 'handle': s.handle, 'follower': count,
             'wachstum': wachstum,
+            'letzte_aktivitaet': s.letzte_aktivitaet or '',
         })
     db.session.commit()
     return jsonify({'ok': True, 'updated': updated, 'scanned': len(updated)})

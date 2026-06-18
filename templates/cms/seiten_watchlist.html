@@ -110,6 +110,7 @@
         <option value="">Alle Status</option>
         <option value="nicht_gesucht">Nicht gesucht</option>
         <option value="nichts_gefunden">Nichts gefunden</option>
+        <option value="nicht_angeschrieben">Nicht angeschrieben</option>
         <option value="aktiv">Aktiv</option>
         <option value="gelegentlich">Ab &amp; zu aktiv</option>
         <option value="inaktiv">Inaktiv</option>
@@ -417,6 +418,7 @@
           <select x-model="form.seiten_status" class="select-field">
             <option value="nicht_gesucht">Noch nicht gesucht</option>
             <option value="nichts_gefunden">Nichts gefunden</option>
+            <option value="nicht_angeschrieben">Gefunden – nicht angeschrieben</option>
             <option value="inaktiv">Inaktiv</option>
             <option value="gelegentlich">Ab &amp; zu aktiv</option>
             <option value="aktiv">Aktiv</option>
@@ -443,7 +445,8 @@
         </div>
         <div>
           <label class="form-label">@Handle</label>
-          <input type="text" x-model="form.handle" class="input-field" placeholder="stadtseite_memes">
+          <input type="text" x-model="form.handle" class="input-field" placeholder="stadtseite_memes"
+                 @input="const h=form.handle.replace(/^@/,''); if(form.platform==='Instagram'&&h&&(!form.url||form.url.startsWith('https://www.instagram.com/'))) form.url='https://www.instagram.com/'+h">
         </div>
         <div style="grid-column:1/-1">
           <label class="form-label">Profil-URL</label>
@@ -573,8 +576,9 @@ function watchlistApp() {
 
     statusCfg(s) {
       const m = {
-        nicht_gesucht:   {label:'Nicht gesucht',   color:'#64748b', bg:'rgba(100,116,139,.15)'},
-        nichts_gefunden: {label:'Nichts gefunden',  color:'#ef4444', bg:'rgba(239,68,68,.15)'},
+        nicht_gesucht:        {label:'Nicht gesucht',       color:'#64748b', bg:'rgba(100,116,139,.15)'},
+        nichts_gefunden:      {label:'Nichts gefunden',     color:'#ef4444', bg:'rgba(239,68,68,.15)'},
+        nicht_angeschrieben:  {label:'Nicht angeschrieben', color:'#0ea5e9', bg:'rgba(14,165,233,.15)'},
         inaktiv:         {label:'Inaktiv',          color:'#f43f5e', bg:'rgba(244,63,94,.15)'},
         gelegentlich:    {label:'Ab & zu aktiv',    color:'#f59e0b', bg:'rgba(245,158,11,.15)'},
         aktiv:           {label:'Aktiv',            color:'#22c55e', bg:'rgba(34,197,94,.15)'},
@@ -739,9 +743,10 @@ function watchlistApp() {
           const u = r.updated[0];
           e.wachstum = u.wachstum;
           e.follower = u.follower;
+          if(u.letzte_aktivitaet) e.letzte_aktivitaet = u.letzte_aktivitaet;
           // also refresh sonstigeEntries if applicable
           const idx = this.sonstigeEntries.findIndex(x=>x.id===e.id);
-          if(idx>=0) this.sonstigeEntries[idx] = {...this.sonstigeEntries[idx], follower:u.follower, wachstum:u.wachstum};
+          if(idx>=0) this.sonstigeEntries[idx] = {...this.sonstigeEntries[idx], follower:u.follower, wachstum:u.wachstum, letzte_aktivitaet:u.letzte_aktivitaet||e.letzte_aktivitaet};
           showToast(`${e.handle}: ${this.formatFollowers(u.follower)} Follower`,'success');
         } else { showToast(r.error||'Scan fehlgeschlagen','error'); }
       } catch(ex){ showToast('Netzwerkfehler','error'); }
@@ -768,11 +773,14 @@ function watchlistApp() {
           (r.updated||[]).forEach(u=>{ map[u.id]=u; });
           if(this.activeTab==='stadtseiten'){
             this.cities.forEach(c=>(c.entries||[]).forEach(e=>{
-              if(map[e.id]){e.follower=map[e.id].follower;e.wachstum=map[e.id].wachstum;}
+              if(map[e.id]){
+                e.follower=map[e.id].follower; e.wachstum=map[e.id].wachstum;
+                if(map[e.id].letzte_aktivitaet) e.letzte_aktivitaet=map[e.id].letzte_aktivitaet;
+              }
             }));
           } else {
             this.sonstigeEntries = this.sonstigeEntries.map(e=>
-              map[e.id]?{...e,follower:map[e.id].follower,wachstum:map[e.id].wachstum}:e
+              map[e.id]?{...e,follower:map[e.id].follower,wachstum:map[e.id].wachstum,letzte_aktivitaet:map[e.id].letzte_aktivitaet||e.letzte_aktivitaet}:e
             );
           }
           showToast(`${r.scanned} von ${ids.length} Einträgen gescannt`,'success');
