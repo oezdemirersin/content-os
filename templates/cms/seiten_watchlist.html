@@ -1199,6 +1199,7 @@ function watchlistApp() {
             city.loading = false;
             city.gefunden = city.entries.filter(x=>x.url).length;
             city.total    = city.entries.length;
+            city.hat_befreundete = city.entries.some(x=>x.ist_befreundet);
             // Update kontaktiert_am in-memory
             if(r.kontaktiert_am){
               const updated = city.entries.find(x=>x.id===f.id);
