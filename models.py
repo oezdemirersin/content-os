@@ -933,6 +933,7 @@ class WatchlistSeite(db.Model):
     zweck             = db.Column(db.String(30))   # kopieren|farmen|kaufen|sonstiges
     ist_befreundet    = db.Column(db.Boolean, default=False)
     seite_geplant     = db.Column(db.Boolean, default=False)  # city-level: hier eigene Seite erstellen
+    haben_seite       = db.Column(db.Boolean, default=False)  # city-level: wir haben hier bereits eine Seite
     kontaktiert_am    = db.Column(db.DateTime)
     is_deleted        = db.Column(db.Boolean, default=False, index=True)
     deleted_at        = db.Column(db.DateTime)

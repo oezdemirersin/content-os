@@ -180,14 +180,25 @@
                     style="font-size:10px;color:var(--muted);background:var(--surface2);padding:1px 7px;border-radius:5px"
                     x-text="city.ew >= 1000000 ? (city.ew/1000000).toFixed(1).replace('.0','')+'M' : Math.round(city.ew/1000)+'K'"></span>
             </div>
-            <div style="display:flex;align-items:center;gap:14px">
+            <div style="display:flex;align-items:center;gap:10px">
               <i x-show="city.loading" class="fa-solid fa-spinner fa-spin" style="color:var(--muted);font-size:11px"></i>
+              <!-- Angebote-Summe -->
+              <span x-show="city.angebote_summe > 0"
+                    style="font-size:9.5px;font-weight:700;color:#22c55e;background:rgba(34,197,94,.12);padding:2px 8px;border-radius:5px;white-space:nowrap"
+                    x-text="'💰 '+formatEuro(city.angebote_summe)"></span>
               <div style="display:flex;align-items:center;gap:7px">
                 <div style="width:72px;height:4px;background:var(--border);border-radius:4px;overflow:hidden">
-                  <div :style="'height:100%;border-radius:4px;transition:width .3s;background:'+(city.gefunden===0?'#334155':(city.gefunden/Math.max(1,city.total)>0.5?'#22c55e':'#f59e0b'))+';width:'+(city.total>0?Math.round(city.gefunden/city.total*100):0)+'%'"></div>
+                  <div :style="cityBarStyle(city)"></div>
                 </div>
                 <span style="font-size:11px;color:var(--muted);min-width:40px" x-text="city.gefunden+'/'+city.total"></span>
               </div>
+              <!-- Haben-Toggle -->
+              <button @click.stop="toggleHaben(city)" class="btn btn-ghost"
+                      :title="city.haben_seite ? 'Wir haben hier eine Seite ✓' : 'Eigene Seite vorhanden markieren'"
+                      style="font-size:11px;padding:4px 7px;border-radius:6px"
+                      :style="city.haben_seite ? 'color:#22c55e;opacity:1' : 'opacity:.3'">
+                <i class="fa-solid fa-circle-check"></i>
+              </button>
               <button @click.stop="toggleGeplant(city)" class="btn btn-ghost"
                       :title="city.seite_geplant ? 'Eigene Seite geplant (klicken zum Entfernen)' : 'Hier eigene Seite erstellen planen'"
                       style="font-size:12px;padding:4px 7px;border-radius:6px"
@@ -862,7 +873,9 @@ function watchlistApp() {
 
     async loadCities() {
       const data = await fetch('/api/watchlist/staedte').then(r=>r.json());
-      this.cities = data.map(c=>({...c, expanded:false, loading:false, loaded:false, entries:[], seite_geplant:c.seite_geplant||false}));
+      this.cities = data.map(c=>({...c, expanded:false, loading:false, loaded:false, entries:[],
+        seite_geplant:c.seite_geplant||false, haben_seite:c.haben_seite||false,
+        hat_befreundete:c.hat_befreundete||false, angebote_summe:c.angebote_summe||0}));
       this.loaded = true;
     },
     async loadAngebote() {
@@ -939,6 +952,25 @@ function watchlistApp() {
     typIcon(t)  { return {stadtseite:'fa-city', bezirk:'fa-map-location-dot', verein:'fa-futbol', uni:'fa-graduation-cap'}[t]||'fa-globe'; },
     typColor(t) { return {stadtseite:'#6366f1', bezirk:'#f59e0b', verein:'#22c55e', uni:'#a855f7'}[t]||'#94a3b8'; },
     typLabel(t) { return {stadtseite:'Stadtseite', bezirk:'Bezirk', verein:'Verein', uni:'Hochschule'}[t]||t; },
+
+    cityBarStyle(city) {
+      if (city.haben_seite)
+        return 'height:100%;border-radius:4px;width:100%;background:#16a34a;transition:width .3s';
+      if (city.hat_befreundete)
+        return 'height:100%;border-radius:4px;width:100%;background:#86efac;transition:width .3s';
+      const pct = city.total > 0 ? Math.round(city.gefunden / city.total * 100) : 0;
+      const col = city.gefunden === 0 ? '#334155' : (city.gefunden / Math.max(1, city.total) > 0.5 ? '#22c55e' : '#f59e0b');
+      return `height:100%;border-radius:4px;transition:width .3s;background:${col};width:${pct}%`;
+    },
+
+    async toggleHaben(city) {
+      const newVal = !city.haben_seite;
+      const r = await fetch(`/api/watchlist/staedte/${encodeURIComponent(city.stadt)}/haben`, {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({haben: newVal})
+      }).then(x => x.json());
+      if (r.ok) { city.haben_seite = newVal; showToast(newVal ? 'Als eigene Stadt markiert ✓' : 'Markierung entfernt', 'info'); }
+    },
 
     async toggleGeplant(city) {
       const newVal = !city.seite_geplant;
