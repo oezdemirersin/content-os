@@ -1136,6 +1136,7 @@ def init_db():
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW())''')
             safe_alter('ALTER TABLE app_todo ADD COLUMN IF NOT EXISTS image_path VARCHAR(500)')
+            safe_alter('ALTER TABLE app_todo ADD COLUMN IF NOT EXISTS linked_page VARCHAR(100)')
             safe_alter('''CREATE TABLE IF NOT EXISTS ausgabe (
                 id SERIAL PRIMARY KEY,
                 titel VARCHAR(200) NOT NULL,
@@ -1439,6 +1440,8 @@ def init_db():
             at_cols = [c['name'] for c in inspector.get_columns('app_todo')]
             if 'image_path' not in at_cols:
                 safe_alter('ALTER TABLE app_todo ADD COLUMN image_path VARCHAR(500)')
+            if 'linked_page' not in at_cols:
+                safe_alter('ALTER TABLE app_todo ADD COLUMN linked_page VARCHAR(100)')
             # ausgabe
             safe_alter('''CREATE TABLE IF NOT EXISTS ausgabe (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -13599,6 +13602,7 @@ def todos():
         'id': t.id, 'text': t.text, 'category': t.category or 'idee',
         'done': bool(t.done), 'priority': t.priority or 0,
         'image_path': t.image_path or '',
+        'linked_page': t.linked_page or '',
         'created_at': t.created_at.isoformat() if t.created_at else None
     } for t in items]
     return render_template('todos.html', active_page='todos', items=items_data)
@@ -13611,6 +13615,7 @@ def api_todos_list():
     return jsonify([{
         'id': t.id, 'text': t.text, 'category': t.category,
         'done': t.done, 'priority': t.priority,
+        'linked_page': t.linked_page or '',
         'created_at': t.created_at.isoformat() if t.created_at else None
     } for t in items])
 
@@ -13626,6 +13631,7 @@ def api_todo_create():
         text=text,
         category=data.get('category', 'idee'),
         priority=int(data.get('priority', 0)),
+        linked_page=data.get('linked_page') or None,
         done=False
     )
     db.session.add(t)
@@ -13646,6 +13652,8 @@ def api_todo_update(tid):
         t.done = bool(data['done'])
     if 'priority' in data:
         t.priority = int(data['priority'])
+    if 'linked_page' in data:
+        t.linked_page = data['linked_page'] or None
     t.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'ok': True})

@@ -874,14 +874,15 @@ class Ausgabe(db.Model):
 class AppTodo(db.Model):
     """Interne To-Do- und Ideen-Liste für Features, Bugs und Notizen."""
     __tablename__ = 'app_todo'
-    id         = db.Column(db.Integer, primary_key=True)
-    text       = db.Column(db.Text, nullable=False)
-    category   = db.Column(db.String(50), default='idee')   # idee | feature | bug | notiz
-    done       = db.Column(db.Boolean, default=False)
-    priority   = db.Column(db.Integer, default=0)           # 0=normal, 1=hoch
-    image_path = db.Column(db.String(500))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id          = db.Column(db.Integer, primary_key=True)
+    text        = db.Column(db.Text, nullable=False)
+    category    = db.Column(db.String(50), default='idee')   # idee | feature | bug | notiz
+    done        = db.Column(db.Boolean, default=False)
+    priority    = db.Column(db.Integer, default=0)           # 0=normal, 1=hoch
+    image_path  = db.Column(db.String(500))
+    linked_page = db.Column(db.String(100))                  # Flask endpoint name, e.g. 'calendar_view'
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class SeitenKauf(db.Model):
