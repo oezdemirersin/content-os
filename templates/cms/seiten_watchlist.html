@@ -255,6 +255,11 @@
                     </div>
                     <!-- Aktionen -->
                     <div style="display:flex;align-items:center;justify-content:flex-end;gap:2px">
+                      <button @click="openAdd(city, e.ziel_typ, e.ziel_name, e.ziel_meta)"
+                              class="icon-btn" title="Weitere Seite für dieses Ziel hinzufügen"
+                              style="color:#818cf8">
+                        <i class="fa-solid fa-plus" style="font-size:10px"></i>
+                      </button>
                       <button @click="deleteEntry(e, city)" class="icon-btn" title="In Papierkorb" style="color:var(--danger)">
                         <i class="fa-solid fa-trash" style="font-size:10px"></i>
                       </button>
