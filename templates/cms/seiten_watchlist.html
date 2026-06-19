@@ -265,7 +265,7 @@
                         <span style="opacity:.55;font-size:8px;margin-right:2px" x-text="'L'+statusCfg(e.seiten_status).lvl"></span>
                         <span x-text="statusCfg(e.seiten_status).label"></span>
                       </span>
-                      <div x-show="e.kontaktiert_am" style="margin-top:3px">
+                      <div x-show="e.kontaktiert_am && statusCfg(e.seiten_status).lvl >= 2" style="margin-top:3px">
                         <span class="wl-kontakt-badge" :class="kontaktiertDays(e.kontaktiert_am)>30?'wl-kontakt-warn':''">
                           <i class="fa-regular fa-calendar-check" style="font-size:8px;margin-right:2px"></i>
                           Tag <span x-text="kontaktiertDays(e.kontaktiert_am)||0"></span>
@@ -591,7 +591,7 @@
               <span class="wl-status-badge"
                     :style="'background:'+statusCfg(e.seiten_status).bg+';color:'+statusCfg(e.seiten_status).color"
                     x-text="statusCfg(e.seiten_status).label"></span>
-              <div x-show="e.kontaktiert_am" style="margin-top:4px">
+              <div x-show="e.kontaktiert_am && statusCfg(e.seiten_status).lvl >= 2" style="margin-top:4px">
                 <span class="wl-kontakt-badge"
                       :class="kontaktiertDays(e.kontaktiert_am)>30?'wl-kontakt-warn':''">
                   Tag <span x-text="kontaktiertDays(e.kontaktiert_am)||0"></span>
