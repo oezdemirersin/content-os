@@ -11865,7 +11865,7 @@ def watchlist_staedte():
 
     # Get population from ziel_meta of the stadtseite entry per city
     ew_map = {}
-    stadtseiten = WatchlistSeite.query.filter_by(ziel_typ='stadtseite', is_deleted=False).all()
+    stadtseiten = WatchlistSeite.query.filter_by(ziel_typ='stadtseite').all()
     for s in stadtseiten:
         if s.ziel_meta:
             m = re.search(r'[\d\.]+', s.ziel_meta.replace('.', ''))
