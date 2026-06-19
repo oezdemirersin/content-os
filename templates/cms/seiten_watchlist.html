@@ -18,6 +18,9 @@
 .sonstige-row{display:grid;grid-template-columns:110px minmax(0,1fr) minmax(0,1.4fr) 130px 90px;align-items:center;border-bottom:1px solid var(--border)}
 .sonstige-row>*{padding:10px 12px}
 .sonstige-row:hover{background:rgba(255,255,255,.02)}
+.wl-flat-hdr{display:grid;grid-template-columns:26px minmax(120px,1.4fr) 130px minmax(120px,1fr) 80px 76px;padding:5px 14px;background:rgba(0,0,0,.25);font-size:9.5px;font-weight:700;letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--border);gap:8px;align-items:center}
+.wl-flat-row{display:grid;grid-template-columns:26px minmax(120px,1.4fr) 130px minmax(120px,1fr) 80px 76px;padding:6px 14px;border-bottom:1px solid rgba(255,255,255,.04);gap:8px;align-items:center;transition:background .1s}
+.wl-flat-row:hover{background:rgba(255,255,255,.025)}
 </style>
 
 <div x-data="watchlistApp()" x-init="init()">
@@ -167,90 +170,94 @@
           <div x-show="city.expanded" style="border-top:1px solid var(--border)">
             <template x-if="city.loaded">
               <div>
-                <template x-for="sec in sections" :key="sec.typ">
-                  <div x-show="getGrouped(city, sec.typ).length > 0">
-                    <div class="wl-section-hdr" :style="'border-left:3px solid '+sec.color">
-                      <i class="fa-solid" :class="sec.icon" :style="'color:'+sec.color"></i>
-                      <span x-text="sec.label"></span>
-                      <span :style="'background:'+sec.color+'25;color:'+sec.color+';border-radius:10px;padding:1px 8px;font-size:10px'"
-                            x-text="getGrouped(city, sec.typ).length"></span>
-                      <div style="flex:1"></div>
-                      <button @click="openAdd(city, sec.typ, '')"
-                              class="btn btn-ghost" style="font-size:10px;padding:3px 8px;border-radius:5px">
-                        <i class="fa-solid fa-plus"></i> Neues Ziel
+                <!-- Tabellen-Header -->
+                <div class="wl-flat-hdr">
+                  <div></div>
+                  <div>ZIEL</div>
+                  <div>STATUS</div>
+                  <div>SEITE</div>
+                  <div>AKTIVITÄT</div>
+                  <div style="text-align:right">AKTIONEN</div>
+                </div>
+                <!-- Leer-State -->
+                <div x-show="getFlat(city).length===0"
+                     style="padding:18px 14px;text-align:center;color:var(--muted);font-size:12px;font-style:italic">
+                  Noch keine Einträge — füge ein Ziel hinzu.
+                </div>
+                <!-- Flache Zeilen -->
+                <template x-for="e in getFlat(city)" :key="e.id">
+                  <div class="wl-flat-row">
+                    <!-- Typ-Icon -->
+                    <div style="display:flex;justify-content:center">
+                      <i class="fa-solid" :class="typIcon(e.ziel_typ)"
+                         :title="typLabel(e.ziel_typ)"
+                         :style="'font-size:11px;color:'+typColor(e.ziel_typ)"></i>
+                    </div>
+                    <!-- Ziel -->
+                    <div style="min-width:0">
+                      <div style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" x-text="e.ziel_name"></div>
+                      <div x-show="e.ziel_meta" style="font-size:10px;color:var(--muted);margin-top:1px" x-text="e.ziel_meta"></div>
+                    </div>
+                    <!-- Status -->
+                    <div>
+                      <span class="wl-status-badge"
+                            :style="'background:'+statusCfg(e.seiten_status).bg+';color:'+statusCfg(e.seiten_status).color"
+                            x-text="statusCfg(e.seiten_status).label"></span>
+                      <div x-show="e.kontaktiert_am" style="margin-top:3px">
+                        <span class="wl-kontakt-badge" :class="kontaktiertDays(e.kontaktiert_am)>30?'wl-kontakt-warn':''">
+                          <i class="fa-regular fa-calendar-check" style="font-size:8px;margin-right:2px"></i>
+                          Tag <span x-text="kontaktiertDays(e.kontaktiert_am)||0"></span>
+                        </span>
+                      </div>
+                    </div>
+                    <!-- Seite -->
+                    <div style="min-width:0">
+                      <template x-if="e.url">
+                        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+                          <a :href="e.url" target="_blank" rel="noopener"
+                             :style="'display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;color:'+platformColor(e.platform||'Instagram')+';text-decoration:none'">
+                            <i class="fa-brands" :class="platformIcon(e.platform||'Instagram')" style="font-size:10px"></i>
+                            <span x-text="e.handle?'@'+e.handle:(e.platform||'Link')"></span>
+                          </a>
+                          <span x-show="e.follower" style="font-size:10px;color:#94a3b8;font-weight:600" x-text="formatFollowers(e.follower)"></span>
+                          <span x-show="e.wachstum!=null" :class="e.wachstum>=0?'wl-growth-pos':'wl-growth-neg'"
+                                x-text="(e.wachstum>=0?'+':'')+formatFollowers(e.wachstum)"></span>
+                        </div>
+                      </template>
+                      <template x-if="!e.url">
+                        <span style="font-size:11px;color:var(--muted);font-style:italic">— keine Seite</span>
+                      </template>
+                    </div>
+                    <!-- Aktivität -->
+                    <div style="display:flex;align-items:center;gap:4px">
+                      <template x-if="e.letzte_aktivitaet">
+                        <span :title="'Letzter Post: '+e.letzte_aktivitaet"
+                              :style="'font-size:10px;'+pulseStyle(e.letzte_aktivitaet)">●</span>
+                      </template>
+                      <span x-show="e.letzte_aktivitaet" style="font-size:9px;color:var(--muted)" x-text="e.letzte_aktivitaet"></span>
+                    </div>
+                    <!-- Aktionen -->
+                    <div style="display:flex;align-items:center;justify-content:flex-end;gap:2px">
+                      <button @click="deleteEntry(e, city)" class="icon-btn" title="In Papierkorb" style="color:var(--danger)">
+                        <i class="fa-solid fa-trash" style="font-size:10px"></i>
+                      </button>
+                      <button x-show="e.handle" @click="scanEntry(e, city)" class="icon-btn" title="Follower scannen"
+                              :disabled="scanning" :style="scanning?'opacity:.4;cursor:not-allowed':'color:#60a5fa'">
+                        <i class="fa-solid fa-signal" style="font-size:10px"></i>
+                      </button>
+                      <button @click="openEdit(e)" class="icon-btn" title="Bearbeiten">
+                        <i class="fa-solid fa-pen" style="font-size:10px"></i>
                       </button>
                     </div>
-                    <template x-for="group in getGrouped(city, sec.typ)" :key="group.name">
-                      <div>
-                        <!-- Target header -->
-                        <div class="wl-target-hdr">
-                          <div style="display:flex;align-items:center;gap:8px">
-                            <span style="font-size:12px;font-weight:700" x-text="group.name"></span>
-                            <span x-show="group.meta" style="font-size:10px;color:var(--muted);background:var(--surface2);padding:1px 6px;border-radius:4px" x-text="group.meta"></span>
-                          </div>
-                          <button @click="openAdd(city, sec.typ, group.name, group.meta)"
-                                  class="btn btn-ghost" style="font-size:10px;padding:3px 8px;border-radius:5px">
-                            <i class="fa-solid fa-plus"></i> Seite
-                          </button>
-                        </div>
-                        <!-- Freie Chance — nur wenn keine Seite hinterlegt -->
-                        <div x-show="group.pages.length === 0" class="wl-page-row" style="gap:8px;padding-left:28px">
-                          <span style="font-size:11px;color:#94a3b8">⚪ <em>Freie Chance</em> — noch keine Meme-Seite gefunden</span>
-                          <span></span>
-                          <span></span>
-                        </div>
-                        <!-- Page sub-rows (nur Einträge mit URL) -->
-                        <template x-for="e in group.pages" :key="e.id">
-                          <div class="wl-page-row">
-                            <!-- Status + Puls-Icon -->
-                            <div style="white-space:nowrap">
-                              <span class="wl-status-badge"
-                                    :style="'background:'+statusCfg(e.seiten_status).bg+';color:'+statusCfg(e.seiten_status).color"
-                                    x-text="statusCfg(e.seiten_status).label"></span>
-                              <div x-show="e.kontaktiert_am" style="margin-top:3px">
-                                <span class="wl-kontakt-badge" :class="kontaktiertDays(e.kontaktiert_am)>30?'wl-kontakt-warn':''">
-                                  <i class="fa-regular fa-calendar-check" style="font-size:8px;margin-right:2px"></i>
-                                  Tag <span x-text="kontaktiertDays(e.kontaktiert_am)||0"></span>
-                                </span>
-                              </div>
-                            </div>
-                            <!-- Info -->
-                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0">
-                              <a :href="e.url" target="_blank" rel="noopener"
-                                 :style="'display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;color:'+platformColor(e.platform||'Instagram')+';text-decoration:none'">
-                                <i class="fa-brands" :class="platformIcon(e.platform||'Instagram')" style="font-size:10px"></i>
-                                <span x-text="e.handle?'@'+e.handle:(e.platform||'Link')"></span>
-                              </a>
-                              <!-- Pulse-Icon: nur wenn letzte_aktivitaet bekannt -->
-                              <template x-if="e.letzte_aktivitaet">
-                                <span :title="'Letzter Post: '+e.letzte_aktivitaet" :style="'font-size:9px;'+pulseStyle(e.letzte_aktivitaet)">●</span>
-                              </template>
-                              <span x-show="e.follower" style="font-size:11px;color:#94a3b8;font-weight:600" x-text="formatFollowers(e.follower)"></span>
-                              <span x-show="e.wachstum!=null" :class="e.wachstum>=0?'wl-growth-pos':'wl-growth-neg'"
-                                    x-text="(e.wachstum>=0?'+':'')+formatFollowers(e.wachstum)"></span>
-                              <span x-show="e.letzte_aktivitaet"
-                                    style="font-size:10px;color:var(--muted);padding:1px 6px;border-radius:4px;background:var(--surface2)"
-                                    x-text="e.letzte_aktivitaet"></span>
-                            </div>
-                            <!-- Actions (kein Trash — geht in Papierkorb per Edit-Feld oder separater Aktion) -->
-                            <div style="display:flex;align-items:center;gap:3px;white-space:nowrap">
-                              <button @click="deleteEntry(e, city)" class="icon-btn" title="In Papierkorb" style="color:var(--danger)">
-                                <i class="fa-solid fa-trash"></i>
-                              </button>
-                              <button x-show="e.handle" @click="scanEntry(e, city)" class="icon-btn" title="Follower scannen"
-                                      :disabled="scanning" :style="scanning?'opacity:.4;cursor:not-allowed':'color:#60a5fa'">
-                                <i class="fa-solid fa-signal" style="font-size:10px"></i>
-                              </button>
-                              <button @click="openEdit(e)" class="icon-btn" title="Bearbeiten">
-                                <i class="fa-solid fa-pen"></i>
-                              </button>
-                            </div>
-                          </div>
-                        </template>
-                      </div>
-                    </template>
                   </div>
                 </template>
+                <!-- Zeile: Eintrag hinzufügen -->
+                <div style="padding:6px 14px;border-top:1px solid var(--border)">
+                  <button @click="openAdd(city, 'stadtseite', '')" class="btn btn-ghost"
+                          style="font-size:11px;padding:5px 12px;width:100%;justify-content:center">
+                    <i class="fa-solid fa-plus" style="font-size:10px"></i>&nbsp; Eintrag hinzufügen
+                  </button>
+                </div>
               </div>
             </template>
             <div x-show="!city.loaded && city.loading"
@@ -639,6 +646,21 @@ function watchlistApp() {
         groups = groups.map(g=>({...g, pages:g.pages.filter(e=>e.seiten_status===this.statusFilter)})).filter(g=>g.pages.length>0);
       return groups;
     },
+    getFlat(city) {
+      let entries = (city.entries||[]);
+      if (this.typFilter)    entries = entries.filter(e => e.ziel_typ === this.typFilter);
+      if (this.statusFilter) entries = entries.filter(e => e.seiten_status === this.statusFilter);
+      const order = {stadtseite:0, bezirk:1, verein:2, uni:3};
+      return [...entries].sort((a,b) => {
+        const d = (order[a.ziel_typ]||9) - (order[b.ziel_typ]||9);
+        if (d !== 0) return d;
+        return (a.ziel_name||'').localeCompare(b.ziel_name||'', 'de');
+      });
+    },
+    typIcon(t)  { return {stadtseite:'fa-city', bezirk:'fa-map-location-dot', verein:'fa-futbol', uni:'fa-graduation-cap'}[t]||'fa-globe'; },
+    typColor(t) { return {stadtseite:'#6366f1', bezirk:'#f59e0b', verein:'#22c55e', uni:'#a855f7'}[t]||'#94a3b8'; },
+    typLabel(t) { return {stadtseite:'Stadtseite', bezirk:'Bezirk', verein:'Verein', uni:'Hochschule'}[t]||t; },
+
     expandAll() {
       this.filteredCities.forEach(c=>{ if (!c.loaded) this.toggleCity(c); else c.expanded=true; });
     },
