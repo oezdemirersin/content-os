@@ -54,6 +54,15 @@
             style="background:rgba(34,197,94,.2);color:#22c55e;border-radius:10px;font-size:9px;padding:1px 7px;font-weight:700;margin-left:4px"
             x-text="totalGefunden"></span>
     </button>
+    <button @click="activeTab='angebote'; if(!angeboteLoaded) loadAngebote()"
+            :class="activeTab==='angebote'?'fchip active':'fchip'"
+            style="border-radius:8px 8px 0 0;margin-bottom:-1px">
+      <i class="fa-solid fa-euro-sign" style="font-size:11px"></i>
+      Angebote
+      <span x-show="angeboteEntries.length>0"
+            style="background:rgba(34,197,94,.2);color:#22c55e;border-radius:10px;font-size:9px;padding:1px 7px;font-weight:700;margin-left:4px"
+            x-text="angeboteEntries.length"></span>
+    </button>
     <button @click="activeTab='sonstige'; if(!sonstigeLoaded) loadSonstige()"
             :class="activeTab==='sonstige'?'fchip active':'fchip'"
             style="border-radius:8px 8px 0 0;margin-bottom:-1px">
@@ -197,6 +206,14 @@
                     <div style="min-width:0">
                       <div style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" x-text="e.ziel_name"></div>
                       <div x-show="e.ziel_meta" style="font-size:10px;color:var(--muted);margin-top:1px" x-text="e.ziel_meta"></div>
+                      <div x-show="e.preis_vorstellung || e.mein_angebot" style="display:flex;gap:5px;margin-top:3px;flex-wrap:wrap">
+                        <span x-show="e.preis_vorstellung"
+                              style="font-size:9.5px;font-weight:700;background:rgba(244,63,94,.12);color:#f43f5e;padding:1px 6px;border-radius:4px"
+                              x-text="'PV: '+formatEuro(e.preis_vorstellung)"></span>
+                        <span x-show="e.mein_angebot"
+                              style="font-size:9.5px;font-weight:700;background:rgba(34,197,94,.12);color:#22c55e;padding:1px 6px;border-radius:4px"
+                              x-text="'Angebot: '+formatEuro(e.mein_angebot)"></span>
+                      </div>
                     </div>
                     <!-- Status -->
                     <div>
@@ -314,6 +331,127 @@
     </div>
 
   </div><!-- end Stadtseiten-Tab -->
+
+  <!-- ═══ TAB: ANGEBOTE ═════════════════════════════════════ -->
+  <div x-show="loaded && activeTab==='angebote'">
+
+    <div x-show="!angeboteLoaded" style="text-align:center;padding:60px;color:var(--muted)">
+      <i class="fa-solid fa-spinner fa-spin" style="font-size:22px;margin-bottom:10px;display:block"></i>
+      Lade...
+    </div>
+
+    <div x-show="angeboteLoaded">
+
+      <!-- Filter + Stats-Leiste -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+        <select x-model="angeboteKaufprio" class="select-field" style="font-size:12px;padding:8px 10px">
+          <option value="">Alle Prioritäten</option>
+          <option value="hoch">🔴 Hoch</option>
+          <option value="mittel">🟡 Mittel</option>
+          <option value="niedrig">🟢 Niedrig</option>
+          <option value="keine">— Keine</option>
+        </select>
+        <select x-model="angeboteStatusFilter" class="select-field" style="font-size:12px;padding:8px 10px">
+          <option value="">Alle Status</option>
+          <option value="interesse">Interesse</option>
+          <option value="kontaktiert">Kontaktiert</option>
+          <option value="beobachten">Beobachten</option>
+          <option value="nicht_angeschrieben">Nicht angeschrieben</option>
+          <option value="kein_interesse">Kein Interesse</option>
+        </select>
+        <div style="margin-left:auto;display:flex;gap:12px">
+          <div style="text-align:right">
+            <div style="font-size:9px;font-weight:700;letter-spacing:.6px;color:var(--muted)">GESAMTVOLUMEN</div>
+            <div style="font-size:16px;font-weight:800;color:#f43f5e" x-text="formatEuro(angeboteSumPreis)"></div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:9px;font-weight:700;letter-spacing:.6px;color:var(--muted)">MEINE ANGEBOTE</div>
+            <div style="font-size:16px;font-weight:800;color:#22c55e" x-text="formatEuro(angeboteSumAngebot)"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Leer-State -->
+      <div x-show="filteredAngebote.length===0"
+           style="text-align:center;padding:60px;color:var(--muted)">
+        <i class="fa-solid fa-euro-sign" style="font-size:28px;margin-bottom:12px;display:block;opacity:.2"></i>
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px">Noch keine Preis-Daten</div>
+        <div style="font-size:12px">Trage Preis-Vorstellungen und deine Angebote im Bearbeiten-Dialog ein.</div>
+      </div>
+
+      <!-- Tabelle -->
+      <div x-show="filteredAngebote.length>0" class="card" style="overflow:hidden;padding:0">
+        <!-- Header -->
+        <div style="display:grid;grid-template-columns:1fr 90px 110px 110px 90px 110px 80px;padding:6px 14px;background:rgba(0,0,0,.25);font-size:9.5px;font-weight:700;letter-spacing:.6px;color:var(--muted);border-bottom:1px solid var(--border);gap:8px;align-items:center">
+          <div>SEITE</div>
+          <div>FOLLOWER</div>
+          <div>PRIO</div>
+          <div style="color:#f43f5e">PREIS-VORSTELLUNG</div>
+          <div style="color:#22c55e">MEIN ANGEBOT</div>
+          <div>STATUS</div>
+          <div>AKTIONEN</div>
+        </div>
+        <template x-for="e in filteredAngebote" :key="e.id">
+          <div style="display:grid;grid-template-columns:1fr 90px 110px 110px 90px 110px 80px;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.04);gap:8px;align-items:center;transition:background .1s"
+               onmouseover="this.style.background='rgba(255,255,255,.025)'" onmouseout="this.style.background=''">
+            <!-- Seite -->
+            <div style="min-width:0">
+              <div style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" x-text="e.ziel_name"></div>
+              <div style="display:flex;align-items:center;gap:5px;margin-top:2px;flex-wrap:wrap">
+                <span style="font-size:10px;color:var(--muted)" x-text="e.stadt"></span>
+                <template x-if="e.url">
+                  <a :href="e.url" target="_blank" rel="noopener"
+                     :style="'font-size:10px;font-weight:600;color:'+platformColor(e.platform||'Instagram')+';text-decoration:none'"
+                     x-text="e.handle?'@'+e.handle:e.platform"></a>
+                </template>
+              </div>
+            </div>
+            <!-- Follower -->
+            <div style="font-size:12px;font-weight:700;color:#94a3b8" x-text="e.follower ? formatFollowers(e.follower) : '—'"></div>
+            <!-- Prio -->
+            <div>
+              <span x-show="e.kaufprioritaet && e.kaufprioritaet!=='keine'"
+                    :style="'font-size:10px;font-weight:700;padding:2px 8px;border-radius:5px;'
+                      +(e.kaufprioritaet==='hoch'?'background:rgba(244,63,94,.15);color:#f43f5e'
+                      :e.kaufprioritaet==='mittel'?'background:rgba(245,158,11,.15);color:#f59e0b'
+                      :'background:rgba(34,197,94,.15);color:#22c55e')"
+                    x-text="e.kaufprioritaet==='hoch'?'🔴 Hoch':e.kaufprioritaet==='mittel'?'🟡 Mittel':'🟢 Niedrig'"></span>
+              <span x-show="!e.kaufprioritaet || e.kaufprioritaet==='keine'" style="font-size:11px;color:var(--muted)">—</span>
+            </div>
+            <!-- Preis-Vorstellung -->
+            <div>
+              <span x-show="e.preis_vorstellung"
+                    style="font-size:13px;font-weight:800;color:#f43f5e"
+                    x-text="formatEuro(e.preis_vorstellung)"></span>
+              <span x-show="!e.preis_vorstellung" style="font-size:12px;color:var(--muted)">—</span>
+            </div>
+            <!-- Mein Angebot -->
+            <div>
+              <span x-show="e.mein_angebot"
+                    style="font-size:13px;font-weight:800;color:#22c55e"
+                    x-text="formatEuro(e.mein_angebot)"></span>
+              <span x-show="!e.mein_angebot" style="font-size:12px;color:var(--muted)">—</span>
+              <!-- Differenz -->
+              <div x-show="e.preis_vorstellung && e.mein_angebot" style="font-size:9px;color:var(--muted);margin-top:1px"
+                   x-text="'Diff: '+formatEuro(e.preis_vorstellung - e.mein_angebot)"></div>
+            </div>
+            <!-- Status -->
+            <div>
+              <span class="wl-status-badge"
+                    :style="'background:'+statusCfg(e.seiten_status).bg+';color:'+statusCfg(e.seiten_status).color"
+                    x-text="statusCfg(e.seiten_status).label"></span>
+            </div>
+            <!-- Aktionen -->
+            <div style="display:flex;gap:4px">
+              <button @click="openEditAngebot(e)" class="icon-btn" title="Bearbeiten">
+                <i class="fa-solid fa-pen" style="font-size:10px"></i>
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div><!-- end Angebote-Tab -->
 
   <!-- ═══ TAB: SONSTIGE ══════════════════════════════════════ -->
   <div x-show="loaded && activeTab==='sonstige'">
@@ -490,6 +628,17 @@
             <option value="hoch">Hoch</option>
           </select>
         </div>
+        <!-- Preisfelder (nur wenn Status kaufrelevant) -->
+        <div x-show="['nicht_angeschrieben','beobachten','interesse','kontaktiert','kein_interesse'].includes(form.seiten_status)">
+          <label class="form-label">Preis-Vorstellung (€)</label>
+          <input type="number" x-model.number="form.preis_vorstellung" class="input-field"
+                 placeholder="Verkäufer möchte…" min="0" step="50">
+        </div>
+        <div x-show="['nicht_angeschrieben','beobachten','interesse','kontaktiert','kein_interesse'].includes(form.seiten_status)">
+          <label class="form-label">Mein Angebot (€)</label>
+          <input type="number" x-model.number="form.mein_angebot" class="input-field"
+                 placeholder="Ich biete…" min="0" step="50">
+        </div>
         <div>
           <label class="form-label">Plattform</label>
           <select x-model="form.platform" class="select-field">
@@ -551,6 +700,11 @@ function watchlistApp() {
       {typ:'uni',        label:'HOCHSCHULEN', icon:'fa-graduation-cap',   color:'#a855f7'},
     ],
 
+    angeboteLoaded: false,
+    angeboteEntries: [],
+    angeboteKaufprio: '',
+    angeboteStatusFilter: '',
+
     sonstigeLoaded: false,
     sonstigeEntries: [],
     sonstigeSearch: '',
@@ -565,7 +719,8 @@ function watchlistApp() {
       id:'', wl_kategorie:'stadtseite', stadt:'', ziel_typ:'stadtseite',
       ziel_name:'', ziel_meta:'', platform:'Instagram',
       url:'', handle:'', follower:'', letzte_aktivitaet:'',
-      seiten_status:'nicht_gesucht', kaufprioritaet:'keine', notizen:'',
+      seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
+      preis_vorstellung:'', mein_angebot:'', notizen:'',
     },
 
     papierkorb: [],
@@ -607,6 +762,23 @@ function watchlistApp() {
       this.cities = data.map(c=>({...c, expanded:false, loading:false, loaded:false, entries:[]}));
       this.loaded = true;
     },
+    async loadAngebote() {
+      this.angeboteEntries = await fetch('/api/watchlist/angebote').then(r=>r.json());
+      this.angeboteLoaded = true;
+    },
+    get filteredAngebote() {
+      let e = this.angeboteEntries;
+      if (this.angeboteKaufprio)      e = e.filter(x => x.kaufprioritaet === this.angeboteKaufprio);
+      if (this.angeboteStatusFilter)  e = e.filter(x => x.seiten_status  === this.angeboteStatusFilter);
+      return e;
+    },
+    get angeboteSumPreis()    { return this.filteredAngebote.reduce((s,e)=>s+(e.preis_vorstellung||0),0)||null; },
+    get angeboteSumAngebot()  { return this.filteredAngebote.reduce((s,e)=>s+(e.mein_angebot||0),0)||null; },
+    formatEuro(n) {
+      if (!n && n !== 0) return '—';
+      return new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n);
+    },
+
     async loadSonstige() {
       const data = await fetch('/api/watchlist/sonstige').then(r=>r.json());
       this.sonstigeEntries = data;
@@ -719,17 +891,29 @@ function watchlistApp() {
       return n.toLocaleString('de-DE');
     },
 
-    openEdit(e) {
-      this.currentCity = this.cities.find(c=>c.stadt===e.stadt)||null;
-      this.isSonstige = false;
-      this.form = {
-        id:e.id, wl_kategorie:'stadtseite', stadt:e.stadt, ziel_typ:e.ziel_typ,
+    _formFromEntry(e) {
+      return {
+        id:e.id, wl_kategorie:e.wl_kategorie||'stadtseite', stadt:e.stadt||'', ziel_typ:e.ziel_typ||'stadtseite',
         ziel_name:e.ziel_name, ziel_meta:e.ziel_meta||'',
         platform:e.platform||'Instagram', url:e.url||'', handle:e.handle||'',
         follower:e.follower||'', letzte_aktivitaet:e.letzte_aktivitaet||'',
         seiten_status:e.seiten_status||'nicht_gesucht',
-        kaufprioritaet:e.kaufprioritaet||'keine', notizen:e.notizen||'',
+        kaufprioritaet:e.kaufprioritaet||'keine',
+        preis_vorstellung:e.preis_vorstellung||'', mein_angebot:e.mein_angebot||'',
+        notizen:e.notizen||'',
       };
+    },
+    openEdit(e) {
+      this.currentCity = this.cities.find(c=>c.stadt===e.stadt)||null;
+      this.isSonstige = false;
+      this.form = this._formFromEntry(e);
+      this.showNameInput = true;
+      this.modalOpen = true;
+    },
+    openEditAngebot(e) {
+      this.currentCity = this.cities.find(c=>c.stadt===e.stadt)||null;
+      this.isSonstige = false;
+      this.form = this._formFromEntry(e);
       this.showNameInput = true;
       this.modalOpen = true;
     },
@@ -740,7 +924,8 @@ function watchlistApp() {
         id:'', wl_kategorie:'stadtseite', stadt:city.stadt, ziel_typ:typ||'stadtseite',
         ziel_name:prefillName||'', ziel_meta:prefillMeta||'',
         platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
-        seiten_status:'nicht_gesucht', kaufprioritaet:'keine', notizen:'',
+        seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
+        preis_vorstellung:'', mein_angebot:'', notizen:'',
       };
       this.showNameInput = true;
       this.modalOpen = true;
@@ -752,7 +937,8 @@ function watchlistApp() {
         id:'', wl_kategorie:'sonstige', stadt:'', ziel_typ:'sonstige',
         ziel_name:'', ziel_meta:'',
         platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
-        seiten_status:'nicht_gesucht', kaufprioritaet:'keine', notizen:'',
+        seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
+        preis_vorstellung:'', mein_angebot:'', notizen:'',
       };
       this.showNameInput = true;
       this.modalOpen = true;
@@ -760,14 +946,7 @@ function watchlistApp() {
     openSonstigeEdit(e) {
       this.currentCity = null;
       this.isSonstige = true;
-      this.form = {
-        id:e.id, wl_kategorie:e.wl_kategorie||'sonstige', stadt:e.stadt||'', ziel_typ:e.ziel_typ||'sonstige',
-        ziel_name:e.ziel_name, ziel_meta:e.ziel_meta||'',
-        platform:e.platform||'Instagram', url:e.url||'', handle:e.handle||'',
-        follower:e.follower||'', letzte_aktivitaet:e.letzte_aktivitaet||'',
-        seiten_status:e.seiten_status||'nicht_gesucht',
-        kaufprioritaet:e.kaufprioritaet||'keine', notizen:e.notizen||'',
-      };
+      this.form = this._formFromEntry({...e, wl_kategorie:e.wl_kategorie||'sonstige', ziel_typ:e.ziel_typ||'sonstige'});
       this.showNameInput = false;
       this.modalOpen = true;
     },
@@ -803,6 +982,8 @@ function watchlistApp() {
         follower:f.follower?parseInt(f.follower):null,
         letzte_aktivitaet:f.letzte_aktivitaet||null,
         seiten_status:f.seiten_status, kaufprioritaet:f.kaufprioritaet||'keine',
+        preis_vorstellung:f.preis_vorstellung!==''&&f.preis_vorstellung!=null?parseFloat(f.preis_vorstellung):null,
+        mein_angebot:f.mein_angebot!==''&&f.mein_angebot!=null?parseFloat(f.mein_angebot):null,
         notizen:f.notizen||null, wl_kategorie:f.wl_kategorie||'stadtseite',
       };
       let r;
@@ -822,6 +1003,7 @@ function watchlistApp() {
       if(r.ok){
         showToast('Gespeichert','success');
         this.modalOpen = false;
+        if(this.angeboteLoaded) await this.loadAngebote();
         if(this.isSonstige){
           await this.loadSonstige();
         } else {

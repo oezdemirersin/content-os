@@ -1218,6 +1218,8 @@ def init_db():
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS kontaktiert_am TIMESTAMP')
             safe_alter("ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS wl_kategorie VARCHAR(50) DEFAULT 'stadtseite'")
             safe_alter("ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS kaufprioritaet VARCHAR(20) DEFAULT 'keine'")
+            safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS preis_vorstellung FLOAT')
+            safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS mein_angebot FLOAT')
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE')
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP')
             safe_alter('''CREATE TABLE IF NOT EXISTS watchlist_follower_snapshot (
@@ -1536,6 +1538,10 @@ def init_db():
                     safe_alter("ALTER TABLE watchlist_seite ADD COLUMN wl_kategorie VARCHAR(50) DEFAULT 'stadtseite'")
                 if 'kaufprioritaet' not in wl_cols:
                     safe_alter("ALTER TABLE watchlist_seite ADD COLUMN kaufprioritaet VARCHAR(20) DEFAULT 'keine'")
+                if 'preis_vorstellung' not in wl_cols:
+                    safe_alter('ALTER TABLE watchlist_seite ADD COLUMN preis_vorstellung FLOAT')
+                if 'mein_angebot' not in wl_cols:
+                    safe_alter('ALTER TABLE watchlist_seite ADD COLUMN mein_angebot FLOAT')
                 if 'is_deleted' not in wl_cols:
                     safe_alter('ALTER TABLE watchlist_seite ADD COLUMN is_deleted BOOLEAN DEFAULT 0')
                 if 'deleted_at' not in wl_cols:
@@ -11752,6 +11758,8 @@ def _wl_dict(s):
         'letzte_aktivitaet': s.letzte_aktivitaet or '',
         'seiten_status': s.seiten_status or 'nicht_gesucht',
         'kaufprioritaet': s.kaufprioritaet or 'keine',
+        'preis_vorstellung': s.preis_vorstellung,
+        'mein_angebot': s.mein_angebot,
         'notizen': s.notizen or '',
         'kontaktiert_am': s.kontaktiert_am.strftime('%Y-%m-%d') if s.kontaktiert_am else None,
         'wl_kategorie': s.wl_kategorie or 'stadtseite',
@@ -11786,6 +11794,8 @@ def watchlist_create():
         letzte_aktivitaet=d.get('letzte_aktivitaet'),
         seiten_status=d.get('seiten_status','nicht_gesucht'),
         kaufprioritaet=d.get('kaufprioritaet','keine'),
+        preis_vorstellung=d.get('preis_vorstellung'),
+        mein_angebot=d.get('mein_angebot'),
         notizen=d.get('notizen'),
         wl_kategorie=d.get('wl_kategorie','stadtseite'),
     )
@@ -11800,7 +11810,7 @@ def watchlist_update(sid):
     s = WatchlistSeite.query.get_or_404(sid)
     d = request.json or {}
     old_status = s.seiten_status
-    for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','kaufprioritaet','notizen','ziel_name','ziel_meta','wl_kategorie']:
+    for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','kaufprioritaet','preis_vorstellung','mein_angebot','notizen','ziel_name','ziel_meta','wl_kategorie']:
         if f in d:
             setattr(s, f, d[f])
     if d.get('seiten_status') == 'kontaktiert' and old_status != 'kontaktiert' and not s.kontaktiert_am:
@@ -11837,6 +11847,20 @@ def watchlist_delete_permanent(sid):
     db.session.delete(s)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/watchlist/angebote', methods=['GET'])
+@login_required
+def watchlist_angebote():
+    """Alle Einträge mit Preis-Vorstellung oder eigenem Angebot."""
+    items = WatchlistSeite.query.filter(
+        WatchlistSeite.is_deleted == False,
+        db.or_(WatchlistSeite.mein_angebot != None, WatchlistSeite.preis_vorstellung != None)
+    ).order_by(
+        db.case({'hoch':0,'mittel':1,'niedrig':2,'keine':3}, value=WatchlistSeite.kaufprioritaet),
+        WatchlistSeite.stadt
+    ).all()
+    return jsonify([_wl_dict(s) for s in items])
 
 
 @app.route('/api/watchlist/papierkorb', methods=['GET'])
