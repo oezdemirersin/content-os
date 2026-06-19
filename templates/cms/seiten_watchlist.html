@@ -652,7 +652,7 @@ function watchlistApp() {
       if (this.statusFilter) entries = entries.filter(e => e.seiten_status === this.statusFilter);
       const order = {stadtseite:0, bezirk:1, verein:2, uni:3};
       return [...entries].sort((a,b) => {
-        const d = (order[a.ziel_typ]||9) - (order[b.ziel_typ]||9);
+        const d = (order[a.ziel_typ] ?? 9) - (order[b.ziel_typ] ?? 9);
         if (d !== 0) return d;
         return (a.ziel_name||'').localeCompare(b.ziel_name||'', 'de');
       });
