@@ -169,9 +169,11 @@
     <!-- City Accordion -->
     <div style="display:flex;flex-direction:column;gap:6px">
       <template x-for="city in filteredCities" :key="city.stadt">
-        <div class="card" style="overflow:hidden;padding:0">
+        <div class="card" style="overflow:hidden;padding:0"
+             :style="city.haben_seite ? 'border-left:3px solid #16a34a' : city.hat_befreundete ? 'border-left:3px solid #86efac' : ''">
 
-          <div class="wl-city-header" @click="toggleCity(city)">
+          <div class="wl-city-header" @click="toggleCity(city)"
+               :style="city.haben_seite ? 'background:linear-gradient(90deg,rgba(22,163,74,.15) 0%,rgba(22,163,74,.03) 60%,transparent 100%)' : city.hat_befreundete ? 'background:linear-gradient(90deg,rgba(134,239,172,.1) 0%,rgba(134,239,172,.02) 60%,transparent 100%)' : ''">
             <div style="display:flex;align-items:center;gap:10px">
               <i class="fa-solid fa-chevron-right"
                  :style="'font-size:9px;color:var(--muted);transition:transform .2s;transform:rotate('+(city.expanded?'90':'0')+'deg)'"></i>
