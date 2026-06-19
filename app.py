@@ -4441,6 +4441,7 @@ def analytics():
 
 @app.route('/api/analytics/growth')
 def analytics_growth():
+    from collections import defaultdict
     days = request.args.get('days', 30, type=int)
     account_id = request.args.get('account_id', type=int)
     include_forecast = request.args.get('forecast', '0') == '1'
@@ -4448,48 +4449,68 @@ def analytics_growth():
     today = datetime.utcnow().date()
     start_date = today - timedelta(days=days - 1)
 
-    # Eine einzige GROUP-BY-Query statt N Einzel-Queries
+    # Per-Account-Query statt täglicher Summe — verhindert Einbrüche wenn
+    # ein Account an einzelnen Tagen keinen Snapshot hat (z.B. nach Server-Restart).
+    # Pro Account + Tag nur den neuesten Wert (MAX recorded_at).
     q = db.session.query(
+        AnalyticsSnapshot.account_id,
         func.date(AnalyticsSnapshot.recorded_at).label('d'),
-        func.sum(AnalyticsSnapshot.followers).label('total')
+        func.max(AnalyticsSnapshot.followers).label('followers')
     ).filter(func.date(AnalyticsSnapshot.recorded_at) >= start_date)
 
     if account_id:
         q = q.filter(AnalyticsSnapshot.account_id == account_id)
     else:
-        # Whitelist: nur Snapshots von aktuell aktiven + nicht-versteckten Accounts.
-        # Verhindert, dass gelöschte/inaktive Test-Accounts die Charts verfälschen —
-        # Blacklist (nur hide_in_analytics) reicht nicht, weil Orphan-Snapshots
-        # von längst gelöschten Accounts weiterhin in der DB liegen können.
         valid_ids = db.session.query(Account.id).filter(
             Account.status == 'active',
             Account.hide_in_analytics == False
         ).subquery()
         q = q.filter(AnalyticsSnapshot.account_id.in_(valid_ids))
 
-    rows = q.group_by(func.date(AnalyticsSnapshot.recorded_at)).all()
-    snap_dict = {str(r.d): int(r.total or 0) for r in rows}
+    rows = q.group_by(
+        AnalyticsSnapshot.account_id,
+        func.date(AnalyticsSnapshot.recorded_at)
+    ).all()
 
-    # Für heute: echten Account.follower_count nutzen falls noch kein Snapshot
+    # Pro Account: sortierte Timeline [(date_str, followers), ...]
+    account_timelines = defaultdict(list)
+    for r in rows:
+        account_timelines[r.account_id].append((str(r.d), int(r.followers or 0)))
+    for aid in account_timelines:
+        account_timelines[aid].sort()
+
+    # Für heute: Account.follower_count als Fallback falls noch kein Snapshot
     today_iso = today.isoformat()
-    if not snap_dict.get(today_iso):
-        fq = db.session.query(func.sum(Account.follower_count)).filter(
+    if not account_id:
+        acc_today = db.session.query(Account.id, Account.follower_count).filter(
             Account.status == 'active', Account.hide_in_analytics == False
-        )
-        if account_id:
-            fq = fq.filter(Account.id == account_id)
-        snap_dict[today_iso] = int(fq.scalar() or 0)
+        ).all()
+        for aid, fc in acc_today:
+            if not any(d == today_iso for d, _ in account_timelines.get(aid, [])):
+                account_timelines[aid].append((today_iso, int(fc or 0)))
+                account_timelines[aid].sort()
+    elif not any(d == today_iso for d, _ in account_timelines.get(account_id, [])):
+        acc = Account.query.get(account_id)
+        if acc:
+            account_timelines[account_id].append((today_iso, int(acc.follower_count or 0)))
+            account_timelines[account_id].sort()
 
+    # Tages-Totale berechnen: pro Account letzten bekannten Wert ≤ diesem Tag summieren
     labels, data = [], []
-    last_known = 0
     for i in range(days - 1, -1, -1):
         day = today - timedelta(days=i)
+        day_iso = day.isoformat()
+        day_total = 0
+        for aid, timeline in account_timelines.items():
+            last_val = 0
+            for snap_date, snap_followers in timeline:
+                if snap_date <= day_iso:
+                    last_val = snap_followers
+                else:
+                    break
+            day_total += last_val
         labels.append(day.strftime('%d.%m'))
-        val = snap_dict.get(day.isoformat(), 0)
-        if val > 0:
-            last_known = val
-        # Forward-fill: Lücken nach dem ersten bekannten Wert mit letztem Wert füllen
-        data.append(val if val > 0 else (last_known if last_known > 0 else 0))
+        data.append(day_total)
 
     # Wachstums-Statistiken berechnen
     non_zero = [v for v in data if v > 0]
@@ -5055,16 +5076,17 @@ def media_create_post(media_id):
 
 @app.route('/api/analytics/daily-growth')
 def analytics_daily_growth():
+    from collections import defaultdict
     days = request.args.get('days', 30, type=int)
     account_id = request.args.get('account_id', type=int)
 
     today = datetime.utcnow().date()
     start_date = today - timedelta(days=days - 1)
 
-    # Zwei GROUP-BY-Queries statt N×2 Einzel-Queries
     fq = db.session.query(
+        AnalyticsSnapshot.account_id,
         func.date(AnalyticsSnapshot.recorded_at).label('d'),
-        func.sum(AnalyticsSnapshot.followers).label('total')
+        func.max(AnalyticsSnapshot.followers).label('followers')
     ).filter(func.date(AnalyticsSnapshot.recorded_at) >= start_date)
     eq = db.session.query(
         func.date(AnalyticsSnapshot.recorded_at).label('d'),
@@ -5075,32 +5097,43 @@ def analytics_daily_growth():
         fq = fq.filter(AnalyticsSnapshot.account_id == account_id)
         eq = eq.filter(AnalyticsSnapshot.account_id == account_id)
     else:
-        # Whitelist: nur aktive + sichtbare Accounts
         valid_ids = db.session.query(Account.id).filter(
-            Account.status == 'active',
-            Account.hide_in_analytics == False
+            Account.status == 'active', Account.hide_in_analytics == False
         ).subquery()
         fq = fq.filter(AnalyticsSnapshot.account_id.in_(valid_ids))
         eq = eq.filter(AnalyticsSnapshot.account_id.in_(valid_ids))
 
-    fq = fq.group_by(func.date(AnalyticsSnapshot.recorded_at))
+    fq = fq.group_by(AnalyticsSnapshot.account_id, func.date(AnalyticsSnapshot.recorded_at))
     eq = eq.group_by(func.date(AnalyticsSnapshot.recorded_at))
 
-    follower_by_day = {str(r.d): int(r.total or 0) for r in fq.all()}
-    eng_by_day      = {str(r.d): round(float(r.eng or 0), 2) for r in eq.all()}
+    account_timelines = defaultdict(list)
+    for r in fq.all():
+        account_timelines[r.account_id].append((str(r.d), int(r.followers or 0)))
+    for aid in account_timelines:
+        account_timelines[aid].sort()
+
+    eng_by_day = {str(r.d): round(float(r.eng or 0), 2) for r in eq.all()}
 
     labels, deltas, eng_rates = [], [], []
-    prev = None
+    prev_total = None
     for i in range(days - 1, -1, -1):
         day = today - timedelta(days=i)
-        key = day.isoformat()
-        total = follower_by_day.get(key, 0)
-        delta = (total - prev) if prev is not None and total > 0 else 0
-        if total > 0:
-            prev = total
+        day_iso = day.isoformat()
+        day_total = 0
+        for aid, timeline in account_timelines.items():
+            last_val = 0
+            for snap_date, snap_followers in timeline:
+                if snap_date <= day_iso:
+                    last_val = snap_followers
+                else:
+                    break
+            day_total += last_val
+        delta = (day_total - prev_total) if prev_total is not None and day_total > 0 else 0
+        if day_total > 0:
+            prev_total = day_total
         labels.append(day.strftime('%d.%m'))
         deltas.append(delta)
-        eng_rates.append(eng_by_day.get(key, 0))
+        eng_rates.append(eng_by_day.get(day_iso, 0))
 
     return jsonify({'labels': labels, 'deltas': deltas, 'engagement': eng_rates})
 
