@@ -687,10 +687,12 @@
               <option value="nicht_erreichbar">Nicht erreichbar</option>
             </optgroup>
           </select>
-          <div x-show="form.seiten_status==='kontaktiert'"
-               style="font-size:10px;color:#60a5fa;margin-top:5px;display:flex;align-items:center;gap:4px">
-            <i class="fa-regular fa-calendar-check"></i>
-            Kontaktdatum wird beim Speichern automatisch gesetzt.
+          <!-- Angeschrieben am — sichtbar ab L2 -->
+          <div x-show="!['nicht_gesucht','nichts_gefunden','gefunden'].includes(form.seiten_status)"
+               style="margin-top:8px">
+            <label class="form-label" style="margin-bottom:3px">Angeschrieben am</label>
+            <input type="date" x-model="form.kontaktiert_am_input" class="input-field"
+                   :max="todayStr()" style="font-size:12px;padding:7px 10px">
           </div>
         </div>
         <!-- Zweck -->
@@ -836,7 +838,7 @@ function watchlistApp() {
       url:'', handle:'', follower:'', letzte_aktivitaet:'',
       seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
       seiten_kategorie:'', preis_vorstellung:'', mein_angebot:'', notizen:'',
-      zweck:'', ist_befreundet:false,
+      zweck:'', ist_befreundet:false, kontaktiert_am_input:'',
     },
 
     papierkorb: [],
@@ -1073,7 +1075,13 @@ function watchlistApp() {
         preis_vorstellung:e.preis_vorstellung||'', mein_angebot:e.mein_angebot||'',
         notizen:e.notizen||'',
         zweck:e.zweck||'', ist_befreundet:!!e.ist_befreundet,
+        kontaktiert_am_input: e.kontaktiert_am || this.todayStr(),
       };
+    },
+
+    todayStr() {
+      const d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
     },
     openEdit(e) {
       this.currentCity = this.cities.find(c=>c.stadt===e.stadt)||null;
@@ -1098,7 +1106,7 @@ function watchlistApp() {
         platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
         seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
         seiten_kategorie:'', preis_vorstellung:'', mein_angebot:'', notizen:'',
-        zweck:'', ist_befreundet:false,
+        zweck:'', ist_befreundet:false, kontaktiert_am_input:this.todayStr(),
       };
       this.showNameInput = true;
       this.modalOpen = true;
@@ -1112,7 +1120,7 @@ function watchlistApp() {
         platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
         seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
         preis_vorstellung:'', mein_angebot:'', notizen:'',
-        zweck:'', ist_befreundet:false,
+        zweck:'', ist_befreundet:false, kontaktiert_am_input:this.todayStr(),
       };
       this.showNameInput = true;
       this.modalOpen = true;
@@ -1161,6 +1169,7 @@ function watchlistApp() {
         mein_angebot:f.mein_angebot!==''&&f.mein_angebot!=null?parseFloat(f.mein_angebot):null,
         notizen:f.notizen||null, wl_kategorie:f.wl_kategorie||'stadtseite',
         zweck:f.zweck||null, ist_befreundet:!!f.ist_befreundet,
+        kontaktiert_am: f.kontaktiert_am_input || null,
       };
       let r;
       if(f.id){

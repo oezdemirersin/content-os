@@ -11821,6 +11821,7 @@ def watchlist_create():
         zweck=d.get('zweck') or None,
         ist_befreundet=bool(d.get('ist_befreundet', False)),
         wl_kategorie=d.get('wl_kategorie','stadtseite'),
+        kontaktiert_am=datetime.strptime(d['kontaktiert_am'], '%Y-%m-%d') if d.get('kontaktiert_am') else None,
     )
     db.session.add(s)
     db.session.commit()
@@ -11836,7 +11837,12 @@ def watchlist_update(sid):
     for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','kaufprioritaet','seiten_kategorie','preis_vorstellung','mein_angebot','notizen','ziel_name','ziel_meta','wl_kategorie','zweck','ist_befreundet','seite_geplant','haben_seite']:
         if f in d:
             setattr(s, f, d[f])
-    if d.get('seiten_status') == 'kontaktiert' and old_status != 'kontaktiert' and not s.kontaktiert_am:
+    if d.get('kontaktiert_am'):
+        try:
+            s.kontaktiert_am = datetime.strptime(d['kontaktiert_am'], '%Y-%m-%d')
+        except (ValueError, TypeError):
+            pass
+    elif d.get('seiten_status') == 'kontaktiert' and old_status != 'kontaktiert' and not s.kontaktiert_am:
         s.kontaktiert_am = datetime.utcnow()
     db.session.commit()
     return jsonify({'ok': True, 'kontaktiert_am': s.kontaktiert_am.strftime('%Y-%m-%d') if s.kontaktiert_am else None})
