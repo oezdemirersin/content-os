@@ -926,6 +926,7 @@ class WatchlistSeite(db.Model):
     # nicht_gesucht | nichts_gefunden | nicht_angeschrieben | beobachten | inaktiv | gelegentlich | aktiv
     # nicht_erreichbar | interesse | kein_interesse | kontaktiert
     kaufprioritaet    = db.Column(db.String(20), default='keine')  # hoch | mittel | niedrig | keine
+    seiten_kategorie  = db.Column(db.String(100))                 # z.B. Meme-Seite, Nachrichtenseite
     preis_vorstellung = db.Column(db.Float)   # Preisvorstellung des Verkäufers in €
     mein_angebot      = db.Column(db.Float)   # Eigenes Angebot in €
     notizen           = db.Column(db.Text)

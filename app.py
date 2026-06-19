@@ -1218,6 +1218,7 @@ def init_db():
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS kontaktiert_am TIMESTAMP')
             safe_alter("ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS wl_kategorie VARCHAR(50) DEFAULT 'stadtseite'")
             safe_alter("ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS kaufprioritaet VARCHAR(20) DEFAULT 'keine'")
+            safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS seiten_kategorie VARCHAR(100)')
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS preis_vorstellung FLOAT')
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS mein_angebot FLOAT')
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE')
@@ -1538,6 +1539,8 @@ def init_db():
                     safe_alter("ALTER TABLE watchlist_seite ADD COLUMN wl_kategorie VARCHAR(50) DEFAULT 'stadtseite'")
                 if 'kaufprioritaet' not in wl_cols:
                     safe_alter("ALTER TABLE watchlist_seite ADD COLUMN kaufprioritaet VARCHAR(20) DEFAULT 'keine'")
+                if 'seiten_kategorie' not in wl_cols:
+                    safe_alter('ALTER TABLE watchlist_seite ADD COLUMN seiten_kategorie VARCHAR(100)')
                 if 'preis_vorstellung' not in wl_cols:
                     safe_alter('ALTER TABLE watchlist_seite ADD COLUMN preis_vorstellung FLOAT')
                 if 'mein_angebot' not in wl_cols:
@@ -11758,6 +11761,7 @@ def _wl_dict(s):
         'letzte_aktivitaet': s.letzte_aktivitaet or '',
         'seiten_status': s.seiten_status or 'nicht_gesucht',
         'kaufprioritaet': s.kaufprioritaet or 'keine',
+        'seiten_kategorie': s.seiten_kategorie or '',
         'preis_vorstellung': s.preis_vorstellung,
         'mein_angebot': s.mein_angebot,
         'notizen': s.notizen or '',
@@ -11794,6 +11798,7 @@ def watchlist_create():
         letzte_aktivitaet=d.get('letzte_aktivitaet'),
         seiten_status=d.get('seiten_status','nicht_gesucht'),
         kaufprioritaet=d.get('kaufprioritaet','keine'),
+        seiten_kategorie=d.get('seiten_kategorie') or None,
         preis_vorstellung=d.get('preis_vorstellung'),
         mein_angebot=d.get('mein_angebot'),
         notizen=d.get('notizen'),
@@ -11810,7 +11815,7 @@ def watchlist_update(sid):
     s = WatchlistSeite.query.get_or_404(sid)
     d = request.json or {}
     old_status = s.seiten_status
-    for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','kaufprioritaet','preis_vorstellung','mein_angebot','notizen','ziel_name','ziel_meta','wl_kategorie']:
+    for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','kaufprioritaet','seiten_kategorie','preis_vorstellung','mein_angebot','notizen','ziel_name','ziel_meta','wl_kategorie']:
         if f in d:
             setattr(s, f, d[f])
     if d.get('seiten_status') == 'kontaktiert' and old_status != 'kontaktiert' and not s.kontaktiert_am:

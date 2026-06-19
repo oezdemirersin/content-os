@@ -244,6 +244,10 @@
                       <template x-if="!e.url">
                         <span style="font-size:11px;color:var(--muted);font-style:italic">— keine Seite</span>
                       </template>
+                      <div x-show="e.seiten_kategorie" style="margin-top:3px">
+                        <span style="font-size:9px;font-weight:700;background:rgba(148,163,184,.12);color:#94a3b8;padding:1px 7px;border-radius:4px"
+                              x-text="e.seiten_kategorie"></span>
+                      </div>
                     </div>
                     <!-- Aktivität -->
                     <div style="display:flex;align-items:center;gap:4px">
@@ -656,6 +660,25 @@
           <input type="number" x-model.number="form.mein_angebot" class="input-field"
                  placeholder="Ich biete…" min="0" step="50">
         </div>
+        <!-- Seiten-Kategorie -->
+        <div style="grid-column:1/-1">
+          <label class="form-label">Kategorie der Seite</label>
+          <input type="text" x-model="form.seiten_kategorie" class="input-field"
+                 placeholder="z.B. Meme-Seite, Nachrichtenseite, Lifestyle…"
+                 list="seiten-kat-list">
+          <datalist id="seiten-kat-list">
+            <option value="Meme-Seite">
+            <option value="Nachrichtenseite">
+            <option value="Lifestyle">
+            <option value="Humor">
+            <option value="Sport">
+            <option value="Lokales">
+            <option value="Politik">
+            <option value="Kultur & Events">
+            <option value="Stadtmarketing">
+            <option value="Sonstiges">
+          </datalist>
+        </div>
         <div>
           <label class="form-label">Plattform</label>
           <select x-model="form.platform" class="select-field">
@@ -737,7 +760,7 @@ function watchlistApp() {
       ziel_name:'', ziel_meta:'', platform:'Instagram',
       url:'', handle:'', follower:'', letzte_aktivitaet:'',
       seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
-      preis_vorstellung:'', mein_angebot:'', notizen:'',
+      seiten_kategorie:'', preis_vorstellung:'', mein_angebot:'', notizen:'',
     },
 
     papierkorb: [],
@@ -916,6 +939,7 @@ function watchlistApp() {
         follower:e.follower||'', letzte_aktivitaet:e.letzte_aktivitaet||'',
         seiten_status:e.seiten_status||'nicht_gesucht',
         kaufprioritaet:e.kaufprioritaet||'keine',
+        seiten_kategorie:e.seiten_kategorie||'',
         preis_vorstellung:e.preis_vorstellung||'', mein_angebot:e.mein_angebot||'',
         notizen:e.notizen||'',
       };
@@ -942,7 +966,7 @@ function watchlistApp() {
         ziel_name:prefillName||'', ziel_meta:prefillMeta||'',
         platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
         seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
-        preis_vorstellung:'', mein_angebot:'', notizen:'',
+        seiten_kategorie:'', preis_vorstellung:'', mein_angebot:'', notizen:'',
       };
       this.showNameInput = true;
       this.modalOpen = true;
@@ -999,6 +1023,7 @@ function watchlistApp() {
         follower:f.follower?parseInt(f.follower):null,
         letzte_aktivitaet:f.letzte_aktivitaet||null,
         seiten_status:f.seiten_status, kaufprioritaet:f.kaufprioritaet||'keine',
+        seiten_kategorie:f.seiten_kategorie||null,
         preis_vorstellung:f.preis_vorstellung!==''&&f.preis_vorstellung!=null?parseFloat(f.preis_vorstellung):null,
         mein_angebot:f.mein_angebot!==''&&f.mein_angebot!=null?parseFloat(f.mein_angebot):null,
         notizen:f.notizen||null, wl_kategorie:f.wl_kategorie||'stadtseite',
