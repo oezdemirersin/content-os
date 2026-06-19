@@ -120,23 +120,42 @@
       </select>
       <select x-model="statusFilter" class="select-field" style="font-size:12px;padding:8px 10px">
         <option value="">Alle Status</option>
-        <option value="nicht_gesucht">Nicht gesucht</option>
-        <option value="nichts_gefunden">Nichts gefunden</option>
-        <option value="nicht_angeschrieben">Nicht angeschrieben</option>
-        <option value="beobachten">Beobachten</option>
-        <option value="aktiv">Aktiv</option>
-        <option value="gelegentlich">Ab &amp; zu aktiv</option>
-        <option value="inaktiv">Inaktiv</option>
-        <option value="nicht_erreichbar">Nicht erreichbar</option>
-        <option value="interesse">Interesse am Verkauf</option>
-        <option value="kein_interesse">Kein Interesse</option>
-        <option value="kontaktiert">Kontaktiert</option>
+        <optgroup label="─ L1 · Suche ─">
+          <option value="nicht_gesucht">Nicht gesucht</option>
+          <option value="nichts_gefunden">Nichts gefunden</option>
+          <option value="gefunden">Gefunden</option>
+        </optgroup>
+        <optgroup label="─ L2 · Kontakt ─">
+          <option value="kontaktiert">Kontaktiert</option>
+        </optgroup>
+        <optgroup label="─ L3 · Antwort ─">
+          <option value="keine_antwort">Keine Antwort</option>
+          <option value="geantwortet">Geantwortet</option>
+        </optgroup>
+        <optgroup label="─ L4 · Entscheidung ─">
+          <option value="interessiert">Interessiert</option>
+          <option value="unentschlossen">Unentschlossen</option>
+          <option value="kein_interesse">Kein Interesse</option>
+          <option value="nicht_erreichbar">Nicht erreichbar</option>
+        </optgroup>
+      </select>
+      <select x-model="zweckFilter" class="select-field" style="font-size:12px;padding:8px 10px">
+        <option value="">Alle Zwecke</option>
+        <option value="kopieren">📋 Kopieren</option>
+        <option value="farmen">🌾 Farmen</option>
+        <option value="kaufen">💰 Kaufen</option>
+        <option value="sonstiges">⋯ Sonstiges</option>
       </select>
       <button @click="sortBy='alpha'" :class="sortBy==='alpha'?'fchip active':'fchip'" style="font-size:11px">
         <i class="fa-solid fa-arrow-down-a-z"></i> A–Z
       </button>
       <button @click="sortBy='ew'" :class="sortBy==='ew'?'fchip active':'fchip'" style="font-size:11px">
         <i class="fa-solid fa-arrow-down-wide-short"></i> Einwohner
+      </button>
+      <button @click="citySortMode=citySortMode==='follower'?'typ':'follower'"
+              :class="citySortMode==='follower'?'fchip active':'fchip'" style="font-size:11px"
+              title="Einträge nach Followerzahl sortieren">
+        <i class="fa-solid fa-users"></i> Follower
       </button>
       <button @click="expandAll()" class="btn btn-ghost" style="font-size:11px;padding:8px 12px">
         <i class="fa-solid fa-list-ul"></i> Alle öffnen
@@ -169,6 +188,12 @@
                 </div>
                 <span style="font-size:11px;color:var(--muted);min-width:40px" x-text="city.gefunden+'/'+city.total"></span>
               </div>
+              <button @click.stop="toggleGeplant(city)" class="btn btn-ghost"
+                      :title="city.seite_geplant ? 'Eigene Seite geplant (klicken zum Entfernen)' : 'Hier eigene Seite erstellen planen'"
+                      style="font-size:12px;padding:4px 7px;border-radius:6px"
+                      :style="city.seite_geplant ? 'color:#f59e0b;opacity:1' : 'opacity:.35'">
+                🎯
+              </button>
               <button @click.stop="openAdd(city, '', '')" class="btn btn-ghost"
                       style="font-size:10px;padding:4px 8px;border-radius:6px">
                 <i class="fa-solid fa-plus"></i>
@@ -204,7 +229,12 @@
                     </div>
                     <!-- Ziel -->
                     <div style="min-width:0">
-                      <div style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" x-text="e.ziel_name"></div>
+                      <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+                        <span style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" x-text="e.ziel_name"></span>
+                        <span x-show="e.zweck" :style="zweckCfg(e.zweck).style"
+                              style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;white-space:nowrap"
+                              x-text="zweckCfg(e.zweck).label"></span>
+                      </div>
                       <div x-show="e.ziel_meta" style="font-size:10px;color:var(--muted);margin-top:1px" x-text="e.ziel_meta"></div>
                       <div x-show="e.preis_vorstellung || e.mein_angebot" style="display:flex;gap:5px;margin-top:3px;flex-wrap:wrap">
                         <span x-show="e.preis_vorstellung"
@@ -218,8 +248,10 @@
                     <!-- Status -->
                     <div>
                       <span class="wl-status-badge"
-                            :style="'background:'+statusCfg(e.seiten_status).bg+';color:'+statusCfg(e.seiten_status).color"
-                            x-text="statusCfg(e.seiten_status).label"></span>
+                            :style="'background:'+statusCfg(e.seiten_status).bg+';color:'+statusCfg(e.seiten_status).color">
+                        <span style="opacity:.55;font-size:8px;margin-right:2px" x-text="'L'+statusCfg(e.seiten_status).lvl"></span>
+                        <span x-text="statusCfg(e.seiten_status).label"></span>
+                      </span>
                       <div x-show="e.kontaktiert_am" style="margin-top:3px">
                         <span class="wl-kontakt-badge" :class="kontaktiertDays(e.kontaktiert_am)>30?'wl-kontakt-warn':''">
                           <i class="fa-regular fa-calendar-check" style="font-size:8px;margin-right:2px"></i>
@@ -374,10 +406,12 @@
         </select>
         <select x-model="angeboteStatusFilter" class="select-field" style="font-size:12px;padding:8px 10px">
           <option value="">Alle Status</option>
-          <option value="interesse">Interesse</option>
+          <option value="gefunden">Gefunden</option>
           <option value="kontaktiert">Kontaktiert</option>
-          <option value="beobachten">Beobachten</option>
-          <option value="nicht_angeschrieben">Nicht angeschrieben</option>
+          <option value="keine_antwort">Keine Antwort</option>
+          <option value="geantwortet">Geantwortet</option>
+          <option value="interessiert">Interessiert</option>
+          <option value="unentschlossen">Unentschlossen</option>
           <option value="kein_interesse">Kein Interesse</option>
         </select>
         <div style="margin-left:auto;display:flex;gap:12px">
@@ -621,17 +655,24 @@
         <div style="grid-column:1/-1">
           <label class="form-label">Status *</label>
           <select x-model="form.seiten_status" class="select-field">
-            <option value="nicht_gesucht">Noch nicht gesucht</option>
-            <option value="nichts_gefunden">Nichts gefunden</option>
-            <option value="nicht_angeschrieben">Gefunden – nicht angeschrieben</option>
-            <option value="beobachten">Beobachten</option>
-            <option value="inaktiv">Inaktiv</option>
-            <option value="gelegentlich">Ab &amp; zu aktiv</option>
-            <option value="aktiv">Aktiv</option>
-            <option value="nicht_erreichbar">Nicht erreichbar</option>
-            <option value="interesse">Interesse am Verkauf</option>
-            <option value="kontaktiert">Kontaktiert</option>
-            <option value="kein_interesse">Kein Interesse am Verkauf</option>
+            <optgroup label="─ L1 · Suche ─">
+              <option value="nicht_gesucht">Noch nicht gesucht</option>
+              <option value="nichts_gefunden">Nichts gefunden</option>
+              <option value="gefunden">Gefunden</option>
+            </optgroup>
+            <optgroup label="─ L2 · Kontakt ─">
+              <option value="kontaktiert">Kontaktiert</option>
+            </optgroup>
+            <optgroup label="─ L3 · Antwort ─">
+              <option value="keine_antwort">Keine Antwort erhalten</option>
+              <option value="geantwortet">Hat geantwortet</option>
+            </optgroup>
+            <optgroup label="─ L4 · Entscheidung ─">
+              <option value="interessiert">Interessiert am Verkauf</option>
+              <option value="unentschlossen">Unentschlossen</option>
+              <option value="kein_interesse">Kein Interesse</option>
+              <option value="nicht_erreichbar">Nicht erreichbar</option>
+            </optgroup>
           </select>
           <div x-show="form.seiten_status==='kontaktiert'"
                style="font-size:10px;color:#60a5fa;margin-top:5px;display:flex;align-items:center;gap:4px">
@@ -639,8 +680,19 @@
             Kontaktdatum wird beim Speichern automatisch gesetzt.
           </div>
         </div>
+        <!-- Zweck -->
+        <div>
+          <label class="form-label">Zweck</label>
+          <select x-model="form.zweck" class="select-field">
+            <option value="">—</option>
+            <option value="kopieren">📋 Kopieren</option>
+            <option value="farmen">🌾 Farmen</option>
+            <option value="kaufen">💰 Kaufen</option>
+            <option value="sonstiges">⋯ Sonstiges</option>
+          </select>
+        </div>
         <!-- Kaufpriorität (nur wenn Status kaufrelevant) -->
-        <div x-show="['nicht_angeschrieben','beobachten','interesse','kontaktiert','kein_interesse'].includes(form.seiten_status)">
+        <div x-show="!['nicht_gesucht','nichts_gefunden'].includes(form.seiten_status)">
           <label class="form-label">Kaufpriorität</label>
           <select x-model="form.kaufprioritaet" class="select-field">
             <option value="keine">Keine</option>
@@ -650,15 +702,23 @@
           </select>
         </div>
         <!-- Preisfelder (nur wenn Status kaufrelevant) -->
-        <div x-show="['nicht_angeschrieben','beobachten','interesse','kontaktiert','kein_interesse'].includes(form.seiten_status)">
+        <div x-show="!['nicht_gesucht','nichts_gefunden'].includes(form.seiten_status)">
           <label class="form-label">Preis-Vorstellung (€)</label>
           <input type="number" x-model.number="form.preis_vorstellung" class="input-field"
                  placeholder="Verkäufer möchte…" min="0" step="50">
         </div>
-        <div x-show="['nicht_angeschrieben','beobachten','interesse','kontaktiert','kein_interesse'].includes(form.seiten_status)">
+        <div x-show="!['nicht_gesucht','nichts_gefunden'].includes(form.seiten_status)">
           <label class="form-label">Mein Angebot (€)</label>
           <input type="number" x-model.number="form.mein_angebot" class="input-field"
                  placeholder="Ich biete…" min="0" step="50">
+        </div>
+        <!-- Befreundet -->
+        <div style="grid-column:1/-1">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;font-weight:600;color:var(--text)">
+            <input type="checkbox" x-model="form.ist_befreundet"
+                   style="width:15px;height:15px;accent-color:#22c55e;cursor:pointer">
+            🤝 Befreundetes Konto / Partnerkonto
+          </label>
         </div>
         <!-- Seiten-Kategorie -->
         <div style="grid-column:1/-1">
@@ -733,6 +793,8 @@ function watchlistApp() {
     search: '',
     typFilter: '',
     statusFilter: '',
+    zweckFilter: '',
+    citySortMode: 'typ',
     sections: [
       {typ:'stadtseite', label:'STADTSEITE',  icon:'fa-city',             color:'#6366f1'},
       {typ:'bezirk',     label:'BEZIRKE',     icon:'fa-map-location-dot', color:'#f59e0b'},
@@ -761,6 +823,7 @@ function watchlistApp() {
       url:'', handle:'', follower:'', letzte_aktivitaet:'',
       seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
       seiten_kategorie:'', preis_vorstellung:'', mein_angebot:'', notizen:'',
+      zweck:'', ist_befreundet:false,
     },
 
     papierkorb: [],
@@ -799,7 +862,7 @@ function watchlistApp() {
 
     async loadCities() {
       const data = await fetch('/api/watchlist/staedte').then(r=>r.json());
-      this.cities = data.map(c=>({...c, expanded:false, loading:false, loaded:false, entries:[]}));
+      this.cities = data.map(c=>({...c, expanded:false, loading:false, loaded:false, entries:[], seite_geplant:c.seite_geplant||false}));
       this.loaded = true;
     },
     async loadAngebote() {
@@ -862,6 +925,10 @@ function watchlistApp() {
       let entries = (city.entries||[]);
       if (this.typFilter)    entries = entries.filter(e => e.ziel_typ === this.typFilter);
       if (this.statusFilter) entries = entries.filter(e => e.seiten_status === this.statusFilter);
+      if (this.zweckFilter)  entries = entries.filter(e => e.zweck === this.zweckFilter);
+      if (this.citySortMode === 'follower') {
+        return [...entries].sort((a,b) => (b.follower||0) - (a.follower||0));
+      }
       const order = {stadtseite:0, bezirk:1, verein:2, uni:3};
       return [...entries].sort((a,b) => {
         const d = (order[a.ziel_typ] ?? 9) - (order[b.ziel_typ] ?? 9);
@@ -873,6 +940,15 @@ function watchlistApp() {
     typColor(t) { return {stadtseite:'#6366f1', bezirk:'#f59e0b', verein:'#22c55e', uni:'#a855f7'}[t]||'#94a3b8'; },
     typLabel(t) { return {stadtseite:'Stadtseite', bezirk:'Bezirk', verein:'Verein', uni:'Hochschule'}[t]||t; },
 
+    async toggleGeplant(city) {
+      const newVal = !city.seite_geplant;
+      const r = await fetch(`/api/watchlist/staedte/${encodeURIComponent(city.stadt)}/geplant`, {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({geplant:newVal})
+      }).then(x=>x.json());
+      if(r.ok) { city.seite_geplant = newVal; showToast(newVal?'Seite geplant ✓':'Planung entfernt','info'); }
+    },
+
     expandAll() {
       this.filteredCities.forEach(c=>{ if (!c.loaded) this.toggleCity(c); else c.expanded=true; });
     },
@@ -880,19 +956,39 @@ function watchlistApp() {
 
     statusCfg(s) {
       const m = {
-        nicht_gesucht:        {label:'Nicht gesucht',       color:'#64748b', bg:'rgba(100,116,139,.15)'},
-        nichts_gefunden:      {label:'Nichts gefunden',     color:'#ef4444', bg:'rgba(239,68,68,.15)'},
-        nicht_angeschrieben:  {label:'Nicht angeschrieben', color:'#0ea5e9', bg:'rgba(14,165,233,.15)'},
-        beobachten:           {label:'Beobachten',          color:'#3b82f6', bg:'rgba(59,130,246,.15)'},
-        inaktiv:         {label:'Inaktiv',          color:'#f43f5e', bg:'rgba(244,63,94,.15)'},
-        gelegentlich:    {label:'Ab & zu aktiv',    color:'#f59e0b', bg:'rgba(245,158,11,.15)'},
-        aktiv:           {label:'Aktiv',            color:'#22c55e', bg:'rgba(34,197,94,.15)'},
-        nicht_erreichbar:{label:'Nicht erreichbar', color:'#dc2626', bg:'rgba(220,38,38,.15)'},
-        interesse:       {label:'Interesse',        color:'#6366f1', bg:'rgba(99,102,241,.15)'},
-        kein_interesse:  {label:'Kein Interesse',   color:'#94a3b8', bg:'rgba(148,163,184,.15)'},
-        kontaktiert:     {label:'Kontaktiert',      color:'#60a5fa', bg:'rgba(96,165,250,.15)'},
+        // L1 — Suche
+        nicht_gesucht:   {label:'Nicht gesucht',   lvl:1, color:'#64748b', bg:'rgba(100,116,139,.15)'},
+        nichts_gefunden: {label:'Nichts gefunden',  lvl:1, color:'#ef4444', bg:'rgba(239,68,68,.15)'},
+        gefunden:        {label:'Gefunden',          lvl:1, color:'#0ea5e9', bg:'rgba(14,165,233,.15)'},
+        // L2 — Kontakt
+        kontaktiert:     {label:'Kontaktiert',       lvl:2, color:'#6366f1', bg:'rgba(99,102,241,.15)'},
+        // L3 — Antwort
+        keine_antwort:   {label:'Keine Antwort',     lvl:3, color:'#f59e0b', bg:'rgba(245,158,11,.15)'},
+        geantwortet:     {label:'Geantwortet',        lvl:3, color:'#22c55e', bg:'rgba(34,197,94,.15)'},
+        // L4 — Entscheidung
+        interessiert:    {label:'Interessiert',       lvl:4, color:'#10b981', bg:'rgba(16,185,129,.15)'},
+        unentschlossen:  {label:'Unentschlossen',     lvl:4, color:'#f59e0b', bg:'rgba(245,158,11,.15)'},
+        kein_interesse:  {label:'Kein Interesse',     lvl:4, color:'#94a3b8', bg:'rgba(148,163,184,.15)'},
+        nicht_erreichbar:{label:'Nicht erreichbar',   lvl:4, color:'#dc2626', bg:'rgba(220,38,38,.15)'},
+        // Legacy (Rückwärtskompatibilität)
+        nicht_angeschrieben:{label:'Gefunden',        lvl:1, color:'#0ea5e9', bg:'rgba(14,165,233,.15)'},
+        beobachten:      {label:'Beobachten',          lvl:1, color:'#3b82f6', bg:'rgba(59,130,246,.15)'},
+        interesse:       {label:'Interessiert',        lvl:4, color:'#10b981', bg:'rgba(16,185,129,.15)'},
+        inaktiv:         {label:'Inaktiv',             lvl:1, color:'#64748b', bg:'rgba(100,116,139,.15)'},
+        gelegentlich:    {label:'Ab & zu aktiv',       lvl:1, color:'#64748b', bg:'rgba(100,116,139,.15)'},
+        aktiv:           {label:'Aktiv',               lvl:1, color:'#22c55e', bg:'rgba(34,197,94,.15)'},
       };
-      return m[s]||{label:s||'?', color:'#64748b', bg:'rgba(100,116,139,.15)'};
+      return m[s]||{label:s||'?', lvl:0, color:'#64748b', bg:'rgba(100,116,139,.15)'};
+    },
+
+    zweckCfg(z) {
+      const m = {
+        kopieren:  {label:'📋 Kopieren',  style:'background:rgba(99,102,241,.15);color:#818cf8'},
+        farmen:    {label:'🌾 Farmen',    style:'background:rgba(245,158,11,.15);color:#f59e0b'},
+        kaufen:    {label:'💰 Kaufen',    style:'background:rgba(16,185,129,.15);color:#10b981'},
+        sonstiges: {label:'⋯ Sonstiges', style:'background:rgba(148,163,184,.15);color:#94a3b8'},
+      };
+      return m[z]||{label:z||'', style:''};
     },
 
     kontaktiertDays(am) {
@@ -942,6 +1038,7 @@ function watchlistApp() {
         seiten_kategorie:e.seiten_kategorie||'',
         preis_vorstellung:e.preis_vorstellung||'', mein_angebot:e.mein_angebot||'',
         notizen:e.notizen||'',
+        zweck:e.zweck||'', ist_befreundet:!!e.ist_befreundet,
       };
     },
     openEdit(e) {
@@ -967,6 +1064,7 @@ function watchlistApp() {
         platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
         seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
         seiten_kategorie:'', preis_vorstellung:'', mein_angebot:'', notizen:'',
+        zweck:'', ist_befreundet:false,
       };
       this.showNameInput = true;
       this.modalOpen = true;
@@ -980,6 +1078,7 @@ function watchlistApp() {
         platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
         seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
         preis_vorstellung:'', mein_angebot:'', notizen:'',
+        zweck:'', ist_befreundet:false,
       };
       this.showNameInput = true;
       this.modalOpen = true;
@@ -1027,6 +1126,7 @@ function watchlistApp() {
         preis_vorstellung:f.preis_vorstellung!==''&&f.preis_vorstellung!=null?parseFloat(f.preis_vorstellung):null,
         mein_angebot:f.mein_angebot!==''&&f.mein_angebot!=null?parseFloat(f.mein_angebot):null,
         notizen:f.notizen||null, wl_kategorie:f.wl_kategorie||'stadtseite',
+        zweck:f.zweck||null, ist_befreundet:!!f.ist_befreundet,
       };
       let r;
       if(f.id){

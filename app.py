@@ -1221,6 +1221,9 @@ def init_db():
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS seiten_kategorie VARCHAR(100)')
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS preis_vorstellung FLOAT')
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS mein_angebot FLOAT')
+            safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS zweck VARCHAR(30)')
+            safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS ist_befreundet BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS seite_geplant BOOLEAN DEFAULT FALSE')
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE')
             safe_alter('ALTER TABLE watchlist_seite ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP')
             safe_alter('''CREATE TABLE IF NOT EXISTS watchlist_follower_snapshot (
@@ -1545,6 +1548,12 @@ def init_db():
                     safe_alter('ALTER TABLE watchlist_seite ADD COLUMN preis_vorstellung FLOAT')
                 if 'mein_angebot' not in wl_cols:
                     safe_alter('ALTER TABLE watchlist_seite ADD COLUMN mein_angebot FLOAT')
+                if 'zweck' not in wl_cols:
+                    safe_alter('ALTER TABLE watchlist_seite ADD COLUMN zweck VARCHAR(30)')
+                if 'ist_befreundet' not in wl_cols:
+                    safe_alter('ALTER TABLE watchlist_seite ADD COLUMN ist_befreundet BOOLEAN DEFAULT 0')
+                if 'seite_geplant' not in wl_cols:
+                    safe_alter('ALTER TABLE watchlist_seite ADD COLUMN seite_geplant BOOLEAN DEFAULT 0')
                 if 'is_deleted' not in wl_cols:
                     safe_alter('ALTER TABLE watchlist_seite ADD COLUMN is_deleted BOOLEAN DEFAULT 0')
                 if 'deleted_at' not in wl_cols:
@@ -11765,6 +11774,9 @@ def _wl_dict(s):
         'preis_vorstellung': s.preis_vorstellung,
         'mein_angebot': s.mein_angebot,
         'notizen': s.notizen or '',
+        'zweck': s.zweck or '',
+        'ist_befreundet': bool(s.ist_befreundet),
+        'seite_geplant': bool(s.seite_geplant),
         'kontaktiert_am': s.kontaktiert_am.strftime('%Y-%m-%d') if s.kontaktiert_am else None,
         'wl_kategorie': s.wl_kategorie or 'stadtseite',
     }
@@ -11802,6 +11814,8 @@ def watchlist_create():
         preis_vorstellung=d.get('preis_vorstellung'),
         mein_angebot=d.get('mein_angebot'),
         notizen=d.get('notizen'),
+        zweck=d.get('zweck') or None,
+        ist_befreundet=bool(d.get('ist_befreundet', False)),
         wl_kategorie=d.get('wl_kategorie','stadtseite'),
     )
     db.session.add(s)
@@ -11815,7 +11829,7 @@ def watchlist_update(sid):
     s = WatchlistSeite.query.get_or_404(sid)
     d = request.json or {}
     old_status = s.seiten_status
-    for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','kaufprioritaet','seiten_kategorie','preis_vorstellung','mein_angebot','notizen','ziel_name','ziel_meta','wl_kategorie']:
+    for f in ['platform','url','handle','follower','letzte_aktivitaet','seiten_status','kaufprioritaet','seiten_kategorie','preis_vorstellung','mein_angebot','notizen','ziel_name','ziel_meta','wl_kategorie','zweck','ist_befreundet','seite_geplant']:
         if f in d:
             setattr(s, f, d[f])
     if d.get('seiten_status') == 'kontaktiert' and old_status != 'kontaktiert' and not s.kontaktiert_am:
@@ -11907,10 +11921,34 @@ def watchlist_staedte():
                 except ValueError:
                     pass
 
+    # City-level seite_geplant flag
+    geplant_set = set(
+        r[0] for r in db.session.query(WatchlistSeite.stadt).filter(
+            WatchlistSeite.is_deleted == False,
+            WatchlistSeite.seite_geplant == True
+        ).all()
+    )
+
     return jsonify([{
         'stadt': r.stadt, 'total': r.total, 'gefunden': r.gefunden or 0,
         'ew': ew_map.get(r.stadt, 0),
+        'seite_geplant': r.stadt in geplant_set,
     } for r in rows])
+
+
+@app.route('/api/watchlist/staedte/<string:stadt>/geplant', methods=['PUT'])
+@login_required
+def watchlist_toggle_geplant(stadt):
+    """Toggle seite_geplant flag for all entries of a city."""
+    d = request.json or {}
+    new_val = bool(d.get('geplant', True))
+    entries = WatchlistSeite.query.filter_by(stadt=stadt, is_deleted=False).all()
+    if not entries:
+        return jsonify({'ok': False, 'error': 'Keine Einträge'}), 404
+    for e in entries:
+        e.seite_geplant = new_val
+    db.session.commit()
+    return jsonify({'ok': True, 'geplant': new_val})
 
 
 @app.route('/api/watchlist/sonstige', methods=['GET'])
