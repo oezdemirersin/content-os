@@ -952,6 +952,15 @@ class WatchlistFollowerSnapshot(db.Model):
     scanned_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class WatchlistCityMeta(db.Model):
+    """City-level metadata for the Watchlist — one row per city."""
+    __tablename__ = 'watchlist_city_meta'
+    stadt         = db.Column(db.String(100), primary_key=True)
+    haben_seite   = db.Column(db.Boolean, default=False)
+    seite_geplant = db.Column(db.Boolean, default=False)
+    updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class LocalEvent(db.Model):
     """Lokale Events für den Event-Radar in Stadt-Memes."""
     __tablename__ = 'local_event'

@@ -23,7 +23,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
                     Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf,
-                    WatchlistSeite, WatchlistFollowerSnapshot)
+                    WatchlistSeite, WatchlistFollowerSnapshot, WatchlistCityMeta)
 import smtplib
 from email.mime.text import MIMEText
 import calendar as cal_mod_global
@@ -1232,6 +1232,11 @@ def init_db():
                 seite_id INTEGER NOT NULL REFERENCES watchlist_seite(id) ON DELETE CASCADE,
                 follower INTEGER NOT NULL,
                 scanned_at TIMESTAMP DEFAULT NOW())''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS watchlist_city_meta (
+                stadt VARCHAR(100) PRIMARY KEY,
+                haben_seite BOOLEAN DEFAULT FALSE,
+                seite_geplant BOOLEAN DEFAULT FALSE,
+                updated_at TIMESTAMP DEFAULT NOW())''')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -1568,6 +1573,11 @@ def init_db():
                 seite_id INTEGER NOT NULL REFERENCES watchlist_seite(id),
                 follower INTEGER NOT NULL,
                 scanned_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            safe_alter('''CREATE TABLE IF NOT EXISTS watchlist_city_meta (
+                stadt VARCHAR(100) PRIMARY KEY,
+                haben_seite BOOLEAN DEFAULT 0,
+                seite_geplant BOOLEAN DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 
             # Neue Felder: Partner, Kooperation (SQLite)
             try:
@@ -1656,6 +1666,25 @@ def init_db():
         if not Category.query.filter_by(name='Memes').first():
             db.session.add(Category(name='Memes', color='#f59e0b', icon='face-laugh'))
             db.session.commit()
+
+        # ── CityMeta: einmalig aus WatchlistSeite-Einträgen befüllen ─
+        try:
+            haben_cities = set(r[0] for r in db.session.query(WatchlistSeite.stadt).filter(
+                WatchlistSeite.is_deleted == False, WatchlistSeite.haben_seite == True).all())
+            geplant_cities = set(r[0] for r in db.session.query(WatchlistSeite.stadt).filter(
+                WatchlistSeite.is_deleted == False, WatchlistSeite.seite_geplant == True).all())
+            existing_meta = {m.stadt for m in WatchlistCityMeta.query.all()}
+            for city in haben_cities | geplant_cities:
+                if city not in existing_meta:
+                    db.session.add(WatchlistCityMeta(
+                        stadt=city,
+                        haben_seite=(city in haben_cities),
+                        seite_geplant=(city in geplant_cities),
+                    ))
+            db.session.commit()
+        except Exception as _e:
+            db.session.rollback()
+            app.logger.warning(f'[CityMeta Migration] {_e}')
 
         # ── Changelog-Seed: initiale Einträge ────────────────────────
         try:
@@ -11964,16 +11993,8 @@ def watchlist_staedte():
                 except ValueError:
                     pass
 
-    base = WatchlistSeite.query.filter_by(is_deleted=False)
+    city_metas = {m.stadt: m for m in WatchlistCityMeta.query.all()}
 
-    geplant_set = set(
-        r[0] for r in db.session.query(WatchlistSeite.stadt).filter(
-            WatchlistSeite.is_deleted == False, WatchlistSeite.seite_geplant == True).all()
-    )
-    haben_set = set(
-        r[0] for r in db.session.query(WatchlistSeite.stadt).filter(
-            WatchlistSeite.is_deleted == False, WatchlistSeite.haben_seite == True).all()
-    )
     befreundete_set = set(
         r[0] for r in db.session.query(WatchlistSeite.stadt).filter(
             WatchlistSeite.is_deleted == False, WatchlistSeite.ist_befreundet == True).all()
@@ -11988,8 +12009,8 @@ def watchlist_staedte():
     return jsonify([{
         'stadt': r.stadt, 'total': r.total, 'gefunden': r.gefunden or 0,
         'ew': ew_map.get(r.stadt, 0),
-        'seite_geplant': r.stadt in geplant_set,
-        'haben_seite': r.stadt in haben_set,
+        'seite_geplant': bool(city_metas[r.stadt].seite_geplant) if r.stadt in city_metas else False,
+        'haben_seite': bool(city_metas[r.stadt].haben_seite) if r.stadt in city_metas else False,
         'hat_befreundete': r.stadt in befreundete_set,
         'angebote_summe': angebote_map.get(r.stadt, 0),
     } for r in rows])
@@ -11998,14 +12019,17 @@ def watchlist_staedte():
 @app.route('/api/watchlist/staedte/<string:stadt>/haben', methods=['PUT'])
 @login_required
 def watchlist_toggle_haben(stadt):
-    """Toggle haben_seite flag for all entries of a city."""
+    """Toggle haben_seite flag for a city in CityMeta."""
     d = request.json or {}
     new_val = bool(d.get('haben', True))
-    entries = WatchlistSeite.query.filter_by(stadt=stadt, is_deleted=False).all()
-    if not entries:
-        return jsonify({'ok': False, 'error': 'Keine Einträge'}), 404
-    for e in entries:
-        e.haben_seite = new_val
+    meta = WatchlistCityMeta.query.filter_by(stadt=stadt).first()
+    if not meta:
+        if not WatchlistSeite.query.filter_by(stadt=stadt, is_deleted=False).first():
+            return jsonify({'ok': False, 'error': 'Keine Einträge'}), 404
+        meta = WatchlistCityMeta(stadt=stadt)
+        db.session.add(meta)
+    meta.haben_seite = new_val
+    meta.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'ok': True, 'haben': new_val})
 
@@ -12013,14 +12037,17 @@ def watchlist_toggle_haben(stadt):
 @app.route('/api/watchlist/staedte/<string:stadt>/geplant', methods=['PUT'])
 @login_required
 def watchlist_toggle_geplant(stadt):
-    """Toggle seite_geplant flag for all entries of a city."""
+    """Toggle seite_geplant flag for a city in CityMeta."""
     d = request.json or {}
     new_val = bool(d.get('geplant', True))
-    entries = WatchlistSeite.query.filter_by(stadt=stadt, is_deleted=False).all()
-    if not entries:
-        return jsonify({'ok': False, 'error': 'Keine Einträge'}), 404
-    for e in entries:
-        e.seite_geplant = new_val
+    meta = WatchlistCityMeta.query.filter_by(stadt=stadt).first()
+    if not meta:
+        if not WatchlistSeite.query.filter_by(stadt=stadt, is_deleted=False).first():
+            return jsonify({'ok': False, 'error': 'Keine Einträge'}), 404
+        meta = WatchlistCityMeta(stadt=stadt)
+        db.session.add(meta)
+    meta.seite_geplant = new_val
+    meta.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'ok': True, 'geplant': new_val})
 
