@@ -54,11 +54,11 @@
 <!-- Automation levels -->
 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px">
   {% for level,label,desc,color in [
-    (0,'Stufe 0','Manuell','var(--muted)'),
-    (1,'Stufe 1','Auto-Entwürfe','var(--accent2)'),
-    (2,'Stufe 2','Entwürfe + Freigabe','var(--warning)'),
-    (3,'Stufe 3','Vollautomatisch','var(--success)'),
-    (4,'Stufe 4','Erweitert','#c084fc'),
+    (0,'L0 — Aus','Kein Auto-Run','var(--muted)'),
+    (1,'L1 — Entwurf','Auto erstellt, du postest','var(--accent2)'),
+    (2,'L2 — Freigabe','Entwurf + Genehmigung','var(--warning)'),
+    (3,'L3 — Auto','Vollautomatisch posten','var(--success)'),
+    (4,'L4 — Erweitert','Alle Features aktiv','#c084fc'),
   ] %}
   <div class="stat-card" style="border-top:2px solid {{ color }}">
     <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:{{ color }};text-transform:uppercase;margin-bottom:2px">{{ label }}</div>
@@ -107,12 +107,22 @@
         </span>
         <span class="badge badge-gray" style="font-size:10px">{{ rule.rule_type }}</span>
       </div>
-      <div style="display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted)">
+      <div style="display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted);flex-wrap:wrap">
         {% if rule.account %}<span><i class="fa-solid fa-layer-group" style="margin-right:4px"></i>{{ rule.account.name }}</span>{% endif %}
         <span><i class="fa-solid fa-clock" style="margin-right:4px"></i>alle {{ rule.run_interval_minutes }}min</span>
         <span><i class="fa-solid fa-play" style="margin-right:4px"></i>{{ rule.run_count }}× ausgeführt</span>
         {% if rule.error_count > 0 %}<span style="color:var(--danger)"><i class="fa-solid fa-circle-xmark" style="margin-right:4px"></i>{{ rule.error_count }} Fehler</span>{% endif %}
         {% if rule.last_run_at %}<span>Zuletzt: {{ rule.last_run_at.strftime('%d.%m %H:%M') }}</span>{% endif %}
+        {% set next_run = next_run_map.get(rule.id) %}
+        {% if next_run %}
+          {% if next_run <= now %}
+            <span style="color:var(--accent2);font-weight:600"><i class="fa-solid fa-bolt" style="margin-right:3px"></i>Nächster Lauf: jetzt fällig</span>
+          {% else %}
+            <span><i class="fa-solid fa-hourglass-half" style="margin-right:4px"></i>Nächster Lauf: {{ next_run.strftime('%d.%m %H:%M') }}</span>
+          {% endif %}
+        {% elif not rule.last_run_at %}
+          <span><i class="fa-solid fa-hourglass-half" style="margin-right:4px"></i>Noch nicht gelaufen</span>
+        {% endif %}
       </div>
     </div>
 
@@ -201,13 +211,15 @@ async function showLogs(id, name) {
   document.getElementById('logModal').style.display = 'flex';
   document.getElementById('logContent').innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px"><i class="fa-solid fa-spinner fa-spin"></i> Lädt…</div>';
   document.getElementById('logRetryBtn').style.display = 'none';
-  const logs = await (await fetch(`/api/automation/${id}/logs`)).json();
+  const allLogs = await (await fetch(`/api/automation/${id}/logs`)).json();
+  const logs = allLogs.slice(0, 5);
   document.getElementById('logRetryBtn').style.display = 'flex';
   if (!logs.length) {
     document.getElementById('logContent').innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Noch keine Ausführungen.</div>';
     return;
   }
-  document.getElementById('logContent').innerHTML = logs.map(l => {
+  const truncNote = allLogs.length > 5 ? `<div style="font-size:11px;color:var(--muted);text-align:center;padding:6px 0">Letzte 5 von ${allLogs.length} Ausführungen</div>` : '';
+  document.getElementById('logContent').innerHTML = truncNote + logs.map(l => {
     const started = new Date(l.started_at).toLocaleString('de-DE');
     const dur = l.finished_at ? ((new Date(l.finished_at)-new Date(l.started_at))/1000).toFixed(1)+'s' : '—';
     const color = l.status==='success'?'var(--success)':l.status==='error'?'var(--danger)':'var(--warning)';

@@ -4825,9 +4825,17 @@ def analytics_export():
 def automation():
     rules = AutomationRule.query.order_by(AutomationRule.active.desc(), AutomationRule.name).all()
     all_accounts = Account.query.order_by(Account.name).all()
+    now_utc = datetime.utcnow()
+    next_run_map = {}
+    for r in rules:
+        if r.last_run_at and r.run_interval_minutes:
+            next_run_map[r.id] = r.last_run_at + timedelta(minutes=r.run_interval_minutes)
+        else:
+            next_run_map[r.id] = None
     return render_template('automation.html',
         rules=rules, accounts=all_accounts, active_page='automation',
-        emergency_pause=_is_emergency_paused())
+        emergency_pause=_is_emergency_paused(),
+        next_run_map=next_run_map, now=now_utc)
 
 
 @app.route('/api/automation/emergency-pause', methods=['POST'])

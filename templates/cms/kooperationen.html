@@ -9,7 +9,7 @@
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
   <div>
     <div style="font-family:var(--font-display);font-size:22px;letter-spacing:1px">KOOPERATIONS-TRACKER</div>
-    <div style="font-size:12px;color:var(--muted);margin-top:3px">Deals, Paid Posts, UGC — Pipeline, Timeline und Zahlungsabwicklung.</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:3px">Deals, Paid Posts, UGC — Pipeline und Zahlungsabwicklung.</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
     <div style="display:flex;border:1px solid var(--border);border-radius:10px;overflow:hidden">
@@ -21,10 +21,6 @@
               style="padding:7px 14px;border:none;background:var(--surface2);color:var(--muted);
                      font-family:var(--font-body);font-size:11px;font-weight:700;cursor:pointer;border-left:1px solid var(--border)">
         <i class="fa-solid fa-columns"></i> PIPELINE</button>
-      <button onclick="setView('timeline',this)" id="viewBtn-timeline"
-              style="padding:7px 14px;border:none;background:var(--surface2);color:var(--muted);
-                     font-family:var(--font-body);font-size:11px;font-weight:700;cursor:pointer;border-left:1px solid var(--border)">
-        <i class="fa-solid fa-calendar-days"></i> TIMELINE</button>
     </div>
     <button onclick="openKoopModal()" class="btn btn-primary">
       <i class="fa-solid fa-plus"></i> Neue Koop</button>
@@ -106,11 +102,6 @@
     </div>
     {% endfor %}
   </div>
-</div>
-
-<!-- ══ TIMELINE ════════════════════════════════════════════════ -->
-<div id="view-timeline" style="display:none">
-  <div id="timelineWrap" style="overflow-x:auto"></div>
 </div>
 
 <!-- ══ DETAIL PANEL ════════════════════════════════════════════ -->
@@ -421,7 +412,7 @@ async function loadKoops() {
   koops = await r.json();
   updateKPIs(); renderAll();
 }
-function renderAll() { renderKoops(); renderPipeline(); renderTimeline(); }
+function renderAll() { renderKoops(); renderPipeline(); }
 
 // ── Chart ──────────────────────────────────────────────────────
 async function loadChart() {
@@ -488,7 +479,7 @@ function fmt(n) { return n.toLocaleString('de-DE',{style:'currency',currency:'EU
 // ── View ──────────────────────────────────────────────────────
 function setView(v) {
   activeView = v;
-  ['liste','pipeline','timeline'].forEach(vv => {
+  ['liste','pipeline'].forEach(vv => {
     document.getElementById(`view-${vv}`).style.display = vv===v ? 'block' : 'none';
     const b = document.getElementById(`viewBtn-${vv}`);
     b.style.background = vv===v ? 'var(--accent)' : 'var(--surface2)';
@@ -686,62 +677,6 @@ async function quickPayment(id, action) {
 // ════════════════════════════════════════════════════════════
 // TIMELINE
 // ════════════════════════════════════════════════════════════
-function renderTimeline() {
-  const wrap  = document.getElementById('timelineWrap');
-  const today = new Date(); today.setHours(0,0,0,0);
-  const WEEKS = 8;
-  const weeks = [];
-  for (let w=0;w<WEEKS;w++) {
-    const s=new Date(today); s.setDate(s.getDate()+w*7);
-    const e=new Date(s); e.setDate(e.getDate()+6);
-    weeks.push({ start:s, end:e, label:w===0?'Diese Woche':`+${w}W` });
-  }
-  const todayStr = today.toISOString().slice(0,10);
-  const withDate = koops.filter(k=>k.posting_dates?.length && k.status!=='storniert')
-    .sort((a,b)=>(a.posting_dates.sort()[0]||'').localeCompare(b.posting_dates.sort()[0]||''));
-  const noDate   = koops.filter(k=>!k.posting_dates?.length && k.status!=='storniert');
-  const overdue  = withDate.filter(k=>k.posting_dates.sort()[0] < todayStr && k.status!=='abgeschlossen');
-  const inRange  = withDate.filter(k=>k.posting_dates.sort()[0] >= todayStr);
-
-  let html = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden">`;
-  html += `<div style="display:grid;grid-template-columns:160px repeat(${WEEKS},1fr);border-bottom:1px solid var(--border)">
-    <div style="padding:10px 14px;font-size:10px;font-weight:700;color:var(--muted)">KOOPERATION</div>`;
-  weeks.forEach((w,i) => {
-    html += `<div style="padding:8px 4px;text-align:center;font-size:10px;font-weight:700;
-                         color:${i===0?'var(--accent)':'var(--muted)'};border-left:1px solid var(--border);
-                         background:${i===0?'rgba(59,130,246,.04)':''}">
-      ${w.label}<br><span style="font-weight:400;opacity:.5">${w.start.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})}</span></div>`;
-  });
-  html += `</div>`;
-
-  const makeRow = (k, isPast) => {
-    const sc = STATUS_CFG[k.status]||STATUS_CFG.anfrage;
-    const dates = (k.posting_dates||[]).sort();
-    const cells = weeks.map((w,wi) => {
-      const inWeek = dates.some(d => { const dd=new Date(d); return dd>=w.start&&dd<=w.end; });
-      return `<div style="border-left:1px solid var(--border);background:${wi===0?'rgba(59,130,246,.03)':''};
-                          padding:4px;display:flex;align-items:center;justify-content:center">
-        ${inWeek ? `<div style="width:22px;height:22px;border-radius:50%;
-                                background:${isPast?'#ef4444':sc.text};
-                                display:flex;align-items:center;justify-content:center">
-          <i class="fa-solid fa-camera" style="color:white;font-size:9px"></i></div>` : ''}
-      </div>`;
-    }).join('');
-    return `<div style="display:grid;grid-template-columns:160px repeat(${WEEKS},1fr);
-                        border-top:1px solid var(--border);cursor:pointer" onclick="openDetail(${k.id})">
-      <div style="padding:9px 14px">
-        <div style="font-size:12px;font-weight:700;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(k.partner_name)}</div>
-        <div style="font-size:10px;margin-top:2px"><span style="padding:1px 5px;border-radius:5px;background:${sc.bg};color:${sc.text}">${sc.label}</span></div>
-      </div>${cells}</div>`;
-  };
-
-  if (overdue.length) { html+=`<div style="padding:7px 14px;font-size:10px;font-weight:700;color:#ef4444;background:rgba(239,68,68,.05);border-bottom:1px solid var(--border)">⚠ VERGANGENE POSTINGS</div>`; overdue.forEach(k=>{ html+=makeRow(k,true); }); }
-  inRange.forEach(k=>{ html+=makeRow(k,false); });
-  if (noDate.length) { html+=`<div style="padding:7px 14px;font-size:10px;font-weight:700;color:var(--muted);border-top:1px solid var(--border)">OHNE POSTING-DATUM (${noDate.length})</div>`; noDate.forEach(k=>{ const sc=STATUS_CFG[k.status]||STATUS_CFG.anfrage; html+=`<div style="display:grid;grid-template-columns:160px repeat(${WEEKS},1fr);border-top:1px solid var(--border);cursor:pointer" onclick="openDetail(${k.id})"><div style="padding:9px 14px"><div style="font-size:12px;font-weight:700">${esc(k.partner_name)}</div><div style="font-size:10px;margin-top:2px"><span style="padding:1px 5px;border-radius:5px;background:${sc.bg};color:${sc.text}">${sc.label}</span></div></div>${weeks.map(()=>`<div style="border-left:1px solid var(--border)"></div>`).join('')}</div>`; }); }
-  if (!withDate.length && !noDate.length) html+=`<div style="text-align:center;color:var(--muted);padding:50px;font-size:13px">Noch keine Kooperationen.</div>`;
-  html += `</div>`;
-  wrap.innerHTML = html;
-}
 
 // ════════════════════════════════════════════════════════════
 // DETAIL PANEL
