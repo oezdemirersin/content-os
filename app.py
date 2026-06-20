@@ -24,8 +24,6 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     ContentSeries, Kooperation, AccountIdeenContext,
                     Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf,
                     WatchlistSeite, WatchlistFollowerSnapshot, WatchlistCityMeta)
-import smtplib
-from email.mime.text import MIMEText
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -1720,23 +1718,22 @@ init_db()
 
 # ─────────────────────── ALERT ENGINE ───────────────────────
 
-_email_sent_cache = set()  # verhindert doppelte Mails in einer Session
+_tg_alert_cache = set()  # verhindert doppelte Alerts in einer Session
 
-def _maybe_send_alert_email(account_name, stock_days):
-    """Sendet E-Mail-Alert wenn aktiviert und noch nicht in dieser Session gesendet."""
+def _maybe_send_low_stock_alert(account_name, stock_days):
     key = f'{account_name}:{round(stock_days, 0)}'
-    if key in _email_sent_cache:
+    if key in _tg_alert_cache:
         return
     try:
         ns = NotificationSettings.query.first()
-        if ns and ns.email_enabled and ns.email:
-            threshold = ns.low_stock_days or 3
-            if stock_days <= threshold:
-                ok = send_low_stock_email(account_name, stock_days, ns.email)
-                if ok:
-                    _email_sent_cache.add(key)
+        threshold = (ns.low_stock_days if ns else None) or 3
+        if stock_days <= threshold:
+            _send_central_alert(
+                f'⚠️ <b>Low-Stock: {account_name}</b>\nNur noch {stock_days:.1f} Tage Vorrat'
+            )
+            _tg_alert_cache.add(key)
     except Exception as e:
-        app.logger.error(f'Alert-Email Fehler: {e}')
+        app.logger.error(f'Low-Stock Alert Fehler: {e}')
 
 
 def _send_central_alert(message: str):
@@ -1780,7 +1777,7 @@ def generate_alerts():
                     account_id=acc.id, alert_type='low_stock', severity='critical',
                     message=f'"{acc.name}" hat nur {round(days, 1)} Tage Vorrat (Minimum: {acc.min_stock_days}T)'
                 ))
-                _maybe_send_alert_email(acc.name, days)
+                _maybe_send_low_stock_alert(acc.name, days)
                 _push_notification('low_stock',
                     f'⚠️ Kritischer Vorrat: {acc.name}',
                     f'Nur noch {round(days,1)} Tage Content-Vorrat!',
@@ -1790,7 +1787,7 @@ def generate_alerts():
                     account_id=acc.id, alert_type='low_stock', severity='warning',
                     message=f'"{acc.name}" hat nur {round(days, 1)} Tage Vorrat'
                 ))
-                _maybe_send_alert_email(acc.name, days)
+                _maybe_send_low_stock_alert(acc.name, days)
                 _push_notification('low_stock',
                     f'Low Stock: {acc.name}',
                     f'{round(days,1)} Tage Vorrat verbleibend.',
@@ -6992,66 +6989,23 @@ def get_notification_settings():
         db.session.commit()
     return ns
 
-def send_low_stock_email(account_name, stock_days, email):
-    """Sendet Low-Stock-Alert per E-Mail (Gmail SMTP oder lokaler Server)."""
-    try:
-        smtp_host = os.environ.get('SMTP_HOST', 'localhost')
-        smtp_port = int(os.environ.get('SMTP_PORT', 25))
-        smtp_user = os.environ.get('SMTP_USER', '')
-        smtp_pass = os.environ.get('SMTP_PASS', '')
-        from_addr = os.environ.get('SMTP_FROM', 'noreply@content-os.de')
-
-        body = f"""Content OS — Low-Stock Alert
-
-Account: {account_name}
-Verbleibender Vorrat: {stock_days:.1f} Tage
-
-Bitte plane neue Beiträge für diesen Account ein.
-
-→ https://content-os.de/accounts
-"""
-        msg = MIMEText(body, 'plain', 'utf-8')
-        msg['Subject'] = f'⚠️ Content OS: {account_name} nur noch {stock_days:.0f} Tage Vorrat'
-        msg['From'] = from_addr
-        msg['To'] = email
-
-        if smtp_user:
-            s = smtplib.SMTP_SSL(smtp_host, smtp_port) if smtp_port == 465 else smtplib.SMTP(smtp_host, smtp_port)
-            if smtp_port != 25:
-                s.starttls()
-            s.login(smtp_user, smtp_pass)
-        else:
-            s = smtplib.SMTP(smtp_host, smtp_port)
-        s.sendmail(from_addr, [email], msg.as_string())
-        s.quit()
-        return True
-    except Exception as e:
-        app.logger.error(f'Email-Fehler: {e}')
-        return False
-
 @app.route('/api/notifications/settings', methods=['GET'])
 def api_notif_get():
     ns = get_notification_settings()
-    return jsonify({'email': ns.email or '', 'low_stock_days': ns.low_stock_days,
-                    'email_enabled': ns.email_enabled})
+    return jsonify({'low_stock_days': ns.low_stock_days})
 
 @app.route('/api/notifications/settings', methods=['POST'])
 def api_notif_save():
     d = request.get_json()
     ns = get_notification_settings()
-    ns.email = d.get('email', ns.email)
     ns.low_stock_days = int(d.get('low_stock_days', ns.low_stock_days))
-    ns.email_enabled = bool(d.get('email_enabled', ns.email_enabled))
     db.session.commit()
     return jsonify({'ok': True})
 
-@app.route('/api/notifications/test-email', methods=['POST'])
+@app.route('/api/notifications/test-alert', methods=['POST'])
 def api_notif_test():
-    ns = get_notification_settings()
-    if not ns.email:
-        return jsonify({'ok': False, 'error': 'Keine E-Mail-Adresse hinterlegt'})
-    ok = send_low_stock_email('Test-Account', 2.0, ns.email)
-    return jsonify({'ok': ok})
+    _send_central_alert('⚠️ <b>Low-Stock: Test-Account</b>\nNur noch 2.0 Tage Vorrat')
+    return jsonify({'ok': True})
 
 
 # ═══════════════════════════════════════════════════════════════
