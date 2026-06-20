@@ -5314,6 +5314,19 @@ def label_delete(label_id):
     return redirect(url_for('settings'))
 
 
+@app.route('/api/labels/delete-unused', methods=['POST'])
+@login_required
+def labels_delete_unused():
+    all_labels = Label.query.all()
+    deleted = []
+    for label in all_labels:
+        if len(label.content_items) == 0:
+            deleted.append(label.name)
+            db.session.delete(label)
+    db.session.commit()
+    return jsonify({'ok': True, 'deleted': deleted, 'count': len(deleted)})
+
+
 @app.route('/settings/platform/<int:platform_id>/delete', methods=['POST'])
 def platform_delete(platform_id):
     p = Platform.query.get_or_404(platform_id)
@@ -10748,6 +10761,35 @@ def toggle_smart_refill():
         set_setting('smart_refill_threshold_days', str(int(d['threshold_days'])))
     return jsonify({'ok': True, 'enabled': enabled,
                     'threshold_days': int(get_setting('smart_refill_threshold_days') or 7)})
+
+
+@app.route('/api/settings/telegram-alert', methods=['GET'])
+@login_required
+def tg_alert_settings_get():
+    return jsonify({
+        'token':   get_setting('alert_telegram_token') or '',
+        'chat_id': get_setting('alert_central_chat_id') or '',
+    })
+
+
+@app.route('/api/settings/telegram-alert', methods=['POST'])
+@login_required
+def tg_alert_settings_save():
+    d = request.get_json() or {}
+    set_setting('alert_telegram_token',   (d.get('token')   or '').strip())
+    set_setting('alert_central_chat_id',  (d.get('chat_id') or '').strip())
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/settings/telegram-alert/test', methods=['POST'])
+@login_required
+def tg_alert_test():
+    try:
+        _send_central_alert('🔔 ContentOS Test-Nachricht — Telegram-Alerts sind aktiv!')
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 # ═══════════════════════════════════════════════════════════════

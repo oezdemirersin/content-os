@@ -56,7 +56,12 @@
   <div class="card" style="overflow:hidden">
     <div class="card-header">
       <span class="card-title">LABELS</span>
-      <span style="font-size:12px;color:var(--muted)">{{ labels|length }} gesamt</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:12px;color:var(--muted)">{{ labels|length }} gesamt</span>
+        <button onclick="deleteUnusedLabels()" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">
+          <i class="fa-solid fa-broom"></i> Ungenutzte löschen
+        </button>
+      </div>
     </div>
     <div style="padding:16px 20px;display:flex;flex-wrap:wrap;gap:8px;min-height:80px;max-height:280px;overflow-y:auto">
       {% for label in labels %}
@@ -236,6 +241,38 @@
     </div>
 </div>
 
+<!-- Telegram Central Alert -->
+<div class="card" style="max-width:540px;margin-top:14px">
+  <div class="card-header">
+    <span class="card-title"><i class="fa-brands fa-telegram" style="color:#29b6f6;margin-right:6px"></i>TELEGRAM ALERTS</span>
+    <span style="font-size:11px;color:var(--muted)">Zentraler Alert-Channel</span>
+  </div>
+  <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+    <div style="font-size:12px;color:var(--muted);line-height:1.6">
+      Alle System-Alerts (Follower-Verlust, Watchlist, Koop-Deadline) werden in <em>einen</em> zentralen Telegram-Channel gesendet.
+    </div>
+    <div>
+      <label class="form-label">Bot Token</label>
+      <input id="tgAlertToken" type="text" class="input-field" placeholder="123456:ABC-DEF..." autocomplete="off">
+    </div>
+    <div>
+      <label class="form-label">Chat-ID des Alert-Channels</label>
+      <input id="tgAlertChatId" type="text" class="input-field" placeholder="-100123456789">
+    </div>
+    <div style="display:flex;gap:10px">
+      <button onclick="saveTgAlert()" class="btn btn-primary" style="flex:1">
+        <i class="fa-solid fa-floppy-disk"></i> Speichern
+      </button>
+      <button onclick="testTgAlert()" class="btn btn-ghost">
+        <i class="fa-brands fa-telegram"></i> Testnachricht
+      </button>
+    </div>
+    <div style="font-size:11px;color:var(--muted)">
+      Token vom <a href="https://t.me/BotFather" target="_blank" style="color:var(--accent2)">@BotFather</a> — Chat-ID via <code style="color:var(--accent2)">@userinfobot</code> herausfinden.
+    </div>
+  </div>
+</div>
+
 <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:28px;margin-bottom:12px">
   RECHNUNGS-PROFIL
 </div>
@@ -371,6 +408,41 @@
   document.getElementById('notifDays').value  = d.low_stock_days || 3;
   document.getElementById('notifEnabled').checked = d.email_enabled;
 })();
+
+// Telegram Alert Settings laden
+(async function() {
+  try {
+    const d = await fetch('/api/settings/telegram-alert').then(r=>r.json());
+    document.getElementById('tgAlertToken').value  = d.token  || '';
+    document.getElementById('tgAlertChatId').value = d.chat_id || '';
+  } catch(e) {}
+})();
+
+async function saveTgAlert() {
+  const token   = document.getElementById('tgAlertToken').value.trim();
+  const chat_id = document.getElementById('tgAlertChatId').value.trim();
+  const r = await fetch('/api/settings/telegram-alert', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({token, chat_id})
+  }).then(r=>r.json());
+  showToast(r.ok ? 'Telegram-Alert gespeichert ✓' : 'Fehler: '+(r.error||''), r.ok?'success':'error');
+}
+
+async function testTgAlert() {
+  const r = await fetch('/api/settings/telegram-alert/test', {method:'POST'}).then(r=>r.json());
+  showToast(r.ok ? 'Testnachricht gesendet ✓' : 'Fehler: '+(r.error||''), r.ok?'success':'error');
+}
+
+async function deleteUnusedLabels() {
+  const ok = await customConfirm('Ungenutzte Labels löschen',
+    'Alle Labels ohne zugeordnete Content-Items werden gelöscht. Fortfahren?');
+  if (!ok) return;
+  const r = await fetch('/api/labels/delete-unused', {method:'POST'}).then(r=>r.json());
+  if (r.ok) {
+    showToast(r.count > 0 ? `${r.count} Label${r.count!==1?'s':''} gelöscht` : 'Keine ungenutzten Labels', 'success');
+    if (r.count > 0) setTimeout(() => location.reload(), 800);
+  }
+}
 
 async function saveNotifSettings() {
   const email       = document.getElementById('notifEmail').value;
