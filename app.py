@@ -13487,11 +13487,31 @@ def telegram_bot_webhook():
                 lines.append(f'{emoji} {acc.name}: {round(d, 1)}T | {acc.follower_count or 0:,} Follower')
             _tg_reply('\n'.join(lines))
 
+    # ── /check — Noch nicht gepostete Posts heute ──
+    elif cmd == '/check':
+        today_utc = datetime.utcnow().date()
+        pending = (ScheduledPost.query
+            .filter(func.date(ScheduledPost.telegram_sent_at) == today_utc,
+                    ScheduledPost.status.notin_(['published', 'error']))
+            .options(joinedload(ScheduledPost.account)).all())
+        if not pending:
+            _tg_reply('✅ Alle heutigen Posts wurden gepostet!')
+        else:
+            lines = [f'⏳ <b>Noch nicht gepostet heute ({len(pending)}):</b>', '']
+            for p in pending[:30]:
+                name = p.account.name if p.account else f'#{p.account_id}'
+                sent = p.telegram_sent_at.strftime('%H:%M') if p.telegram_sent_at else '?'
+                lines.append(f'• {name} (Bot: {sent} UTC)')
+            if len(pending) > 30:
+                lines.append(f'… und {len(pending)-30} weitere')
+            _tg_reply('\n'.join(lines))
+
     # ── /hilfe ──
     elif cmd == '/hilfe':
         acc_name = f' ({account.name})' if account else ''
         _tg_reply(
             f'<b>Content OS Bot{acc_name}</b>\n\n'
+            '/check — Wer hat heute noch nicht gepostet?\n'
             '/heute — Heutige geplante Posts\n'
             '/naechste [n] — Nächste n Posts (Standard: 5)\n'
             '/vorrat — Content-Vorrat in Tagen\n'
