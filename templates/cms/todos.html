@@ -27,19 +27,6 @@
     </template>
   </div>
 
-  <!-- Bereich-Filter (nur wenn mindestens ein Todo eine Seite hat) -->
-  <div x-show="usedPages.length > 0" style="display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap;padding:8px 10px;background:var(--surface2);border-radius:10px;align-items:center">
-    <span style="font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.5px;margin-right:2px">BEREICH</span>
-    <button @click="pageFilter=''" class="fchip" :class="pageFilter==='' ? 'active' : ''" style="font-size:11px">Alle</button>
-    <template x-for="p in usedPages" :key="p.key">
-      <button @click="pageFilter = pageFilter===p.key ? '' : p.key"
-              class="fchip" :class="pageFilter===p.key ? 'active' : ''" style="font-size:11px">
-        <i :class="'fa-solid ' + p.icon" style="font-size:9px;margin-right:3px"></i>
-        <span x-text="p.label"></span>
-      </button>
-    </template>
-  </div>
-
   <!-- Items Grid -->
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
     <template x-for="item in filtered" :key="item.id">
@@ -58,7 +45,7 @@
           </div>
         </template>
 
-        <!-- Kategorie-Pill + Prio + Bereich-Badge -->
+        <!-- Kategorie-Pill + Prio + Deadline -->
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
           <span class="todo-cat-pill"
                 :style="`background:${catColor(item.category)}18;color:${catColor(item.category)}`"
@@ -66,15 +53,11 @@
           <template x-if="item.priority === 1">
             <span style="font-size:10px;color:#f59e0b;font-weight:700">⭐ Hoch</span>
           </template>
-          <template x-if="item.linked_page">
-            <a :href="'/' + pageUrlSlug(item.linked_page)"
-               @click.stop
-               style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:rgba(99,102,241,.12);color:#818cf8;text-decoration:none;transition:background .15s"
-               onmouseover="this.style.background='rgba(99,102,241,.22)'" onmouseout="this.style.background='rgba(99,102,241,.12)'"
-               :title="'Zum Bereich: ' + pageLabel(item.linked_page)">
-              <i :class="'fa-solid ' + pageIcon(item.linked_page)" style="font-size:8px"></i>
-              <span x-text="pageLabel(item.linked_page)"></span>
-            </a>
+          <template x-if="item.deadline">
+            <span :style="`font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;${isOverdue(item.deadline) ? 'background:rgba(239,68,68,.15);color:#ef4444' : 'background:rgba(245,158,11,.12);color:#f59e0b'}`">
+              <i class="fa-solid fa-clock" style="font-size:9px;margin-right:3px"></i>
+              <span x-text="formatDeadline(item.deadline)"></span>
+            </span>
           </template>
           <span style="margin-left:auto;font-size:10px;color:var(--muted)" x-text="formatDate(item.created_at)"></span>
         </div>
@@ -156,6 +139,7 @@
           <option value="feature">⚙️ Feature</option>
           <option value="bug">🐛 Bug</option>
           <option value="notiz">📝 Notiz</option>
+          <option value="roadmap">🗺️ Roadmap</option>
         </select>
       </div>
       <div>
@@ -167,32 +151,9 @@
       </div>
     </div>
 
-    <!-- Bereich (Sidebar-Tab) -->
     <div style="margin-bottom:14px">
-      <label class="form-label">Bereich (optional)</label>
-      <select id="todoLinkedPage" class="select-field">
-        <option value="">— Kein bestimmter Bereich —</option>
-        <option value="heute">🏠 Dashboard</option>
-        <option value="accounts">👥 Accounts</option>
-        <option value="calendar_view">📅 Kalender</option>
-        <option value="analytics">📈 Analytics</option>
-        <option value="bulk_import_page">⬆️ Hochladen & Einplanen</option>
-        <option value="content_hub">📦 Content-Vorrat</option>
-        <option value="media_library">🖼️ Medienbibliothek</option>
-        <option value="inspirationen">💡 Inspirationen</option>
-        <option value="kategorien">🏷️ Kategorien</option>
-        <option value="content_ideen">✨ Content-Ideen</option>
-        <option value="content_serien">📋 Serien-Planer</option>
-        <option value="content_studio">🎨 Content Studio</option>
-        <option value="kooperationen">🤝 Kooperationen</option>
-        <option value="partner_list">📒 Partner CRM</option>
-        <option value="ausgaben">🧾 Ausgaben</option>
-        <option value="seiten_watchlist">🔭 Seiten Watchlist</option>
-        <option value="alerts_center">🔔 Alerts</option>
-        <option value="automation">🤖 Automatisierung</option>
-        <option value="settings">⚙️ Einstellungen</option>
-        <option value="integrations">🔌 Integrationen</option>
-      </select>
+      <label class="form-label">Deadline (optional)</label>
+      <input type="date" id="todoDeadline" class="input-field">
     </div>
 
     <!-- Bild Upload -->
@@ -283,78 +244,38 @@ const CAT_COLORS = {
   feature: '#34d399',
   bug:     '#f87171',
   notiz:   '#fbbf24',
+  roadmap: '#f472b6',
 };
 const CAT_LABELS = {
-  idee:'💡 Idee', feature:'⚙️ Feature', bug:'🐛 Bug', notiz:'📝 Notiz'
+  idee:'💡 Idee', feature:'⚙️ Feature', bug:'🐛 Bug', notiz:'📝 Notiz', roadmap:'🗺️ Roadmap'
 };
 
-const SIDEBAR_PAGES = [
-  {key:'heute',            label:'Dashboard',           icon:'fa-house'},
-  {key:'accounts',         label:'Accounts',            icon:'fa-users'},
-  {key:'calendar_view',    label:'Kalender',            icon:'fa-calendar'},
-  {key:'analytics',        label:'Analytics',           icon:'fa-chart-line'},
-  {key:'bulk_import_page', label:'Hochladen',           icon:'fa-upload'},
-  {key:'content_hub',      label:'Content-Vorrat',      icon:'fa-layer-group'},
-  {key:'media_library',    label:'Medienbibliothek',    icon:'fa-images'},
-  {key:'inspirationen',    label:'Inspirationen',       icon:'fa-lightbulb'},
-  {key:'kategorien',       label:'Kategorien',          icon:'fa-tags'},
-  {key:'content_ideen',    label:'Content-Ideen',       icon:'fa-star'},
-  {key:'content_serien',   label:'Serien-Planer',       icon:'fa-list'},
-  {key:'content_studio',   label:'Content Studio',      icon:'fa-wand-magic-sparkles'},
-  {key:'kooperationen',    label:'Kooperationen',       icon:'fa-handshake'},
-  {key:'partner_list',     label:'Partner CRM',         icon:'fa-address-book'},
-  {key:'ausgaben',         label:'Ausgaben',            icon:'fa-receipt'},
-  {key:'seiten_watchlist', label:'Seiten Watchlist',    icon:'fa-binoculars'},
-  {key:'alerts_center',    label:'Alerts',              icon:'fa-bell'},
-  {key:'automation',       label:'Automatisierung',     icon:'fa-robot'},
-  {key:'settings',         label:'Einstellungen',       icon:'fa-gear'},
-  {key:'integrations',     label:'Integrationen',       icon:'fa-plug'},
-];
-const PAGE_MAP = Object.fromEntries(SIDEBAR_PAGES.map(p => [p.key, p]));
-
-// Flask endpoint → URL slug mapping (where it differs from endpoint name)
-const PAGE_SLUGS = {
-  heute:            '',
-  calendar_view:    'kalender',
-  bulk_import_page: 'bulk-import',
-  content_hub:      'content-hub',
-  media_library:    'medienbibliothek',
-  content_ideen:    'content-ideen',
-  content_serien:   'content-serien',
-  content_studio:   'content-studio',
-  partner_list:     'partner-crm',
-  seiten_watchlist: 'seiten-watchlist',
-  alerts_center:    'alerts',
-  integrations:     'integrationen',
-};
 
 function todoApp() {
   return {
     items: [],
     activeTab: 'all',
-    pageFilter: '',
     customCats: [],
     get tabs() {
-      const builtin = [
+      return [
         { key: 'all',     label: 'Alle' },
         { key: 'idee',    label: '💡 Ideen' },
         { key: 'feature', label: '⚙️ Features' },
         { key: 'bug',     label: '🐛 Bugs' },
         { key: 'notiz',   label: '📝 Notizen' },
+        { key: 'roadmap', label: '🗺️ Roadmap' },
         ...this.customCats.map(c => ({ key: 'custom_' + c, label: c })),
         { key: 'done',    label: '✓ Erledigt' },
       ];
-      return builtin;
     },
     get counts() {
-      const c = { all:0, idee:0, feature:0, bug:0, notiz:0, done:0 };
+      const c = { all:0, idee:0, feature:0, bug:0, notiz:0, roadmap:0, done:0 };
       for (const cat of this.customCats) c['custom_' + cat] = 0;
       for (const i of this.items) {
         if (i.done) { c.done++; continue; }
         c.all++;
         const ck = this.customCats.includes(i.category) ? 'custom_' + i.category : i.category;
         if (c[ck] !== undefined) c[ck]++;
-        else if (c[i.category] !== undefined) c[i.category]++;
       }
       return c;
     },
@@ -373,12 +294,7 @@ function todoApp() {
           }
         }
       }
-      if (this.pageFilter) result = result.filter(i => i.linked_page === this.pageFilter);
       return result;
-    },
-    get usedPages() {
-      const keys = new Set(this.items.filter(i => i.linked_page).map(i => i.linked_page));
-      return SIDEBAR_PAGES.filter(p => keys.has(p.key));
     },
     async init() {
       this.items = _initialItems;
@@ -390,19 +306,32 @@ function todoApp() {
     },
     catLabel(c) { return CAT_LABELS[c] || c; },
     catColor(c) { return CAT_COLORS[c] || '#94a3b8'; },
-    pageLabel(key) { return PAGE_MAP[key] ? PAGE_MAP[key].label : key; },
-    pageIcon(key)  { return PAGE_MAP[key] ? PAGE_MAP[key].icon  : 'fa-link'; },
-    pageUrlSlug(key) { return PAGE_SLUGS[key] !== undefined ? PAGE_SLUGS[key] : key.replace(/_/g,'-'); },
     formatDate(iso) {
       if (!iso) return '';
       return new Date(iso).toLocaleDateString('de-DE', {day:'2-digit', month:'short', year:'numeric'});
+    },
+    formatDeadline(dl) {
+      if (!dl) return '';
+      const d = new Date(dl + 'T00:00:00');
+      const today = new Date(); today.setHours(0,0,0,0);
+      const diff = Math.round((d - today) / 86400000);
+      if (diff < 0) return `${Math.abs(diff)}T überfällig`;
+      if (diff === 0) return 'Heute fällig';
+      if (diff === 1) return 'Morgen fällig';
+      return d.toLocaleDateString('de-DE', {day:'2-digit', month:'short'});
+    },
+    isOverdue(dl) {
+      if (!dl) return false;
+      const d = new Date(dl + 'T00:00:00');
+      const today = new Date(); today.setHours(0,0,0,0);
+      return d < today;
     },
     openAdd() {
       document.getElementById('editTodoId').value = '';
       document.getElementById('todoText').value = '';
       document.getElementById('todoCategory').value = 'idee';
       document.getElementById('todoPriority').value = '0';
-      document.getElementById('todoLinkedPage').value = '';
+      document.getElementById('todoDeadline').value = '';
       clearModalImage();
       document.getElementById('todoModalTitle').textContent = 'NEUE NOTIZ';
       document.getElementById('todoModal').style.display = 'flex';
@@ -413,7 +342,7 @@ function todoApp() {
       document.getElementById('todoText').value = item.text;
       document.getElementById('todoCategory').value = item.category;
       document.getElementById('todoPriority').value = String(item.priority);
-      document.getElementById('todoLinkedPage').value = item.linked_page || '';
+      document.getElementById('todoDeadline').value = item.deadline || '';
       document.getElementById('todoModalTitle').textContent = 'NOTIZ BEARBEITEN';
       if (item.image_path) {
         document.getElementById('todoImgPreviewImg').src = item.image_path;
@@ -486,11 +415,12 @@ async function saveTodo() {
   const btn = document.getElementById('todoSaveBtn');
   btn.disabled = true;
 
+  const deadlineVal = document.getElementById('todoDeadline').value;
   const payload = {
     text,
-    category:    document.getElementById('todoCategory').value,
-    priority:    parseInt(document.getElementById('todoPriority').value),
-    linked_page: document.getElementById('todoLinkedPage').value || null,
+    category: document.getElementById('todoCategory').value,
+    priority: parseInt(document.getElementById('todoPriority').value),
+    deadline: deadlineVal || null,
   };
 
   const url    = id ? `/api/todos/${id}` : '/api/todos';

@@ -139,6 +139,32 @@ async function dismissChangelog() {
     </div>
   </a>
 
+  {% if follower_delta is not none %}
+  {% set delta_pos = follower_delta > 0 %}
+  {% set delta_neg = follower_delta < 0 %}
+  <a href="#" class="hchip {% if delta_pos %}hchip-indigo{% elif delta_neg %}hchip-red{% endif %}"
+     style="cursor:default">
+    <i class="fa-solid fa-{% if delta_pos %}arrow-trend-up{% elif delta_neg %}arrow-trend-down{% else %}minus{% endif %} hchip-icon"
+       style="color:{% if delta_pos %}#22c55e{% elif delta_neg %}#ef4444{% else %}var(--muted){% endif %}"></i>
+    <div>
+      <div class="hchip-num" style="color:{% if delta_pos %}#22c55e{% elif delta_neg %}#ef4444{% else %}var(--muted){% endif %}">
+        {% if delta_pos %}+{% endif %}{{ follower_delta }}
+      </div>
+      <div class="hchip-lbl">Follower heute</div>
+    </div>
+  </a>
+  {% endif %}
+
+  {% if faellige_todos %}
+  <a href="#faellige-todos" class="hchip hchip-red">
+    <i class="fa-solid fa-circle-exclamation hchip-icon" style="color:#ef4444"></i>
+    <div>
+      <div class="hchip-num" style="color:#ef4444">{{ faellige_todos|length }}</div>
+      <div class="hchip-lbl">Fällige Todos</div>
+    </div>
+  </a>
+  {% endif %}
+
 </div>
 
 {# ── Kein Vorrat ── #}
@@ -413,40 +439,63 @@ async function dismissChangelog() {
 </div>
 {% endif %}
 
+{# ── Fällige Todos ── #}
+{% if faellige_todos %}
+<div id="faellige-todos" style="margin-bottom:24px">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <i class="fa-solid fa-circle-exclamation" style="color:#ef4444"></i>
+    <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">FÄLLIGE TODOS</span>
+    <span style="font-size:12px;color:var(--muted)">({{ faellige_todos|length }})</span>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:6px">
+    {% for todo in faellige_todos %}
+    {% set overdue = todo.deadline < now.date() %}
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;
+         background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.2);border-radius:10px">
+      <i class="fa-solid fa-{% if overdue %}triangle-exclamation{% else %}clock{% endif %}"
+         style="font-size:13px;color:#ef4444;flex-shrink:0"></i>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--text)">{{ todo.text }}</div>
+        {% if todo.category %}
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">{{ todo.category }}</div>
+        {% endif %}
+      </div>
+      <div style="font-size:11px;font-weight:700;color:#ef4444;flex-shrink:0;white-space:nowrap">
+        {% if overdue %}Überfällig{% else %}Heute fällig{% endif %}
+        · {{ todo.deadline.strftime('%d.%m.') }}
+      </div>
+      <a href="{{ url_for('todos') }}" style="font-size:11px;color:var(--muted);text-decoration:none;flex-shrink:0">
+        <i class="fa-solid fa-arrow-right" style="font-size:9px"></i>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# ── KI-Verbrauch ── #}
 <div style="margin-bottom:24px">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
     <i class="fa-solid fa-microchip" style="color:var(--accent2)"></i>
     <span style="font-family:var(--font-display);font-size:14px;letter-spacing:.5px">KI-VERBRAUCH</span>
   </div>
-  <div id="aiUsageWidget" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-    <div class="card" style="padding:16px 20px">
-      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:10px">HEUTE</div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end">
-        <div>
-          <div style="font-family:var(--font-display);font-size:28px;color:var(--accent2)" id="ai-today-calls">—</div>
-          <div style="font-size:11px;color:var(--muted)">Anfragen</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:16px;font-weight:700;color:var(--text)" id="ai-today-cost">—</div>
-          <div style="font-size:11px;color:var(--muted)">Kosten</div>
-        </div>
-      </div>
-      <div id="ai-today-tokens" style="font-size:11px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">—</div>
+  <div id="aiUsageWidget" class="card" style="padding:14px 20px;display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+    <div style="display:flex;align-items:baseline;gap:6px">
+      <span style="font-family:var(--font-display);font-size:26px;color:var(--accent2)" id="ai-today-calls">—</span>
+      <span style="font-size:11px;color:var(--muted)">Anfragen heute</span>
     </div>
-    <div class="card" style="padding:16px 20px">
-      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:10px">DIESEN MONAT</div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end">
-        <div>
-          <div style="font-family:var(--font-display);font-size:28px;color:var(--accent2)" id="ai-month-calls">—</div>
-          <div style="font-size:11px;color:var(--muted)">Anfragen</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:16px;font-weight:700;color:var(--text)" id="ai-month-cost">—</div>
-          <div style="font-size:11px;color:var(--muted)">Kosten</div>
-        </div>
-      </div>
-      <div id="ai-month-breakdown" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:5px"></div>
+    <div style="display:flex;align-items:baseline;gap:6px">
+      <span style="font-size:15px;font-weight:700;color:var(--text)" id="ai-today-cost">—</span>
+      <span style="font-size:11px;color:var(--muted)">Kosten heute</span>
+    </div>
+    <div style="width:1px;height:28px;background:var(--border);flex-shrink:0"></div>
+    <div style="display:flex;align-items:baseline;gap:6px">
+      <span style="font-family:var(--font-display);font-size:26px;color:var(--accent2)" id="ai-month-calls">—</span>
+      <span style="font-size:11px;color:var(--muted)">Anfragen Monat</span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:6px">
+      <span style="font-size:15px;font-weight:700;color:var(--text)" id="ai-month-cost">—</span>
+      <span style="font-size:11px;color:var(--muted)">Kosten Monat</span>
     </div>
   </div>
 </div>
@@ -472,27 +521,10 @@ async function loadAiUsage() {
     const fmt = v => v.toLocaleString('de-DE');
     const fmtCost = v => v < 0.001 ? '< 0,001 €' : v.toFixed(3).replace('.',',') + ' €';
 
-    // Heute
     document.getElementById('ai-today-calls').textContent = d.today.calls;
     document.getElementById('ai-today-cost').textContent  = fmtCost(d.today.cost_eur);
-    document.getElementById('ai-today-tokens').textContent =
-      `${fmt(d.today.input_tokens)} Input + ${fmt(d.today.output_tokens)} Output Tokens`;
-
-    // Monat
     document.getElementById('ai-month-calls').textContent = d.month.calls;
     document.getElementById('ai-month-cost').textContent  = fmtCost(d.month.cost_eur);
-
-    // Feature-Breakdown als Chips
-    const bd = document.getElementById('ai-month-breakdown');
-    const features = Object.entries(d.month.by_feature)
-      .sort((a,b) => b[1].calls - a[1].calls);
-    bd.innerHTML = features.length
-      ? features.map(([f, v]) =>
-          `<span style="font-size:10px;padding:2px 8px;border-radius:8px;
-                        background:rgba(59,130,246,.1);color:var(--accent2)">
-            ${FEATURE_LABELS[f]||f} × ${v.calls}
-           </span>`).join('')
-      : '<span style="font-size:11px;color:var(--muted)">Noch keine Nutzung</span>';
   } catch(e) {}
 }
 

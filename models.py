@@ -734,6 +734,7 @@ class Kooperation(db.Model):
     invoice_reminder_sent   = db.Column(db.Boolean, default=False)
     payment_reminder_sent   = db.Column(db.Boolean, default=False)
     posting_reminder_sent   = db.Column(db.Boolean, default=False)  # 3 Tage vor Posting
+    follow_up_reminder_sent = db.Column(db.Boolean, default=False)  # 14 Tage ohne Reaktion
     campaign_name           = db.Column(db.String(200))
     contact_company         = db.Column(db.String(200))
     contact_street          = db.Column(db.String(200))
@@ -876,11 +877,12 @@ class AppTodo(db.Model):
     __tablename__ = 'app_todo'
     id          = db.Column(db.Integer, primary_key=True)
     text        = db.Column(db.Text, nullable=False)
-    category    = db.Column(db.String(50), default='idee')   # idee | feature | bug | notiz
+    category    = db.Column(db.String(50), default='idee')   # idee | feature | bug | notiz | roadmap
     done        = db.Column(db.Boolean, default=False)
     priority    = db.Column(db.Integer, default=0)           # 0=normal, 1=hoch
     image_path  = db.Column(db.String(500))
     linked_page = db.Column(db.String(100))                  # Flask endpoint name, e.g. 'calendar_view'
+    deadline    = db.Column(db.Date, nullable=True)
     created_at  = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -1591,6 +1591,11 @@ def init_db():
                     safe_alter('ALTER TABLE kooperation ADD COLUMN contact_street VARCHAR(200)')
                 if 'contact_city' not in k_cols:
                     safe_alter('ALTER TABLE kooperation ADD COLUMN contact_city VARCHAR(200)')
+                if 'follow_up_reminder_sent' not in k_cols:
+                    safe_alter('ALTER TABLE kooperation ADD COLUMN follow_up_reminder_sent BOOLEAN DEFAULT 0')
+                td_cols = [c['name'] for c in inspector.get_columns('app_todo')]
+                if 'deadline' not in td_cols:
+                    safe_alter('ALTER TABLE app_todo ADD COLUMN deadline DATE')
             except Exception:
                 pass
 
@@ -1616,6 +1621,8 @@ def init_db():
         safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_company VARCHAR(200)')
         safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_street VARCHAR(200)')
         safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_city VARCHAR(200)')
+        safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS follow_up_reminder_sent BOOLEAN DEFAULT FALSE')
+        safe_alter('ALTER TABLE app_todo ADD COLUMN IF NOT EXISTS deadline DATE')
 
         # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
         if is_postgres:
@@ -1727,11 +1734,23 @@ def _maybe_send_alert_email(account_name, stock_days):
         app.logger.error(f'Alert-Email Fehler: {e}')
 
 
+def _send_central_alert(message: str):
+    """Sendet eine Nachricht an den zentralen Alert-Telegram-Channel, falls konfiguriert."""
+    try:
+        token   = get_setting('alert_telegram_token')
+        chat_id = get_setting('alert_central_chat_id')
+        if token and chat_id:
+            _tg_send_message(token, chat_id, f'🔔 <b>ContentOS Alert</b>\n\n{message}')
+    except Exception:
+        pass
+
+
 def generate_alerts():
     """Auto-generate system alerts based on current state."""
     # Clear old unresolved automated alerts
     SystemAlert.query.filter_by(resolved=False).filter(
-        SystemAlert.alert_type.in_(['low_stock', 'no_posts', 'empty_stock', 'overcapacity'])
+        SystemAlert.alert_type.in_(['low_stock', 'no_posts', 'empty_stock', 'overcapacity',
+                                    'follower_loss', 'watchlist_no_reply'])
     ).delete()
     db.session.flush()  # sicherstellen dass deletes durch sind bevor neue eingefügt werden
 
@@ -1829,6 +1848,47 @@ def generate_alerts():
             alert_type='bot_error', severity='critical',
             message=f'Automatisierung "{rule.name}" hat {rule.error_count} Fehler'
         ))
+
+    # ── Follower-Verlust: Account verliert >10 Follower in einem Tag ───────
+    yesterday = (now - timedelta(days=1)).date()
+    for acc in accounts:
+        if not acc.follower_count:
+            continue
+        snap = AnalyticsSnapshot.query.filter(
+            AnalyticsSnapshot.account_id == acc.id,
+            func.date(AnalyticsSnapshot.recorded_at) == yesterday,
+        ).order_by(AnalyticsSnapshot.recorded_at.desc()).first()
+        if snap and snap.followers:
+            loss = snap.followers - acc.follower_count
+            if loss > 10:
+                msg = (f'📉 "{acc.name}" hat heute {loss} Follower verloren '
+                       f'({snap.followers:,} → {acc.follower_count:,})')
+                db.session.add(SystemAlert(
+                    account_id=acc.id, alert_type='follower_loss', severity='warning',
+                    message=msg,
+                ))
+                _send_central_alert(msg)
+
+    # ── Watchlist: Einträge seit >56 Tagen auf "Kontaktiert" ohne Antwort ──
+    wl_threshold = now - timedelta(days=56)
+    stale_entries = WatchlistSeite.query.filter(
+        WatchlistSeite.is_deleted == False,
+        WatchlistSeite.seiten_status == 'kontaktiert',
+        WatchlistSeite.kontaktiert_am.isnot(None),
+        WatchlistSeite.kontaktiert_am <= wl_threshold,
+    ).all()
+    stale_by_city = {}
+    for e in stale_entries:
+        stale_by_city.setdefault(e.stadt, []).append(e.ziel_name or e.handle or '?')
+    for city, names in stale_by_city.items():
+        n = len(names)
+        msg = (f'🕐 Watchlist {city}: {n} Seite{"n" if n>1 else ""} seit >56 Tagen auf '
+               f'"Kontaktiert" — wahrscheinlich keine Antwort mehr')
+        db.session.add(SystemAlert(
+            alert_type='watchlist_no_reply', severity='info',
+            message=msg,
+        ))
+        _send_central_alert(msg)
 
     try:
         db.session.commit()
@@ -3115,6 +3175,28 @@ def heute():
                    .order_by(SystemAlert.severity.desc())
                    .limit(8).all())
 
+    # ── 5. Follower-Delta (gestern vs. heute) ────────────────────────────
+    yesterday_start = today_start - timedelta(days=1)
+    follower_delta = None
+    try:
+        snap_yesterday = db.session.query(
+            func.sum(AnalyticsSnapshot.followers)
+        ).filter(
+            func.date(AnalyticsSnapshot.recorded_at) == yesterday_start.date()
+        ).scalar()
+        total_now = db.session.query(func.sum(Account.follower_count)).filter_by(status='active').scalar() or 0
+        if snap_yesterday:
+            follower_delta = int(total_now) - int(snap_yesterday)
+    except Exception:
+        pass
+
+    # ── 6. Fällige Todos (Deadline heute oder überfällig) ─────────────────
+    faellige_todos = AppTodo.query.filter(
+        AppTodo.done == False,
+        AppTodo.deadline.isnot(None),
+        AppTodo.deadline <= today_start.date(),
+    ).order_by(AppTodo.deadline.asc()).all()
+
     return render_template('heute.html',
         tg_queue=tg_queue,
         no_stock=no_stock,
@@ -3123,6 +3205,8 @@ def heute():
         days_map=days_map,
         posts_today=posts_today,
         open_alerts=open_alerts,
+        follower_delta=follower_delta,
+        faellige_todos=faellige_todos,
         changelog=get_changelog()[:5],
         changelog_unread=get_changelog_unread_count(),
         now=now,
@@ -11545,14 +11629,17 @@ def _koop_ref_date(k):
 
 
 def _check_koop_reminders():
-    """Erinnerungen: 3 Tage vor Posting + Rechnung (3W nach Posting) + Zahlung (2W nach Rechnung)."""
+    """Erinnerungen: 3 Tage vor Posting + Rechnung (3W nach Posting) + Zahlung (2W nach Rechnung)
+    + Deadline morgen + Follow-up nach 14 Tagen ohne Reaktion."""
     from datetime import date as _d, timedelta as _td
     try:
         with app.app_context():
             today = _d.today()
             in_3_days = today + _td(days=3)
+            tomorrow  = today + _td(days=1)
+            fourteen_days_ago = today - _td(days=14)
             koops = Kooperation.query.filter(
-                Kooperation.status.in_(['aktiv', 'abgeschlossen'])
+                Kooperation.status.in_(['aktiv', 'abgeschlossen', 'anfrage'])
             ).all()
             changed = False
             for k in koops:
@@ -11606,6 +11693,34 @@ def _check_koop_reminders():
                         ))
                         k.payment_reminder_sent = True
                         changed = True
+
+                # Erinnerung 3: Deadline morgen
+                if k.deadline == tomorrow and k.status == 'aktiv':
+                    msg = f'⚠️ Koop {k.partner_name}: Deadline ist MORGEN ({tomorrow})!'
+                    db.session.add(SystemAlert(
+                        account_id=k.account_id,
+                        alert_type='koop_deadline_tomorrow',
+                        severity='warning',
+                        message=msg,
+                    ))
+                    _send_central_alert(msg)
+                    changed = True
+
+                # Erinnerung 4: Follow-up — 14 Tage in "Anfrage" ohne Reaktion
+                if (not getattr(k, 'follow_up_reminder_sent', False)
+                        and k.status == 'anfrage'
+                        and k.created_at.date() <= fourteen_days_ago):
+                    msg = f'📬 Koop {k.partner_name}: Noch keine Reaktion nach 14 Tagen — Follow-up empfohlen'
+                    db.session.add(SystemAlert(
+                        account_id=k.account_id,
+                        alert_type='koop_follow_up',
+                        severity='info',
+                        message=msg,
+                    ))
+                    k.follow_up_reminder_sent = True
+                    _send_central_alert(msg)
+                    changed = True
+
             if changed:
                 db.session.commit()
     except Exception as e:
@@ -13771,6 +13886,7 @@ def todos():
         'done': bool(t.done), 'priority': t.priority or 0,
         'image_path': t.image_path or '',
         'linked_page': t.linked_page or '',
+        'deadline': t.deadline.isoformat() if t.deadline else None,
         'created_at': t.created_at.isoformat() if t.created_at else None
     } for t in items]
     return render_template('todos.html', active_page='todos', items=items_data)
@@ -13784,6 +13900,7 @@ def api_todos_list():
         'id': t.id, 'text': t.text, 'category': t.category,
         'done': t.done, 'priority': t.priority,
         'linked_page': t.linked_page or '',
+        'deadline': t.deadline.isoformat() if t.deadline else None,
         'created_at': t.created_at.isoformat() if t.created_at else None
     } for t in items])
 
@@ -13795,11 +13912,13 @@ def api_todo_create():
     text = (data.get('text') or '').strip()
     if not text:
         return jsonify({'ok': False, 'error': 'Text erforderlich'}), 400
+    dl = data.get('deadline')
     t = AppTodo(
         text=text,
         category=data.get('category', 'idee'),
         priority=int(data.get('priority', 0)),
         linked_page=data.get('linked_page') or None,
+        deadline=datetime.strptime(dl, '%Y-%m-%d').date() if dl else None,
         done=False
     )
     db.session.add(t)
@@ -13822,6 +13941,9 @@ def api_todo_update(tid):
         t.priority = int(data['priority'])
     if 'linked_page' in data:
         t.linked_page = data['linked_page'] or None
+    if 'deadline' in data:
+        dl = data['deadline']
+        t.deadline = datetime.strptime(dl, '%Y-%m-%d').date() if dl else None
     t.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({'ok': True})
