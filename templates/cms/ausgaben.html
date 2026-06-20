@@ -84,6 +84,65 @@
     </div>
   </div>
 
+  <!-- Monats-Budget -->
+  <div class="card" style="padding:16px 20px;margin-bottom:16px"
+       x-data="{
+         monatBudget: {{ monat_budget | tojson }},
+         monatSumme:  {{ monat_summe | tojson }},
+         editBudget: false,
+         budgetInput: {{ monat_budget | tojson }},
+         get pct() { return this.monatBudget > 0 ? Math.min(this.monatSumme / this.monatBudget * 100, 100) : 0; },
+         get exceeded() { return this.monatBudget > 0 && this.monatSumme > this.monatBudget; },
+         async saveBudget() {
+           const val = parseFloat(this.budgetInput) || 0;
+           const r = await fetch('/api/ausgaben/monat-budget', {
+             method: 'POST', headers: {'Content-Type':'application/json'},
+             body: JSON.stringify({budget: val})
+           });
+           const d = await r.json();
+           if (d.ok) { this.monatBudget = val; this.editBudget = false; showToast('Budget gespeichert', 'success'); }
+         }
+       }">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+      <div>
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.8px;margin-bottom:2px">MONATS-BUDGET</div>
+        <div x-show="!editBudget" style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-size:20px;font-weight:800"
+                x-text="monatBudget > 0 ? monatBudget.toLocaleString('de-DE',{minimumFractionDigits:2})+' €' : 'Kein Limit gesetzt'"></span>
+          <button @click="editBudget=true; budgetInput=monatBudget" class="icon-btn" style="font-size:10px">
+            <i class="fa-solid fa-pen"></i>
+          </button>
+        </div>
+        <div x-show="editBudget" style="display:flex;align-items:center;gap:6px;margin-top:4px">
+          <input type="number" x-model="budgetInput" @keydown.enter="saveBudget()" @keydown.escape="editBudget=false"
+                 class="input-field" style="width:130px;padding:5px 10px;font-size:13px" placeholder="0.00" step="0.01" min="0">
+          <button @click="saveBudget()" class="btn btn-primary" style="padding:5px 12px;font-size:12px">OK</button>
+          <button @click="editBudget=false" class="btn btn-ghost" style="padding:5px 10px;font-size:12px">✕</button>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:11px;color:var(--muted)">Diesen Monat ausgegeben</div>
+        <div style="font-size:18px;font-weight:800" :style="exceeded ? 'color:#ef4444' : ''"
+             x-text="monatSumme.toLocaleString('de-DE',{minimumFractionDigits:2})+' €'"></div>
+        <div x-show="monatBudget > 0" style="font-size:11px;margin-top:2px"
+             :style="exceeded ? 'color:#f87171' : 'color:#10b981'"
+             x-text="exceeded
+               ? '⚠ '+(monatSumme-monatBudget).toLocaleString('de-DE',{minimumFractionDigits:2})+' € über Budget'
+               : (monatBudget-monatSumme).toLocaleString('de-DE',{minimumFractionDigits:2})+' € noch verfügbar'">
+        </div>
+      </div>
+    </div>
+    <div x-show="monatBudget > 0">
+      <div style="height:6px;border-radius:3px;background:var(--surface2);overflow:hidden">
+        <div :style="'width:'+pct+'%;height:100%;border-radius:3px;transition:width .4s;background:'+(exceeded?'#ef4444':'linear-gradient(90deg,#6366f1,#22c55e)')"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:3px">
+        <span x-text="Math.round(pct)+'% verbraucht'"></span>
+        <span x-text="monatBudget.toLocaleString('de-DE',{minimumFractionDigits:2})+' € Limit'"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- Chart -->
   <div class="card" style="padding:20px;margin-bottom:16px">
     <div style="font-family:var(--font-display);font-size:12px;letter-spacing:.3px;margin-bottom:12px">MONATLICHE AUSGABEN {{ jahr }}</div>

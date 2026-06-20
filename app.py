@@ -3280,6 +3280,21 @@ def accounts():
     categories = Category.query.order_by(Category.name).all()
     platforms = Platform.query.all()
 
+    # 7-Tage-Wachstum: Snapshot von vor 7 Tagen pro Account
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    acc_ids = [a.id for a in pagination.items]
+    growth_map = {}
+    if acc_ids:
+        snaps = db.session.query(
+            AnalyticsSnapshot.account_id,
+            func.max(AnalyticsSnapshot.followers).label('followers')
+        ).filter(
+            AnalyticsSnapshot.account_id.in_(acc_ids),
+            func.date(AnalyticsSnapshot.recorded_at) == seven_days_ago.date()
+        ).group_by(AnalyticsSnapshot.account_id).all()
+        for s in snaps:
+            growth_map[s.account_id] = s.followers
+
     _f = {'q': q, 'category': category_id, 'platform': platform_id,
           'status': status, 'automation': automation, 'priority': priority, 'sort': sort}
     return render_template('accounts.html',
@@ -3287,6 +3302,7 @@ def accounts():
         categories=categories, platforms=platforms,
         active_page='accounts',
         acc_type=acc_type,
+        growth_map=growth_map,
         filters={k: v for k, v in _f.items() if v})
 
 
@@ -11801,6 +11817,17 @@ def ausgaben():
     except Exception:
         geplant_budget = 0.0
 
+    try:
+        monat_budget = float(get_setting('monat_budget') or 0)
+    except Exception:
+        monat_budget = 0.0
+
+    today_date = date.today()
+    monat_summe = sum(
+        a.betrag for a in alle
+        if a.datum.month == today_date.month and a.datum.year == today_date.year
+    )
+
     jahre = db.session.query(
         db.extract('year', Ausgabe.datum)
     ).distinct().order_by(db.extract('year', Ausgabe.datum).desc()).all()
@@ -11817,6 +11844,7 @@ def ausgaben():
         abo_items=abo_items, abo_monatlich=abo_monatlich, abo_jaehrlich=abo_jaehrlich,
         abo_finanzamt_mo=abo_finanzamt_mo,
         geplant_budget=geplant_budget,
+        monat_budget=monat_budget, monat_summe=monat_summe,
         geplant_items=[{
             'id': g.id, 'name': g.name, 'url': g.url or '',
             'betrag': g.betrag, 'kategorie': g.kategorie,
@@ -12465,6 +12493,19 @@ def geplant_kaufen(gid):
         db.session.add(a)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/ausgaben/monat-budget', methods=['POST'])
+@login_required
+def monat_budget_save():
+    d = request.json or {}
+    try:
+        val = float(d.get('budget', 0))
+        set_setting('monat_budget', str(val))
+        db.session.commit()
+        return jsonify({'ok': True, 'budget': val})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
 
 
 @app.route('/api/geplant/budget', methods=['POST'])

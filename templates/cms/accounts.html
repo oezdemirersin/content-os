@@ -268,6 +268,7 @@
         <th class="sortable" data-col="0" onclick="sortTable(0)" style="cursor:pointer;user-select:none">Account <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th class="sortable" data-col="1" onclick="sortTable(1)" style="cursor:pointer;user-select:none">Kategorie <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th class="sortable" data-col="2" onclick="sortTable(2)" style="text-align:right;cursor:pointer;user-select:none">Follower <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
+        <th style="text-align:right">7T Wachstum</th>
         <th class="sortable" data-col="3" onclick="sortTable(3)" style="text-align:center;cursor:pointer;user-select:none">Vorrat <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th style="text-align:center">Status</th>
         <th style="text-align:center">Priorität</th>
@@ -310,6 +311,27 @@
           <span style="font-family:var(--font-display);font-size:16px;color:var(--text)">
             {{ acc.follower_count | fmt_followers }}
           </span>
+        </td>
+        <td style="text-align:right;white-space:nowrap">
+          {% set snap7 = growth_map.get(acc.id) %}
+          {% if snap7 and acc.follower_count %}
+            {% set delta = acc.follower_count - snap7 %}
+            {% if delta > 0 %}
+              <span style="color:#22c55e;font-weight:700;font-size:12px">
+                <i class="fa-solid fa-arrow-trend-up" style="font-size:10px"></i>
+                +{{ delta | fmt_followers }}
+              </span>
+            {% elif delta < 0 %}
+              <span style="color:#ef4444;font-weight:700;font-size:12px">
+                <i class="fa-solid fa-arrow-trend-down" style="font-size:10px"></i>
+                {{ delta | fmt_followers }}
+              </span>
+            {% else %}
+              <span style="color:var(--muted);font-size:12px">±0</span>
+            {% endif %}
+          {% else %}
+            <span style="color:var(--muted);font-size:12px">—</span>
+          {% endif %}
         </td>
         <td style="text-align:center">
           {% if acc.automation_level >= 3 %}
