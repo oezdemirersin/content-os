@@ -130,7 +130,12 @@ def fmt_followers(n):
         return f'{n/1_000_000:.1f}M'.replace('.', ',')
     # Exakte Zahl mit Tausender-Punkt: 1600 → 1.600
     return f'{n:,}'.replace(',', '.')
-_secret = os.environ.get('SECRET_KEY') or 'content-os-secret-2024-v2'
+_secret = os.environ.get('SECRET_KEY')
+if not _secret:
+    _is_prod = 'postgresql' in os.environ.get('DATABASE_URL', '')
+    if _is_prod:
+        raise RuntimeError('SECRET_KEY env var must be set in production')
+    _secret = 'content-os-dev-only-secret'
 app.config['SECRET_KEY'] = _secret
 app.secret_key = _secret
 # Render gibt postgres:// zurück, SQLAlchemy braucht postgresql://
