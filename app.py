@@ -6,7 +6,8 @@ import threading
 import difflib
 import mimetypes
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from flask import (Flask, render_template, request, redirect, url_for,
                    jsonify, flash, send_from_directory, make_response, abort)
 from werkzeug.utils import secure_filename
@@ -226,7 +227,7 @@ def login_required(f):
 
 
 # ── Global auth guard — schützt ALLE Routen außer Login/Logout/Static ──
-PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'cron_sync_followers'}
+PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'cron_sync_followers', 'cron_morning_report'}
 
 @app.before_request
 def global_auth_guard():
@@ -7812,6 +7813,78 @@ def cron_sync_followers():
     return jsonify({'ok': True, 'msg': 'Follower-Sync gestartet', 'time': datetime.utcnow().isoformat()})
 
 
+@app.route('/cron/morning-report')
+def cron_morning_report():
+    """Täglicher Morgen-Report an den Alert-Telegram-Channel (07:00 Berlin).
+    Zeigt: Follower-Delta, nicht-gepostete Posts, spät-gepostete Posts (nach 22 Uhr)."""
+    expected = os.environ.get('CRON_TOKEN') or get_setting('cron_token') or ''
+    given = request.args.get('token', '')
+    if not expected or given != expected:
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
+
+    tg_token = get_setting('telegram_bot_token')
+    chat_id  = get_setting('alert_central_chat_id')
+    if not tg_token or not chat_id:
+        return jsonify({'ok': False, 'error': 'Telegram nicht konfiguriert'})
+
+    berlin    = ZoneInfo('Europe/Berlin')
+    yesterday = (datetime.now(berlin) - timedelta(days=1)).date()
+
+    # Nicht gepostet: gestern per Telegram geschickt, aber noch kein published_at
+    not_posted = (ScheduledPost.query
+        .filter(func.date(ScheduledPost.telegram_sent_at) == yesterday,
+                ScheduledPost.status.notin_(['published', 'error']))
+        .options(joinedload(ScheduledPost.account)).all())
+
+    # Spät gepostet: published nach 22 Uhr Berliner Zeit
+    posted_yesterday = (ScheduledPost.query
+        .filter(func.date(ScheduledPost.telegram_sent_at) == yesterday,
+                ScheduledPost.status == 'published',
+                ScheduledPost.published_at.isnot(None))
+        .options(joinedload(ScheduledPost.account)).all())
+    late_posted = [p for p in posted_yesterday
+                   if p.published_at.replace(tzinfo=timezone.utc).astimezone(berlin).hour >= 22]
+
+    # Follower-Delta
+    total_now = db.session.query(func.sum(Account.follower_count)).filter_by(status='active').scalar() or 0
+    snap_sum  = db.session.query(func.sum(AnalyticsSnapshot.followers)).filter(
+        func.date(AnalyticsSnapshot.recorded_at) == yesterday).scalar()
+    delta     = (int(total_now) - int(snap_sum)) if snap_sum else None
+    delta_str = (f'+{delta:,}' if delta >= 0 else f'{delta:,}') if delta is not None else '–'
+
+    lines = [f'🔔 <b>ContentOS — {yesterday.strftime("%d.%m.%Y")}</b>', '',
+             f'📊 Follower gestern: <b>{delta_str}</b>', '']
+
+    if not not_posted and not late_posted:
+        lines.append('✅ Alle Posts wurden rechtzeitig gepostet')
+    else:
+        if not_posted:
+            lines.append(f'⚠️ Nicht gepostet: <b>{len(not_posted)}</b>')
+        if late_posted:
+            lines.append(f'🌙 Nach 22 Uhr gepostet: <b>{len(late_posted)}</b>')
+
+    keyboard = []
+    ds = yesterday.isoformat()
+    if not_posted:
+        keyboard.append([{'text': f'Details: {len(not_posted)} nicht gepostet',
+                          'callback_data': f'morning_np_{ds}'}])
+    if late_posted:
+        keyboard.append([{'text': f'Details: {len(late_posted)} spät gepostet',
+                          'callback_data': f'morning_lp_{ds}'}])
+
+    payload = {'chat_id': chat_id, 'text': '\n'.join(lines), 'parse_mode': 'HTML'}
+    if keyboard:
+        payload['reply_markup'] = {'inline_keyboard': keyboard}
+
+    try:
+        import requests as _r
+        r = _r.post(f'https://api.telegram.org/bot{tg_token}/sendMessage',
+                    json=payload, timeout=10)
+        return jsonify({'ok': r.json().get('ok', False)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
 @app.route('/api/analytics/sync-followers-apify', methods=['POST'])
 @login_required
 def sync_followers_apify():
@@ -13185,6 +13258,49 @@ def telegram_bot_webhook():
                         f'Post #{post_id}')
                 else:
                     _tg_answer_callback(token, cb_id, 'Bereits markiert.', alert=False)
+            except Exception as e:
+                _tg_answer_callback(token, cb_id, f'Fehler: {e}', alert=True)
+
+        elif cb_data.startswith('morning_np_'):
+            try:
+                d = datetime.strptime(cb_data[len('morning_np_'):], '%Y-%m-%d').date()
+                posts = (ScheduledPost.query
+                    .filter(func.date(ScheduledPost.telegram_sent_at) == d,
+                            ScheduledPost.status.notin_(['published', 'error']))
+                    .options(joinedload(ScheduledPost.account)).all())
+                lines = [f'⚠️ <b>Nicht gepostet am {d.strftime("%d.%m")}:</b>', '']
+                for p in posts[:30]:
+                    name = p.account.name if p.account else f'#{p.account_id}'
+                    sent = p.telegram_sent_at.strftime('%H:%M') if p.telegram_sent_at else '?'
+                    lines.append(f'• {name} (Bot: {sent} UTC)')
+                if len(posts) > 30:
+                    lines.append(f'… und {len(posts)-30} weitere')
+                _tg_send_message(token, cb_chat_id, '\n'.join(lines))
+                _tg_answer_callback(token, cb_id, '', alert=False)
+            except Exception as e:
+                _tg_answer_callback(token, cb_id, f'Fehler: {e}', alert=True)
+
+        elif cb_data.startswith('morning_lp_'):
+            try:
+                berlin = ZoneInfo('Europe/Berlin')
+                d = datetime.strptime(cb_data[len('morning_lp_'):], '%Y-%m-%d').date()
+                raw = (ScheduledPost.query
+                    .filter(func.date(ScheduledPost.telegram_sent_at) == d,
+                            ScheduledPost.status == 'published',
+                            ScheduledPost.published_at.isnot(None))
+                    .options(joinedload(ScheduledPost.account)).all())
+                posts = [p for p in raw
+                         if p.published_at.replace(tzinfo=timezone.utc).astimezone(berlin).hour >= 22]
+                lines = [f'🌙 <b>Nach 22 Uhr gepostet am {d.strftime("%d.%m")}:</b>', '']
+                for p in posts[:30]:
+                    name = p.account.name if p.account else f'#{p.account_id}'
+                    sent = p.telegram_sent_at.strftime('%H:%M') if p.telegram_sent_at else '?'
+                    pub  = p.published_at.replace(tzinfo=timezone.utc).astimezone(berlin).strftime('%H:%M')
+                    lines.append(f'• {name} — Bot: {sent} UTC → Gepostet: {pub} Uhr')
+                if len(posts) > 30:
+                    lines.append(f'… und {len(posts)-30} weitere')
+                _tg_send_message(token, cb_chat_id, '\n'.join(lines))
+                _tg_answer_callback(token, cb_id, '', alert=False)
             except Exception as e:
                 _tg_answer_callback(token, cb_id, f'Fehler: {e}', alert=True)
 
