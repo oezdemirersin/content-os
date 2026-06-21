@@ -5036,23 +5036,25 @@ def team_delete(member_id):
 @app.route('/alerts')
 def alerts_center():
     from zoneinfo import ZoneInfo
+    from models import TeamMember
     alerts = SystemAlert.query.order_by(SystemAlert.resolved, SystemAlert.severity.desc(),
                                         SystemAlert.created_at.desc()).all()
     berlin = ZoneInfo('Europe/Berlin')
     today  = datetime.now(berlin).date()
-    posts_today = (ScheduledPost.query
-        .filter(func.date(ScheduledPost.telegram_sent_at) == today)
-        .options(joinedload(ScheduledPost.account))
-        .order_by(ScheduledPost.telegram_sent_at).all())
-    bot_settings = {
-        'alert_telegram_token': get_setting('alert_telegram_token', ''),
-        'alert_central_chat_id': get_setting('alert_central_chat_id', ''),
-    }
     ns = NotificationSettings.query.first()
     low_stock_days = (ns.low_stock_days if ns else None) or 3
+    bot_settings = {
+        'alert_telegram_token':  get_setting('alert_telegram_token', ''),
+        'alert_central_chat_id': get_setting('alert_central_chat_id', ''),
+        'telegram_bot_token':    get_setting('telegram_bot_token', ''),
+        'cron_token':            get_setting('cron_token') or os.environ.get('CRON_TOKEN', ''),
+        'anthropic_api_key':     get_setting('anthropic_api_key', ''),
+        'rapidapi_key':          get_setting('rapidapi_key', ''),
+    }
+    workers = TeamMember.query.filter_by(active=True).order_by(TeamMember.name).all()
     return render_template('alerts.html', alerts=alerts, active_page='alerts',
-                           posts_today=posts_today, bot_settings=bot_settings,
-                           low_stock_days=low_stock_days, today=today)
+                           bot_settings=bot_settings, low_stock_days=low_stock_days,
+                           today=today, workers=workers)
 
 
 @app.route('/alerts/refresh', methods=['POST'])
@@ -5095,18 +5097,17 @@ def api_monitor_posts():
 @app.route('/api/bot-settings', methods=['GET', 'POST'])
 @login_required
 def api_bot_settings():
+    SAVEABLE = ['alert_telegram_token', 'alert_central_chat_id', 'telegram_bot_token',
+                'cron_token', 'anthropic_api_key', 'rapidapi_key']
     if request.method == 'GET':
         ns = NotificationSettings.query.first()
-        return jsonify({
-            'alert_telegram_token': get_setting('alert_telegram_token', ''),
-            'alert_central_chat_id': get_setting('alert_central_chat_id', ''),
-            'low_stock_days': (ns.low_stock_days if ns else None) or 3,
-        })
+        result = {k: get_setting(k, '') for k in SAVEABLE}
+        result['low_stock_days'] = (ns.low_stock_days if ns else None) or 3
+        return jsonify(result)
     d = request.get_json()
-    if 'alert_telegram_token' in d:
-        set_setting('alert_telegram_token', d['alert_telegram_token'])
-    if 'alert_central_chat_id' in d:
-        set_setting('alert_central_chat_id', d['alert_central_chat_id'])
+    for key in SAVEABLE:
+        if key in d:
+            set_setting(key, d[key])
     if 'low_stock_days' in d:
         ns = NotificationSettings.query.first()
         if not ns:
@@ -5114,6 +5115,72 @@ def api_bot_settings():
         ns.low_stock_days = int(d['low_stock_days'])
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/monitor/workers')
+@login_required
+def api_monitor_workers():
+    from zoneinfo import ZoneInfo
+    from models import TeamMember
+    date_str = request.args.get('date')
+    try:
+        day = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else datetime.now(ZoneInfo('Europe/Berlin')).date()
+    except ValueError:
+        return jsonify({'error': 'invalid date'}), 400
+    berlin = ZoneInfo('Europe/Berlin')
+    # 7-day window for reliability score
+    week_ago = day - timedelta(days=6)
+    workers = TeamMember.query.filter_by(active=True).order_by(TeamMember.name).all()
+    result = []
+    for w in workers:
+        acc_ids = [a.id for a in w.accounts if a.status == 'active']
+        if not acc_ids:
+            continue
+        # Today's posts
+        posts = (ScheduledPost.query
+            .filter(ScheduledPost.account_id.in_(acc_ids),
+                    func.date(ScheduledPost.telegram_sent_at) == day)
+            .options(joinedload(ScheduledPost.account))
+            .order_by(ScheduledPost.telegram_sent_at).all())
+        # 7-day stats
+        week_posts = (ScheduledPost.query
+            .filter(ScheduledPost.account_id.in_(acc_ids),
+                    func.date(ScheduledPost.telegram_sent_at) >= week_ago,
+                    func.date(ScheduledPost.telegram_sent_at) <= day)
+            .all())
+        week_sent    = len(week_posts)
+        week_posted  = sum(1 for p in week_posts if p.published_at)
+        week_late    = sum(1 for p in week_posts if p.published_at and
+                          p.published_at.replace(tzinfo=timezone.utc).astimezone(berlin).hour >= 22)
+        reliability  = round(week_posted / week_sent * 100) if week_sent else None
+        account_rows = []
+        for p in posts:
+            sent = p.telegram_sent_at.replace(tzinfo=timezone.utc).astimezone(berlin) if p.telegram_sent_at else None
+            pub  = p.published_at.replace(tzinfo=timezone.utc).astimezone(berlin)     if p.published_at  else None
+            late = bool(pub and pub.hour >= 22)
+            account_rows.append({
+                'account':  p.account.name if p.account else '—',
+                'sent':     sent.strftime('%H:%M') if sent else None,
+                'posted':   pub.strftime('%H:%M')  if pub  else None,
+                'late':     late,
+                'status':   p.status,
+            })
+        today_sent    = len(posts)
+        today_posted  = sum(1 for p in posts if p.published_at)
+        today_late    = sum(1 for r in account_rows if r['late'])
+        today_missing = today_sent - today_posted
+        result.append({
+            'id':           w.id,
+            'name':         w.name,
+            'role':         w.role,
+            'account_count': len(acc_ids),
+            'today':        {'sent': today_sent, 'posted': today_posted,
+                             'late': today_late, 'missing': today_missing},
+            'week':         {'sent': week_sent, 'posted': week_posted,
+                             'late': week_late, 'reliability': reliability},
+            'posts':        account_rows,
+        })
+    return jsonify({'workers': result, 'date': str(day)})
 
 
 @app.route('/api/morning-report/test', methods=['POST'])
