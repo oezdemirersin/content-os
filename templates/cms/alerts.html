@@ -3,8 +3,7 @@
 {% block page_title %}ALERT-CENTER{% endblock %}
 
 {% block content %}
-<!-- Tab-Bar -->
-<div style="display:flex;gap:4px;margin-bottom:24px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px;width:fit-content;flex-wrap:wrap">
+<div style="display:flex;gap:4px;margin-bottom:24px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px;width:fit-content">
   {% set active_alerts = alerts|selectattr('resolved','equalto',false)|list|length %}
   <button onclick="switchTab('alerts')" id="tab-alerts"
     style="padding:8px 18px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;background:var(--accent);color:#fff">
@@ -15,13 +14,9 @@
     style="padding:8px 18px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;background:transparent;color:var(--muted)">
     <i class="fa-solid fa-chart-bar" style="margin-right:5px"></i>Posting Monitor
   </button>
-  <button onclick="switchTab('workers')" id="tab-workers"
-    style="padding:8px 18px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;background:transparent;color:var(--muted)">
-    <i class="fa-solid fa-users" style="margin-right:5px"></i>Mitarbeiter
-  </button>
   <button onclick="switchTab('settings')" id="tab-settings"
     style="padding:8px 18px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;background:transparent;color:var(--muted)">
-    <i class="fa-solid fa-sliders" style="margin-right:5px"></i>Einstellungen
+    <i class="fa-brands fa-telegram" style="margin-right:5px;color:#29b6f6"></i>Bot-Einstellungen
   </button>
 </div>
 
@@ -94,7 +89,7 @@
 
 <!-- ══════════ TAB 2: POSTING MONITOR ══════════ -->
 <div id="pane-monitor" style="display:none">
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
     <input type="date" id="monitor-date" value="{{ today }}" onchange="loadMonitor()"
       style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--text);font-size:13px">
     <button onclick="loadMonitor()" class="btn btn-ghost" style="font-size:12px"><i class="fa-solid fa-rotate"></i> Refresh</button>
@@ -119,157 +114,72 @@
 </div>
 
 
-<!-- ══════════ TAB 3: MITARBEITER ══════════ -->
-<div id="pane-workers" style="display:none">
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
-    <input type="date" id="workers-date" value="{{ today }}" onchange="loadWorkers()"
-      style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--text);font-size:13px">
-    <button onclick="loadWorkers()" class="btn btn-ghost" style="font-size:12px"><i class="fa-solid fa-rotate"></i> Refresh</button>
-  </div>
+<!-- ══════════ TAB 3: BOT-EINSTELLUNGEN ══════════ -->
+<div id="pane-settings" style="display:none;max-width:580px">
 
-  <!-- Gesamt-Stats -->
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px">
-    <div class="stat-card" style="border-left:3px solid var(--accent)"><div class="stat-label">Mitarbeiter aktiv</div><div class="stat-value" id="w-workers">—</div></div>
-    <div class="stat-card" style="border-left:3px solid var(--success)"><div class="stat-label">Gepostet</div><div class="stat-value green" id="w-posted">—</div></div>
-    <div class="stat-card" style="border-left:3px solid var(--warning)"><div class="stat-label">Spät (nach 22 Uhr)</div><div class="stat-value yellow" id="w-late">—</div></div>
-    <div class="stat-card" style="border-left:3px solid var(--danger)"><div class="stat-label">Nicht gepostet</div><div class="stat-value red" id="w-missing">—</div></div>
-  </div>
-
-  <!-- Worker-Karten -->
-  <div id="workers-body" style="display:flex;flex-direction:column;gap:12px">
-    <div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Lädt…</div>
-  </div>
-</div>
-
-
-<!-- ══════════ TAB 4: EINSTELLUNGEN ══════════ -->
-<div id="pane-settings" style="display:none">
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
-
-    <!-- ALERT BOT -->
-    <div class="card">
-      <div class="card-header"><span class="card-title"><i class="fa-brands fa-telegram" style="color:#29b6f6;margin-right:7px"></i>ALERT BOT</span></div>
-      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
-        <div>
-          <label class="settings-label">Alert Bot Token</label>
-          <div style="display:flex;gap:6px">
-            <input type="password" id="s-alert-token" value="{{ bot_settings.alert_telegram_token }}" placeholder="1234567:AAF..."
-              style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;color:var(--text);font-size:12px;font-family:monospace">
-            <button onclick="togglePw('s-alert-token')" class="btn btn-ghost" style="padding:8px 10px;font-size:12px"><i class="fa-solid fa-eye"></i></button>
-          </div>
-          <div class="settings-hint">@contentosalertsbot — für Low-Stock & Morgen-Report</div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+      <span class="card-title"><i class="fa-brands fa-telegram" style="color:#29b6f6;margin-right:7px"></i>ALERT BOT (@contentosalertsbot)</span>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:15px">
+      <div>
+        <label class="slabel">Bot Token</label>
+        <div style="display:flex;gap:6px">
+          <input type="password" id="s-alert-token" value="{{ bot_settings.alert_telegram_token }}" placeholder="1234567:AAF..."
+            style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:12px;font-family:monospace">
+          <button onclick="togglePw('s-alert-token')" class="btn btn-ghost" style="padding:9px 11px"><i class="fa-solid fa-eye"></i></button>
         </div>
-        <div>
-          <label class="settings-label">Alert Chat ID</label>
-          <input type="text" id="s-alert-chat" value="{{ bot_settings.alert_central_chat_id }}" placeholder="-1001234567890"
-            style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;color:var(--text);font-size:12px;font-family:monospace;box-sizing:border-box">
-          <div class="settings-hint">Gruppen-ID des "Content OS Alerts" Kanals</div>
-        </div>
-        <div>
-          <label class="settings-label">Low-Stock Warnung ab (Tage)</label>
-          <input type="number" id="s-low-stock" value="{{ low_stock_days }}" min="1" max="60"
-            style="width:100px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;color:var(--text);font-size:13px">
-          <div class="settings-hint">Alert wenn Vorrat ≤ X Tage</div>
-        </div>
-        <div style="display:flex;gap:8px;padding-top:4px;flex-wrap:wrap">
-          <button onclick="saveSection('alert')" class="btn btn-primary" style="font-size:12px"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
-          <button onclick="testAlert()" class="btn btn-ghost" style="font-size:12px"><i class="fa-solid fa-paper-plane"></i> Test-Alert</button>
-          <button onclick="testMorningReport()" class="btn btn-ghost" style="font-size:12px"><i class="fa-solid fa-sun"></i> Morgen-Report testen</button>
-        </div>
-        <div id="alert-result" style="font-size:12px;color:var(--muted);min-height:16px"></div>
+        <div class="shint">Via @BotFather erstellt — sendet Morgen-Report & Low-Stock-Alerts</div>
+      </div>
+      <div>
+        <label class="slabel">Alert Chat ID</label>
+        <input type="text" id="s-alert-chat" value="{{ bot_settings.alert_central_chat_id }}" placeholder="-1001234567890"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:12px;font-family:monospace;box-sizing:border-box">
+        <div class="shint">Gruppen-ID des "Content OS Alerts" Telegram-Kanals</div>
+      </div>
+      <div>
+        <label class="slabel">Low-Stock Warnung ab (Tage)</label>
+        <input type="number" id="s-low-stock" value="{{ low_stock_days }}" min="1" max="60"
+          style="width:100px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:13px">
+        <div class="shint">Alert wird gesendet wenn Vorrat ≤ X Tage verbleibt</div>
       </div>
     </div>
-
-    <!-- DELIVERY BOT -->
-    <div class="card">
-      <div class="card-header"><span class="card-title"><i class="fa-solid fa-robot" style="color:var(--accent2);margin-right:7px"></i>DELIVERY BOT</span></div>
-      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
-        <div>
-          <label class="settings-label">Delivery Bot Token</label>
-          <div style="display:flex;gap:6px">
-            <input type="password" id="s-delivery-token" value="{{ bot_settings.telegram_bot_token }}" placeholder="1234567:AAF..."
-              style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;color:var(--text);font-size:12px;font-family:monospace">
-            <button onclick="togglePw('s-delivery-token')" class="btn btn-ghost" style="padding:8px 10px;font-size:12px"><i class="fa-solid fa-eye"></i></button>
-          </div>
-          <div class="settings-hint">Bot der Beiträge in Mitarbeiter-Channels schickt (alle Minuten)</div>
-        </div>
-        <div style="padding:10px 14px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
-          <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px">Delivery-Logik</div>
-          <div style="font-size:12px;color:var(--muted);line-height:1.7">
-            • Jede Minute: sucht Posts mit <code>scheduled_at ≤ jetzt</code><br>
-            • Schickt Bild + Caption als Telegram-Karte<br>
-            • Setzt <code>telegram_sent_at</code> nach Versand<br>
-            • Mitarbeiter markiert manuell als "gepostet"
-          </div>
-        </div>
-        <button onclick="saveSection('delivery')" class="btn btn-primary" style="font-size:12px;width:fit-content"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
-      </div>
-    </div>
-
-    <!-- API KEYS -->
-    <div class="card">
-      <div class="card-header"><span class="card-title"><i class="fa-solid fa-key" style="color:var(--warning);margin-right:7px"></i>API KEYS</span></div>
-      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
-        <div>
-          <label class="settings-label">Anthropic API Key (KI-Features)</label>
-          <div style="display:flex;gap:6px">
-            <input type="password" id="s-anthropic" value="{{ bot_settings.anthropic_api_key }}" placeholder="sk-ant-api03-..."
-              style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;color:var(--text);font-size:12px;font-family:monospace">
-            <button onclick="togglePw('s-anthropic')" class="btn btn-ghost" style="padding:8px 10px;font-size:12px"><i class="fa-solid fa-eye"></i></button>
-          </div>
-          <div class="settings-hint">Caption-Generator, Content-Ideen, Meme-Adaption</div>
-        </div>
-        <div>
-          <label class="settings-label">RapidAPI Key (Follower-Sync)</label>
-          <div style="display:flex;gap:6px">
-            <input type="password" id="s-rapidapi" value="{{ bot_settings.rapidapi_key }}" placeholder="abc123..."
-              style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;color:var(--text);font-size:12px;font-family:monospace">
-            <button onclick="togglePw('s-rapidapi')" class="btn btn-ghost" style="padding:8px 10px;font-size:12px"><i class="fa-solid fa-eye"></i></button>
-          </div>
-          <div class="settings-hint">Für automatischen Follower-Scan (täglich 23:59)</div>
-        </div>
-        <button onclick="saveSection('apikeys')" class="btn btn-primary" style="font-size:12px;width:fit-content"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
-      </div>
-    </div>
-
-    <!-- CRON / SYSTEM -->
-    <div class="card">
-      <div class="card-header"><span class="card-title"><i class="fa-solid fa-clock" style="color:var(--success);margin-right:7px"></i>CRON & SYSTEM</span></div>
-      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
-        <div>
-          <label class="settings-label">Cron-Token (Endpoint-Absicherung)</label>
-          <div style="display:flex;gap:6px">
-            <input type="password" id="s-cron" value="{{ bot_settings.cron_token }}" placeholder="abc123..."
-              style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;color:var(--text);font-size:12px;font-family:monospace">
-            <button onclick="togglePw('s-cron')" class="btn btn-ghost" style="padding:8px 10px;font-size:12px"><i class="fa-solid fa-eye"></i></button>
-          </div>
-          <div class="settings-hint">Wird als <code>?token=</code> Parameter erwartet bei /cron/* Endpoints</div>
-        </div>
-        <div style="padding:10px 14px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
-          <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px">Aktive Cron-Jobs</div>
-          <div style="font-size:12px;color:var(--muted);line-height:1.8">
-            📅 Morgen-Report: <b>07:00 Berlin</b> täglich<br>
-            📊 Follower-Sync: <b>23:59 Berlin</b> täglich<br>
-            ⏱️ Delivery-Check: <b>jede Minute</b> (intern)
-          </div>
-        </div>
-        <button onclick="saveSection('cron')" class="btn btn-primary" style="font-size:12px;width:fit-content"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
-      </div>
-    </div>
-
   </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+      <span class="card-title"><i class="fa-solid fa-robot" style="color:var(--accent2);margin-right:7px"></i>DELIVERY BOT</span>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:15px">
+      <div>
+        <label class="slabel">Bot Token</label>
+        <div style="display:flex;gap:6px">
+          <input type="password" id="s-delivery-token" value="{{ bot_settings.telegram_bot_token }}" placeholder="1234567:AAF..."
+            style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:12px;font-family:monospace">
+          <button onclick="togglePw('s-delivery-token')" class="btn btn-ghost" style="padding:9px 11px"><i class="fa-solid fa-eye"></i></button>
+        </div>
+        <div class="shint">Sendet Beiträge jede Minute an Mitarbeiter-Channels (Webhook-Bot)</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+    <button onclick="saveBotSettings()" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
+    <button onclick="testAlert()" class="btn btn-ghost"><i class="fa-solid fa-paper-plane"></i> Test-Alert</button>
+    <button onclick="testMorningReport()" class="btn btn-ghost"><i class="fa-solid fa-sun"></i> Morgen-Report testen</button>
+  </div>
+  <div id="bot-result" style="font-size:12px;color:var(--muted);min-height:18px"></div>
 </div>
 {% endblock %}
 
 
 {% block scripts %}
 <style>
-.settings-label { font-size:11px;color:var(--muted);display:block;margin-bottom:5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em }
-.settings-hint  { font-size:11px;color:var(--muted);margin-top:4px }
+.slabel { font-size:11px;color:var(--muted);display:block;margin-bottom:5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em }
+.shint  { font-size:11px;color:var(--muted);margin-top:4px }
 </style>
 <script>
-// ── Tab switching ──────────────────────────────────────
-const TABS = ['alerts','monitor','workers','settings'];
+const TABS = ['alerts','monitor','settings'];
 function switchTab(name) {
   TABS.forEach(t => {
     document.getElementById(`pane-${t}`).style.display = t===name ? '' : 'none';
@@ -278,24 +188,21 @@ function switchTab(name) {
     btn.style.color      = t===name ? '#fff' : 'var(--muted)';
   });
   if (name==='monitor') loadMonitor();
-  if (name==='workers') loadWorkers();
   history.replaceState(null,'',`/alerts?tab=${name}`);
 }
 
-// ── Alerts ─────────────────────────────────────────────
 async function resolveAlert(id, silent=false) {
   const res = await fetch(`/api/alerts/resolve/${id}`, {method:'POST'});
   if ((await res.json()).ok) {
-    const el = document.getElementById(`alert-${id}`);
-    el.style.opacity = '.35';
-    el.querySelector('button.btn')?.remove();
+    document.getElementById(`alert-${id}`).style.opacity = '.35';
+    document.getElementById(`alert-${id}`).querySelector('button.btn')?.remove();
     if (!silent) showToast('Alert als erledigt markiert.', 'success');
   }
 }
 async function resolveAll() {
   const btns = document.querySelectorAll('[id^="alert-"] button.btn');
   if (!btns.length) return;
-  const ok = await customConfirm('Alle Alerts lösen', `${btns.length} Alert(s) als erledigt markieren?`, 'Alle lösen', 'btn-primary');
+  const ok = await customConfirm('Alle Alerts lösen', `${btns.length} Alert(s) lösen?`, 'Alle lösen', 'btn-primary');
   if (!ok) return;
   const ids = Array.from(document.querySelectorAll('[id^="alert-"]'))
     .filter(el => el.querySelector('button.btn'))
@@ -305,175 +212,62 @@ async function resolveAll() {
   setTimeout(() => location.reload(), 1000);
 }
 
-// ── Posting Monitor ────────────────────────────────────
 async function loadMonitor() {
-  const date  = document.getElementById('monitor-date').value;
+  const date = document.getElementById('monitor-date').value;
   const tbody = document.getElementById('monitor-body');
   tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Lädt…</td></tr>';
   const { posts=[] } = await fetch(`/api/monitor/posts?date=${date}`).then(r=>r.json());
-
   document.getElementById('m-sent').textContent    = posts.length;
   document.getElementById('m-posted').textContent  = posts.filter(p=>p.posted).length;
   document.getElementById('m-late').textContent    = posts.filter(p=>p.late).length;
   document.getElementById('m-missing').textContent = posts.filter(p=>!p.posted).length;
-
   if (!posts.length) {
     tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Keine gesendeten Beiträge für diesen Tag.</td></tr>';
     return;
   }
   tbody.innerHTML = posts.map(p => {
-    const [color, icon, label] = !p.posted
-      ? ['var(--danger)',  'fa-clock',               'Ausstehend']
-      : p.late
-      ? ['var(--warning)', 'fa-triangle-exclamation', 'Spät']
-      : ['var(--success)', 'fa-check-circle',         'Gepostet'];
+    const [color,icon,label] = !p.posted ? ['var(--danger)','fa-clock','Ausstehend']
+      : p.late ? ['var(--warning)','fa-triangle-exclamation','Spät'] : ['var(--success)','fa-check-circle','Gepostet'];
     const bg = !p.posted ? 'background:rgba(239,68,68,.04)' : p.late ? 'background:rgba(245,158,11,.04)' : '';
     return `<tr style="border-top:1px solid var(--border);${bg}">
       <td style="padding:11px 16px;font-size:13px;font-weight:500">${p.account}</td>
       <td style="padding:11px 16px;text-align:center;font-size:13px;color:var(--muted);font-family:monospace">${p.sent||'—'}</td>
-      <td style="padding:11px 16px;text-align:center;font-size:13px;font-family:monospace;font-weight:${p.late?'600':'400'};color:${p.late?'var(--warning)':p.posted?'var(--success)':'var(--muted)'}">${p.posted||'—'}</td>
-      <td style="padding:11px 16px;text-align:center">
-        <span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:${color};font-weight:600">
-          <i class="fa-solid ${icon}"></i>${label}
-        </span>
-      </td>
+      <td style="padding:11px 16px;text-align:center;font-size:13px;font-family:monospace;color:${p.late?'var(--warning)':p.posted?'var(--success)':'var(--muted)'}">${p.posted||'—'}</td>
+      <td style="padding:11px 16px;text-align:center"><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:${color};font-weight:600"><i class="fa-solid ${icon}"></i>${label}</span></td>
     </tr>`;
   }).join('');
 }
 
-// ── Mitarbeiter ────────────────────────────────────────
-async function loadWorkers() {
-  const date = document.getElementById('workers-date').value;
-  const body = document.getElementById('workers-body');
-  body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Lädt…</div>';
-
-  const { workers=[] } = await fetch(`/api/monitor/workers?date=${date}`).then(r=>r.json());
-
-  // Gesamt-Stats
-  const totalSent    = workers.reduce((s,w) => s + w.today.sent, 0);
-  const totalPosted  = workers.reduce((s,w) => s + w.today.posted, 0);
-  const totalLate    = workers.reduce((s,w) => s + w.today.late, 0);
-  const totalMissing = workers.reduce((s,w) => s + w.today.missing, 0);
-  document.getElementById('w-workers').textContent = workers.filter(w=>w.today.sent>0).length;
-  document.getElementById('w-posted').textContent  = totalPosted;
-  document.getElementById('w-late').textContent    = totalLate;
-  document.getElementById('w-missing').textContent = totalMissing;
-
-  if (!workers.length) {
-    body.innerHTML = '<div style="text-align:center;padding:60px;color:var(--muted);font-size:13px">Keine aktiven Mitarbeiter mit Accounts gefunden.</div>';
-    return;
-  }
-
-  body.innerHTML = workers.map(w => {
-    const rel = w.week.reliability;
-    const relColor = rel===null ? 'var(--muted)' : rel>=90 ? 'var(--success)' : rel>=70 ? 'var(--warning)' : 'var(--danger)';
-    const relLabel = rel===null ? '—' : `${rel}%`;
-
-    const badgeSent    = `<span style="background:rgba(99,102,241,.15);color:var(--accent);border-radius:6px;padding:2px 9px;font-size:11px;font-weight:700">${w.today.sent} gesendet</span>`;
-    const badgePosted  = w.today.posted  ? `<span style="background:rgba(34,197,94,.15);color:var(--success);border-radius:6px;padding:2px 9px;font-size:11px;font-weight:700">${w.today.posted} gepostet</span>` : '';
-    const badgeLate    = w.today.late    ? `<span style="background:rgba(245,158,11,.15);color:var(--warning);border-radius:6px;padding:2px 9px;font-size:11px;font-weight:700">${w.today.late} spät</span>` : '';
-    const badgeMissing = w.today.missing ? `<span style="background:rgba(239,68,68,.15);color:var(--danger);border-radius:6px;padding:2px 9px;font-size:11px;font-weight:700">${w.today.missing} fehlt</span>` : '';
-
-    const rows = w.posts.length
-      ? w.posts.map(p => {
-          const [color, icon] = !p.posted
-            ? ['var(--danger)',  'fa-clock']
-            : p.late
-            ? ['var(--warning)', 'fa-triangle-exclamation']
-            : ['var(--success)', 'fa-check'];
-          return `<tr style="border-top:1px solid var(--border)">
-            <td style="padding:8px 14px;font-size:12px;color:var(--text)">${p.account}</td>
-            <td style="padding:8px 14px;text-align:center;font-size:12px;color:var(--muted);font-family:monospace">${p.sent||'—'}</td>
-            <td style="padding:8px 14px;text-align:center;font-size:12px;font-family:monospace;color:${p.late?'var(--warning)':p.posted?'var(--success)':'var(--muted)'}">${p.posted||'—'}</td>
-            <td style="padding:8px 14px;text-align:center"><i class="fa-solid ${icon}" style="color:${color};font-size:13px"></i></td>
-          </tr>`;
-        }).join('')
-      : `<tr><td colspan="4" style="padding:16px;text-align:center;font-size:12px;color:var(--muted)">Heute keine Beiträge gesendet</td></tr>`;
-
-    return `<div class="card" style="overflow:hidden">
-      <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;cursor:pointer" onclick="toggleWorker(${w.id})">
-        <div style="display:flex;align-items:center;gap:12px">
-          <div style="width:38px;height:38px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0">
-            ${w.name.charAt(0).toUpperCase()}
-          </div>
-          <div>
-            <div style="font-size:14px;font-weight:700;color:var(--text)">${w.name}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:1px">${w.account_count} Accounts · 7-Tage-Zuverlässigkeit: <b style="color:${relColor}">${relLabel}</b></div>
-          </div>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          ${badgeSent}${badgePosted}${badgeLate}${badgeMissing}
-          <i class="fa-solid fa-chevron-down" id="chevron-${w.id}" style="color:var(--muted);font-size:12px;transition:transform .2s;margin-left:4px"></i>
-        </div>
-      </div>
-      <div id="worker-detail-${w.id}" style="display:none;border-top:1px solid var(--border)">
-        <table style="width:100%;border-collapse:collapse">
-          <thead><tr style="background:var(--surface2)">
-            <th style="padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Account</th>
-            <th style="padding:8px 14px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Bot gesendet</th>
-            <th style="padding:8px 14px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Gepostet</th>
-            <th style="padding:8px 14px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Status</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function toggleWorker(id) {
-  const detail  = document.getElementById(`worker-detail-${id}`);
-  const chevron = document.getElementById(`chevron-${id}`);
-  const open = detail.style.display === 'none';
-  detail.style.display  = open ? '' : 'none';
-  chevron.style.transform = open ? 'rotate(180deg)' : '';
-}
-
-// ── Einstellungen ──────────────────────────────────────
 function togglePw(id) {
   const inp = document.getElementById(id);
   inp.type = inp.type==='password' ? 'text' : 'password';
 }
-
-async function saveSection(section) {
-  const map = {
-    alert:    { alert_telegram_token: 's-alert-token', alert_central_chat_id: 's-alert-chat', low_stock_days: 's-low-stock' },
-    delivery: { telegram_bot_token: 's-delivery-token' },
-    apikeys:  { anthropic_api_key: 's-anthropic', rapidapi_key: 's-rapidapi' },
-    cron:     { cron_token: 's-cron' },
+async function saveBotSettings() {
+  const body = {
+    alert_telegram_token:  document.getElementById('s-alert-token').value.trim(),
+    alert_central_chat_id: document.getElementById('s-alert-chat').value.trim(),
+    telegram_bot_token:    document.getElementById('s-delivery-token').value.trim(),
+    low_stock_days:        parseInt(document.getElementById('s-low-stock').value)||3,
   };
-  const fields = map[section];
-  const body = {};
-  for (const [key, elId] of Object.entries(fields)) {
-    const el = document.getElementById(elId);
-    body[key] = key==='low_stock_days' ? parseInt(el.value)||3 : el.value.trim();
-  }
   const res = await fetch('/api/bot-settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-  if ((await res.json()).ok) showToast('Gespeichert.', 'success');
-  else showToast('Fehler beim Speichern.', 'danger');
+  const el = document.getElementById('bot-result');
+  if ((await res.json()).ok) { showToast('Gespeichert.','success'); el.textContent=''; }
+  else el.textContent = '❌ Fehler beim Speichern.';
 }
-
 async function testAlert() {
-  const el = document.getElementById('alert-result');
+  const el = document.getElementById('bot-result');
   el.textContent = 'Sendet…';
-  const res = await fetch('/api/notifications/test-alert', {method:'POST'});
-  const d = await res.json();
+  const d = await fetch('/api/notifications/test-alert',{method:'POST'}).then(r=>r.json());
   el.textContent = d.ok ? '✅ Test-Alert gesendet!' : '❌ Fehler — Bot/Chat-ID prüfen.';
 }
-
 async function testMorningReport() {
-  const el = document.getElementById('alert-result');
+  const el = document.getElementById('bot-result');
   el.textContent = 'Sendet…';
-  const res = await fetch('/api/morning-report/test', {method:'POST'}).catch(()=>null);
-  if (res?.ok) {
-    const d = await res.json();
-    el.textContent = d.ok ? '✅ Morgen-Report gesendet!' : `❌ ${d.error||'Fehler'}`;
-  } else {
-    el.textContent = '❌ Request fehlgeschlagen.';
-  }
+  const res = await fetch('/api/morning-report/test',{method:'POST'}).catch(()=>null);
+  if (res?.ok) { const d=await res.json(); el.textContent = d.ok?'✅ Morgen-Report gesendet!':`❌ ${d.error||'Fehler'}`; }
+  else el.textContent = '❌ Request fehlgeschlagen.';
 }
 
-// ── Init ───────────────────────────────────────────────
 (function(){
   const tab = new URLSearchParams(location.search).get('tab');
   if (tab && TABS.includes(tab)) switchTab(tab);

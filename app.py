@@ -1627,6 +1627,9 @@ def init_db():
         safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_city VARCHAR(200)')
         safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS follow_up_reminder_sent BOOLEAN DEFAULT FALSE')
         safe_alter('ALTER TABLE app_todo ADD COLUMN IF NOT EXISTS deadline DATE')
+        safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS phone VARCHAR(50)')
+        safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS telegram_username VARCHAR(100)')
+        safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS notes TEXT')
 
         # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
         if is_postgres:
@@ -5036,7 +5039,6 @@ def team_delete(member_id):
 @app.route('/alerts')
 def alerts_center():
     from zoneinfo import ZoneInfo
-    from models import TeamMember
     alerts = SystemAlert.query.order_by(SystemAlert.resolved, SystemAlert.severity.desc(),
                                         SystemAlert.created_at.desc()).all()
     berlin = ZoneInfo('Europe/Berlin')
@@ -5047,14 +5049,112 @@ def alerts_center():
         'alert_telegram_token':  get_setting('alert_telegram_token', ''),
         'alert_central_chat_id': get_setting('alert_central_chat_id', ''),
         'telegram_bot_token':    get_setting('telegram_bot_token', ''),
-        'cron_token':            get_setting('cron_token') or os.environ.get('CRON_TOKEN', ''),
-        'anthropic_api_key':     get_setting('anthropic_api_key', ''),
-        'rapidapi_key':          get_setting('rapidapi_key', ''),
     }
-    workers = TeamMember.query.filter_by(active=True).order_by(TeamMember.name).all()
     return render_template('alerts.html', alerts=alerts, active_page='alerts',
                            bot_settings=bot_settings, low_stock_days=low_stock_days,
-                           today=today, workers=workers)
+                           today=today)
+
+
+# ─────────────────────── MITARBEITER ───────────────────────
+
+@app.route('/mitarbeiter')
+@login_required
+def mitarbeiter():
+    from zoneinfo import ZoneInfo
+    members = TeamMember.query.filter_by(active=True).order_by(TeamMember.name).all()
+    berlin  = ZoneInfo('Europe/Berlin')
+    today   = datetime.now(berlin).date()
+    all_accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
+    return render_template('mitarbeiter.html', members=members, today=today,
+                           all_accounts=all_accounts, active_page='mitarbeiter')
+
+
+@app.route('/api/mitarbeiter/<int:member_id>', methods=['POST'])
+@login_required
+def api_mitarbeiter_update(member_id):
+    member = TeamMember.query.get_or_404(member_id)
+    d = request.get_json()
+    for field in ('name', 'email', 'role', 'phone', 'telegram_username', 'notes'):
+        if field in d:
+            setattr(member, field, d[field] or None)
+    if 'active' in d:
+        member.active = bool(d['active'])
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/mitarbeiter/new', methods=['POST'])
+@login_required
+def api_mitarbeiter_new():
+    d = request.get_json()
+    if not d.get('name') or not d.get('email'):
+        return jsonify({'ok': False, 'error': 'Name und E-Mail erforderlich'}), 400
+    if TeamMember.query.filter_by(email=d['email']).first():
+        return jsonify({'ok': False, 'error': 'E-Mail bereits vergeben'}), 400
+    m = TeamMember(
+        name=d['name'], email=d['email'],
+        role=d.get('role', 'poster'),
+        phone=d.get('phone') or None,
+        telegram_username=d.get('telegram_username') or None,
+        notes=d.get('notes') or None,
+    )
+    db.session.add(m)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': m.id})
+
+
+@app.route('/api/mitarbeiter/<int:member_id>/delete', methods=['POST'])
+@login_required
+def api_mitarbeiter_delete(member_id):
+    member = TeamMember.query.get_or_404(member_id)
+    Account.query.filter_by(team_member_id=member_id).update({'team_member_id': None})
+    ContentItem.query.filter_by(author_id=member_id).update({'author_id': None})
+    ScheduledPost.query.filter_by(created_by_id=member_id).update({'created_by_id': None})
+    db.session.flush()
+    db.session.delete(member)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/mitarbeiter/<int:member_id>/accounts', methods=['POST'])
+@login_required
+def api_mitarbeiter_accounts(member_id):
+    TeamMember.query.get_or_404(member_id)
+    d = request.get_json()
+    account_ids = [int(x) for x in (d.get('account_ids') or [])]
+    Account.query.filter_by(team_member_id=member_id).update({'team_member_id': None})
+    if account_ids:
+        Account.query.filter(Account.id.in_(account_ids)).update(
+            {'team_member_id': member_id}, synchronize_session='fetch')
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/mitarbeiter/<int:member_id>/stats')
+@login_required
+def api_mitarbeiter_stats(member_id):
+    from zoneinfo import ZoneInfo
+    member = TeamMember.query.get_or_404(member_id)
+    berlin   = ZoneInfo('Europe/Berlin')
+    today    = datetime.now(berlin).date()
+    week_ago = today - timedelta(days=6)
+    acc_ids  = [a.id for a in member.accounts if a.status == 'active']
+    if not acc_ids:
+        return jsonify({'days': [], 'totals': {'sent':0,'posted':0,'late':0,'missing':0}})
+    days_data = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        posts = ScheduledPost.query.filter(
+            ScheduledPost.account_id.in_(acc_ids),
+            func.date(ScheduledPost.telegram_sent_at) == day).all()
+        sent    = len(posts)
+        posted  = sum(1 for p in posts if p.published_at)
+        late    = sum(1 for p in posts if p.published_at and
+                      p.published_at.replace(tzinfo=timezone.utc).astimezone(berlin).hour >= 22)
+        days_data.append({'date': str(day), 'sent': sent, 'posted': posted,
+                          'late': late, 'missing': sent - posted})
+    totals = {k: sum(d[k] for d in days_data) for k in ('sent','posted','late','missing')}
+    return jsonify({'days': days_data, 'totals': totals})
 
 
 @app.route('/alerts/refresh', methods=['POST'])
@@ -5097,15 +5197,14 @@ def api_monitor_posts():
 @app.route('/api/bot-settings', methods=['GET', 'POST'])
 @login_required
 def api_bot_settings():
-    SAVEABLE = ['alert_telegram_token', 'alert_central_chat_id', 'telegram_bot_token',
-                'cron_token', 'anthropic_api_key', 'rapidapi_key']
+    BOT_KEYS = ['alert_telegram_token', 'alert_central_chat_id', 'telegram_bot_token']
     if request.method == 'GET':
         ns = NotificationSettings.query.first()
-        result = {k: get_setting(k, '') for k in SAVEABLE}
+        result = {k: get_setting(k, '') for k in BOT_KEYS}
         result['low_stock_days'] = (ns.low_stock_days if ns else None) or 3
         return jsonify(result)
     d = request.get_json()
-    for key in SAVEABLE:
+    for key in BOT_KEYS:
         if key in d:
             set_setting(key, d[key])
     if 'low_stock_days' in d:

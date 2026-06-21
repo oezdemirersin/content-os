@@ -87,6 +87,10 @@ class TeamMember(db.Model):
     avatar_url = db.Column(db.String(500))
     active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Contact
+    phone = db.Column(db.String(50))
+    telegram_username = db.Column(db.String(100))
+    notes = db.Column(db.Text)
     # Custom permissions JSON
     permissions = db.Column(db.Text, default='{}')
 

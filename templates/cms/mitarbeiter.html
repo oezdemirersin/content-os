@@ -1,0 +1,376 @@
+{% extends "base.html" %}
+{% block title %}Mitarbeiter — Content OS{% endblock %}
+{% block page_title %}MITARBEITER{% endblock %}
+
+{% block content %}
+<style>
+.ma-card { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:box-shadow .2s }
+.ma-card:hover { box-shadow:0 4px 20px rgba(0,0,0,.12) }
+.ma-avatar { width:46px;height:46px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff;flex-shrink:0 }
+.ma-role { font-size:11px;padding:2px 9px;border-radius:20px;font-weight:700;display:inline-block }
+.role-owner   { background:rgba(239,68,68,.15);color:#ef4444 }
+.role-manager { background:rgba(245,158,11,.15);color:#f59e0b }
+.role-editor  { background:rgba(99,102,241,.15);color:var(--accent) }
+.role-poster  { background:rgba(34,197,94,.15);color:var(--success) }
+.role-analyst { background:rgba(14,165,233,.15);color:#0ea5e9 }
+.ma-contact-chip { display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);background:var(--surface2);border-radius:6px;padding:3px 9px }
+.ma-section { border-top:1px solid var(--border);padding:18px 20px }
+.ma-label { font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px }
+.ma-input { background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;color:var(--text);font-size:13px;width:100%;box-sizing:border-box }
+.ma-input:focus { outline:none;border-color:var(--accent) }
+.rel-bar-wrap { height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-top:4px }
+.rel-bar { height:100%;border-radius:3px;transition:width .4s }
+</style>
+
+<!-- Header -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <div style="font-size:13px;color:var(--muted)">{{ members|length }} aktive Mitarbeiter</div>
+  <button onclick="openAddModal()" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Mitarbeiter hinzufügen</button>
+</div>
+
+<!-- Summary -->
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px">
+  <div class="stat-card" style="border-left:3px solid var(--accent)">
+    <div class="stat-label">Mitarbeiter</div>
+    <div class="stat-value">{{ members|length }}</div>
+  </div>
+  <div class="stat-card" style="border-left:3px solid var(--success)">
+    <div class="stat-label">Seiten zugewiesen</div>
+    <div class="stat-value green">{{ members|sum(attribute='accounts')|length }}</div>
+  </div>
+  <div class="stat-card" style="border-left:3px solid var(--warning)">
+    <div class="stat-label">Seiten ohne Mitarbeiter</div>
+    <div class="stat-value yellow">{{ all_accounts|selectattr('team_member_id','none')|list|length }}</div>
+  </div>
+</div>
+
+<!-- Worker Cards -->
+<div style="display:flex;flex-direction:column;gap:14px" id="workers-list">
+{% for m in members %}
+<div class="ma-card" id="card-{{ m.id }}">
+
+  <!-- Header row -->
+  <div style="padding:18px 20px;display:flex;align-items:center;gap:14px">
+    <div class="ma-avatar" style="background:{{ ['#6366f1','#8b5cf6','#ec4899','#0ea5e9','#10b981','#f59e0b'][loop.index0 % 6] }}">
+      {{ m.name[0].upper() }}
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:5px">
+        <span style="font-size:15px;font-weight:700;color:var(--text)">{{ m.name }}</span>
+        <span class="ma-role role-{{ m.role }}">{{ {'owner':'Owner','manager':'Manager','editor':'Editor','poster':'Poster','analyst':'Analyst'}.get(m.role, m.role) }}</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span class="ma-contact-chip"><i class="fa-solid fa-envelope" style="font-size:10px"></i>{{ m.email }}</span>
+        {% if m.phone %}<span class="ma-contact-chip"><i class="fa-solid fa-phone" style="font-size:10px"></i>{{ m.phone }}</span>{% endif %}
+        {% if m.telegram_username %}<a href="https://t.me/{{ m.telegram_username.lstrip('@') }}" target="_blank" class="ma-contact-chip" style="text-decoration:none;color:var(--muted)"><i class="fa-brands fa-telegram" style="font-size:10px;color:#29b6f6"></i>{{ m.telegram_username }}</a>{% endif %}
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+      <span style="font-size:12px;color:var(--muted);white-space:nowrap">{{ m.accounts|length }} Seiten</span>
+      <button onclick="togglePanel({{ m.id }},'stats')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">
+        <i class="fa-solid fa-chart-bar"></i> Stats
+      </button>
+      <button onclick="togglePanel({{ m.id }},'accounts')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">
+        <i class="fa-solid fa-link"></i> Seiten
+      </button>
+      <button onclick="togglePanel({{ m.id }},'edit')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">
+        <i class="fa-solid fa-pen"></i>
+      </button>
+      <button onclick="deleteMember({{ m.id }}, '{{ m.name }}')" class="btn btn-ghost" style="font-size:12px;padding:6px 10px;color:var(--danger);border-color:rgba(239,68,68,.3)">
+        <i class="fa-solid fa-trash"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Panel: Stats -->
+  <div id="panel-{{ m.id }}-stats" class="ma-section" style="display:none">
+    <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:14px">Performance — letzte 7 Tage</div>
+    <div id="stats-{{ m.id }}" style="color:var(--muted);font-size:13px">Lädt…</div>
+  </div>
+
+  <!-- Panel: Seiten zuweisen -->
+  <div id="panel-{{ m.id }}-accounts" class="ma-section" style="display:none">
+    <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">Zugewiesene Seiten</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px" id="acc-chips-{{ m.id }}">
+      {% for a in m.accounts|sort(attribute='name') %}
+      <span style="display:inline-flex;align-items:center;gap:6px;background:rgba(99,102,241,.12);color:var(--accent);border-radius:7px;padding:4px 11px;font-size:12px;font-weight:600">
+        {{ a.name }}
+        <button onclick="unassignAccount({{ m.id }},{{ a.id }},this)" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:0;line-height:1">✕</button>
+      </span>
+      {% else %}
+      <span style="font-size:13px;color:var(--muted)">Keine Seiten zugewiesen</span>
+      {% endfor %}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <select id="add-acc-{{ m.id }}"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 11px;color:var(--text);font-size:13px;flex:1">
+        <option value="">— Seite hinzufügen —</option>
+        {% for a in all_accounts|sort(attribute='name') %}
+        {% if a.team_member_id != m.id %}
+        <option value="{{ a.id }}">{{ a.name }}{% if a.team_member %} (aktuell: {{ a.team_member.name }}){% endif %}</option>
+        {% endif %}
+        {% endfor %}
+      </select>
+      <button onclick="assignAccount({{ m.id }})" class="btn btn-primary" style="font-size:12px">
+        <i class="fa-solid fa-plus"></i> Zuweisen
+      </button>
+    </div>
+  </div>
+
+  <!-- Panel: Bearbeiten -->
+  <div id="panel-{{ m.id }}-edit" class="ma-section" style="display:none">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <label class="ma-label">Name</label>
+        <input class="ma-input" id="edit-name-{{ m.id }}" value="{{ m.name }}">
+      </div>
+      <div>
+        <label class="ma-label">E-Mail</label>
+        <input class="ma-input" id="edit-email-{{ m.id }}" value="{{ m.email }}">
+      </div>
+      <div>
+        <label class="ma-label">Rolle</label>
+        <select class="ma-input" id="edit-role-{{ m.id }}">
+          {% for r in ['owner','manager','editor','poster','analyst'] %}
+          <option value="{{ r }}" {% if m.role==r %}selected{% endif %}>{{ r.capitalize() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="ma-label">Telefon</label>
+        <input class="ma-input" id="edit-phone-{{ m.id }}" value="{{ m.phone or '' }}" placeholder="+49 170 ...">
+      </div>
+      <div>
+        <label class="ma-label">Telegram</label>
+        <input class="ma-input" id="edit-tg-{{ m.id }}" value="{{ m.telegram_username or '' }}" placeholder="@username">
+      </div>
+      <div>
+        <label class="ma-label">Notizen</label>
+        <input class="ma-input" id="edit-notes-{{ m.id }}" value="{{ m.notes or '' }}" placeholder="Zuständigkeiten, Schichten, ...">
+      </div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px">
+      <button onclick="saveMember({{ m.id }})" class="btn btn-primary" style="font-size:13px">
+        <i class="fa-solid fa-floppy-disk"></i> Speichern
+      </button>
+      <button onclick="closePanel({{ m.id }})" class="btn btn-ghost" style="font-size:13px">Abbrechen</button>
+    </div>
+  </div>
+
+</div>
+{% else %}
+<div style="text-align:center;padding:80px 20px">
+  <i class="fa-solid fa-users" style="font-size:40px;color:var(--muted);opacity:.3;display:block;margin-bottom:16px"></i>
+  <div style="font-size:15px;font-weight:600;color:var(--muted)">Noch keine Mitarbeiter</div>
+  <div style="font-size:13px;color:var(--muted);margin-top:4px">Füge deinen ersten Mitarbeiter hinzu.</div>
+</div>
+{% endfor %}
+</div>
+
+
+<!-- Modal: Mitarbeiter hinzufügen -->
+<div id="add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:none;align-items:center;justify-content:center">
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:28px;width:500px;max-width:90vw">
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:20px">Mitarbeiter hinzufügen</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label class="ma-label">Name *</label>
+        <input class="ma-input" id="new-name" placeholder="Max Mustermann">
+      </div>
+      <div>
+        <label class="ma-label">E-Mail *</label>
+        <input class="ma-input" id="new-email" type="email" placeholder="max@example.com">
+      </div>
+      <div>
+        <label class="ma-label">Rolle</label>
+        <select class="ma-input" id="new-role">
+          <option value="poster">Poster</option>
+          <option value="editor">Editor</option>
+          <option value="manager">Manager</option>
+          <option value="analyst">Analyst</option>
+          <option value="owner">Owner</option>
+        </select>
+      </div>
+      <div>
+        <label class="ma-label">Telefon</label>
+        <input class="ma-input" id="new-phone" placeholder="+49 170 ...">
+      </div>
+      <div>
+        <label class="ma-label">Telegram</label>
+        <input class="ma-input" id="new-tg" placeholder="@username">
+      </div>
+      <div>
+        <label class="ma-label">Notizen</label>
+        <input class="ma-input" id="new-notes" placeholder="Zuständigkeiten ...">
+      </div>
+    </div>
+    <div id="add-error" style="font-size:12px;color:var(--danger);min-height:18px;margin-bottom:10px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeAddModal()" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="addMember()" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Hinzufügen</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+// ── Panel toggle ────────────────────────────────────────
+let openPanels = {}; // memberId → panelName
+
+function togglePanel(id, name) {
+  const panel = document.getElementById(`panel-${id}-${name}`);
+  const isOpen = panel.style.display !== 'none';
+  closePanel(id);
+  if (!isOpen) {
+    panel.style.display = '';
+    openPanels[id] = name;
+    if (name === 'stats') loadStats(id);
+  }
+}
+
+function closePanel(id) {
+  ['stats','accounts','edit'].forEach(n => {
+    const p = document.getElementById(`panel-${id}-${n}`);
+    if (p) p.style.display = 'none';
+  });
+  delete openPanels[id];
+}
+
+// ── Stats ───────────────────────────────────────────────
+async function loadStats(id) {
+  const el = document.getElementById(`stats-${id}`);
+  el.innerHTML = '<span style="color:var(--muted);font-size:13px">Lädt…</span>';
+  const { days=[], totals={} } = await fetch(`/api/mitarbeiter/${id}/stats`).then(r=>r.json());
+
+  if (!totals.sent) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:13px">Keine Daten für die letzten 7 Tage.</span>';
+    return;
+  }
+
+  const rel = totals.sent ? Math.round(totals.posted / totals.sent * 100) : null;
+  const relColor = rel===null ? 'var(--muted)' : rel>=90 ? 'var(--success)' : rel>=70 ? 'var(--warning)' : 'var(--danger)';
+
+  const bars = days.map(d => {
+    const maxH = 48;
+    const h = d.sent ? Math.max(4, Math.round(d.sent / Math.max(...days.map(x=>x.sent)||[1]) * maxH)) : 4;
+    const postedH = d.sent ? Math.round((d.posted/d.sent)*h) : 0;
+    const shortDate = d.date.slice(5); // MM-DD
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
+      <div style="position:relative;width:28px;height:${maxH}px;display:flex;align-items:flex-end">
+        <div style="width:100%;height:${h}px;background:var(--surface2);border-radius:4px;position:relative;overflow:hidden">
+          <div style="position:absolute;bottom:0;width:100%;height:${postedH}px;background:${d.missing?'var(--danger)':d.late?'var(--warning)':'var(--success)'}"></div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--muted)">${shortDate}</div>
+      ${d.sent ? `<div style="font-size:10px;font-weight:600;color:${d.missing?'var(--danger)':d.late?'var(--warning)':'var(--success)'}">${d.posted}/${d.sent}</div>` : '<div style="font-size:10px;color:var(--muted)">—</div>'}
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:24px;margin-bottom:16px;flex-wrap:wrap">
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Gesendet (7 Tage)</div><div style="font-size:20px;font-weight:700;color:var(--text)">${totals.sent}</div></div>
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Gepostet</div><div style="font-size:20px;font-weight:700;color:var(--success)">${totals.posted}</div></div>
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Spät</div><div style="font-size:20px;font-weight:700;color:var(--warning)">${totals.late}</div></div>
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Nicht gepostet</div><div style="font-size:20px;font-weight:700;color:var(--danger)">${totals.missing}</div></div>
+      <div style="margin-left:auto">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Zuverlässigkeit</div>
+        <div style="font-size:22px;font-weight:800;color:${relColor}">${rel!==null?rel+'%':'—'}</div>
+        <div class="rel-bar-wrap" style="width:100px"><div class="rel-bar" style="width:${rel||0}%;background:${relColor}"></div></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;align-items:flex-end">${bars}</div>`;
+}
+
+// ── Account assignment ──────────────────────────────────
+async function assignAccount(memberId) {
+  const sel = document.getElementById(`add-acc-${memberId}`);
+  const accId = parseInt(sel.value);
+  if (!accId) return;
+  const res = await fetch(`/api/mitarbeiter/${memberId}/accounts`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({account_ids: getCurrentAccountIds(memberId).concat(accId)})
+  });
+  if ((await res.json()).ok) { showToast('Seite zugewiesen.','success'); location.reload(); }
+}
+
+async function unassignAccount(memberId, accId, btn) {
+  const current = getCurrentAccountIds(memberId).filter(id => id !== accId);
+  const res = await fetch(`/api/mitarbeiter/${memberId}/accounts`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({account_ids: current})
+  });
+  if ((await res.json()).ok) {
+    btn.closest('span').remove();
+    showToast('Seite entfernt.','success');
+  }
+}
+
+function getCurrentAccountIds(memberId) {
+  return Array.from(document.querySelectorAll(`#acc-chips-${memberId} span`))
+    .map(el => {
+      const btn = el.querySelector('button');
+      if (!btn) return null;
+      const m = btn.getAttribute('onclick').match(/unassignAccount\(\d+,(\d+)/);
+      return m ? parseInt(m[1]) : null;
+    }).filter(Boolean);
+}
+
+// ── Save member ─────────────────────────────────────────
+async function saveMember(id) {
+  const body = {
+    name:              document.getElementById(`edit-name-${id}`).value.trim(),
+    email:             document.getElementById(`edit-email-${id}`).value.trim(),
+    role:              document.getElementById(`edit-role-${id}`).value,
+    phone:             document.getElementById(`edit-phone-${id}`).value.trim(),
+    telegram_username: document.getElementById(`edit-tg-${id}`).value.trim(),
+    notes:             document.getElementById(`edit-notes-${id}`).value.trim(),
+  };
+  const res = await fetch(`/api/mitarbeiter/${id}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  if ((await res.json()).ok) { showToast('Gespeichert.','success'); location.reload(); }
+  else showToast('Fehler beim Speichern.','danger');
+}
+
+// ── Delete member ───────────────────────────────────────
+async function deleteMember(id, name) {
+  const ok = await customConfirm('Mitarbeiter entfernen', `"${name}" wirklich entfernen? Seiten-Zuweisungen werden aufgehoben.`, 'Entfernen', 'btn-danger');
+  if (!ok) return;
+  const res = await fetch(`/api/mitarbeiter/${id}/delete`, {method:'POST'});
+  if ((await res.json()).ok) { showToast(`"${name}" entfernt.`,'success'); document.getElementById(`card-${id}`).remove(); }
+  else showToast('Fehler.','danger');
+}
+
+// ── Add modal ───────────────────────────────────────────
+function openAddModal() {
+  const m = document.getElementById('add-modal');
+  m.style.display = 'flex';
+  document.getElementById('add-error').textContent = '';
+  ['new-name','new-email','new-phone','new-tg','new-notes'].forEach(id => document.getElementById(id).value='');
+}
+function closeAddModal() {
+  document.getElementById('add-modal').style.display = 'none';
+}
+async function addMember() {
+  const body = {
+    name:  document.getElementById('new-name').value.trim(),
+    email: document.getElementById('new-email').value.trim(),
+    role:  document.getElementById('new-role').value,
+    phone: document.getElementById('new-phone').value.trim(),
+    telegram_username: document.getElementById('new-tg').value.trim(),
+    notes: document.getElementById('new-notes').value.trim(),
+  };
+  const errEl = document.getElementById('add-error');
+  if (!body.name || !body.email) { errEl.textContent = 'Name und E-Mail sind Pflichtfelder.'; return; }
+  const res = await fetch('/api/mitarbeiter/new', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const d = await res.json();
+  if (d.ok) { showToast('Mitarbeiter hinzugefügt.','success'); location.reload(); }
+  else errEl.textContent = d.error || 'Fehler.';
+}
+
+// Close modal on backdrop click
+document.getElementById('add-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeAddModal();
+});
+</script>
+{% endblock %}
