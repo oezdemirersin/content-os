@@ -277,6 +277,35 @@
         </div>
       </div>
 
+      <div class="s-section-title">Telegram Posting-Bot</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>CityBot Journalist Token</b>
+            <small>Postet Inhalte in Telegram-Channels der Accounts</small>
+          </div>
+          <div class="s-row-ctrl">
+            {% if tg_bot_token_set %}
+            <span class="s-key-dot s-key-set"><i class="fa-solid fa-check-circle"></i> Gesetzt</span>
+            <button onclick="toggleKeyEdit('tg-bot')" class="btn btn-ghost s-btn-sm">Ändern</button>
+            <button onclick="testBotToken()" class="btn btn-ghost s-btn-sm" style="color:#29b6f6"><i class="fa-brands fa-telegram"></i> Test</button>
+            {% else %}
+            <span class="s-key-dot s-key-missing"><i class="fa-solid fa-circle-xmark"></i> Fehlt</span>
+            {% endif %}
+          </div>
+        </div>
+        <div id="edit-tg-bot" style="display:{% if not tg_bot_token_set %}flex{% else %}none{% endif %};padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);gap:8px;align-items:center">
+          <input id="tgBotToken" type="password" class="s-input s-input-w240" placeholder="Bot-Token vom @BotFather…" autocomplete="off">
+          <button onclick="saveKey('telegram_bot_token','tgBotToken','tg-bot')" class="btn btn-primary s-btn-sm">Speichern</button>
+          {% if tg_bot_token_set %}<button onclick="toggleKeyEdit('tg-bot')" class="btn btn-ghost s-btn-sm">Abbrechen</button>{% endif %}
+        </div>
+        <div class="s-row" style="background:var(--surface2)">
+          <div class="s-row-label">
+            <small>Dieser Bot muss Admin in den Telegram-Channels der Accounts sein. Token über <b>@BotFather</b> auf Telegram erhalten.</small>
+          </div>
+        </div>
+      </div>
+
       <div class="s-section-title">KI / Anthropic</div>
       <div class="s-group">
         <div class="s-row">
@@ -482,6 +511,13 @@ async function saveIgMethod() {
     body: JSON.stringify({key: 'ig_sync_method', value: method})
   }).then(r => r.json());
   if (r.ok) showToast('Sync-Methode: ' + method + ' ✓', 'success');
+}
+
+// ── Telegram Bot Token Test ───────────────────────────────────
+async function testBotToken() {
+  const r = await fetch('/api/settings/telegram-bot/test', {method:'POST'}).then(r=>r.json());
+  if (r.ok) showToast(`✅ Bot aktiv: @${r.username}`, 'success');
+  else showToast('Bot-Token ungültig oder Bot nicht erreichbar', 'error');
 }
 
 // ── Telegram ──────────────────────────────────────────────────

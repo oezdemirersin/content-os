@@ -5534,6 +5534,7 @@ def settings():
         cron_token=gs('cron_token'),
         tg_alert_token_set=bool(gs('alert_telegram_token')),
         tg_alert_chat_id=gs('alert_central_chat_id'),
+        tg_bot_token_set=bool(gs('telegram_bot_token')),
         # Benachrichtigungen
         low_stock_days=(ns.low_stock_days if ns else None) or 3,
     )
@@ -11320,6 +11321,23 @@ def tg_alert_test():
     try:
         _send_central_alert('🔔 ContentOS Test-Nachricht — Telegram-Alerts sind aktiv!')
         return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/settings/telegram-bot/test', methods=['POST'])
+@login_required
+def tg_bot_test():
+    import requests as _req
+    token = get_setting('telegram_bot_token', '')
+    if not token:
+        return jsonify({'ok': False, 'error': 'Kein Bot-Token gesetzt'}), 400
+    try:
+        r = _req.get(f'https://api.telegram.org/bot{token}/getMe', timeout=8)
+        d = r.json()
+        if d.get('ok'):
+            return jsonify({'ok': True, 'username': d['result']['username']})
+        return jsonify({'ok': False, 'error': d.get('description', 'Unbekannter Fehler')}), 400
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
