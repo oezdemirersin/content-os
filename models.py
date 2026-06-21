@@ -93,6 +93,8 @@ class TeamMember(db.Model):
     notes = db.Column(db.Text)
     # Work status (aktiv / urlaub / krank)
     work_status = db.Column(db.String(20), default='aktiv')
+    # Strike counter (0-3); bei 3 → Entlassungsprotokoll
+    warning_count = db.Column(db.Integer, default=0)
     # Custom permissions JSON
     permissions = db.Column(db.Text, default='{}')
 
@@ -882,6 +884,7 @@ class AppTodo(db.Model):
     """Interne To-Do- und Ideen-Liste für Features, Bugs und Notizen."""
     __tablename__ = 'app_todo'
     id          = db.Column(db.Integer, primary_key=True)
+    title       = db.Column(db.String(200))
     text        = db.Column(db.Text, nullable=False)
     category    = db.Column(db.String(50), default='idee')   # idee | feature | bug | notiz | roadmap
     done        = db.Column(db.Boolean, default=False)

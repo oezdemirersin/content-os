@@ -1628,10 +1628,12 @@ def init_db():
         safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_city VARCHAR(200)')
         safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS follow_up_reminder_sent BOOLEAN DEFAULT FALSE')
         safe_alter('ALTER TABLE app_todo ADD COLUMN IF NOT EXISTS deadline DATE')
+        safe_alter('ALTER TABLE app_todo ADD COLUMN IF NOT EXISTS title VARCHAR(200)')
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS phone VARCHAR(50)')
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS telegram_username VARCHAR(100)')
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS notes TEXT')
         safe_alter("ALTER TABLE team_member ADD COLUMN IF NOT EXISTS work_status VARCHAR(20) DEFAULT 'aktiv'")
+        safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS warning_count INTEGER DEFAULT 0')
 
         # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
         if is_postgres:
@@ -5199,6 +5201,66 @@ def api_mitarbeiter_ping(member_id):
                   timeout=10)
     result = r.json()
     return jsonify({'ok': result.get('ok', False), 'error': result.get('description')})
+
+
+@app.route('/api/mitarbeiter/<int:member_id>/warn', methods=['POST'])
+@login_required
+def api_mitarbeiter_warn(member_id):
+    member = TeamMember.query.get_or_404(member_id)
+    if member.warning_count >= 3:
+        return jsonify({'ok': True, 'count': 3, 'fired': False})
+    member.warning_count = (member.warning_count or 0) + 1
+    fired = False
+    if member.warning_count >= 3:
+        fired = True
+        token   = get_setting('alert_telegram_token', '')
+        chat_id = get_setting('alert_central_chat_id', '')
+        # 1) Telegram-Nachricht an/über den Mitarbeiter
+        if token and chat_id:
+            username = (member.telegram_username or '').lstrip('@')
+            if username:
+                dismissal = (
+                    f'Liebe/r {member.name},\n\n'
+                    f'wir möchten uns herzlich für deine bisherige Mitarbeit bedanken. '
+                    f'Leider müssen wir dir mitteilen, dass wir die Zusammenarbeit ab sofort nicht '
+                    f'fortführen können.\n\n'
+                    f'Wir bitten dich, dich umgehend aus dem System auszuloggen und keine weiteren '
+                    f'Aktionen auf unseren Accounts vorzunehmen.\n\n'
+                    f'Wir wünschen dir alles Gute für deinen weiteren Weg.\n'
+                    f'Vielen Dank und liebe Grüße.'
+                )
+                _tg_send_message(token, chat_id,
+                    f'📩 <b>Trennungsnachricht für @{username}</b>\n\n{dismissal}')
+        # 2) Dringender To-Do
+        from datetime import date as _date
+        todo = AppTodo(
+            title=f'🚨 Zugangsdaten sofort ändern – {member.name} entlassen',
+            text=(f'Mitarbeiter {member.name} hat 3 Verwarnungen erhalten und wurde entlassen. '
+                  f'Bitte sofort alle Passwörter und Zugangsdaten der zugewiesenen Accounts ändern!'),
+            category='aufgabe',
+            priority=2,
+            deadline=_date.today(),
+            done=False
+        )
+        db.session.add(todo)
+        # 3) Central Alert
+        _send_central_alert(
+            f'🚨 <b>Mitarbeiter entlassen: {member.name}</b>\n\n'
+            f'3 Verwarnungen wurden ausgelöst. '
+            f'Trennungsnachricht wurde im Alert-Channel gepostet.\n'
+            f'<b>Bitte Zugangsdaten sofort ändern!</b>'
+        )
+    db.session.commit()
+    return jsonify({'ok': True, 'count': member.warning_count, 'fired': fired})
+
+
+@app.route('/api/mitarbeiter/<int:member_id>/warn/reset', methods=['POST'])
+@login_required
+def api_mitarbeiter_warn_reset(member_id):
+    member = TeamMember.query.get_or_404(member_id)
+    member.warning_count = 0
+    db.session.commit()
+    return jsonify({'ok': True, 'count': 0})
 
 
 @app.route('/api/mitarbeiter/new', methods=['POST'])
@@ -14490,7 +14552,7 @@ def todos():
 def api_todos_list():
     items = AppTodo.query.order_by(AppTodo.done.asc(), AppTodo.priority.desc(), AppTodo.created_at.desc()).all()
     return jsonify([{
-        'id': t.id, 'text': t.text, 'category': t.category,
+        'id': t.id, 'title': t.title or '', 'text': t.text, 'category': t.category,
         'done': t.done, 'priority': t.priority,
         'linked_page': t.linked_page or '',
         'deadline': t.deadline.isoformat() if t.deadline else None,
@@ -14507,6 +14569,7 @@ def api_todo_create():
         return jsonify({'ok': False, 'error': 'Text erforderlich'}), 400
     dl = data.get('deadline')
     t = AppTodo(
+        title=(data.get('title') or '').strip() or None,
         text=text,
         category=data.get('category', 'idee'),
         priority=int(data.get('priority', 0)),
@@ -14524,6 +14587,8 @@ def api_todo_create():
 def api_todo_update(tid):
     t = AppTodo.query.get_or_404(tid)
     data = request.get_json() or {}
+    if 'title' in data:
+        t.title = data['title'].strip() or None
     if 'text' in data:
         t.text = data['text'].strip() or t.text
     if 'category' in data:
