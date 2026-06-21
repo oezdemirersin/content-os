@@ -7822,7 +7822,7 @@ def cron_morning_report():
     if not expected or given != expected:
         return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
 
-    tg_token = get_setting('telegram_bot_token')
+    tg_token = get_setting('alert_telegram_token') or get_setting('telegram_bot_token')
     chat_id  = get_setting('alert_central_chat_id')
     if not tg_token or not chat_id:
         return jsonify({'ok': False, 'error': 'Telegram nicht konfiguriert'})
