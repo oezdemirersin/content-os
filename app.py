@@ -5061,11 +5061,17 @@ def alerts_center():
 @login_required
 def mitarbeiter():
     from zoneinfo import ZoneInfo
-    members = TeamMember.query.filter_by(active=True).order_by(TeamMember.name).all()
+    members = (TeamMember.query
+               .filter_by(active=True)
+               .options(joinedload(TeamMember.accounts))
+               .order_by(TeamMember.name).all())
     berlin  = ZoneInfo('Europe/Berlin')
     today   = datetime.now(berlin).date()
-    all_accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
-    assigned_count = sum(len(m.accounts) for m in members)
+    all_accounts = (Account.query
+                    .filter_by(status='active')
+                    .options(joinedload(Account.team_member))
+                    .order_by(Account.name).all())
+    assigned_count   = sum(len(m.accounts) for m in members)
     unassigned_count = sum(1 for a in all_accounts if a.team_member_id is None)
     return render_template('mitarbeiter.html', members=members, today=today,
                            all_accounts=all_accounts, active_page='mitarbeiter',
