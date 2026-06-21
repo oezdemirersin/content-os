@@ -5035,9 +5035,24 @@ def team_delete(member_id):
 
 @app.route('/alerts')
 def alerts_center():
+    from zoneinfo import ZoneInfo
     alerts = SystemAlert.query.order_by(SystemAlert.resolved, SystemAlert.severity.desc(),
                                         SystemAlert.created_at.desc()).all()
-    return render_template('alerts.html', alerts=alerts, active_page='dashboard')
+    berlin = ZoneInfo('Europe/Berlin')
+    today  = datetime.now(berlin).date()
+    posts_today = (ScheduledPost.query
+        .filter(func.date(ScheduledPost.telegram_sent_at) == today)
+        .options(joinedload(ScheduledPost.account))
+        .order_by(ScheduledPost.telegram_sent_at).all())
+    bot_settings = {
+        'alert_telegram_token': get_setting('alert_telegram_token', ''),
+        'alert_central_chat_id': get_setting('alert_central_chat_id', ''),
+    }
+    ns = NotificationSettings.query.first()
+    low_stock_days = (ns.low_stock_days if ns else None) or 3
+    return render_template('alerts.html', alerts=alerts, active_page='alerts',
+                           posts_today=posts_today, bot_settings=bot_settings,
+                           low_stock_days=low_stock_days, today=today)
 
 
 @app.route('/alerts/refresh', methods=['POST'])
@@ -5045,6 +5060,75 @@ def alerts_refresh():
     generate_alerts()
     flash('Alerts neu generiert.', 'success')
     return redirect(url_for('alerts_center'))
+
+
+@app.route('/api/monitor/posts')
+@login_required
+def api_monitor_posts():
+    from zoneinfo import ZoneInfo
+    date_str = request.args.get('date')
+    try:
+        day = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else datetime.now(ZoneInfo('Europe/Berlin')).date()
+    except ValueError:
+        return jsonify({'error': 'invalid date'}), 400
+    posts = (ScheduledPost.query
+        .filter(func.date(ScheduledPost.telegram_sent_at) == day)
+        .options(joinedload(ScheduledPost.account))
+        .order_by(ScheduledPost.telegram_sent_at).all())
+    berlin = ZoneInfo('Europe/Berlin')
+    result = []
+    for p in posts:
+        sent = p.telegram_sent_at.replace(tzinfo=timezone.utc).astimezone(berlin) if p.telegram_sent_at else None
+        pub  = p.published_at.replace(tzinfo=timezone.utc).astimezone(berlin) if p.published_at else None
+        late = pub and pub.hour >= 22
+        result.append({
+            'id': p.id,
+            'account': p.account.name if p.account else '—',
+            'sent': sent.strftime('%H:%M') if sent else None,
+            'posted': pub.strftime('%H:%M') if pub else None,
+            'status': p.status,
+            'late': late,
+        })
+    return jsonify({'posts': result, 'date': str(day)})
+
+
+@app.route('/api/bot-settings', methods=['GET', 'POST'])
+@login_required
+def api_bot_settings():
+    if request.method == 'GET':
+        ns = NotificationSettings.query.first()
+        return jsonify({
+            'alert_telegram_token': get_setting('alert_telegram_token', ''),
+            'alert_central_chat_id': get_setting('alert_central_chat_id', ''),
+            'low_stock_days': (ns.low_stock_days if ns else None) or 3,
+        })
+    d = request.get_json()
+    if 'alert_telegram_token' in d:
+        set_setting('alert_telegram_token', d['alert_telegram_token'])
+    if 'alert_central_chat_id' in d:
+        set_setting('alert_central_chat_id', d['alert_central_chat_id'])
+    if 'low_stock_days' in d:
+        ns = NotificationSettings.query.first()
+        if not ns:
+            ns = NotificationSettings(); db.session.add(ns)
+        ns.low_stock_days = int(d['low_stock_days'])
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/morning-report/test', methods=['POST'])
+@login_required
+def api_morning_report_test():
+    token = os.environ.get('CRON_TOKEN') or get_setting('cron_token') or ''
+    if not token:
+        return jsonify({'ok': False, 'error': 'CRON_TOKEN nicht gesetzt'})
+    import requests as _req
+    url = request.host_url.rstrip('/') + '/cron/morning-report'
+    try:
+        r = _req.get(url, params={'token': token}, timeout=15)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
 
 
 # ─────────────────────── SETTINGS ───────────────────────
