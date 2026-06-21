@@ -95,6 +95,8 @@ class TeamMember(db.Model):
     work_status = db.Column(db.String(20), default='aktiv')
     # Strike counter (0-3); bei 3 → Entlassungsprotokoll
     warning_count = db.Column(db.Integer, default=0)
+    # Persönliche Telegram Chat-ID für direkte DMs (User muss Bot zuerst anschreiben)
+    tg_personal_chat_id = db.Column(db.String(100))
     # Custom permissions JSON
     permissions = db.Column(db.Text, default='{}')
 

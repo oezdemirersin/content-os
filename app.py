@@ -1634,6 +1634,7 @@ def init_db():
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS notes TEXT')
         safe_alter("ALTER TABLE team_member ADD COLUMN IF NOT EXISTS work_status VARCHAR(20) DEFAULT 'aktiv'")
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS warning_count INTEGER DEFAULT 0')
+        safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS tg_personal_chat_id VARCHAR(100)')
 
         # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
         if is_postgres:
@@ -5166,7 +5167,7 @@ def mitarbeiter():
 def api_mitarbeiter_update(member_id):
     member = TeamMember.query.get_or_404(member_id)
     d = request.get_json()
-    for field in ('name', 'email', 'role', 'phone', 'telegram_username', 'notes', 'work_status'):
+    for field in ('name', 'email', 'role', 'phone', 'telegram_username', 'tg_personal_chat_id', 'notes', 'work_status'):
         if field in d:
             setattr(member, field, d[field] or None)
     if 'active' in d:
@@ -5213,24 +5214,51 @@ def api_mitarbeiter_warn(member_id):
     fired = False
     if member.warning_count >= 3:
         fired = True
-        token   = get_setting('alert_telegram_token', '')
-        chat_id = get_setting('alert_central_chat_id', '')
-        # 1) Telegram-Nachricht an/über den Mitarbeiter
-        if token and chat_id:
-            username = (member.telegram_username or '').lstrip('@')
-            if username:
-                dismissal = (
-                    f'Liebe/r {member.name},\n\n'
-                    f'wir möchten uns herzlich für deine bisherige Mitarbeit bedanken. '
-                    f'Leider müssen wir dir mitteilen, dass wir die Zusammenarbeit ab sofort nicht '
-                    f'fortführen können.\n\n'
-                    f'Wir bitten dich, dich umgehend aus dem System auszuloggen und keine weiteren '
-                    f'Aktionen auf unseren Accounts vorzunehmen.\n\n'
-                    f'Wir wünschen dir alles Gute für deinen weiteren Weg.\n'
-                    f'Vielen Dank und liebe Grüße.'
-                )
-                _tg_send_message(token, chat_id,
-                    f'📩 <b>Trennungsnachricht für @{username}</b>\n\n{dismissal}')
+        alert_token  = get_setting('alert_telegram_token', '')
+        alert_chatid = get_setting('alert_central_chat_id', '')
+        bot_token    = get_setting('telegram_bot_token', '')
+        username     = (member.telegram_username or '').lstrip('@')
+
+        dismissal_text = (
+            f'Hallo {member.name},\n\n'
+            f'wir möchten uns herzlich für deine bisherige Mitarbeit bei uns bedanken. '
+            f'Leider müssen wir dir mitteilen, dass wir die Zusammenarbeit ab sofort '
+            f'nicht weiter fortführen können.\n\n'
+            f'Wir bitten dich, dich umgehend aus allen Accounts und dem System '
+            f'auszuloggen und keine weiteren Aktionen auf unseren Seiten vorzunehmen.\n\n'
+            f'Wir wünschen dir alles Gute für deinen weiteren Weg.\n'
+            f'Vielen Dank und liebe Grüße 🙏'
+        )
+
+        # 1a) Direkte DM an den Mitarbeiter (wenn persönliche Chat-ID hinterlegt)
+        if bot_token and member.tg_personal_chat_id:
+            _tg_send_message(bot_token, member.tg_personal_chat_id, dismissal_text)
+
+        # 1b) Alert-Channel: Trennungsnachricht mit @mention (Fallback / immer)
+        if alert_token and alert_chatid:
+            mention = f'@{username}' if username else member.name
+            _tg_send_message(alert_token, alert_chatid,
+                f'📩 <b>Trennungsnachricht für {mention}</b>\n\n{dismissal_text}')
+
+        # 1c) CityBot Journalist → Nachricht in die Telegram-Channels der zugewiesenen Accounts
+        if bot_token:
+            account_channel_msg = (
+                f'👋 Liebes Team, kurze Mitteilung:\n\n'
+                f'Es gibt personelle Änderungen in unserem Redaktionsteam. '
+                f'Bitte stelle sicher, dass alle bisherigen Zugangsdaten aktualisiert werden '
+                f'und keine unbefugten Zugriffe mehr erfolgen.\n\n'
+                f'Bei Fragen meldet euch gerne bei uns. Danke!'
+            )
+            assigned_accounts = Account.query.filter_by(
+                team_member_id=member.id, status='active'
+            ).all()
+            for acc in assigned_accounts:
+                if acc.telegram_chat_id:
+                    try:
+                        _tg_send_message(bot_token, acc.telegram_chat_id, account_channel_msg)
+                    except Exception:
+                        pass
+
         # 2) Dringender To-Do
         from datetime import date as _date
         todo = AppTodo(
@@ -5243,11 +5271,14 @@ def api_mitarbeiter_warn(member_id):
             done=False
         )
         db.session.add(todo)
+
         # 3) Central Alert
+        dm_status = '✅ DM gesendet' if (bot_token and member.tg_personal_chat_id) else '⚠️ Keine persönliche Chat-ID hinterlegt'
         _send_central_alert(
             f'🚨 <b>Mitarbeiter entlassen: {member.name}</b>\n\n'
-            f'3 Verwarnungen wurden ausgelöst. '
-            f'Trennungsnachricht wurde im Alert-Channel gepostet.\n'
+            f'• Direktnachricht: {dm_status}\n'
+            f'• Alert-Channel: Trennungsnachricht gepostet\n'
+            f'• Account-Channels: Benachrichtigt\n'
             f'<b>Bitte Zugangsdaten sofort ändern!</b>'
         )
     db.session.commit()

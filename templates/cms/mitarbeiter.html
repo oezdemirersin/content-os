@@ -242,8 +242,18 @@
           </select>
         </div>
         <div><label class="ma-label">Telefon</label><input class="ma-input" id="edit-phone-{{ m.id }}" value="{{ m.phone or '' }}" placeholder="+49 170 …"></div>
-        <div><label class="ma-label">Telegram</label><input class="ma-input" id="edit-tg-{{ m.id }}" value="{{ m.telegram_username or '' }}" placeholder="@username"></div>
+        <div><label class="ma-label">Telegram @username</label><input class="ma-input" id="edit-tg-{{ m.id }}" value="{{ m.telegram_username or '' }}" placeholder="@username"></div>
         <div><label class="ma-label">Notizen</label><input class="ma-input" id="edit-notes-{{ m.id }}" value="{{ m.notes or '' }}" placeholder="Zuständigkeiten, Schichten…"></div>
+        <div style="grid-column:1/-1">
+          <label class="ma-label">
+            Telegram Chat-ID
+            <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0"> — für direkte DMs bei Entlassung</span>
+          </label>
+          <input class="ma-input" id="edit-tgchatid-{{ m.id }}" value="{{ m.tg_personal_chat_id or '' }}" placeholder="z.B. 123456789">
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">
+            💡 Mitarbeiter muss zuerst dem <b>CityBot Journalist</b>-Bot auf Telegram schreiben. Danach Chat-ID hier eintragen.
+          </div>
+        </div>
       </div>
       <div style="margin-top:14px;display:flex;gap:8px">
         <button onclick="saveMember({{ m.id }})" class="btn btn-primary" style="font-size:13px"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
@@ -684,8 +694,9 @@ async function saveMember(id) {
     email:             document.getElementById(`edit-email-${id}`).value.trim(),
     role:              document.getElementById(`edit-role-${id}`).value,
     phone:             document.getElementById(`edit-phone-${id}`).value.trim(),
-    telegram_username: document.getElementById(`edit-tg-${id}`).value.trim(),
-    notes:             document.getElementById(`edit-notes-${id}`).value.trim(),
+    telegram_username:   document.getElementById(`edit-tg-${id}`).value.trim(),
+    tg_personal_chat_id: document.getElementById(`edit-tgchatid-${id}`)?.value.trim() || null,
+    notes:               document.getElementById(`edit-notes-${id}`).value.trim(),
   };
   const res = await fetch(`/api/mitarbeiter/${id}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   if ((await res.json()).ok) { showToast('Gespeichert.','success'); location.reload(); }
