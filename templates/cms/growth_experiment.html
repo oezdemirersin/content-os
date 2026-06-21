@@ -342,24 +342,38 @@
 
 <!-- ══ Modal: Experiment starten ════════════════════════ -->
 <div id="start-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto">
-  <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:32px;width:580px;max-width:100%;margin:auto">
-    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px"><i class="fa-solid fa-play" style="color:var(--success)"></i> Experiment starten</div>
-    <div style="font-size:13px;color:var(--muted);margin-bottom:20px">Bitte die Start-Messwerte bestätigen. Follower werden automatisch aus dem aktuellen Stand übernommen.</div>
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:32px;width:600px;max-width:100%;margin:auto">
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px"><i class="fa-solid fa-play" style="color:var(--success)"></i> Experiment starten — Startwerte</div>
+    <div style="padding:12px 16px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:8px;margin-bottom:20px">
+      <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:6px">So gehst du vor:</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.7">
+        <b>Follower</b> werden automatisch übernommen.<br>
+        <b>Profilaufrufe & Erreichte Konten</b> → öffne Instagram Insights → wähle "letzte 30 Tage" → trage den angezeigten Wert ein.<br>
+        <span style="color:var(--warning)">Diese Werte brauchst du nur <b>einmal</b> am Anfang — und einmal am Ende des Experiments.</span>
+      </div>
+    </div>
     <div id="start-participants-list" style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button onclick="closeStartModal()" class="btn btn-ghost">Abbrechen</button>
       <button onclick="submitStart()" class="btn btn-primary" id="start-submit-btn">
-        <i class="fa-solid fa-play"></i> Jetzt starten
+        <i class="fa-solid fa-play"></i> Experiment starten
       </button>
     </div>
   </div>
 </div>
 
-<!-- ══ Modal: Daten eintragen ════════════════════════════ -->
+<!-- ══ Modal: Endmessung / Daten eintragen ═══════════════ -->
 <div id="data-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;align-items:center;justify-content:center">
-  <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:28px;width:520px;max-width:90vw;max-height:90vh;overflow-y:auto">
-    <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:18px">
-      <i class="fa-solid fa-chart-line" style="color:var(--accent)"></i> Messwerte eintragen
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:28px;width:540px;max-width:90vw;max-height:90vh;overflow-y:auto">
+    <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px">
+      <i class="fa-solid fa-flag-checkered" style="color:var(--accent)"></i> Endmessung eintragen
+    </div>
+    <div style="padding:10px 14px;background:var(--surface2);border-radius:8px;margin-bottom:18px">
+      <div style="font-size:12px;color:var(--muted);line-height:1.7">
+        Öffne Instagram Insights der jeweiligen Seite und wähle den <b>Zeitraum des Experiments</b>.<br>
+        <b>Profilaufrufe & Erreichte Konten</b> = Gesamtwert für diesen Zeitraum (nicht täglich).<br>
+        <b>Follower</b> = aktueller Stand heute.
+      </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
       <div style="grid-column:1/-1">
@@ -373,24 +387,24 @@
         </select>
       </div>
       <div>
-        <label class="ma-label">Datum</label>
+        <label class="ma-label">Datum der Messung</label>
         <input class="ma-input" type="date" id="dp-date" value="{{ today.strftime('%Y-%m-%d') }}">
       </div>
       <div>
-        <label class="ma-label">Follower</label>
+        <label class="ma-label">Follower (aktuell)</label>
         <input class="ma-input" type="number" id="dp-followers" placeholder="12450">
       </div>
       <div>
-        <label class="ma-label">Profilaufrufe</label>
+        <label class="ma-label">Profilaufrufe (Gesamt-Zeitraum)</label>
         <input class="ma-input" type="number" id="dp-profile-visits" placeholder="5200">
       </div>
       <div>
-        <label class="ma-label">Erreichte Konten</label>
+        <label class="ma-label">Erreichte Konten (Gesamt-Zeitraum)</label>
         <input class="ma-input" type="number" id="dp-reached" placeholder="74000">
       </div>
       <div>
         <label class="ma-label">Notiz (optional)</label>
-        <input class="ma-input" id="dp-notes" placeholder="z.B. Bio geändert">
+        <input class="ma-input" id="dp-notes" placeholder="z.B. Bio geändert am Tag 5">
       </div>
     </div>
     <div id="dp-error" style="font-size:12px;color:var(--danger);min-height:16px;margin-bottom:10px"></div>
@@ -477,16 +491,16 @@ function openStartModal() {
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
         <div>
-          <label class="ma-label">Follower</label>
+          <label class="ma-label">Follower (auto)</label>
           <input class="ma-input" type="number" id="sv-f-${p.id}" value="${p.current_followers}" placeholder="${p.current_followers}">
         </div>
         <div>
-          <label class="ma-label">Profilaufrufe</label>
-          <input class="ma-input" type="number" id="sv-pv-${p.id}" placeholder="optional">
+          <label class="ma-label">Profilaufrufe (30 Tage)</label>
+          <input class="ma-input" type="number" id="sv-pv-${p.id}" placeholder="aus Insights">
         </div>
         <div>
-          <label class="ma-label">Erreichte Konten</label>
-          <input class="ma-input" type="number" id="sv-rc-${p.id}" placeholder="optional">
+          <label class="ma-label">Erreichte Konten (30 Tage)</label>
+          <input class="ma-input" type="number" id="sv-rc-${p.id}" placeholder="aus Insights">
         </div>
       </div>
     </div>`).join('');
