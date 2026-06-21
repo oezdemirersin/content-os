@@ -5418,12 +5418,32 @@ def api_morning_report_test():
 # ─────────────────────── SETTINGS ───────────────────────
 
 @app.route('/settings')
+@login_required
 def settings():
+    def gs(key, default=''):
+        r = AppSettings.query.filter_by(key=key).first()
+        return r.value if r and r.value is not None else default
+    def mask(k):
+        return (k[:6] + '…' + k[-4:]) if k and len(k) > 12 else ('●●●●●' if k else '')
+
     categories = Category.query.order_by(Category.name).all()
     labels = Label.query.order_by(Label.name).all()
     platforms = Platform.query.all()
+    ns = NotificationSettings.query.first()
     return render_template('settings.html',
-        categories=categories, labels=labels, platforms=platforms, active_page='settings')
+        categories=categories, labels=labels, platforms=platforms,
+        active_page='settings',
+        # Verbindungen
+        ig_sync_method=gs('ig_sync_method', 'apify' if gs('apify_token') else 'direct'),
+        apify_token_set=bool(gs('apify_token')),
+        rapidapi_key_set=bool(gs('rapidapi_key')),
+        anthropic_key_set=bool(os.environ.get('ANTHROPIC_API_KEY') or gs('anthropic_api_key')),
+        cron_token=gs('cron_token'),
+        tg_alert_token_set=bool(gs('alert_telegram_token')),
+        tg_alert_chat_id=gs('alert_central_chat_id'),
+        # Benachrichtigungen
+        low_stock_days=(ns.low_stock_days if ns else None) or 3,
+    )
 
 
 @app.route('/settings/category/new', methods=['POST'])

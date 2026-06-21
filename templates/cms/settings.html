@@ -3,427 +3,639 @@
 {% block page_title %}EINSTELLUNGEN{% endblock %}
 
 {% block content %}
-<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px">
-  INHALTS-VERWALTUNG
-</div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+<style>
+.s-shell   { display:grid;grid-template-columns:210px 1fr;min-height:600px;background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden }
+.s-nav     { border-right:1px solid var(--border);padding:10px 0 }
+.s-nav-item{ display:flex;align-items:center;gap:10px;padding:10px 18px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .12s;border-radius:0;user-select:none }
+.s-nav-item:hover { color:var(--text);background:var(--surface2) }
+.s-nav-item.active{ color:var(--accent);background:rgba(99,102,241,.1) }
+.s-nav-item i { width:16px;text-align:center;font-size:13px }
+.s-nav-sep  { height:1px;background:var(--border);margin:8px 12px }
 
-  <!-- Categories -->
-  <div class="card" style="overflow:hidden" x-data="{editing:null}">
-    <div class="card-header">
-      <span class="card-title">KATEGORIEN</span>
-      <span style="font-size:12px;color:var(--muted)">{{ categories|length }} gesamt</span>
+.s-panel { display:none;padding:24px 28px;overflow-y:auto;max-height:760px }
+.s-panel.active { display:block }
+.s-section-title { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:20px 0 8px }
+.s-section-title:first-child { margin-top:0 }
+
+.s-group   { background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:16px }
+.s-row     { display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--border) }
+.s-row:last-child { border-bottom:none }
+.s-row-label { flex:1;min-width:0 }
+.s-row-label b { display:block;font-size:13px;font-weight:600;color:var(--text) }
+.s-row-label small { font-size:11px;color:var(--muted);line-height:1.4 }
+.s-row-ctrl  { flex-shrink:0;display:flex;align-items:center;gap:8px }
+.s-input  { background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 11px;color:var(--text);font-size:13px;outline:none;transition:border-color .15s }
+.s-input:focus { border-color:var(--accent) }
+.s-input-w80  { width:80px }
+.s-input-w140 { width:140px }
+.s-input-w240 { width:240px;max-width:100% }
+.s-select { background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 11px;color:var(--text);font-size:13px;outline:none;cursor:pointer }
+.s-key-dot { display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px }
+.s-key-set { background:rgba(34,197,94,.12);color:var(--success) }
+.s-key-missing { background:rgba(239,68,68,.12);color:var(--danger) }
+.s-btn-sm  { font-size:12px;padding:6px 12px }
+
+/* Category list */
+.cat-pill  { display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border) }
+.cat-pill:last-child { border-bottom:none }
+.cat-dot   { width:10px;height:10px;border-radius:50%;flex-shrink:0 }
+.label-tag { display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700 }
+</style>
+
+<div class="s-shell">
+  <!-- ── LEFT SIDEBAR ── -->
+  <nav class="s-nav">
+    <div class="s-nav-item active" data-sec="inhalte">
+      <i class="fa-solid fa-folder-open"></i> Inhalte
     </div>
-    <div style="max-height:320px;overflow-y:auto">
-      {% for cat in categories %}
-      <div x-show="editing !== {{ cat.id }}" style="display:flex;align-items:center;gap:10px;padding:11px 20px;border-bottom:1px solid var(--border)" class="cat-row">
-        <div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:{{ cat.color }}"></div>
-        <span style="font-size:13px;color:var(--text);flex:1">{{ cat.name }}</span>
-        <span style="font-size:11px;color:var(--muted)">{{ cat.accounts|length }}×</span>
-        <div style="display:flex;gap:2px;opacity:0;transition:opacity .15s" class="cat-actions">
-          <button @click="editing={{ cat.id }}" class="icon-btn" style="font-size:12px;padding:5px"><i class="fa-solid fa-pen"></i></button>
-          <form method="post" action="{{ url_for('category_delete', cat_id=cat.id) }}" onsubmit="return confirm('Kategorie löschen?')">
-            <button type="submit" class="icon-btn" style="font-size:12px;padding:5px;color:var(--danger)"><i class="fa-solid fa-trash"></i></button>
+    <div class="s-nav-item" data-sec="benachrichtigungen">
+      <i class="fa-solid fa-bell"></i> Benachrichtigungen
+    </div>
+    <div class="s-nav-item" data-sec="verbindungen">
+      <i class="fa-solid fa-plug"></i> Verbindungen
+    </div>
+    <div class="s-nav-item" data-sec="ki">
+      <i class="fa-solid fa-wand-magic-sparkles"></i> KI
+    </div>
+    <div class="s-nav-sep"></div>
+    <div class="s-nav-item" data-sec="rechnung">
+      <i class="fa-solid fa-file-invoice"></i> Rechnung
+    </div>
+    <div class="s-nav-sep"></div>
+    <div class="s-nav-item" data-sec="daten">
+      <i class="fa-solid fa-database"></i> Daten
+    </div>
+  </nav>
+
+  <!-- ── RIGHT PANELS ── -->
+  <div style="overflow:hidden;position:relative">
+
+    <!-- ══ INHALTE ══ -->
+    <div class="s-panel active" id="sec-inhalte">
+
+      <div class="s-section-title">Kategorien <span style="font-weight:400;color:var(--muted)">({{ categories|length }})</span></div>
+      <div class="s-group" x-data="{editing:null}">
+        {% for cat in categories %}
+        <div x-show="editing !== {{ cat.id }}" class="cat-pill">
+          <div class="cat-dot" style="background:{{ cat.color }}"></div>
+          <span style="font-size:13px;font-weight:600;color:var(--text);flex:1">{{ cat.name }}</span>
+          <span style="font-size:11px;color:var(--muted);margin-right:6px">{{ cat.accounts|length }} Seiten</span>
+          <button @click="editing={{ cat.id }}" class="icon-btn" style="font-size:11px;padding:4px 8px"><i class="fa-solid fa-pen"></i></button>
+          <form method="post" action="{{ url_for('category_delete', cat_id=cat.id) }}" onsubmit="return confirm('Kategorie löschen?')" style="margin:0">
+            <button type="submit" class="icon-btn" style="font-size:11px;padding:4px 8px;color:var(--danger)"><i class="fa-solid fa-trash"></i></button>
+          </form>
+        </div>
+        <div x-show="editing === {{ cat.id }}" style="padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border)">
+          <form method="post" action="{{ url_for('category_edit', cat_id=cat.id) }}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" name="name" value="{{ cat.name }}" required class="s-input s-input-w140">
+            <input type="text" name="icon" value="{{ cat.icon }}" class="s-input s-input-w80" placeholder="icon">
+            <input type="color" name="color" value="{{ cat.color }}" style="width:32px;height:32px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px">
+            <button type="submit" class="btn btn-primary s-btn-sm"><i class="fa-solid fa-check"></i></button>
+            <button type="button" @click="editing=null" class="btn btn-ghost s-btn-sm">✕</button>
+          </form>
+        </div>
+        {% endfor %}
+        <div style="padding:10px 14px;background:var(--surface2)">
+          <form method="post" action="{{ url_for('category_new') }}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" name="name" required placeholder="Neue Kategorie…" class="s-input s-input-w140">
+            <input type="text" name="icon" placeholder="icon" class="s-input s-input-w80"
+                   oninput="document.getElementById('catIconPrev').className='fa-solid fa-'+this.value">
+            <i id="catIconPrev" class="fa-solid fa-folder" style="color:var(--muted);font-size:13px;margin-left:-4px"></i>
+            <input type="color" name="color" value="#3b82f6" style="width:32px;height:32px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px">
+            <button type="submit" class="btn btn-primary s-btn-sm"><i class="fa-solid fa-plus"></i> Hinzufügen</button>
           </form>
         </div>
       </div>
-      <div x-show="editing === {{ cat.id }}" style="padding:10px 16px;background:rgba(59,130,246,.05);border-bottom:1px solid var(--border)">
-        <form method="post" action="{{ url_for('category_edit', cat_id=cat.id) }}" style="display:flex;gap:8px;align-items:center">
-          <input type="text" name="name" value="{{ cat.name }}" required class="input-field" style="flex:1;font-size:12px;padding:6px 10px">
-          <input type="text" name="icon" value="{{ cat.icon }}" class="input-field" style="width:80px;font-size:12px;padding:6px 10px" placeholder="icon">
-          <input type="color" name="color" value="{{ cat.color }}" style="width:34px;height:34px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px;flex-shrink:0">
-          <button type="submit" class="btn btn-primary" style="padding:6px 12px;font-size:12px"><i class="fa-solid fa-check"></i></button>
-          <button type="button" @click="editing=null" class="btn btn-ghost" style="padding:6px 12px;font-size:12px">✕</button>
-        </form>
-      </div>
-      {% endfor %}
-    </div>
-    <div style="padding:14px 20px;border-top:1px solid var(--border)">
-      <form method="post" action="{{ url_for('category_new') }}" style="display:flex;gap:8px;align-items:center">
-        <input type="text" name="name" required placeholder="Neue Kategorie…" class="input-field" style="flex:1;font-size:13px">
-        <div style="position:relative;display:flex;align-items:center">
-          <input type="text" name="icon" id="newCatIcon" placeholder="icon" class="input-field" style="width:90px;font-size:13px;padding-right:28px"
-                 oninput="document.getElementById('newCatIconPrev').className='fa-solid fa-'+this.value">
-          <i id="newCatIconPrev" class="fa-solid fa-folder" style="position:absolute;right:8px;font-size:12px;color:var(--muted);pointer-events:none"></i>
-        </div>
-        <input type="color" name="color" value="#3b82f6" style="width:36px;height:36px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px;flex-shrink:0">
-        <button type="submit" class="btn btn-primary" style="padding:8px 14px"><i class="fa-solid fa-plus"></i></button>
-      </form>
-    </div>
-  </div>
 
-  <!-- Labels -->
-  <div class="card" style="overflow:hidden">
-    <div class="card-header">
-      <span class="card-title">LABELS</span>
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="font-size:12px;color:var(--muted)">{{ labels|length }} gesamt</span>
-        <button onclick="deleteUnusedLabels()" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">
-          <i class="fa-solid fa-broom"></i> Ungenutzte löschen
-        </button>
-      </div>
-    </div>
-    <div style="padding:16px 20px;display:flex;flex-wrap:wrap;gap:8px;min-height:80px;max-height:280px;overflow-y:auto">
-      {% for label in labels %}
-      <div style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;border:1px solid {{ label.color }}40;background:{{ label.color }}15" class="label-item">
-        <span style="font-size:12px;font-weight:700;color:{{ label.color }}">{{ label.name }}</span>
-        <form method="post" action="{{ url_for('label_delete', label_id=label.id) }}" onsubmit="return confirm('Label löschen?')" style="margin:0">
-          <button type="submit" style="background:none;border:none;color:{{ label.color }};opacity:.5;cursor:pointer;font-size:13px;padding:0;line-height:1;display:flex" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5">×</button>
-        </form>
-      </div>
-      {% endfor %}
-    </div>
-    <div style="padding:14px 20px;border-top:1px solid var(--border)">
-      <form method="post" action="{{ url_for('label_new') }}" style="display:flex;gap:8px;align-items:center">
-        <input type="text" name="name" required placeholder="Neues Label…" class="input-field" style="flex:1;font-size:13px">
-        <input type="color" name="color" value="#3b82f6" style="width:36px;height:36px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px;flex-shrink:0">
-        <button type="submit" class="btn btn-primary" style="padding:8px 14px"><i class="fa-solid fa-plus"></i></button>
-      </form>
-    </div>
-  </div>
-
-  <!-- Platforms -->
-  <div class="card" style="overflow:hidden">
-    <div class="card-header"><span class="card-title">PLATTFORMEN</span></div>
-    <div>
-      {% for p in platforms %}
-      <div style="display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border)">
-        <i class="fa-brands fa-{{ p.icon }}" style="font-size:16px;color:{{ p.color }};width:20px;text-align:center"></i>
-        <span style="font-size:13px;color:var(--text);flex:1">{{ p.name }}</span>
-        <span style="font-size:12px;color:var(--muted)">{{ p.accounts|length }} Accounts</span>
-        {% if p.accounts|length == 0 %}
-        <form method="post" action="{{ url_for('platform_delete', platform_id=p.id) }}"
-              data-confirm="Plattform '{{ p.name }}' löschen?">
-          <button type="submit" class="icon-btn" style="font-size:12px;color:var(--danger)">
-            <i class="fa-solid fa-trash"></i>
-          </button>
-        </form>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </div>
-    <div style="padding:14px 20px;border-top:1px solid var(--border)">
-      <form method="post" action="{{ url_for('platform_new') }}" style="display:flex;gap:8px;align-items:center">
-        <input type="text" name="name" required placeholder="z.B. Twitter" class="input-field" style="flex:1;font-size:13px">
-        <input type="text" name="icon" placeholder="icon" class="input-field" style="width:70px;font-size:13px">
-        <input type="color" name="color" value="#3b82f6" style="width:36px;height:36px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px;flex-shrink:0">
-        <button type="submit" class="btn btn-primary" style="padding:8px 14px"><i class="fa-solid fa-plus"></i></button>
-      </form>
-    </div>
-  </div>
-
-  <!-- Import / Export -->
-  <div class="card" style="overflow:hidden">
-    <div class="card-header"><span class="card-title">BACKUP & IMPORT</span></div>
-    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
-
-      <!-- DB-Backup Panel -->
-      <div style="background:linear-gradient(135deg,rgba(34,197,94,.07),rgba(59,130,246,.05));
-                  border:1px solid rgba(34,197,94,.25);border-radius:12px;padding:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-          <div style="display:flex;align-items:center;gap:12px">
-            <div style="width:38px;height:38px;border-radius:10px;background:rgba(34,197,94,.15);
-                        display:flex;align-items:center;justify-content:center">
-              <i class="fa-solid fa-database" style="color:var(--success);font-size:16px"></i>
-            </div>
-            <div>
-              <div style="font-size:13px;font-weight:700;color:var(--text)">Datenbank-Backup</div>
-              <div style="font-size:11px;color:var(--muted)" id="backupStatusLine">Lädt…</div>
-            </div>
+      <div class="s-section-title">Labels <span style="font-weight:400;color:var(--muted)">({{ labels|length }})</span></div>
+      <div class="s-group">
+        <div style="padding:12px 14px;display:flex;flex-wrap:wrap;gap:7px;min-height:48px">
+          {% for label in labels %}
+          <div class="label-tag" style="background:{{ label.color }}18;border:1px solid {{ label.color }}40;color:{{ label.color }}">
+            {{ label.name }}
+            <form method="post" action="{{ url_for('label_delete', label_id=label.id) }}" onsubmit="return confirm('Label löschen?')" style="margin:0">
+              <button type="submit" style="background:none;border:none;color:inherit;opacity:.5;cursor:pointer;font-size:14px;padding:0;line-height:1" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5">×</button>
+            </form>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button onclick="doManualBackup()" class="btn btn-ghost" style="font-size:12px" id="backupNowBtn">
-              <i class="fa-solid fa-shield-halved"></i> Jetzt sichern
+          {% endfor %}
+          {% if not labels %}<span style="font-size:12px;color:var(--muted)">Noch keine Labels</span>{% endif %}
+        </div>
+        <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center">
+          <form method="post" action="{{ url_for('label_new') }}" style="display:flex;gap:8px;align-items:center;flex:1">
+            <input type="text" name="name" required placeholder="Neues Label…" class="s-input s-input-w140">
+            <input type="color" name="color" value="#3b82f6" style="width:32px;height:32px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px">
+            <button type="submit" class="btn btn-primary s-btn-sm"><i class="fa-solid fa-plus"></i> Hinzufügen</button>
+          </form>
+          <button onclick="deleteUnusedLabels()" class="btn btn-ghost s-btn-sm">
+            <i class="fa-solid fa-broom"></i> Ungenutzte löschen
+          </button>
+        </div>
+      </div>
+
+      <div class="s-section-title">Plattformen</div>
+      <div class="s-group">
+        {% for p in platforms %}
+        <div class="s-row">
+          <i class="fa-brands fa-{{ p.icon }}" style="color:{{ p.color }};width:18px;text-align:center;font-size:15px"></i>
+          <div class="s-row-label"><b>{{ p.name }}</b></div>
+          <span style="font-size:11px;color:var(--muted)">{{ p.accounts|length }} Accounts</span>
+          {% if p.accounts|length == 0 %}
+          <form method="post" action="{{ url_for('platform_delete', platform_id=p.id) }}" onsubmit="return confirm('Löschen?')" style="margin:0">
+            <button type="submit" class="icon-btn" style="color:var(--danger);font-size:11px;padding:4px"><i class="fa-solid fa-trash"></i></button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+        <div style="padding:10px 14px;background:var(--surface2)">
+          <form method="post" action="{{ url_for('platform_new') }}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" name="name" required placeholder="z.B. TikTok" class="s-input s-input-w140">
+            <input type="text" name="icon" placeholder="tiktok" class="s-input s-input-w80">
+            <input type="color" name="color" value="#3b82f6" style="width:32px;height:32px;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;padding:2px">
+            <button type="submit" class="btn btn-primary s-btn-sm"><i class="fa-solid fa-plus"></i></button>
+          </form>
+        </div>
+      </div>
+
+    </div><!-- /inhalte -->
+
+    <!-- ══ BENACHRICHTIGUNGEN ══ -->
+    <div class="s-panel" id="sec-benachrichtigungen">
+
+      <div class="s-section-title">Telegram Alert-Channel</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Bot Token</b>
+            <small>Vom @BotFather · Alle System-Alerts laufen über diesen Bot</small>
+          </div>
+          <div class="s-row-ctrl">
+            {% if tg_alert_token_set %}
+            <span class="s-key-dot s-key-set"><i class="fa-solid fa-check-circle"></i> Gesetzt</span>
+            <button onclick="editTgToken()" class="btn btn-ghost s-btn-sm">Ändern</button>
+            {% else %}
+            <span class="s-key-dot s-key-missing"><i class="fa-solid fa-circle-xmark"></i> Fehlt</span>
+            {% endif %}
+          </div>
+        </div>
+        <div id="tg-token-edit" style="display:{% if not tg_alert_token_set %}flex{% else %}none{% endif %};padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);gap:8px;align-items:center">
+          <input id="tgAlertToken" type="password" class="s-input s-input-w240" placeholder="123456:ABC-DEF..." autocomplete="off">
+          <button onclick="saveTgAlert()" class="btn btn-primary s-btn-sm">Speichern</button>
+          {% if tg_alert_token_set %}<button onclick="document.getElementById('tg-token-edit').style.display='none'" class="btn btn-ghost s-btn-sm">Abbrechen</button>{% endif %}
+        </div>
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Chat-ID des Alert-Channels</b>
+            <small>Via @userinfobot herausfinden</small>
+          </div>
+          <div class="s-row-ctrl">
+            <input id="tgAlertChatId" type="text" class="s-input s-input-w140" placeholder="-100123…" value="{{ tg_alert_chat_id }}">
+            <button onclick="saveTgChatId()" class="btn btn-ghost s-btn-sm">Speichern</button>
+          </div>
+        </div>
+        <div class="s-row" style="background:var(--surface2)">
+          <div class="s-row-label"><small>Test-Nachricht an den konfigurierten Channel senden</small></div>
+          <div class="s-row-ctrl">
+            <button onclick="testTgAlert()" class="btn btn-ghost s-btn-sm"><i class="fa-brands fa-telegram"></i> Testnachricht</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="s-section-title">Content-Alerts</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Low-Stock Schwelle</b>
+            <small>Alert wenn Vorrat unter X Tage fällt</small>
+          </div>
+          <div class="s-row-ctrl">
+            <input id="notifDays" type="number" min="1" max="14" class="s-input s-input-w80" value="{{ low_stock_days }}">
+            <span style="font-size:12px;color:var(--muted)">Tage</span>
+            <button onclick="saveNotifSettings()" class="btn btn-ghost s-btn-sm">Speichern</button>
+          </div>
+        </div>
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Growth Lab Reminder</b>
+            <small>Ping am Tag vor + am Tag des Experiment-Endes</small>
+          </div>
+          <div class="s-row-ctrl">
+            <span class="s-key-dot s-key-set" style="font-size:11px"><i class="fa-solid fa-check-circle"></i> Aktiv</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /benachrichtigungen -->
+
+    <!-- ══ VERBINDUNGEN ══ -->
+    <div class="s-panel" id="sec-verbindungen">
+
+      <div class="s-section-title">Instagram Follower-Sync</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label"><b>Sync-Methode</b></div>
+          <div class="s-row-ctrl">
+            <select id="igSyncMethod" class="s-select" onchange="saveIgMethod()">
+              <option value="apify" {% if ig_sync_method=='apify' %}selected{% endif %}>Apify</option>
+              <option value="rapidapi" {% if ig_sync_method=='rapidapi' %}selected{% endif %}>RapidAPI</option>
+              <option value="direct" {% if ig_sync_method=='direct' %}selected{% endif %}>Direkt (langsam)</option>
+            </select>
+          </div>
+        </div>
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Apify Token</b>
+            <small>Für Bulk-Scraping (empfohlen)</small>
+          </div>
+          <div class="s-row-ctrl">
+            {% if apify_token_set %}
+            <span class="s-key-dot s-key-set"><i class="fa-solid fa-check-circle"></i> Gesetzt</span>
+            <button onclick="toggleKeyEdit('apify')" class="btn btn-ghost s-btn-sm">Ändern</button>
+            {% else %}
+            <span class="s-key-dot s-key-missing"><i class="fa-solid fa-circle-xmark"></i> Fehlt</span>
+            {% endif %}
+          </div>
+        </div>
+        <div id="edit-apify" style="display:{% if not apify_token_set %}flex{% else %}none{% endif %};padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);gap:8px;align-items:center">
+          <input id="apifyToken" type="password" class="s-input s-input-w240" placeholder="apify_api_…" autocomplete="off">
+          <button onclick="saveKey('apify_token','apifyToken','apify')" class="btn btn-primary s-btn-sm">Speichern</button>
+          {% if apify_token_set %}<button onclick="toggleKeyEdit('apify')" class="btn btn-ghost s-btn-sm">Abbrechen</button>{% endif %}
+        </div>
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>RapidAPI Key</b>
+            <small>Alternativ zu Apify</small>
+          </div>
+          <div class="s-row-ctrl">
+            {% if rapidapi_key_set %}
+            <span class="s-key-dot s-key-set"><i class="fa-solid fa-check-circle"></i> Gesetzt</span>
+            <button onclick="toggleKeyEdit('rapidapi')" class="btn btn-ghost s-btn-sm">Ändern</button>
+            {% else %}
+            <span class="s-key-dot s-key-missing"><i class="fa-solid fa-circle-xmark"></i> Fehlt</span>
+            {% endif %}
+          </div>
+        </div>
+        <div id="edit-rapidapi" style="display:{% if not rapidapi_key_set %}flex{% else %}none{% endif %};padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);gap:8px;align-items:center">
+          <input id="rapidapiKey" type="password" class="s-input s-input-w240" placeholder="RapidAPI Key…" autocomplete="off">
+          <button onclick="saveKey('rapidapi_key','rapidapiKey','rapidapi')" class="btn btn-primary s-btn-sm">Speichern</button>
+          {% if rapidapi_key_set %}<button onclick="toggleKeyEdit('rapidapi')" class="btn btn-ghost s-btn-sm">Abbrechen</button>{% endif %}
+        </div>
+      </div>
+
+      <div class="s-section-title">KI / Anthropic</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Anthropic API Key</b>
+            <small>Für Captions, Growth-Analyse, KI-Ideen</small>
+          </div>
+          <div class="s-row-ctrl">
+            {% if anthropic_key_set %}
+            <span class="s-key-dot s-key-set"><i class="fa-solid fa-check-circle"></i> Gesetzt</span>
+            <button onclick="toggleKeyEdit('anthropic')" class="btn btn-ghost s-btn-sm">Ändern</button>
+            {% else %}
+            <span class="s-key-dot s-key-missing"><i class="fa-solid fa-circle-xmark"></i> Fehlt</span>
+            {% endif %}
+          </div>
+        </div>
+        <div id="edit-anthropic" style="display:{% if not anthropic_key_set %}flex{% else %}none{% endif %};padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);gap:8px;align-items:center">
+          <input id="anthropicKey" type="password" class="s-input s-input-w240" placeholder="sk-ant-…" autocomplete="off">
+          <button onclick="saveKey('anthropic_api_key','anthropicKey','anthropic')" class="btn btn-primary s-btn-sm">Speichern</button>
+          {% if anthropic_key_set %}<button onclick="toggleKeyEdit('anthropic')" class="btn btn-ghost s-btn-sm">Abbrechen</button>{% endif %}
+        </div>
+      </div>
+
+      <div class="s-section-title">Cron-Job</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Cron Token</b>
+            <small>Schützt /cron/sync-followers + /cron/morning-report</small>
+          </div>
+          <div class="s-row-ctrl" style="gap:6px">
+            <code style="font-size:11px;color:var(--accent);background:var(--surface2);padding:4px 8px;border-radius:6px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="cronTokenDisplay">
+              {% if cron_token %}{{ cron_token[:16] }}…{% else %}nicht gesetzt{% endif %}
+            </code>
+            <button onclick="copyCronToken()" class="btn btn-ghost s-btn-sm" title="Kopieren"><i class="fa-solid fa-copy"></i></button>
+            <button onclick="regenerateCronToken()" class="btn btn-ghost s-btn-sm" style="color:var(--warning)"><i class="fa-solid fa-rotate"></i> Neu</button>
+          </div>
+        </div>
+        <div class="s-row" style="background:var(--surface2)">
+          <div class="s-row-label"><small>Cron-URL: <code style="color:var(--accent)">GET /cron/sync-followers?token=TOKEN</code></small></div>
+        </div>
+      </div>
+
+    </div><!-- /verbindungen -->
+
+    <!-- ══ KI ══ -->
+    <div class="s-panel" id="sec-ki">
+
+      <div class="s-section-title">Kategorie-Analyse-Regeln</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label"><b>Kategorie</b></div>
+          <div class="s-row-ctrl">
+            <select id="catRulesSel" class="s-select" onchange="loadCatRules()">
+              <option value="">— Kategorie wählen —</option>
+              {% for cat in categories %}
+              <option value="{{ cat.name }}">{{ cat.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div style="padding:12px 16px;border-top:1px solid var(--border)">
+          <textarea id="catRulesText" rows="7" class="s-input" style="width:100%;resize:vertical;box-sizing:border-box;font-size:12px;font-family:monospace"
+            placeholder="Beispiel:&#10;— Posts über XY laufen gut wegen…&#10;— Lokale Ereignisse immer am Tag des Ereignisses posten."></textarea>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+            <button onclick="saveCatRules()" class="btn btn-primary s-btn-sm"><i class="fa-solid fa-floppy-disk"></i> Regeln speichern</button>
+            <span id="catRulesNote" style="font-size:11px;color:var(--muted)"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="s-section-title">KI-Modell</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Caption-Generierung</b>
+            <small>Haiku = schnell + günstig · Sonnet = besser aber teurer</small>
+          </div>
+          <div class="s-row-ctrl">
+            <select id="captionModel" class="s-select" onchange="saveAiModel('caption_model', this.value)">
+              <option value="claude-haiku-4-5-20251001">Haiku 4.5 (empfohlen)</option>
+              <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+            </select>
+          </div>
+        </div>
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Growth Lab Analyse</b>
+            <small>KI-Auswertung nach Experimentabschluss</small>
+          </div>
+          <div class="s-row-ctrl">
+            <select id="analysisModel" class="s-select" onchange="saveAiModel('analysis_model', this.value)">
+              <option value="claude-haiku-4-5-20251001">Haiku 4.5 (empfohlen)</option>
+              <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /ki -->
+
+    <!-- ══ RECHNUNG ══ -->
+    <div class="s-panel" id="sec-rechnung">
+
+      <div class="s-section-title">Absender</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label"><b>Name / Unternehmen</b></div>
+          <input id="inv_sender_name" type="text" class="s-input s-input-w240" placeholder="Max Mustermann">
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>Straße &amp; Nr.</b></div>
+          <input id="inv_sender_street" type="text" class="s-input s-input-w240" placeholder="Musterstraße 1">
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>PLZ &amp; Stadt</b></div>
+          <input id="inv_sender_city" type="text" class="s-input s-input-w240" placeholder="60311 Frankfurt">
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>E-Mail</b></div>
+          <input id="inv_sender_email" type="email" class="s-input s-input-w240" placeholder="kontakt@example.de">
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>Telefon</b><small style="display:block">Optional</small></div>
+          <input id="inv_sender_phone" type="text" class="s-input s-input-w240" placeholder="+49 1234 567890">
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>Steuernummer</b></div>
+          <input id="inv_sender_tax_number" type="text" class="s-input s-input-w240" placeholder="12/345/67890">
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>USt-IdNr.</b><small style="display:block">Optional</small></div>
+          <input id="inv_sender_vat_number" type="text" class="s-input s-input-w240" placeholder="DE123456789">
+        </div>
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Kleinunternehmerregelung § 19 UStG</b>
+            <small>Keine MwSt. auf Rechnungen</small>
+          </div>
+          <div class="s-row-ctrl">
+            <input type="checkbox" id="inv_kleinunternehmer" style="width:16px;height:16px;accent-color:var(--accent)">
+          </div>
+        </div>
+      </div>
+
+      <div class="s-section-title">Bankverbindung</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label"><b>Bank</b></div>
+          <input id="inv_sender_bank_name" type="text" class="s-input s-input-w240" placeholder="Sparkasse Frankfurt">
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>IBAN</b></div>
+          <input id="inv_sender_iban" type="text" class="s-input s-input-w240" placeholder="DE89 3704 0044 …">
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>BIC</b></div>
+          <input id="inv_sender_bic" type="text" class="s-input s-input-w240" placeholder="COBADEFFXXX">
+        </div>
+      </div>
+
+      <div class="s-section-title">Rechnungseinstellungen</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label"><b>Nummern-Präfix</b><small style="display:block">Ergebnis: RE-2026-001</small></div>
+          <input id="inv_prefix" type="text" class="s-input s-input-w80" placeholder="RE">
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>Zahlungsziel</b></div>
+          <div class="s-row-ctrl">
+            <input id="inv_payment_days" type="number" min="7" max="90" class="s-input s-input-w80">
+            <span style="font-size:12px;color:var(--muted)">Tage</span>
+          </div>
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>Logo</b></div>
+          <div class="s-row-ctrl" style="gap:8px">
+            <div id="invLogoPreview"></div>
+            <input type="file" id="invLogoFile" accept="image/*" style="display:none" onchange="uploadInvLogo(this)">
+            <button onclick="document.getElementById('invLogoFile').click()" class="btn btn-ghost s-btn-sm">
+              <i class="fa-solid fa-upload"></i> Hochladen
             </button>
-            <a href="/api/backup/download" class="btn btn-primary" style="font-size:12px">
-              <i class="fa-solid fa-download"></i> DB herunterladen
-            </a>
-          </div>
-        </div>
-        <div id="backupList" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px"></div>
-      </div>
-
-      <!-- Vollexport -->
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">
-        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">
-          <i class="fa-solid fa-box-archive" style="color:var(--accent2);margin-right:6px"></i>
-          Alle Daten exportieren
-        </div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
-          Accounts, Ordner, Content, Inspiration-Posts, Kooperationen, Serien, API-Keys — alles als lesbare JSON-Datei.
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <a href="/api/export/all" class="btn btn-primary" style="font-size:12px">
-            <i class="fa-solid fa-download"></i> Alles herunterladen (JSON)
-          </a>
-          <button onclick="copyAllData()" class="btn btn-ghost" style="font-size:12px" id="copyAllBtn">
-            <i class="fa-solid fa-copy"></i> In Zwischenablage kopieren
-          </button>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <a href="{{ url_for('settings_export') }}" class="btn btn-ghost" style="font-size:12px">
-          <i class="fa-solid fa-sliders"></i> Nur Config (JSON)
-        </a>
-        <a href="{{ url_for('accounts_export_csv') }}" class="btn btn-ghost" style="font-size:12px">
-          <i class="fa-solid fa-file-csv"></i> Accounts (CSV)
-        </a>
-        <a href="{{ url_for('analytics_export') }}" class="btn btn-ghost" style="font-size:12px">
-          <i class="fa-solid fa-chart-bar"></i> Analytics (CSV)
-        </a>
-      </div>
-      <form method="post" action="{{ url_for('settings_import') }}" enctype="multipart/form-data"
-            style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <label class="form-label" style="margin:0;white-space:nowrap">Config importieren:</label>
-        <input type="file" name="config_file" accept=".json" required
-               class="input-field" style="flex:1;min-width:200px;cursor:pointer">
-        <button type="submit" class="btn btn-primary">
-          <i class="fa-solid fa-upload"></i> Importieren
-        </button>
-      </form>
-    </div>
-  </div>
-
-  <!-- System -->
-  <div class="card" style="padding:0;overflow:hidden">
-    <div class="card-header">
-      <span class="card-title">SYSTEM</span>
-      <button onclick="autoArchive()" class="btn btn-ghost" style="font-size:12px">
-        <i class="fa-solid fa-box-archive"></i> Alte Drafts archivieren
-      </button>
-    </div>
-    {% for label,value in [('Version','1.0.0'),('Datenbank','SQLite / PostgreSQL'),
-       ('Kategorien',categories|length),('Labels',labels|length),('Plattformen',platforms|length)] %}
-    <div style="display:flex;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border)">
-      <span style="font-size:13px;color:var(--muted)">{{ label }}</span>
-      <span style="font-size:13px;font-weight:600;color:var(--text)">{{ value }}</span>
-    </div>
-    {% endfor %}
-  </div>
-
-</div>
-
-<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:28px;margin-bottom:12px">
-  BENACHRICHTIGUNGEN
-</div>
-<div class="card" style="max-width:540px">
-    <div class="card-header">
-      <span class="card-title">BENACHRICHTIGUNGEN</span>
-      <span style="font-size:11px;color:var(--muted)">Low-Stock Alert via Telegram</span>
-    </div>
-    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
-      <div>
-        <label class="form-label">Alert ab (Tage Vorrat)</label>
-        <input id="notifDays" type="number" min="1" max="14" class="input-field" style="width:80px">
-      </div>
-      <div style="font-size:12px;color:var(--muted);line-height:1.6">
-        Alerts werden per Telegram an den zentralen Alert-Channel gesendet (unten konfigurieren).
-      </div>
-      <div style="display:flex;gap:10px">
-        <button onclick="saveNotifSettings()" class="btn btn-primary" style="flex:1">
-          <i class="fa-solid fa-floppy-disk"></i> Speichern
-        </button>
-        <button onclick="testLowStockAlert()" class="btn btn-ghost">
-          <i class="fa-brands fa-telegram"></i> Test-Alert
-        </button>
-      </div>
-    </div>
-</div>
-
-<!-- Telegram Central Alert -->
-<div class="card" style="max-width:540px;margin-top:14px">
-  <div class="card-header">
-    <span class="card-title"><i class="fa-brands fa-telegram" style="color:#29b6f6;margin-right:6px"></i>TELEGRAM ALERTS</span>
-    <span style="font-size:11px;color:var(--muted)">Zentraler Alert-Channel</span>
-  </div>
-  <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
-    <div style="font-size:12px;color:var(--muted);line-height:1.6">
-      Alle System-Alerts (Follower-Verlust, Watchlist, Koop-Deadline) werden in <em>einen</em> zentralen Telegram-Channel gesendet.
-    </div>
-    <div>
-      <label class="form-label">Bot Token</label>
-      <input id="tgAlertToken" type="text" class="input-field" placeholder="123456:ABC-DEF..." autocomplete="off">
-    </div>
-    <div>
-      <label class="form-label">Chat-ID des Alert-Channels</label>
-      <input id="tgAlertChatId" type="text" class="input-field" placeholder="-100123456789">
-    </div>
-    <div style="display:flex;gap:10px">
-      <button onclick="saveTgAlert()" class="btn btn-primary" style="flex:1">
-        <i class="fa-solid fa-floppy-disk"></i> Speichern
-      </button>
-      <button onclick="testTgAlert()" class="btn btn-ghost">
-        <i class="fa-brands fa-telegram"></i> Testnachricht
-      </button>
-    </div>
-    <div style="font-size:11px;color:var(--muted)">
-      Token vom <a href="https://t.me/BotFather" target="_blank" style="color:var(--accent2)">@BotFather</a> — Chat-ID via <code style="color:var(--accent2)">@userinfobot</code> herausfinden.
-    </div>
-  </div>
-</div>
-
-<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:28px;margin-bottom:12px">
-  RECHNUNGS-PROFIL
-</div>
-<div id="rechnung">
-  <div class="card" style="max-width:660px">
-    <div class="card-header">
-      <span class="card-title">RECHNUNGS-PROFIL</span>
-      <span style="font-size:11px;color:var(--muted)">Absender-Infos für deine Rechnungen</span>
-    </div>
-    <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div style="grid-column:1/-1">
-          <label class="form-label">Dein Name / Unternehmen</label>
-          <input id="inv_sender_name" type="text" class="input-field" placeholder="Max Mustermann">
-        </div>
-        <div style="grid-column:1/-1">
-          <label class="form-label">Straße &amp; Hausnummer</label>
-          <input id="inv_sender_street" type="text" class="input-field" placeholder="Musterstraße 1">
-        </div>
-        <div>
-          <label class="form-label">PLZ &amp; Stadt</label>
-          <input id="inv_sender_city" type="text" class="input-field" placeholder="60311 Frankfurt">
-        </div>
-        <div>
-          <label class="form-label">E-Mail</label>
-          <input id="inv_sender_email" type="email" class="input-field" placeholder="kontakt@example.de">
-        </div>
-        <div>
-          <label class="form-label">Telefon (optional)</label>
-          <input id="inv_sender_phone" type="text" class="input-field" placeholder="+49 1234 567890">
-        </div>
-        <div>
-          <label class="form-label">Steuernummer</label>
-          <input id="inv_sender_tax_number" type="text" class="input-field" placeholder="12/345/67890">
-        </div>
-        <div>
-          <label class="form-label">USt-IdNr. (optional)</label>
-          <input id="inv_sender_vat_number" type="text" class="input-field" placeholder="DE123456789">
-        </div>
-      </div>
-
-      <div style="border-top:1px solid var(--border);padding-top:14px">
-        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:10px">BANKVERBINDUNG</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div style="grid-column:1/-1">
-            <label class="form-label">Bank</label>
-            <input id="inv_sender_bank_name" type="text" class="input-field" placeholder="Sparkasse Frankfurt">
-          </div>
-          <div>
-            <label class="form-label">IBAN</label>
-            <input id="inv_sender_iban" type="text" class="input-field" placeholder="DE89 3704 0044 0532 0130 00">
-          </div>
-          <div>
-            <label class="form-label">BIC</label>
-            <input id="inv_sender_bic" type="text" class="input-field" placeholder="COBADEFFXXX">
           </div>
         </div>
       </div>
 
-      <div style="border-top:1px solid var(--border);padding-top:14px">
-        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:10px">RECHNUNGSEINSTELLUNGEN</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div>
-            <label class="form-label">Rechnungsnummer-Präfix</label>
-            <input id="inv_prefix" type="text" class="input-field" placeholder="RE" style="max-width:120px">
-            <div style="font-size:10px;color:var(--muted);margin-top:4px">Ergebnis: RE-2026-001</div>
-          </div>
-          <div>
-            <label class="form-label">Zahlungsziel (Tage)</label>
-            <input id="inv_payment_days" type="number" min="7" max="90" class="input-field" style="max-width:100px">
-          </div>
-        </div>
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-top:12px">
-          <input type="checkbox" id="inv_kleinunternehmer" style="width:16px;height:16px;accent-color:var(--accent)">
-          <span style="font-size:13px;color:var(--text)">Kleinunternehmerregelung § 19 UStG
-            <span style="font-size:11px;color:var(--muted)">(keine MwSt. auf Rechnungen)</span>
-          </span>
-        </label>
-      </div>
-
-      <button onclick="saveInvoiceSettings()" class="btn btn-primary" style="align-self:flex-start;min-width:160px">
+      <button onclick="saveInvoiceSettings()" class="btn btn-primary" style="min-width:180px">
         <i class="fa-solid fa-floppy-disk"></i> Rechnungsprofil speichern
       </button>
 
-      <div style="border-top:1px solid #e5e7eb;padding-top:14px;margin-top:4px">
-        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:8px">
-          <i class="fa-solid fa-image" style="color:var(--accent2);margin-right:6px"></i>Logo
+    </div><!-- /rechnung -->
+
+    <!-- ══ DATEN ══ -->
+    <div class="s-panel" id="sec-daten">
+
+      <div class="s-section-title">Export</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label"><b>Vollexport</b><small style="display:block">Alle Accounts, Inhalte, Config als JSON</small></div>
+          <a href="/api/export/all" class="btn btn-ghost s-btn-sm"><i class="fa-solid fa-download"></i> JSON</a>
         </div>
-        <div id="invLogoPreview" style="margin-bottom:8px"></div>
-        <input type="file" id="invLogoFile" accept="image/*" style="display:none" onchange="uploadInvLogo(this)">
-        <button onclick="document.getElementById('invLogoFile').click()" class="btn btn-ghost" style="font-size:12px">
-          <i class="fa-solid fa-upload"></i> Logo hochladen
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <div class="card" style="max-width:700px">
-    <div class="card-header">
-      <span class="card-title">KATEGORIE-ANALYSE-REGELN</span>
-    </div>
-    <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
-      <div style="font-size:12px;color:var(--muted);line-height:1.5">
-        Hier kannst du Regeln für einzelne <strong>Kategorien</strong> hinterlegen (z.B. "Stadtmemes", "Stadtnachrichten").
-        Accounts, die du einer Kategorie zuweist, bekommen genau die passenden Regeln in ihre Analyse — nicht die Regeln anderer Kategorien.
-        Die Kategorie eines Accounts wird im Content-Ideen-Tab im Feedback-Bereich gesetzt.
+        <div class="s-row">
+          <div class="s-row-label"><b>Accounts</b></div>
+          <a href="{{ url_for('accounts_export_csv') }}" class="btn btn-ghost s-btn-sm"><i class="fa-solid fa-file-csv"></i> CSV</a>
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>Analytics</b></div>
+          <a href="{{ url_for('analytics_export') }}" class="btn btn-ghost s-btn-sm"><i class="fa-solid fa-chart-bar"></i> CSV</a>
+        </div>
+        <div class="s-row">
+          <div class="s-row-label"><b>Config (API-Keys, Einstellungen)</b></div>
+          <a href="{{ url_for('settings_export') }}" class="btn btn-ghost s-btn-sm"><i class="fa-solid fa-sliders"></i> JSON</a>
+        </div>
       </div>
 
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <input id="catRulesName" type="text" class="form-control" placeholder="Kategoriename (z.B. Stadtmemes)" style="flex:1;min-width:180px;max-width:260px">
-        <button onclick="loadCatRules()" class="btn btn-ghost" style="font-size:12px">
-          <i class="fa-solid fa-arrow-down-to-line"></i> Laden
-        </button>
-        <button onclick="saveCatRules()" class="btn btn-primary" style="font-size:12px">
-          <i class="fa-solid fa-floppy-disk"></i> Speichern
-        </button>
+      <div class="s-section-title">Import</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label"><b>Config importieren</b><small style="display:block">Überschreibt bestehende Einstellungen</small></div>
+          <form method="post" action="{{ url_for('settings_import') }}" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
+            <input type="file" name="config_file" accept=".json" required class="s-input" style="font-size:12px;cursor:pointer">
+            <button type="submit" class="btn btn-ghost s-btn-sm"><i class="fa-solid fa-upload"></i> Importieren</button>
+          </form>
+        </div>
       </div>
-      <textarea id="catRulesText" rows="7" class="form-control" placeholder="Beispiele für 'Stadtmemes':&#10;— Jens-Spahn-Posts = Meme über korrupte Politiker-Ausgaben, kein politischer Inhalt.&#10;— GTA6-Posts laufen wegen allgemeinem Hype, nicht wegen Gaming-Nische.&#10;— Lokale Ereignisse (Marathon, Stadtfest) sind zeitkritisch — immer am Tag des Ereignisses gepostet." style="font-size:12px;resize:vertical"></textarea>
-      <div id="catRulesNote" style="font-size:11px;color:var(--muted)"></div>
-    </div>
-  </div>
-</div>
+
+      <div class="s-section-title">Wartung</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Alte Drafts archivieren</b>
+            <small>Entwürfe &amp; "In Bearbeitung" älter als 90 Tage</small>
+          </div>
+          <button onclick="autoArchive()" class="btn btn-ghost s-btn-sm"><i class="fa-solid fa-box-archive"></i> Archivieren</button>
+        </div>
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Ungenutzte Labels löschen</b>
+            <small>Labels ohne zugeordnete Content-Items</small>
+          </div>
+          <button onclick="deleteUnusedLabels()" class="btn btn-ghost s-btn-sm"><i class="fa-solid fa-broom"></i> Bereinigen</button>
+        </div>
+      </div>
+
+    </div><!-- /daten -->
+
+  </div><!-- right col -->
+</div><!-- shell -->
 {% endblock %}
 
 {% block scripts %}
-<style>.cat-row:hover .cat-actions { opacity:1 !important; }</style>
+<style>
+.cat-pill:hover .cat-actions-hidden { opacity:1 !important }
+</style>
 <script>
-// Notif Settings laden
-(async function() {
-  const d = await fetch('/api/notifications/settings').then(r=>r.json());
-  document.getElementById('notifDays').value = d.low_stock_days || 3;
-})();
+// ── Sidebar navigation ────────────────────────────────────────
+document.querySelectorAll('.s-nav-item').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.s-nav-item').forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('.s-panel').forEach(p => p.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('sec-' + el.dataset.sec).classList.add('active');
+    location.hash = el.dataset.sec;
+  });
+});
+// Restore from URL hash
+const hash = location.hash.replace('#', '');
+if (hash && document.getElementById('sec-' + hash)) {
+  document.querySelector(`[data-sec="${hash}"]`)?.click();
+}
 
-// Telegram Alert Settings laden
-(async function() {
-  try {
-    const d = await fetch('/api/settings/telegram-alert').then(r=>r.json());
-    document.getElementById('tgAlertToken').value  = d.token  || '';
-    document.getElementById('tgAlertChatId').value = d.chat_id || '';
-  } catch(e) {}
-})();
+// ── Generic key helpers ───────────────────────────────────────
+function toggleKeyEdit(name) {
+  const el = document.getElementById('edit-' + name);
+  el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
 
+async function saveKey(settingKey, inputId, editName) {
+  const val = document.getElementById(inputId).value.trim();
+  if (!val) { showToast('Bitte Wert eingeben', 'error'); return; }
+  const r = await fetch('/api/settings/set', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({key: settingKey, value: val})
+  }).then(r => r.json());
+  if (r.ok) { showToast('Gespeichert ✓', 'success'); setTimeout(() => location.reload(), 700); }
+  else showToast('Fehler', 'error');
+}
+
+async function saveIgMethod() {
+  const method = document.getElementById('igSyncMethod').value;
+  const r = await fetch('/api/settings/set', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({key: 'ig_sync_method', value: method})
+  }).then(r => r.json());
+  if (r.ok) showToast('Sync-Methode: ' + method + ' ✓', 'success');
+}
+
+// ── Telegram ──────────────────────────────────────────────────
+function editTgToken() {
+  const el = document.getElementById('tg-token-edit');
+  el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+}
 async function saveTgAlert() {
-  const token   = document.getElementById('tgAlertToken').value.trim();
+  const token = document.getElementById('tgAlertToken').value.trim();
+  if (!token) { showToast('Token eingeben', 'error'); return; }
+  const r = await fetch('/api/settings/telegram-alert', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({token, chat_id: document.getElementById('tgAlertChatId').value.trim()})
+  }).then(r => r.json());
+  if (r.ok) { showToast('Telegram gespeichert ✓', 'success'); setTimeout(() => location.reload(), 700); }
+}
+async function saveTgChatId() {
   const chat_id = document.getElementById('tgAlertChatId').value.trim();
   const r = await fetch('/api/settings/telegram-alert', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({token, chat_id})
-  }).then(r=>r.json());
-  showToast(r.ok ? 'Telegram-Alert gespeichert ✓' : 'Fehler: '+(r.error||''), r.ok?'success':'error');
+    body: JSON.stringify({chat_id})
+  }).then(r => r.json());
+  if (r.ok) showToast('Chat-ID gespeichert ✓', 'success');
 }
-
 async function testTgAlert() {
   const r = await fetch('/api/settings/telegram-alert/test', {method:'POST'}).then(r=>r.json());
   showToast(r.ok ? 'Testnachricht gesendet ✓' : 'Fehler: '+(r.error||''), r.ok?'success':'error');
 }
 
+// ── Notifications ─────────────────────────────────────────────
+async function saveNotifSettings() {
+  const days = parseInt(document.getElementById('notifDays').value) || 3;
+  const r = await fetch('/api/notifications/settings', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({low_stock_days: days})
+  }).then(r => r.json());
+  if (r.ok) showToast('Gespeichert ✓', 'success');
+}
+
+// ── Cron Token ────────────────────────────────────────────────
+let _fullCronToken = '{{ cron_token }}';
+async function copyCronToken() {
+  if (!_fullCronToken) { showToast('Kein Token gesetzt', 'error'); return; }
+  await navigator.clipboard.writeText(_fullCronToken);
+  showToast('Token kopiert ✓', 'success');
+}
+async function regenerateCronToken() {
+  const ok = await customConfirm('Cron Token neu generieren', 'Der alte Token wird ungültig — Cron-Job-URL muss danach aktualisiert werden.', 'Neu generieren', 'btn-primary');
+  if (!ok) return;
+  const r = await fetch('/api/cron-token/generate', {method:'POST'}).then(r => r.json());
+  if (r.ok) {
+    _fullCronToken = r.token;
+    document.getElementById('cronTokenDisplay').textContent = r.token.substring(0, 16) + '…';
+    showToast('Neuer Token generiert ✓', 'success');
+  }
+}
+
+// ── Labels ────────────────────────────────────────────────────
 async function deleteUnusedLabels() {
-  const ok = await customConfirm('Ungenutzte Labels löschen',
-    'Alle Labels ohne zugeordnete Content-Items werden gelöscht. Fortfahren?');
+  const ok = await customConfirm('Ungenutzte Labels löschen', 'Alle Labels ohne zugeordnete Content-Items werden gelöscht.');
   if (!ok) return;
   const r = await fetch('/api/labels/delete-unused', {method:'POST'}).then(r=>r.json());
   if (r.ok) {
@@ -432,135 +644,57 @@ async function deleteUnusedLabels() {
   }
 }
 
-async function saveNotifSettings() {
-  const days = parseInt(document.getElementById('notifDays').value) || 3;
-  const res = await fetch('/api/notifications/settings', {
+// ── Kategorie-Regeln ──────────────────────────────────────────
+function _catKey(name) { return 'analyse_cat_' + name.trim().toLowerCase().replace(/\s+/g, '_'); }
+async function loadCatRules() {
+  const name = document.getElementById('catRulesSel').value;
+  if (!name) { document.getElementById('catRulesText').value = ''; return; }
+  const d = await fetch(`/api/settings/get?key=${encodeURIComponent(_catKey(name))}`).then(r=>r.json());
+  document.getElementById('catRulesText').value = d.value || '';
+  document.getElementById('catRulesNote').textContent = d.value ? `Regeln für "${name}" geladen.` : `Noch keine Regeln für "${name}".`;
+}
+async function saveCatRules() {
+  const name  = document.getElementById('catRulesSel').value;
+  const value = document.getElementById('catRulesText').value.trim();
+  if (!name) { showToast('Bitte Kategorie wählen', 'error'); return; }
+  const r = await fetch('/api/settings/set', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({low_stock_days: days})
+    body: JSON.stringify({key: _catKey(name), value})
   }).then(r=>r.json());
-  if (res.ok) showToast('Gespeichert ✓');
+  if (r.ok) { showToast(`Regeln für "${name}" gespeichert ✓`, 'success'); document.getElementById('catRulesNote').textContent = 'Gespeichert.'; }
 }
 
-async function testLowStockAlert() {
-  const res = await fetch('/api/notifications/test-alert', {method:'POST'}).then(r=>r.json());
-  showToast(res.ok ? 'Test-Alert via Telegram gesendet ✓' : 'Fehler: '+(res.error||''), res.ok?'success':'error');
-}
-
-async function autoArchive() {
-  const ok = await customConfirm('Alte Drafts archivieren',
-    'Alle Entwürfe und "In Bearbeitung"-Inhalte älter als 90 Tage werden archiviert.');
-  if (!ok) return;
-  const res = await fetch('/api/content/auto-archive', {
+// ── AI Model ──────────────────────────────────────────────────
+async function saveAiModel(key, value) {
+  const r = await fetch('/api/settings/set', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({days:90})
-  });
-  const d = await res.json();
-  showToast(`${d.archived} Inhalte archiviert.`, 'success');
+    body: JSON.stringify({key, value})
+  }).then(r=>r.json());
+  if (r.ok) showToast('Modell gespeichert ✓', 'success');
 }
-
-// ── Backup-Status ────────────────────────────────────────────
-(async function loadBackupStatus() {
-  try {
-    const d = await fetch('/api/backup/status').then(r => r.json());
-    const line = document.getElementById('backupStatusLine');
-    const list = document.getElementById('backupList');
-    if (d.mode === 'postgres') {
-      line.textContent = 'PostgreSQL — Backup über Render Dashboard';
-      return;
-    }
-    const last = d.last_backup
-      ? d.last_backup.replace('content_os_','').replace('.db','').replace('_',' ')
-      : 'noch keins';
-    line.innerHTML = `Letztes Backup: <strong>${last}</strong> · ${d.db_size_kb} KB · ${d.local_backups.length} Kopien gespeichert`;
-    list.innerHTML = d.local_backups.slice(0,5).map(f => {
-      const label = f.replace('content_os_','').replace('.db','');
-      return `<span style="font-size:10px;padding:3px 9px;border-radius:10px;
-                           background:rgba(34,197,94,.12);color:var(--success);font-weight:600">
-                ${label}
-              </span>`;
-    }).join('');
-  } catch { document.getElementById('backupStatusLine').textContent = 'Status nicht verfügbar'; }
+// Load saved models
+(async function() {
+  const cm = await fetch('/api/settings/get?key=caption_model').then(r=>r.json());
+  if (cm.value) document.getElementById('captionModel').value = cm.value;
+  const am = await fetch('/api/settings/get?key=analysis_model').then(r=>r.json());
+  if (am.value) document.getElementById('analysisModel').value = am.value;
 })();
 
-async function copyAllData() {
-  const btn = document.getElementById('copyAllBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Lädt…';
-  try {
-    const r = await fetch('/api/export/all');
-    const text = await r.text();
-    await navigator.clipboard.writeText(text);
-    btn.innerHTML = '<i class="fa-solid fa-check"></i> Kopiert!';
-    btn.style.color = 'var(--success)';
-    setTimeout(() => {
-      btn.innerHTML = '<i class="fa-solid fa-copy"></i> In Zwischenablage kopieren';
-      btn.style.color = '';
-      btn.disabled = false;
-    }, 2500);
-  } catch {
-    showToast('Kopieren fehlgeschlagen — bitte herunterladen', 'error');
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-copy"></i> In Zwischenablage kopieren';
-  }
-}
-
-async function doManualBackup() {
-  const btn = document.getElementById('backupNowBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sichert…';
-  const r = await fetch('/api/backup/now', {method:'POST'});
-  const d = await r.json();
-  if (d.ok) {
-    showToast('Backup gespeichert: ' + d.file, 'success');
-    setTimeout(() => location.reload(), 1200);
-  } else {
-    showToast('Backup fehlgeschlagen', 'error');
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Jetzt sichern';
-  }
-}
-
-// ── Rechnungs-Logo ───────────────────────────────────────────
-async function uploadInvLogo(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const fd = new FormData();
-  fd.append('logo', file);
-  const r = await fetch('/api/invoice/logo', {method:'POST', body:fd}).then(r=>r.json());
-  if (r.ok) { showToast('Logo gespeichert', 'success'); loadInvLogo(); }
-  else showToast('Fehler beim Upload', 'error');
-}
-async function loadInvLogo() {
-  const s = await fetch('/api/invoice/settings').then(r=>r.json());
-  const prev = document.getElementById('invLogoPreview');
-  if (prev && s.invoice_logo_b64) {
-    prev.innerHTML = `<img src="${s.invoice_logo_b64}" style="max-height:50px;max-width:150px;object-fit:contain;border:1px solid var(--border);border-radius:6px;padding:4px">`;
-  }
-}
-
-// ── Rechnungs-Profil ─────────────────────────────────────────
+// ── Invoice ───────────────────────────────────────────────────
 (async function loadInvoiceSettings() {
   try {
     const d = await fetch('/api/invoice/settings').then(r=>r.json());
-    document.getElementById('inv_sender_name').value     = d.invoice_sender_name    || '';
-    document.getElementById('inv_sender_street').value   = d.invoice_sender_street  || '';
-    document.getElementById('inv_sender_city').value     = d.invoice_sender_city    || '';
-    document.getElementById('inv_sender_email').value    = d.invoice_sender_email   || '';
-    document.getElementById('inv_sender_phone').value    = d.invoice_sender_phone   || '';
-    document.getElementById('inv_sender_iban').value     = d.invoice_sender_iban    || '';
-    document.getElementById('inv_sender_bic').value      = d.invoice_sender_bic     || '';
-    document.getElementById('inv_sender_bank_name').value= d.invoice_sender_bank_name || '';
-    document.getElementById('inv_sender_tax_number').value = d.invoice_sender_tax_number || '';
-    document.getElementById('inv_sender_vat_number').value = d.invoice_sender_vat_number || '';
-    document.getElementById('inv_prefix').value          = d.invoice_prefix || 'RE';
-    document.getElementById('inv_payment_days').value    = d.invoice_payment_days || '14';
+    ['sender_name','sender_street','sender_city','sender_email','sender_phone',
+     'sender_iban','sender_bic','sender_bank_name','sender_tax_number','sender_vat_number']
+      .forEach(f => { const el = document.getElementById('inv_'+f); if(el) el.value = d['invoice_'+f]||''; });
+    document.getElementById('inv_prefix').value = d.invoice_prefix || 'RE';
+    document.getElementById('inv_payment_days').value = d.invoice_payment_days || '14';
     document.getElementById('inv_kleinunternehmer').checked = d.invoice_sender_is_kleinunternehmer !== 'false';
-    // Logo-Vorschau nach Laden der Settings
-    const prev = document.getElementById('invLogoPreview');
-    if (prev && d.invoice_logo_b64) {
-      prev.innerHTML = `<img src="${d.invoice_logo_b64}" style="max-height:50px;max-width:150px;object-fit:contain;border:1px solid var(--border);border-radius:6px;padding:4px">`;
+    if (d.invoice_logo_b64) {
+      document.getElementById('invLogoPreview').innerHTML =
+        `<img src="${d.invoice_logo_b64}" style="max-height:36px;max-width:120px;object-fit:contain;border:1px solid var(--border);border-radius:6px;padding:3px">`;
     }
-  } catch(e) { console.warn('Invoice-Settings konnten nicht geladen werden:', e); }
+  } catch(e) {}
 })();
 
 async function saveInvoiceSettings() {
@@ -579,46 +713,25 @@ async function saveInvoiceSettings() {
     invoice_payment_days:             document.getElementById('inv_payment_days').value || '14',
     invoice_sender_is_kleinunternehmer: document.getElementById('inv_kleinunternehmer').checked ? 'true' : 'false',
   };
-  try {
-    const res = await fetch('/api/invoice/settings', {
-      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
-    });
-    const d = await res.json();
-    if (d.ok) showToast('Rechnungsprofil gespeichert ✓', 'success');
-    else showToast('Fehler beim Speichern', 'error');
-  } catch(e) { showToast('Netzwerkfehler: ' + e.message, 'error'); }
+  const r = await fetch('/api/invoice/settings', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+  }).then(r=>r.json());
+  if (r.ok) showToast('Rechnungsprofil gespeichert ✓', 'success');
+  else showToast('Fehler beim Speichern', 'error');
 }
 
-// ── Kategorie-Analyse-Regeln ──────────────────────────────────
-function _catKey(name) {
-  return 'analyse_cat_' + name.trim().toLowerCase().replace(/\s+/g, '_');
+async function uploadInvLogo(input) {
+  const fd = new FormData(); fd.append('logo', input.files[0]);
+  const r = await fetch('/api/invoice/logo', {method:'POST', body:fd}).then(r=>r.json());
+  if (r.ok) { showToast('Logo gespeichert ✓', 'success'); }
 }
 
-async function loadCatRules() {
-  const name = document.getElementById('catRulesName').value.trim();
-  if (!name) { showToast('Bitte Kategoriename eingeben', 'error'); return; }
-  try {
-    const d = await fetch(`/api/settings/get?key=${encodeURIComponent(_catKey(name))}`).then(r => r.json());
-    document.getElementById('catRulesText').value = d.value || '';
-    document.getElementById('catRulesNote').textContent = d.value ? `Regeln für "${name}" geladen.` : `Noch keine Regeln für "${name}" gespeichert.`;
-  } catch(e) { showToast('Fehler beim Laden', 'error'); }
-}
-
-async function saveCatRules() {
-  const name  = document.getElementById('catRulesName').value.trim();
-  const value = document.getElementById('catRulesText').value.trim();
-  if (!name) { showToast('Bitte Kategoriename eingeben', 'error'); return; }
-  try {
-    const res = await fetch('/api/settings/set', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ key: _catKey(name), value })
-    });
-    const d = await res.json();
-    if (d.ok) {
-      showToast(`Regeln für "${name}" gespeichert ✓`, 'success');
-      document.getElementById('catRulesNote').textContent = `Gespeichert als Kategorie "${name}".`;
-    } else showToast('Fehler beim Speichern', 'error');
-  } catch(e) { showToast('Netzwerkfehler', 'error'); }
+// ── Wartung ───────────────────────────────────────────────────
+async function autoArchive() {
+  const ok = await customConfirm('Alte Drafts archivieren', 'Alle Entwürfe und "In Bearbeitung"-Inhalte älter als 90 Tage werden archiviert.');
+  if (!ok) return;
+  const d = await fetch('/api/content/auto-archive', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({days:90})}).then(r=>r.json());
+  showToast(`${d.archived} Inhalte archiviert.`, 'success');
 }
 </script>
 {% endblock %}
