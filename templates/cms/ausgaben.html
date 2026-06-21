@@ -392,8 +392,9 @@
              :style="'border-left:3px solid '+statusColor(s.status)">
           <!-- Platform-Icon -->
           <div style="flex-shrink:0;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center"
-               :style="'background:'+platformBg(s.platform)">
-            <i class="fa-brands" :class="platformIcon(s.platform)" style="font-size:16px;color:#fff"></i>
+               :style="'background:'+platformColor(s.platform)+'18;border:1px solid '+platformColor(s.platform)+'30'">
+            <i class="fa-brands" :class="platformIcon(s.platform)" style="font-size:16px"
+               :style="'color:'+platformColor(s.platform)"></i>
           </div>
           <!-- Info -->
           <div style="flex:1;min-width:0">
