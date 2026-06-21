@@ -275,6 +275,39 @@
           <button onclick="saveKey('rapidapi_key','rapidapiKey','rapidapi')" class="btn btn-primary s-btn-sm">Speichern</button>
           {% if rapidapi_key_set %}<button onclick="toggleKeyEdit('rapidapi')" class="btn btn-ghost s-btn-sm">Abbrechen</button>{% endif %}
         </div>
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Auto-Sync</b>
+            <small>Täglich um 23:59 alle {{ ig_accounts_count }} Follower-Zahlen automatisch holen</small>
+          </div>
+          <div class="s-row-ctrl">
+            <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer">
+              <input type="checkbox" id="autoSyncCb" {% if auto_sync %}checked{% endif %} onchange="saveAutoSync(this)" style="opacity:0;width:0;height:0">
+              <span id="toggleTrack" style="position:absolute;cursor:pointer;inset:0;border-radius:24px;background:{% if auto_sync %}var(--accent){% else %}var(--surface){% endif %};border:1px solid var(--border);transition:.3s">
+                <span id="toggleKnob" style="position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:2px;left:{% if auto_sync %}22px{% else %}2px{% endif %};transition:.3s;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div class="s-row" style="background:var(--surface2)">
+          <div class="s-row-label"><small>Manuell alle Follower-Zahlen jetzt aktualisieren</small></div>
+          <div class="s-row-ctrl" style="gap:8px">
+            <button id="manSyncBtn" onclick="startManualSync()" class="btn btn-ghost s-btn-sm">
+              <i class="fa-solid fa-rotate" id="manSyncIcon"></i> Jetzt sync
+            </button>
+            <span id="manSyncStatus" style="font-size:11px;color:var(--muted)"></span>
+          </div>
+        </div>
+        <div id="manProgressWrap" style="display:none;padding:10px 16px;border-top:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+            <span id="manProgressLabel" style="color:var(--muted)">Verbinde…</span>
+            <span id="manProgressPct" style="color:var(--accent);font-weight:700">0%</span>
+          </div>
+          <div style="background:var(--surface);border-radius:20px;height:4px;overflow:hidden">
+            <div id="manProgressBar" style="height:100%;background:linear-gradient(90deg,#6366f1,#a855f7);border-radius:20px;width:0%;transition:width .4s"></div>
+          </div>
+        </div>
+        <div id="manSyncResult" style="display:none;padding:10px 16px;border-top:1px solid var(--border);font-size:11px"></div>
       </div>
 
       <div class="s-section-title">Telegram Posting-Bot</div>
@@ -299,9 +332,21 @@
           <button onclick="saveKey('telegram_bot_token','tgBotToken','tg-bot')" class="btn btn-primary s-btn-sm">Speichern</button>
           {% if tg_bot_token_set %}<button onclick="toggleKeyEdit('tg-bot')" class="btn btn-ghost s-btn-sm">Abbrechen</button>{% endif %}
         </div>
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Webhook</b>
+            <small>Verbindet Telegram mit Content OS für Bot-Kommandos (/heute, /vorrat, …)</small>
+          </div>
+          <div class="s-row-ctrl" style="gap:8px">
+            <button onclick="registerWebhook()" id="webhookBtn" class="btn btn-ghost s-btn-sm">
+              <i class="fa-solid fa-link"></i> Registrieren
+            </button>
+            <span id="webhookStatus" style="font-size:11px;color:var(--muted)"></span>
+          </div>
+        </div>
         <div class="s-row" style="background:var(--surface2)">
           <div class="s-row-label">
-            <small>Dieser Bot muss Admin in den Telegram-Channels der Accounts sein. Token über <b>@BotFather</b> auf Telegram erhalten.</small>
+            <small>Bot muss Admin in den Telegram-Channels der Accounts sein · Token über <b>@BotFather</b></small>
           </div>
         </div>
       </div>
@@ -346,6 +391,34 @@
         </div>
         <div class="s-row" style="background:var(--surface2)">
           <div class="s-row-label"><small>Cron-URL: <code style="color:var(--accent)">GET /cron/sync-followers?token=TOKEN</code></small></div>
+        </div>
+      </div>
+
+      <div class="s-section-title">API-Keys Backup <span style="font-weight:400;color:var(--warning);font-size:10px">· Render DB wird alle 90 Tage gelöscht!</span></div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Backup herunterladen</b>
+            <small>Alle Keys als JSON-Datei sichern</small>
+          </div>
+          <div class="s-row-ctrl">
+            <a href="/api/integrations/export" class="btn btn-ghost s-btn-sm">
+              <i class="fa-solid fa-download"></i> Herunterladen
+            </a>
+          </div>
+        </div>
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Backup wiederherstellen</b>
+            <small>Überschreibt bestehende Keys</small>
+          </div>
+          <div class="s-row-ctrl" style="gap:8px">
+            <label class="btn btn-ghost s-btn-sm" style="cursor:pointer;margin:0">
+              <i class="fa-solid fa-upload"></i> Datei wählen
+              <input type="file" accept=".json" style="display:none" onchange="restoreKeys(this)">
+            </label>
+            <span id="restoreStatus" style="font-size:11px;color:var(--muted)"></span>
+          </div>
         </div>
       </div>
 
@@ -628,6 +701,128 @@ async function autoArchive() {
   if (!ok) return;
   const d = await fetch('/api/content/auto-archive', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({days:90})}).then(r=>r.json());
   showToast(`${d.archived} Inhalte archiviert.`, 'success');
+}
+
+// ── Auto-Sync Toggle ──────────────────────────────────────────
+async function saveAutoSync(cb) {
+  document.getElementById('toggleTrack').style.background = cb.checked ? 'var(--accent)' : 'var(--surface)';
+  document.getElementById('toggleKnob').style.left = cb.checked ? '22px' : '2px';
+  await fetch('/api/settings/set', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({key:'ig_auto_sync', value: cb.checked ? '1' : '0'})
+  });
+  showToast(cb.checked ? 'Auto-Sync aktiviert ✓' : 'Auto-Sync deaktiviert', 'success');
+}
+
+// ── Manueller Follower-Sync ───────────────────────────────────
+let _manPollTimer = null;
+async function startManualSync() {
+  const btn = document.getElementById('manSyncBtn');
+  const icon = document.getElementById('manSyncIcon');
+  const status = document.getElementById('manSyncStatus');
+  btn.disabled = true;
+  icon.className = 'fa-solid fa-rotate fa-spin';
+  status.textContent = '';
+  document.getElementById('manProgressWrap').style.display = 'block';
+  document.getElementById('manSyncResult').style.display = 'none';
+  manSetProgress(0, 'Verbinde…');
+  try {
+    const r = await fetch('/api/analytics/sync-followers-apify', {
+      method:'POST', headers:{'Content-Type':'application/json'}
+    }).then(r => r.json());
+    if (!r.ok) { manEndSync(false, r.error); return; }
+    manSetProgress(5, `${r.total} Accounts…`);
+    _manPollTimer = setInterval(manPollStatus, 2000);
+  } catch(e) { manEndSync(false, 'Netzwerkfehler: ' + e.message); }
+}
+async function manPollStatus() {
+  try {
+    const s = await fetch('/api/analytics/sync-followers-apify/status').then(r => r.json());
+    if (s.running) { manSetProgress(s.progress || 5, s.current ? `@${s.current}…` : 'Läuft…'); return; }
+    clearInterval(_manPollTimer); _manPollTimer = null;
+    if (s.error) { manEndSync(false, s.error); return; }
+    manSetProgress(100, 'Fertig!');
+    manShowResult(s.result);
+    manEndSync(true);
+  } catch(e) { console.error(e); }
+}
+function manSetProgress(pct, label) {
+  document.getElementById('manProgressBar').style.width = pct + '%';
+  document.getElementById('manProgressPct').textContent = pct + '%';
+  document.getElementById('manProgressLabel').textContent = label;
+}
+function manEndSync(ok, errMsg) {
+  const btn = document.getElementById('manSyncBtn');
+  const status = document.getElementById('manSyncStatus');
+  btn.disabled = false;
+  document.getElementById('manSyncIcon').className = 'fa-solid fa-rotate';
+  if (!ok) {
+    document.getElementById('manProgressWrap').style.display = 'none';
+    status.style.color = 'var(--danger)';
+    status.textContent = '✗ ' + (errMsg || 'Fehler');
+  }
+}
+function manShowResult(result) {
+  if (!result) return;
+  const el = document.getElementById('manSyncResult');
+  const details = result.details || [], errors = result.errors || [];
+  el.style.display = 'block';
+  el.innerHTML = `<span style="color:var(--success);font-weight:700"><i class="fa-solid fa-circle-check"></i> ${result.updated}/${result.total_queried} aktualisiert${errors.length ? ` · <span style="color:var(--warning)">${errors.length} Fehler</span>` : ''}</span>`;
+  showToast(`✅ ${result.updated} Follower aktualisiert`, 'success');
+}
+
+// ── Webhook ───────────────────────────────────────────────────
+async function registerWebhook() {
+  const btn = document.getElementById('webhookBtn');
+  const status = document.getElementById('webhookStatus');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> …';
+  status.textContent = '';
+  try {
+    const d = await fetch('/api/telegram/register-webhook', {method:'POST'}).then(r => r.json());
+    if (d.ok) {
+      btn.innerHTML = '<i class="fa-solid fa-check"></i> Aktiv';
+      btn.style.color = 'var(--success)';
+      status.style.color = 'var(--success)';
+      status.textContent = '✓ ' + d.webhook_url;
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-link"></i> Registrieren';
+      status.style.color = 'var(--danger)';
+      status.textContent = '✗ ' + (d.error || 'Fehler');
+    }
+  } catch(e) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-link"></i> Registrieren';
+    status.style.color = 'var(--danger)';
+    status.textContent = '✗ ' + e.message;
+  }
+}
+
+// ── Backup ────────────────────────────────────────────────────
+async function restoreKeys(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById('restoreStatus');
+  status.textContent = 'Lädt…';
+  status.style.color = 'var(--muted)';
+  const fd = new FormData();
+  fd.append('backup_file', file);
+  try {
+    const r = await fetch('/api/integrations/import', {method:'POST', body:fd}).then(r=>r.json());
+    if (r.ok) {
+      status.style.color = 'var(--success)';
+      status.textContent = `✓ ${r.restored} Keys wiederhergestellt`;
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      status.style.color = 'var(--danger)';
+      status.textContent = '✗ ' + (r.error || 'Fehler');
+    }
+  } catch(e) {
+    status.style.color = 'var(--danger)';
+    status.textContent = '✗ Netzwerkfehler';
+  }
+  input.value = '';
 }
 </script>
 {% endblock %}

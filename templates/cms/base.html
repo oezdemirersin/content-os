@@ -471,11 +471,8 @@
       <i class="fa-solid fa-robot"></i> Automatisierung
     </a>
 
-    <a href="{{ url_for('settings') }}" class="nav-item {% if active_page == 'settings' or active_page == 'integrations' %}active{% endif %}">
+    <a href="{{ url_for('settings') }}" class="nav-item {% if active_page == 'settings' %}active{% endif %}">
       <i class="fa-solid fa-gear"></i> Einstellungen
-    </a>
-    <a href="{{ url_for('integrations') }}" class="nav-sub {% if active_page == 'integrations' %}active{% endif %}">
-      <i class="fa-solid fa-plug"></i> Integrationen
     </a>
 
   </nav>

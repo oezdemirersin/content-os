@@ -5535,6 +5535,10 @@ def settings():
         tg_alert_token_set=bool(gs('alert_telegram_token')),
         tg_alert_chat_id=gs('alert_central_chat_id'),
         tg_bot_token_set=bool(gs('telegram_bot_token')),
+        auto_sync=gs('ig_auto_sync', '1') != '0',
+        ig_accounts_count=Account.query.filter(
+            Account.handle != None, Account.handle != '', Account.status == 'active'
+        ).count(),
         # Benachrichtigungen
         low_stock_days=(ns.low_stock_days if ns else None) or 3,
     )
@@ -8421,36 +8425,7 @@ def sync_followers_apify_status():
 @app.route('/settings/integrations', methods=['GET'])
 @login_required
 def integrations():
-    def gs(key, default=''):
-        r = AppSettings.query.filter_by(key=key).first()
-        return r.value if r and r.value is not None else default
-
-    apify_token     = gs('apify_token')
-    ig_sync_method  = gs('ig_sync_method', 'apify' if gs('apify_token') else 'direct')
-    auto_sync       = gs('ig_auto_sync', '1') != '0'
-    telegram_token  = gs('telegram_bot_token')
-    anthropic_key   = gs('anthropic_api_key')
-    rapidapi_key    = gs('rapidapi_key')
-    # Mask keys for display
-    def mask(k): return (k[:8] + '…') if k and len(k) > 8 else k
-    anthropic_key_display = mask(anthropic_key)
-    rapidapi_key_display  = mask(rapidapi_key)
-
-    cron_token = gs('cron_token')
-
-    ig_accounts_count = Account.query.filter(
-        Account.handle != None, Account.handle != '', Account.status == 'active'
-    ).count()
-    return render_template('integrations.html',
-        apify_token=apify_token,
-        ig_sync_method=ig_sync_method,
-        auto_sync=auto_sync,
-        ig_accounts_count=ig_accounts_count,
-        telegram_token=telegram_token,
-        anthropic_key=anthropic_key_display,
-        rapidapi_key=rapidapi_key_display,
-        cron_token=cron_token,
-        active_page='integrations')
+    return redirect(url_for('settings') + '#verbindungen')
 
 
 @app.route('/settings/integrations', methods=['POST'])
@@ -8468,7 +8443,7 @@ def integrations_save():
     upsert('ig_auto_sync',   '1' if request.form.get('ig_auto_sync') else '0')
     db.session.commit()
     flash('Einstellungen gespeichert.', 'success')
-    return redirect(url_for('integrations'))
+    return redirect(url_for('settings') + '#verbindungen')
 
 
 @app.route('/api/integrations/export')
@@ -8557,7 +8532,7 @@ def telegram_settings_save():
     s.value = token
     db.session.commit()
     flash('Telegram Bot-Token gespeichert.', 'success')
-    return redirect(url_for('integrations'))
+    return redirect(url_for('settings') + '#verbindungen')
 
 
 @app.route('/api/integrations/test-apify', methods=['POST'])
@@ -9263,9 +9238,8 @@ def memes_create_content():
 def anthropic_key_save():
     key = request.form.get('anthropic_api_key', '').strip()
     if not key:
-        # Leeres Feld → nichts überschreiben
         flash('Kein neuer Key eingegeben — bestehender Key bleibt erhalten.', 'info')
-        return redirect(url_for('integrations'))
+        return redirect(url_for('settings') + '#verbindungen')
     s = AppSettings.query.filter_by(key='anthropic_api_key').first()
     if not s:
         s = AppSettings(key='anthropic_api_key')
@@ -9273,7 +9247,7 @@ def anthropic_key_save():
     s.value = key
     db.session.commit()
     flash('Anthropic API-Key gespeichert.', 'success')
-    return redirect(url_for('integrations'))
+    return redirect(url_for('settings') + '#verbindungen')
 
 
 @app.route('/settings/rapidapi-key', methods=['POST'])
@@ -9281,9 +9255,8 @@ def anthropic_key_save():
 def rapidapi_key_save():
     key = request.form.get('rapidapi_key', '').strip()
     if not key:
-        # Leeres Feld → nichts überschreiben
         flash('Kein neuer Key eingegeben — bestehender Key bleibt erhalten.', 'info')
-        return redirect(url_for('integrations'))
+        return redirect(url_for('settings') + '#verbindungen')
     s = AppSettings.query.filter_by(key='rapidapi_key').first()
     if not s:
         s = AppSettings(key='rapidapi_key')
@@ -9291,7 +9264,7 @@ def rapidapi_key_save():
     s.value = key
     db.session.commit()
     flash('RapidAPI-Key gespeichert.', 'success')
-    return redirect(url_for('integrations'))
+    return redirect(url_for('settings') + '#verbindungen')
 
 
 # ── Meme Template Upload ──────────────────────────────────────
