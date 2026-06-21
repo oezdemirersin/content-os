@@ -77,6 +77,9 @@
         <i class="fa-solid fa-wand-magic-sparkles"></i> KI-Analyse starten
       </button>
       {% endif %}
+      <button onclick="duplicateExperiment()" class="btn btn-ghost" title="Als Vorlage duplizieren">
+        <i class="fa-solid fa-copy"></i>
+      </button>
       <button onclick="deleteExperiment()" class="btn btn-ghost" style="color:var(--danger);border-color:rgba(239,68,68,.3)" title="Experiment löschen">
         <i class="fa-solid fa-trash"></i>
       </button>
@@ -173,6 +176,17 @@
 </div>
 {% endfor %}
 </div>
+
+{% if benchmark %}
+<div style="display:flex;align-items:center;gap:14px;padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:20px;font-size:13px">
+  <i class="fa-solid fa-chart-line" style="color:var(--muted);font-size:14px"></i>
+  <span style="color:var(--muted)">Kategorie-Referenz ({{ exp.category.name }}, {{ benchmark.count }} Seiten):</span>
+  <span style="font-weight:700;color:{% if benchmark.avg_delta > 0 %}var(--success){% elif benchmark.avg_delta < 0 %}var(--danger){% else %}var(--muted){% endif %}">
+    {% if benchmark.avg_delta > 0 %}+{% endif %}{{ benchmark.avg_delta|int }} Ø Follower
+  </span>
+  <span style="font-size:11px;color:var(--muted)">(Alle Seiten der Kategorie im gleichen Zeitraum)</span>
+</div>
+{% endif %}
 
 <!-- ── Charts ─────────────────────────────────────────── -->
 <div class="card" style="padding:20px;margin-bottom:20px">
@@ -274,6 +288,54 @@
     <i class="fa-solid fa-wand-magic-sparkles"></i> Analyse jetzt starten
   </button>
 </div>
+{% endif %}
+
+{% if exp.status == 'completed' and exp.winner_variant_id %}
+{% set winner_vs = variant_stats|selectattr('id','equalto',exp.winner_variant_id)|first %}
+{% if winner_vs %}
+<div class="card" style="padding:24px 28px;margin-bottom:20px;border-left:3px solid var(--success)">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <i class="fa-solid fa-rocket" style="color:var(--success);font-size:15px"></i>
+    <div style="font-size:15px;font-weight:700;color:var(--text)">Rollout-Plan</div>
+  </div>
+  <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:18px;padding:14px 16px;background:rgba(34,197,94,.07);border-radius:10px">
+    <span style="font-size:22px">🏆</span>
+    <div>
+      <div style="font-size:14px;font-weight:800;color:var(--success);margin-bottom:3px">Gewinner: {{ winner_vs.name }}</div>
+      {% if winner_vs.description %}
+      <div style="font-size:13px;color:var(--muted);line-height:1.5">{{ winner_vs.description }}</div>
+      {% endif %}
+      {% if winner_vs.avg_delta is not none %}
+      <div style="font-size:12px;color:var(--muted);margin-top:5px">Ø +{{ winner_vs.avg_delta|int }} Follower · {{ winner_vs.account_count }} Seite{% if winner_vs.account_count != 1 %}n{% endif %}</div>
+      {% endif %}
+    </div>
+  </div>
+  <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Checkliste</div>
+  <div style="display:flex;flex-direction:column;gap:7px">
+    <label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--text);cursor:pointer">
+      <input type="checkbox" style="margin-top:2px;accent-color:var(--success)">
+      <span>Strategie auf alle anderen Seiten der Kategorie <b>{{ exp.category.name }}</b> übertragen</span>
+    </label>
+    <label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--text);cursor:pointer">
+      <input type="checkbox" style="margin-top:2px;accent-color:var(--success)">
+      <span>Neue Standard-Bio / Posting-Frequenz / Format für die Kategorie dokumentieren</span>
+    </label>
+    <label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--text);cursor:pointer">
+      <input type="checkbox" style="margin-top:2px;accent-color:var(--success)">
+      <span>Erkenntnis in die <a href="#knowledge-section" style="color:var(--accent)">Wissensdatenbank</a> eintragen</span>
+    </label>
+    <label style="display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--text);cursor:pointer">
+      <input type="checkbox" style="margin-top:2px;accent-color:var(--success)">
+      <span>Folge-Experiment für andere Kategorien starten (Strategie duplizieren)</span>
+    </label>
+  </div>
+  <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+    <button onclick="duplicateExperiment()" class="btn btn-ghost" style="font-size:12px">
+      <i class="fa-solid fa-copy"></i> Als Vorlage duplizieren
+    </button>
+  </div>
+</div>
+{% endif %}
 {% endif %}
 
 <!-- ── Participants & Data ─────────────────────────────── -->
@@ -593,6 +655,17 @@ async function deleteExperiment() {
   if (!ok) return;
   const res = await fetch(`/growth-lab/${EXP_ID}/delete`, {method:'POST'});
   if ((await res.json()).ok) { showToast('Gelöscht.','success'); setTimeout(() => location.href='/growth-lab', 600); }
+}
+
+async function duplicateExperiment() {
+  const res = await fetch(`/growth-lab/${EXP_ID}/duplicate`, {method:'POST'});
+  const d = await res.json();
+  if (d.ok) {
+    showToast('Kopie erstellt — du wirst weitergeleitet…', 'success');
+    setTimeout(() => location.href = `/growth-lab/${d.id}`, 800);
+  } else {
+    showToast('Fehler beim Duplizieren', 'danger');
+  }
 }
 </script>
 {% endblock %}

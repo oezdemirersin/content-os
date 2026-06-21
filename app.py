@@ -2059,6 +2059,68 @@ def auto_archive_old_content():
 _last_daily_snap_date  = None  # verhindert mehrfaches Laufen pro Tag
 _last_daily_sync_date  = None  # verhindert mehrfachen Follower-Sync pro Tag
 
+_last_growth_sync_date = None
+
+
+def _growth_lab_daily_sync():
+    """
+    Nach tägl. Follower-Sync: GrowthDataPoints für laufende Experimente automatisch anlegen
+    (nur Follower — Insights werden manuell eingetragen) + Telegram-Reminder bei Experimentende.
+    """
+    global _last_growth_sync_date
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo('Europe/Berlin')).date()
+    if _last_growth_sync_date == today:
+        return
+    _last_growth_sync_date = today
+    try:
+        with app.app_context():
+            running_exps = (GrowthExperiment.query
+                           .filter_by(status='running')
+                           .options(
+                               joinedload(GrowthExperiment.participants)
+                                   .joinedload(GrowthParticipant.account),
+                               joinedload(GrowthExperiment.category),
+                           ).all())
+            dp_count = 0
+            for exp in running_exps:
+                for p in exp.participants:
+                    if not p.start_followers:
+                        continue
+                    exists = (GrowthDataPoint.query
+                              .filter_by(participant_id=p.id)
+                              .filter(GrowthDataPoint.recorded_at == today)
+                              .first())
+                    if not exists and p.account and p.account.follower_count:
+                        db.session.add(GrowthDataPoint(
+                            participant_id=p.id,
+                            recorded_at=today,
+                            followers=p.account.follower_count,
+                        ))
+                        dp_count += 1
+                # Telegram-Reminder for experiments ending today or tomorrow
+                if exp.start_date and exp.duration_days:
+                    end_date  = exp.start_date + timedelta(days=exp.duration_days)
+                    days_left = (end_date - today).days
+                    if days_left == 0:
+                        _send_central_alert(
+                            f'📊 <b>Experiment endet heute!</b>\n'
+                            f'<b>{exp.name}</b> ({exp.category.name})\n'
+                            f'Endwerte (Profilaufrufe, erreichte Konten) in ContentOS eintragen.'
+                        )
+                    elif days_left == 1:
+                        _send_central_alert(
+                            f'📊 <b>Experiment endet morgen</b>\n'
+                            f'<b>{exp.name}</b> ({exp.category.name})\n'
+                            f'Bereit für die Abschlussmessung? → ContentOS → Growth Lab'
+                        )
+            if dp_count:
+                db.session.commit()
+                app.logger.info(f'[Growth Lab Sync] {dp_count} DataPoints für {today} angelegt')
+    except Exception as e:
+        app.logger.error(f'[Growth Lab Sync] Fehler: {e}')
+
+
 def _daily_follower_snapshot():
     """
     Erstellt täglich um Mitternacht einen AnalyticsSnapshot für jeden aktiven
@@ -8076,6 +8138,7 @@ def _run_ig_follower_sync():
             _ig_sync_status['progress'] = 95
 
             db.session.commit()
+            _growth_lab_daily_sync()
 
             result = {
                 'updated': len(updated_list),
@@ -14623,10 +14686,25 @@ def growth_experiment_detail(exp_id):
             ai_analysis = _json.loads(exp.ai_analysis_json)
         except Exception:
             pass
+    # Kategorie-Benchmark: Ø Follower-Wachstum aller Seiten der Kategorie im Experimenzeitraum
+    benchmark = None
+    if exp.start_date and exp.status in ('running', 'completed'):
+        cat_accs = Account.query.filter_by(category_id=exp.category_id, status='active').all()
+        deltas = []
+        for acc in cat_accs:
+            start_snap = (AnalyticsSnapshot.query
+                         .filter_by(account_id=acc.id)
+                         .filter(func.date(AnalyticsSnapshot.recorded_at) >= exp.start_date)
+                         .order_by(AnalyticsSnapshot.recorded_at).first())
+            if start_snap:
+                deltas.append((acc.follower_count or 0) - start_snap.followers)
+        if deltas:
+            benchmark = {'avg_delta': round(sum(deltas) / len(deltas), 1), 'count': len(deltas)}
     return render_template('growth_experiment.html',
                            exp=exp, progress=progress, remaining=remaining,
                            variant_stats=variant_stats, knowledge=knowledge,
                            ai_analysis=ai_analysis, today=today,
+                           benchmark=benchmark,
                            active_page='growth_lab')
 
 
@@ -14748,6 +14826,34 @@ def growth_lab_complete(exp_id):
     exp.status = 'completed'
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/growth-lab/<int:exp_id>/duplicate', methods=['POST'])
+@login_required
+def growth_lab_duplicate(exp_id):
+    src = (GrowthExperiment.query
+           .options(joinedload(GrowthExperiment.variants))
+           .get_or_404(exp_id))
+    new_exp = GrowthExperiment(
+        name=src.name + ' (Kopie)',
+        category_id=src.category_id,
+        goal=src.goal,
+        description=src.description,
+        duration_days=src.duration_days,
+        status='draft',
+    )
+    db.session.add(new_exp)
+    db.session.flush()
+    for v in src.variants:
+        db.session.add(GrowthVariant(
+            experiment_id=new_exp.id,
+            name=v.name,
+            description=v.description,
+            is_control=v.is_control,
+            color=v.color,
+        ))
+    db.session.commit()
+    return jsonify({'ok': True, 'id': new_exp.id})
 
 
 @app.route('/growth-lab/<int:exp_id>/delete', methods=['POST'])
