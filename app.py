@@ -14638,8 +14638,8 @@ def _compute_variant_stats(exp, today):
         total_delta = 0
         total_pv    = 0
         total_reach = 0
+        delta_count = 0  # only count participants with actual start values
         for p in parts:
-            # Latest data point or fallback to Account.follower_count
             latest = (GrowthDataPoint.query
                       .filter_by(participant_id=p.id)
                       .order_by(GrowthDataPoint.recorded_at.desc()).first())
@@ -14647,22 +14647,29 @@ def _compute_variant_stats(exp, today):
                 curr_f = latest.followers or p.start_followers or 0
                 total_pv    += latest.profile_visits    or 0
                 total_reach += latest.reached_accounts  or 0
-            else:
+                total_delta += curr_f - (p.start_followers or 0)
+                delta_count += 1
+            elif p.start_followers:
+                # Start captured but no end measurement yet — use live follower count as estimate
                 acc = Account.query.get(p.account_id)
-                curr_f = (acc.follower_count if acc else 0) or p.start_followers or 0
-            total_delta += curr_f - (p.start_followers or 0)
-        n = max(len(parts), 1)
-        avg_delta  = round(total_delta / n, 1)
-        conversion = round(total_delta / total_pv * 100, 2) if total_pv > 0 else None
+                curr_f = acc.follower_count if acc else p.start_followers
+                total_delta += curr_f - p.start_followers
+                delta_count += 1
+            # else: start_followers=0 means experiment not started yet — don't compute delta
+        has_data   = delta_count > 0
+        n          = max(delta_count, 1)
+        avg_delta  = round(total_delta / n, 1) if has_data else None
+        total_delta_val = total_delta if has_data else None
+        conversion = round(total_delta / total_pv * 100, 2) if total_pv > 0 and has_data else None
         results.append({
             'id': v.id, 'name': v.name, 'description': v.description or '',
             'color': v.color, 'is_control': v.is_control,
             'account_count': len(parts),
-            'total_delta': total_delta, 'avg_delta': avg_delta,
+            'total_delta': total_delta_val, 'avg_delta': avg_delta,
             'total_profile_visits': total_pv, 'total_reached': total_reach,
             'conversion': conversion,
         })
-    results.sort(key=lambda x: x['avg_delta'], reverse=True)
+    results.sort(key=lambda x: x['avg_delta'] if x['avg_delta'] is not None else float('-inf'), reverse=True)
     return results
 
 

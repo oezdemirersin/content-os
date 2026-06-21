@@ -135,9 +135,13 @@
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
     <div>
       <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Ø Follower Δ</div>
+      {% if vs.avg_delta is not none %}
       <div style="font-size:22px;font-weight:800;color:{% if vs.avg_delta > 0 %}var(--success){% elif vs.avg_delta < 0 %}var(--danger){% else %}var(--muted){% endif %}">
         {% if vs.avg_delta > 0 %}+{% endif %}{{ vs.avg_delta|int }}
       </div>
+      {% else %}
+      <div style="font-size:22px;font-weight:800;color:var(--muted)">—</div>
+      {% endif %}
     </div>
     <div>
       <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Conversion</div>
@@ -151,9 +155,13 @@
     </div>
     <div>
       <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Gesamt Δ</div>
-      <div style="font-size:15px;font-weight:700;color:{% if vs.total_delta > 0 %}var(--success){% else %}var(--muted){% endif %}">
+      {% if vs.total_delta is not none %}
+      <div style="font-size:15px;font-weight:700;color:{% if vs.total_delta > 0 %}var(--success){% elif vs.total_delta < 0 %}var(--danger){% else %}var(--muted){% endif %}">
         {% if vs.total_delta > 0 %}+{% endif %}{{ vs.total_delta }}
       </div>
+      {% else %}
+      <div style="font-size:15px;font-weight:700;color:var(--muted)">—</div>
+      {% endif %}
     </div>
   </div>
 
@@ -288,9 +296,9 @@
     {% for vs in variant_stats %}
       {% for p in exp.participants if p.variant_id == vs.id %}
       {% set latest_dp = p.data_points|sort(attribute='recorded_at')|last if p.data_points else none %}
-      {% set curr_f = latest_dp.followers if latest_dp and latest_dp.followers else p.account.follower_count %}
-      {% set delta = (curr_f or 0) - (p.start_followers or 0) %}
-      {% set conv = (delta / latest_dp.profile_visits * 100)|round(2) if latest_dp and latest_dp.profile_visits and latest_dp.profile_visits > 0 else none %}
+      {% set curr_f = latest_dp.followers if latest_dp and latest_dp.followers else none %}
+      {% set delta = (curr_f - (p.start_followers or 0)) if curr_f is not none and p.start_followers else none %}
+      {% set conv = (delta / latest_dp.profile_visits * 100)|round(2) if delta is not none and latest_dp and latest_dp.profile_visits and latest_dp.profile_visits > 0 else none %}
       <tr>
         <td>
           <div style="font-size:13px;font-weight:600;color:var(--text)">{{ p.account.name }}</div>
@@ -307,9 +315,13 @@
           {% if latest_dp %}{{ latest_dp.recorded_at.strftime('%d.%m.%Y') }}{% else %}—{% endif %}
         </td>
         <td>
+          {% if delta is not none %}
           <span style="font-size:13px;font-weight:700;color:{% if delta > 0 %}var(--success){% elif delta < 0 %}var(--danger){% else %}var(--muted){% endif %}">
             {% if delta > 0 %}+{% endif %}{{ delta }}
           </span>
+          {% else %}
+          <span style="font-size:13px;color:var(--muted)">—</span>
+          {% endif %}
         </td>
         <td style="font-size:13px;color:{% if conv %}var(--accent){% else %}var(--muted){% endif %}">
           {% if conv %}{{ conv }}%{% else %}—{% endif %}

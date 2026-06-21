@@ -314,8 +314,13 @@
 
     <!-- Step 3: Assign accounts -->
     <div class="wiz-step" id="wiz-step-2">
-      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px">Schritt 3 · Seiten zuweisen</div>
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Schritt 3 · Seiten zuweisen</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;padding:8px 12px;background:var(--surface2);border-radius:8px;line-height:1.5">
+        <i class="fa-solid fa-circle-info" style="color:var(--accent);margin-right:5px"></i>
+        Mehrere Seiten können derselben Variante zugewiesen werden — das macht das Ergebnis belastbarer. Empfehlung: mindestens 2–3 Seiten pro Gruppe.
+      </div>
       <div id="assign-warn" style="font-size:12px;color:var(--warning);margin-bottom:10px"></div>
+      <div id="variant-counters" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
       <div id="assign-list"></div>
       <div id="step2-err" style="font-size:12px;color:var(--danger);min-height:16px;margin-bottom:10px"></div>
       <div style="display:flex;gap:10px;justify-content:space-between;margin-top:16px">
@@ -516,11 +521,31 @@ function buildAssignStep() {
         <div style="font-size:13px;font-weight:600;color:var(--text)">${a.name}</div>
         <div style="font-size:11px;color:var(--muted)">${a.followers.toLocaleString('de')} Follower</div>
       </div>
-      <select class="ma-input" data-acc-id="${a.id}" style="width:auto;min-width:140px;font-size:12px">
+      <select class="ma-input" data-acc-id="${a.id}" style="width:auto;min-width:140px;font-size:12px" onchange="updateVariantCounters()">
         <option value="">— Nicht teilnehmen —</option>
         ${variants.map((v,i)=>`<option value="${i}" style="color:${v.color}">${v.name}</option>`).join('')}
       </select>
     </div>`).join('');
+  updateVariantCounters();
+}
+
+function updateVariantCounters() {
+  const varRows = document.querySelectorAll('#variants-list .variant-row');
+  const variants = Array.from(varRows).map(r => ({
+    name: r.querySelector('.v-name').value.trim(),
+    color: r.dataset.color,
+    count: 0,
+  }));
+  document.querySelectorAll('#assign-list [data-acc-id]').forEach(sel => {
+    const vIdx = parseInt(sel.value);
+    if (!isNaN(vIdx) && variants[vIdx]) variants[vIdx].count++;
+  });
+  const ctr = document.getElementById('variant-counters');
+  ctr.innerHTML = variants.map(v =>
+    `<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:${v.color}22;color:${v.color}">
+      ${v.name}: ${v.count} Seite${v.count !== 1 ? 'n' : ''}
+    </span>`
+  ).join('');
 }
 
 async function submitExperiment() {
