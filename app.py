@@ -1630,6 +1630,7 @@ def init_db():
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS phone VARCHAR(50)')
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS telegram_username VARCHAR(100)')
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS notes TEXT')
+        safe_alter("ALTER TABLE team_member ADD COLUMN IF NOT EXISTS work_status VARCHAR(20) DEFAULT 'aktiv'")
 
         # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
         if is_postgres:
@@ -5071,11 +5072,28 @@ def mitarbeiter():
                     .filter_by(status='active')
                     .options(joinedload(Account.team_member))
                     .order_by(Account.name).all())
+    categories = Category.query.order_by(Category.name).all()
     assigned_count   = sum(len(m.accounts) for m in members)
     unassigned_count = sum(1 for a in all_accounts if a.team_member_id is None)
+    # Build category map for each member (for JS filter)
+    member_cats = {m.id: list({a.category_id for a in m.accounts if a.category_id}) for m in members}
+    # Build account data for Seiten-view JS
+    import json as _json
+    accounts_json = _json.dumps([{
+        'id': a.id, 'name': a.name, 'handle': a.handle or '',
+        'category_id': a.category_id, 'category_name': a.category.name if a.category_id and a.category else '',
+        'category_color': a.category.color if a.category_id and a.category else '#6366f1',
+        'team_member_id': a.team_member_id,
+        'team_member_name': a.team_member.name if a.team_member else '',
+    } for a in all_accounts])
+    members_json = _json.dumps([{'id': m.id, 'name': m.name, 'role': m.role} for m in members])
+    cats_json    = _json.dumps([{'id': c.id, 'name': c.name, 'color': c.color} for c in categories])
     return render_template('mitarbeiter.html', members=members, today=today,
-                           all_accounts=all_accounts, active_page='mitarbeiter',
-                           assigned_count=assigned_count, unassigned_count=unassigned_count)
+                           all_accounts=all_accounts, categories=categories,
+                           active_page='mitarbeiter',
+                           assigned_count=assigned_count, unassigned_count=unassigned_count,
+                           member_cats=member_cats,
+                           accounts_json=accounts_json, members_json=members_json, cats_json=cats_json)
 
 
 @app.route('/api/mitarbeiter/<int:member_id>', methods=['POST'])
@@ -5083,13 +5101,41 @@ def mitarbeiter():
 def api_mitarbeiter_update(member_id):
     member = TeamMember.query.get_or_404(member_id)
     d = request.get_json()
-    for field in ('name', 'email', 'role', 'phone', 'telegram_username', 'notes'):
+    for field in ('name', 'email', 'role', 'phone', 'telegram_username', 'notes', 'work_status'):
         if field in d:
             setattr(member, field, d[field] or None)
     if 'active' in d:
         member.active = bool(d['active'])
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/mitarbeiter/<int:member_id>/ping', methods=['POST'])
+@login_required
+def api_mitarbeiter_ping(member_id):
+    member = TeamMember.query.get_or_404(member_id)
+    if not member.telegram_username:
+        return jsonify({'ok': False, 'error': 'Kein Telegram-Username hinterlegt'}), 400
+    token   = get_setting('alert_telegram_token', '')
+    chat_id = get_setting('alert_central_chat_id', '')
+    if not token or not chat_id:
+        return jsonify({'ok': False, 'error': 'Alert-Bot nicht konfiguriert'}), 400
+    d = request.get_json() or {}
+    username   = member.telegram_username.lstrip('@')
+    custom_msg = (d.get('message') or '').strip()
+    if custom_msg:
+        text = f'\U0001f4e2 @{username}: {custom_msg}'
+    else:
+        acc_names = ', '.join(a.name for a in member.accounts[:5] if a.status == 'active')
+        text = f'\U0001f4e2 *Reminder* für @{username}:\nBitte poste heute'
+        if acc_names:
+            text += f' für: {acc_names}'
+    import requests as _req
+    r = _req.post(f'https://api.telegram.org/bot{token}/sendMessage',
+                  json={'chat_id': chat_id, 'text': text, 'parse_mode': 'Markdown'},
+                  timeout=10)
+    result = r.json()
+    return jsonify({'ok': result.get('ok', False), 'error': result.get('description')})
 
 
 @app.route('/api/mitarbeiter/new', methods=['POST'])

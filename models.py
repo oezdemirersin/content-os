@@ -91,6 +91,8 @@ class TeamMember(db.Model):
     phone = db.Column(db.String(50))
     telegram_username = db.Column(db.String(100))
     notes = db.Column(db.Text)
+    # Work status (aktiv / urlaub / krank)
+    work_status = db.Column(db.String(20), default='aktiv')
     # Custom permissions JSON
     permissions = db.Column(db.Text, default='{}')
 

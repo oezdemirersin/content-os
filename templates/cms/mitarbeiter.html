@@ -4,31 +4,97 @@
 
 {% block content %}
 <style>
-.ma-card { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:box-shadow .2s }
+/* ── Base ─────────────────────────────────────────── */
+.ma-card { background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:box-shadow .2s,border-color .2s,opacity .2s }
 .ma-card:hover { box-shadow:0 4px 20px rgba(0,0,0,.12) }
-.ma-avatar { width:46px;height:46px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff;flex-shrink:0 }
+.ma-card.status-urlaub { opacity:.75 }
+.ma-card.status-krank  { opacity:.65 }
+.ma-avatar { width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff;flex-shrink:0 }
 .ma-role { font-size:11px;padding:2px 9px;border-radius:20px;font-weight:700;display:inline-block }
 .role-owner   { background:rgba(239,68,68,.15);color:#ef4444 }
 .role-manager { background:rgba(245,158,11,.15);color:#f59e0b }
 .role-editor  { background:rgba(99,102,241,.15);color:var(--accent) }
 .role-poster  { background:rgba(34,197,94,.15);color:var(--success) }
 .role-analyst { background:rgba(14,165,233,.15);color:#0ea5e9 }
+.ws-badge { font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;cursor:pointer;user-select:none }
+.ws-aktiv   { background:rgba(34,197,94,.15);color:var(--success) }
+.ws-urlaub  { background:rgba(245,158,11,.15);color:#f59e0b }
+.ws-krank   { background:rgba(239,68,68,.15);color:#ef4444 }
 .ma-contact-chip { display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);background:var(--surface2);border-radius:6px;padding:3px 9px }
 .ma-section { border-top:1px solid var(--border);padding:18px 20px }
 .ma-label { font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:6px }
 .ma-input { background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;color:var(--text);font-size:13px;width:100%;box-sizing:border-box }
 .ma-input:focus { outline:none;border-color:var(--accent) }
-.rel-bar-wrap { height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-top:4px }
-.rel-bar { height:100%;border-radius:3px;transition:width .4s }
+.rel-bar-wrap { height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-top:4px }
+.rel-bar { height:100%;border-radius:3px;transition:width .5s }
+/* ── Acc chips ────────────────────────────────────── */
+.acc-chip { display:inline-flex;align-items:center;gap:6px;background:rgba(99,102,241,.12);color:var(--accent);border-radius:7px;padding:4px 11px;font-size:12px;font-weight:600 }
+.acc-chip .rm-btn { background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:0;line-height:1 }
+.acc-chip .rm-btn:hover { color:var(--danger) }
+/* ── Inline add ───────────────────────────────────── */
+.inline-add-wrap { position:relative;display:inline-block }
+.inline-add-btn { background:var(--surface2);border:1px dashed var(--border);border-radius:7px;padding:4px 10px;font-size:12px;color:var(--muted);cursor:pointer;transition:border-color .15s,color .15s }
+.inline-add-btn:hover { border-color:var(--accent);color:var(--accent) }
+.inline-add-dropdown { position:absolute;top:calc(100% + 4px);left:0;z-index:50;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:220px;max-height:260px;overflow-y:auto;display:none }
+.inline-add-dropdown.open { display:block }
+.inline-add-search { width:100%;box-sizing:border-box;padding:8px 12px;border:none;border-bottom:1px solid var(--border);background:transparent;color:var(--text);font-size:13px }
+.inline-add-search:focus { outline:none }
+.inline-add-item { padding:8px 14px;font-size:13px;cursor:pointer;color:var(--text);transition:background .1s }
+.inline-add-item:hover { background:var(--surface2) }
+.inline-add-item .cat-dot { width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;flex-shrink:0 }
+/* ── Filter bar ───────────────────────────────────── */
+.filter-bar { display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:20px;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-radius:12px }
+.filter-search { flex:1;min-width:180px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px }
+.filter-search:focus { outline:none;border-color:var(--accent) }
+.role-chip { font-size:12px;padding:5px 12px;border-radius:20px;cursor:pointer;border:1px solid var(--border);color:var(--muted);background:transparent;transition:all .15s;white-space:nowrap }
+.role-chip.active { border-color:var(--accent);color:var(--accent);background:rgba(99,102,241,.1) }
+.view-toggle { display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0 }
+.view-btn { padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s }
+.view-btn.active { background:var(--accent);color:#fff }
+/* ── Seiten view ──────────────────────────────────── */
+.seiten-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px }
+.seiten-card { background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px;transition:box-shadow .15s }
+.seiten-card:hover { box-shadow:0 2px 12px rgba(0,0,0,.1) }
+.seiten-card.unassigned { border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.03) }
+.cat-badge { font-size:11px;padding:2px 8px;border-radius:12px;font-weight:600 }
+.worker-select { background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:12px;cursor:pointer }
+.worker-select:focus { outline:none;border-color:var(--accent) }
+/* ── Ping modal ───────────────────────────────────── */
+#ping-modal-overlay { position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:none;align-items:center;justify-content:center }
+#ping-modal-overlay.open { display:flex }
+/* ── Ampel ────────────────────────────────────────── */
+.ma-card[data-rel] { border-left-width:3px }
+.ma-card[data-rel="green"]  { border-left-color:var(--success) }
+.ma-card[data-rel="yellow"] { border-left-color:var(--warning) }
+.ma-card[data-rel="red"]    { border-left-color:var(--danger) }
+.ma-card[data-rel="none"]   { border-left-color:var(--border) }
 </style>
 
-<!-- Header -->
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
-  <div style="font-size:13px;color:var(--muted)">{{ members|length }} aktive Mitarbeiter</div>
-  <button onclick="openAddModal()" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Mitarbeiter hinzufügen</button>
+<!-- ── Filter bar ─────────────────────────────────────── -->
+<div class="filter-bar">
+  <input class="filter-search" id="search-input" placeholder="&#xf002; Suche Mitarbeiter oder Seite…" oninput="applyFilters()">
+
+  <div style="display:flex;gap:6px;flex-wrap:wrap" id="role-chips">
+    <button class="role-chip active" onclick="setRole(null,this)">Alle</button>
+    {% for r,label in [('owner','Owner'),('manager','Manager'),('editor','Editor'),('poster','Poster'),('analyst','Analyst')] %}
+    <button class="role-chip" onclick="setRole('{{ r }}',this)">{{ label }}</button>
+    {% endfor %}
+  </div>
+
+  <select class="ma-input" id="cat-filter" onchange="applyFilters()" style="width:auto;min-width:140px;padding:7px 10px">
+    <option value="">Alle Kategorien</option>
+    {% for c in categories %}
+    <option value="{{ c.id }}">{{ c.name }}</option>
+    {% endfor %}
+  </select>
+
+  <div class="view-toggle">
+    <button class="view-btn active" id="view-btn-mitarbeiter" onclick="setView('mitarbeiter')">Mitarbeiter</button>
+    <button class="view-btn" id="view-btn-seiten" onclick="setView('seiten')">Seiten</button>
+  </div>
 </div>
 
-<!-- Summary -->
+<!-- ── Summary ────────────────────────────────────────── -->
 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px">
   <div class="stat-card" style="border-left:3px solid var(--accent)">
     <div class="stat-label">Mitarbeiter</div>
@@ -44,143 +110,166 @@
   </div>
 </div>
 
-<!-- Worker Cards -->
-<div style="display:flex;flex-direction:column;gap:14px" id="workers-list">
-{% for m in members %}
-<div class="ma-card" id="card-{{ m.id }}">
-
-  <!-- Header row -->
-  <div style="padding:18px 20px;display:flex;align-items:center;gap:14px">
-    <div class="ma-avatar" style="background:{{ ['#6366f1','#8b5cf6','#ec4899','#0ea5e9','#10b981','#f59e0b'][loop.index0 % 6] }}">
-      {{ m.name[0].upper() }}
-    </div>
-    <div style="flex:1;min-width:0">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:5px">
-        <span style="font-size:15px;font-weight:700;color:var(--text)">{{ m.name }}</span>
-        <span class="ma-role role-{{ m.role }}">{{ {'owner':'Owner','manager':'Manager','editor':'Editor','poster':'Poster','analyst':'Analyst'}.get(m.role, m.role) }}</span>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <span class="ma-contact-chip"><i class="fa-solid fa-envelope" style="font-size:10px"></i>{{ m.email }}</span>
-        {% if m.phone %}<span class="ma-contact-chip"><i class="fa-solid fa-phone" style="font-size:10px"></i>{{ m.phone }}</span>{% endif %}
-        {% if m.telegram_username %}<a href="https://t.me/{{ m.telegram_username.lstrip('@') }}" target="_blank" class="ma-contact-chip" style="text-decoration:none;color:var(--muted)"><i class="fa-brands fa-telegram" style="font-size:10px;color:#29b6f6"></i>{{ m.telegram_username }}</a>{% endif %}
-      </div>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-      <span style="font-size:12px;color:var(--muted);white-space:nowrap">{{ m.accounts|length }} Seiten</span>
-      <button onclick="togglePanel({{ m.id }},'stats')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">
-        <i class="fa-solid fa-chart-bar"></i> Stats
-      </button>
-      <button onclick="togglePanel({{ m.id }},'accounts')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">
-        <i class="fa-solid fa-link"></i> Seiten
-      </button>
-      <button onclick="togglePanel({{ m.id }},'edit')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">
-        <i class="fa-solid fa-pen"></i>
-      </button>
-      <button onclick="deleteMember({{ m.id }}, '{{ m.name }}')" class="btn btn-ghost" style="font-size:12px;padding:6px 10px;color:var(--danger);border-color:rgba(239,68,68,.3)">
-        <i class="fa-solid fa-trash"></i>
-      </button>
-    </div>
+<!-- ── Mitarbeiter View ───────────────────────────────── -->
+<div id="mitarbeiter-view">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div style="font-size:13px;color:var(--muted)" id="visible-count">{{ members|length }} aktive Mitarbeiter</div>
+    <button onclick="openAddModal()" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Hinzufügen</button>
   </div>
 
-  <!-- Panel: Stats -->
-  <div id="panel-{{ m.id }}-stats" class="ma-section" style="display:none">
-    <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:14px">Performance — letzte 7 Tage</div>
-    <div id="stats-{{ m.id }}" style="color:var(--muted);font-size:13px">Lädt…</div>
-  </div>
+  <div style="display:flex;flex-direction:column;gap:14px" id="workers-list">
+  {% for m in members %}
+  <div class="ma-card" id="card-{{ m.id }}"
+       data-name="{{ m.name|lower }}"
+       data-role="{{ m.role }}"
+       data-cats="{{ member_cats.get(m.id, [])|join(',') }}"
+       data-work-status="{{ m.work_status or 'aktiv' }}">
 
-  <!-- Panel: Seiten zuweisen -->
-  <div id="panel-{{ m.id }}-accounts" class="ma-section" style="display:none">
-    <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">Zugewiesene Seiten</div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px" id="acc-chips-{{ m.id }}">
-      {% for a in m.accounts|sort(attribute='name') %}
-      <span style="display:inline-flex;align-items:center;gap:6px;background:rgba(99,102,241,.12);color:var(--accent);border-radius:7px;padding:4px 11px;font-size:12px;font-weight:600">
-        {{ a.name }}
-        <button onclick="unassignAccount({{ m.id }},{{ a.id }},this)" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:0;line-height:1">✕</button>
-      </span>
-      {% else %}
-      <span style="font-size:13px;color:var(--muted)">Keine Seiten zugewiesen</span>
-      {% endfor %}
-    </div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <select id="add-acc-{{ m.id }}"
-        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 11px;color:var(--text);font-size:13px;flex:1">
-        <option value="">— Seite hinzufügen —</option>
-        {% for a in all_accounts|sort(attribute='name') %}
-        {% if a.team_member_id != m.id %}
-        <option value="{{ a.id }}">{{ a.name }}{% if a.team_member %} (aktuell: {{ a.team_member.name }}){% endif %}</option>
+    <!-- ── Card header ── -->
+    <div style="padding:16px 18px;display:flex;align-items:center;gap:14px">
+      <div class="ma-avatar" style="background:{{ ['#6366f1','#8b5cf6','#ec4899','#0ea5e9','#10b981','#f59e0b'][loop.index0 % 6] }}">
+        {{ m.name[0].upper() }}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px">
+          <span style="font-size:15px;font-weight:700;color:var(--text)">{{ m.name }}</span>
+          <span class="ma-role role-{{ m.role }}">{{ {'owner':'Owner','manager':'Manager','editor':'Editor','poster':'Poster','analyst':'Analyst'}.get(m.role, m.role) }}</span>
+          <!-- Status badge with dropdown -->
+          <div style="position:relative" id="ws-wrap-{{ m.id }}">
+            <span class="ws-badge ws-{{ m.work_status or 'aktiv' }}" onclick="toggleWsMenu({{ m.id }})" id="ws-badge-{{ m.id }}">
+              {{ {'aktiv':'● Aktiv','urlaub':'✈ Urlaub','krank':'🤒 Krank'}.get(m.work_status or 'aktiv', '● Aktiv') }}
+            </span>
+            <div id="ws-menu-{{ m.id }}" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.15);min-width:130px;overflow:hidden">
+              <div onclick="setWorkStatus({{ m.id }},'aktiv')"   style="padding:8px 14px;font-size:12px;cursor:pointer;color:var(--success)" class="ws-menu-item">● Aktiv</div>
+              <div onclick="setWorkStatus({{ m.id }},'urlaub')"  style="padding:8px 14px;font-size:12px;cursor:pointer;color:#f59e0b"       class="ws-menu-item">✈ Urlaub</div>
+              <div onclick="setWorkStatus({{ m.id }},'krank')"   style="padding:8px 14px;font-size:12px;cursor:pointer;color:var(--danger)"  class="ws-menu-item">🤒 Krank</div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="ma-contact-chip"><i class="fa-solid fa-envelope" style="font-size:10px"></i>{{ m.email }}</span>
+          {% if m.phone %}<span class="ma-contact-chip"><i class="fa-solid fa-phone" style="font-size:10px"></i>{{ m.phone }}</span>{% endif %}
+          {% if m.telegram_username %}<a href="https://t.me/{{ m.telegram_username.lstrip('@') }}" target="_blank" class="ma-contact-chip" style="text-decoration:none;color:var(--muted)"><i class="fa-brands fa-telegram" style="font-size:10px;color:#29b6f6"></i>{{ m.telegram_username }}</a>{% endif %}
+        </div>
+      </div>
+      <!-- Action buttons -->
+      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+        <button onclick="togglePanel({{ m.id }},'stats')" class="btn btn-ghost" style="font-size:12px;padding:6px 10px" title="Performance">
+          <i class="fa-solid fa-chart-bar"></i>
+        </button>
+        <button onclick="togglePanel({{ m.id }},'edit')" class="btn btn-ghost" style="font-size:12px;padding:6px 10px" title="Bearbeiten">
+          <i class="fa-solid fa-pen"></i>
+        </button>
+        {% if m.telegram_username %}
+        <button onclick="openPingModal({{ m.id }},'{{ m.name }}')" class="btn btn-ghost" style="font-size:12px;padding:6px 10px;color:#29b6f6;border-color:rgba(41,182,246,.3)" title="Telegram-Reminder senden">
+          <i class="fa-brands fa-telegram"></i>
+        </button>
         {% endif %}
+        <button onclick="deleteMember({{ m.id }},'{{ m.name }}')" class="btn btn-ghost" style="font-size:12px;padding:6px 10px;color:var(--danger);border-color:rgba(239,68,68,.3)" title="Entfernen">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Accounts (always visible) ── -->
+    <div class="ma-section" style="padding-top:12px;padding-bottom:14px;background:var(--surface2)">
+      <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">
+        {{ m.accounts|length }} Seiten
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px;align-items:center" id="acc-chips-{{ m.id }}">
+        {% for a in m.accounts|sort(attribute='name') %}
+        <span class="acc-chip" data-acc-id="{{ a.id }}">
+          {{ a.name }}
+          <button class="rm-btn" onclick="unassignAccount({{ m.id }},{{ a.id }},this)" title="Entfernen">✕</button>
+        </span>
         {% endfor %}
+        <!-- Inline add button + dropdown -->
+        <div class="inline-add-wrap" id="add-wrap-{{ m.id }}">
+          <button class="inline-add-btn" onclick="toggleInlineAdd({{ m.id }})">
+            <i class="fa-solid fa-plus" style="font-size:10px"></i> Seite
+          </button>
+          <div class="inline-add-dropdown" id="inline-dd-{{ m.id }}">
+            <input class="inline-add-search" placeholder="Suchen…" oninput="filterInlineDd({{ m.id }},this.value)" id="inline-search-{{ m.id }}">
+            <div id="inline-items-{{ m.id }}">
+              {% for a in all_accounts|sort(attribute='name') %}
+              {% if a.team_member_id != m.id %}
+              <div class="inline-add-item" data-acc-id="{{ a.id }}" data-name="{{ a.name|lower }}"
+                   onclick="assignAccountInline({{ m.id }},{{ a.id }},this)">
+                {% if a.category_id and a.category %}<span class="cat-dot" style="background:{{ a.category.color }}"></span>{% else %}<span class="cat-dot" style="background:#6366f1"></span>{% endif %}
+                {{ a.name }}
+                {% if a.team_member %}<span style="font-size:11px;color:var(--muted)"> ({{ a.team_member.name }})</span>{% endif %}
+              </div>
+              {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Panel: Stats ── -->
+    <div id="panel-{{ m.id }}-stats" class="ma-section" style="display:none">
+      <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:14px">Performance — letzte 7 Tage</div>
+      <div id="stats-{{ m.id }}" style="color:var(--muted);font-size:13px">Lädt…</div>
+    </div>
+
+    <!-- ── Panel: Edit ── -->
+    <div id="panel-{{ m.id }}-edit" class="ma-section" style="display:none">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div><label class="ma-label">Name</label><input class="ma-input" id="edit-name-{{ m.id }}" value="{{ m.name }}"></div>
+        <div><label class="ma-label">E-Mail</label><input class="ma-input" id="edit-email-{{ m.id }}" value="{{ m.email }}"></div>
+        <div>
+          <label class="ma-label">Rolle</label>
+          <select class="ma-input" id="edit-role-{{ m.id }}">
+            {% for r in ['owner','manager','editor','poster','analyst'] %}
+            <option value="{{ r }}" {% if m.role==r %}selected{% endif %}>{{ r.capitalize() }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div><label class="ma-label">Telefon</label><input class="ma-input" id="edit-phone-{{ m.id }}" value="{{ m.phone or '' }}" placeholder="+49 170 …"></div>
+        <div><label class="ma-label">Telegram</label><input class="ma-input" id="edit-tg-{{ m.id }}" value="{{ m.telegram_username or '' }}" placeholder="@username"></div>
+        <div><label class="ma-label">Notizen</label><input class="ma-input" id="edit-notes-{{ m.id }}" value="{{ m.notes or '' }}" placeholder="Zuständigkeiten, Schichten…"></div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button onclick="saveMember({{ m.id }})" class="btn btn-primary" style="font-size:13px"><i class="fa-solid fa-floppy-disk"></i> Speichern</button>
+        <button onclick="closePanel({{ m.id }})" class="btn btn-ghost" style="font-size:13px">Abbrechen</button>
+      </div>
+    </div>
+
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:80px 20px">
+    <i class="fa-solid fa-users" style="font-size:40px;color:var(--muted);opacity:.3;display:block;margin-bottom:16px"></i>
+    <div style="font-size:15px;font-weight:600;color:var(--muted)">Noch keine Mitarbeiter</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:4px">Füge deinen ersten Mitarbeiter hinzu.</div>
+  </div>
+  {% endfor %}
+  </div>
+</div>
+
+<!-- ── Seiten View ─────────────────────────────────────── -->
+<div id="seiten-view" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div style="font-size:13px;color:var(--muted)" id="seiten-count"></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <label style="font-size:13px;color:var(--muted)">Gruppierung:</label>
+      <select class="ma-input" id="group-by" onchange="renderSeitenView()" style="width:auto;padding:6px 10px;font-size:13px">
+        <option value="category">Nach Kategorie</option>
+        <option value="worker">Nach Mitarbeiter</option>
+        <option value="flat">Keine Gruppierung</option>
       </select>
-      <button onclick="assignAccount({{ m.id }})" class="btn btn-primary" style="font-size:12px">
-        <i class="fa-solid fa-plus"></i> Zuweisen
-      </button>
     </div>
   </div>
-
-  <!-- Panel: Bearbeiten -->
-  <div id="panel-{{ m.id }}-edit" class="ma-section" style="display:none">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-      <div>
-        <label class="ma-label">Name</label>
-        <input class="ma-input" id="edit-name-{{ m.id }}" value="{{ m.name }}">
-      </div>
-      <div>
-        <label class="ma-label">E-Mail</label>
-        <input class="ma-input" id="edit-email-{{ m.id }}" value="{{ m.email }}">
-      </div>
-      <div>
-        <label class="ma-label">Rolle</label>
-        <select class="ma-input" id="edit-role-{{ m.id }}">
-          {% for r in ['owner','manager','editor','poster','analyst'] %}
-          <option value="{{ r }}" {% if m.role==r %}selected{% endif %}>{{ r.capitalize() }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label class="ma-label">Telefon</label>
-        <input class="ma-input" id="edit-phone-{{ m.id }}" value="{{ m.phone or '' }}" placeholder="+49 170 ...">
-      </div>
-      <div>
-        <label class="ma-label">Telegram</label>
-        <input class="ma-input" id="edit-tg-{{ m.id }}" value="{{ m.telegram_username or '' }}" placeholder="@username">
-      </div>
-      <div>
-        <label class="ma-label">Notizen</label>
-        <input class="ma-input" id="edit-notes-{{ m.id }}" value="{{ m.notes or '' }}" placeholder="Zuständigkeiten, Schichten, ...">
-      </div>
-    </div>
-    <div style="margin-top:14px;display:flex;gap:8px">
-      <button onclick="saveMember({{ m.id }})" class="btn btn-primary" style="font-size:13px">
-        <i class="fa-solid fa-floppy-disk"></i> Speichern
-      </button>
-      <button onclick="closePanel({{ m.id }})" class="btn btn-ghost" style="font-size:13px">Abbrechen</button>
-    </div>
-  </div>
-
-</div>
-{% else %}
-<div style="text-align:center;padding:80px 20px">
-  <i class="fa-solid fa-users" style="font-size:40px;color:var(--muted);opacity:.3;display:block;margin-bottom:16px"></i>
-  <div style="font-size:15px;font-weight:600;color:var(--muted)">Noch keine Mitarbeiter</div>
-  <div style="font-size:13px;color:var(--muted);margin-top:4px">Füge deinen ersten Mitarbeiter hinzu.</div>
-</div>
-{% endfor %}
+  <div id="seiten-grid-root"></div>
 </div>
 
-
-<!-- Modal: Mitarbeiter hinzufügen -->
-<div id="add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:none;align-items:center;justify-content:center">
+<!-- ── Add Member Modal ───────────────────────────────── -->
+<div id="add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
   <div style="background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:28px;width:500px;max-width:90vw">
     <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:20px">Mitarbeiter hinzufügen</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-      <div>
-        <label class="ma-label">Name *</label>
-        <input class="ma-input" id="new-name" placeholder="Max Mustermann">
-      </div>
-      <div>
-        <label class="ma-label">E-Mail *</label>
-        <input class="ma-input" id="new-email" type="email" placeholder="max@example.com">
-      </div>
+      <div><label class="ma-label">Name *</label><input class="ma-input" id="new-name" placeholder="Max Mustermann"></div>
+      <div><label class="ma-label">E-Mail *</label><input class="ma-input" id="new-email" type="email" placeholder="max@example.com"></div>
       <div>
         <label class="ma-label">Rolle</label>
         <select class="ma-input" id="new-role">
@@ -191,18 +280,9 @@
           <option value="owner">Owner</option>
         </select>
       </div>
-      <div>
-        <label class="ma-label">Telefon</label>
-        <input class="ma-input" id="new-phone" placeholder="+49 170 ...">
-      </div>
-      <div>
-        <label class="ma-label">Telegram</label>
-        <input class="ma-input" id="new-tg" placeholder="@username">
-      </div>
-      <div>
-        <label class="ma-label">Notizen</label>
-        <input class="ma-input" id="new-notes" placeholder="Zuständigkeiten ...">
-      </div>
+      <div><label class="ma-label">Telefon</label><input class="ma-input" id="new-phone" placeholder="+49 170 …"></div>
+      <div><label class="ma-label">Telegram</label><input class="ma-input" id="new-tg" placeholder="@username"></div>
+      <div><label class="ma-label">Notizen</label><input class="ma-input" id="new-notes" placeholder="Zuständigkeiten…"></div>
     </div>
     <div id="add-error" style="font-size:12px;color:var(--danger);min-height:18px;margin-bottom:10px"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end">
@@ -211,66 +291,353 @@
     </div>
   </div>
 </div>
+
+<!-- ── Telegram Ping Modal ────────────────────────────── -->
+<div id="ping-modal-overlay">
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:28px;width:460px;max-width:90vw">
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px">
+      <i class="fa-brands fa-telegram" style="color:#29b6f6"></i> Telegram-Reminder
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Sendet eine Nachricht im Alert-Kanal mit @mention.</div>
+    <div id="ping-target-info" style="font-size:13px;color:var(--text);margin-bottom:12px;padding:10px 14px;background:var(--surface2);border-radius:8px"></div>
+    <label class="ma-label">Eigene Nachricht (optional)</label>
+    <textarea class="ma-input" id="ping-message" rows="3" placeholder="Leer lassen für Standard-Reminder…" style="resize:vertical;margin-bottom:16px"></textarea>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closePingModal()" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="sendPing()" class="btn btn-primary" style="background:#29b6f6;border-color:#29b6f6">
+        <i class="fa-brands fa-telegram"></i> Senden
+      </button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 
 {% block scripts %}
 <script>
-// ── Panel toggle ────────────────────────────────────────
-let openPanels = {}; // memberId → panelName
+// ── Data ────────────────────────────────────────────────
+const ALL_ACCOUNTS = {{ accounts_json | safe }};
+const ALL_MEMBERS  = {{ members_json  | safe }};
+const CATEGORIES   = {{ cats_json     | safe }};
+const MEMBER_CATS  = {{ member_cats   | tojson }};
 
+// ── Filter state ─────────────────────────────────────────
+let activeRole = null;
+let currentView = 'mitarbeiter';
+
+function setRole(role, btn) {
+  activeRole = role;
+  document.querySelectorAll('#role-chips .role-chip').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function applyFilters() {
+  if (currentView === 'seiten') { renderSeitenView(); return; }
+  const q       = document.getElementById('search-input').value.toLowerCase().trim();
+  const catId   = parseInt(document.getElementById('cat-filter').value) || null;
+  const cards   = document.querySelectorAll('#workers-list .ma-card');
+  let visible   = 0;
+  cards.forEach(card => {
+    const name    = card.dataset.name || '';
+    const role    = card.dataset.role || '';
+    const catList = card.dataset.cats ? card.dataset.cats.split(',').map(Number) : [];
+    const show    = (!q || name.includes(q))
+                 && (!activeRole || role === activeRole)
+                 && (!catId || catList.includes(catId));
+    card.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  const vc = document.getElementById('visible-count');
+  if (vc) vc.textContent = `${visible} aktive Mitarbeiter`;
+}
+
+// ── View toggle ──────────────────────────────────────────
+function setView(view) {
+  currentView = view;
+  document.getElementById('mitarbeiter-view').style.display = view === 'mitarbeiter' ? '' : 'none';
+  document.getElementById('seiten-view').style.display      = view === 'seiten'      ? '' : 'none';
+  document.getElementById('view-btn-mitarbeiter').classList.toggle('active', view === 'mitarbeiter');
+  document.getElementById('view-btn-seiten').classList.toggle('active', view === 'seiten');
+  if (view === 'seiten') renderSeitenView();
+}
+
+// ── Seiten view ──────────────────────────────────────────
+function renderSeitenView() {
+  const groupBy = document.getElementById('group-by').value;
+  const catFilter = parseInt(document.getElementById('cat-filter').value) || null;
+  const q         = document.getElementById('search-input').value.toLowerCase().trim();
+
+  let accounts = ALL_ACCOUNTS.filter(a => {
+    return (!q || a.name.toLowerCase().includes(q))
+        && (!catFilter || a.category_id === catFilter);
+  });
+
+  const root = document.getElementById('seiten-grid-root');
+  document.getElementById('seiten-count').textContent = `${accounts.length} Seiten`;
+
+  const memberOpts = ALL_MEMBERS.map(m =>
+    `<option value="${m.id}">${m.name}</option>`).join('');
+
+  function makeCard(a) {
+    const assigned = a.team_member_id;
+    const catStyle = a.category_color ? `color:${a.category_color};background:${a.category_color}22` : '';
+    return `<div class="seiten-card ${assigned ? '' : 'unassigned'}" data-acc="${a.id}">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.name}</div>
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+          ${a.category_name ? `<span class="cat-badge" style="${catStyle}">${a.category_name}</span>` : ''}
+          ${a.handle ? `<span style="font-size:11px;color:var(--muted)">@${a.handle}</span>` : ''}
+        </div>
+      </div>
+      <div style="flex-shrink:0">
+        <select class="worker-select" onchange="reassignSeite(${a.id},this.value)" title="Mitarbeiter zuweisen">
+          <option value="">— Kein Mitarbeiter —</option>
+          ${ALL_MEMBERS.map(m => `<option value="${m.id}" ${m.id === a.team_member_id ? 'selected' : ''}>${m.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>`;
+  }
+
+  if (groupBy === 'flat') {
+    root.innerHTML = `<div class="seiten-grid">${accounts.map(makeCard).join('')}</div>`;
+    return;
+  }
+
+  if (groupBy === 'category') {
+    const groups = {};
+    accounts.forEach(a => {
+      const key = a.category_name || '— Keine Kategorie —';
+      (groups[key] = groups[key] || { color: a.category_color, items: [] }).items.push(a);
+    });
+    root.innerHTML = Object.entries(groups).map(([name, g]) => `
+      <div style="margin-bottom:24px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <div style="width:10px;height:10px;border-radius:50%;background:${g.color || '#6366f1'}"></div>
+          <div style="font-size:13px;font-weight:700;color:var(--text)">${name}</div>
+          <div style="font-size:12px;color:var(--muted)">${g.items.length} Seiten</div>
+        </div>
+        <div class="seiten-grid">${g.items.map(makeCard).join('')}</div>
+      </div>`).join('');
+    return;
+  }
+
+  if (groupBy === 'worker') {
+    const groups = {};
+    const noWorker = [];
+    accounts.forEach(a => {
+      if (!a.team_member_id) { noWorker.push(a); return; }
+      (groups[a.team_member_name] = groups[a.team_member_name] || []).push(a);
+    });
+    let html = Object.entries(groups).map(([name, items]) => `
+      <div style="margin-bottom:24px">
+        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">
+          <i class="fa-solid fa-user" style="font-size:11px;color:var(--muted)"></i> ${name}
+          <span style="font-size:12px;color:var(--muted);font-weight:400"> ${items.length} Seiten</span>
+        </div>
+        <div class="seiten-grid">${items.map(makeCard).join('')}</div>
+      </div>`).join('');
+    if (noWorker.length) {
+      html += `<div style="margin-bottom:24px">
+        <div style="font-size:13px;font-weight:700;color:var(--danger);margin-bottom:10px">
+          <i class="fa-solid fa-triangle-exclamation" style="font-size:11px"></i> Nicht zugewiesen
+          <span style="font-size:12px;color:var(--muted);font-weight:400"> ${noWorker.length} Seiten</span>
+        </div>
+        <div class="seiten-grid">${noWorker.map(makeCard).join('')}</div>
+      </div>`;
+    }
+    root.innerHTML = html;
+  }
+}
+
+async function reassignSeite(accId, memberId) {
+  const acc = ALL_ACCOUNTS.find(a => a.id === accId);
+  if (!acc) return;
+  const prevMemberId = acc.team_member_id;
+
+  // Build new account_ids for new member (add this acc)
+  if (memberId) {
+    const newMId = parseInt(memberId);
+    const newMemberAccIds = ALL_ACCOUNTS
+      .filter(a => a.team_member_id === newMId && a.id !== accId)
+      .map(a => a.id).concat(accId);
+    await fetch(`/api/mitarbeiter/${newMId}/accounts`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({account_ids: newMemberAccIds})
+    });
+  } else if (prevMemberId) {
+    // Remove from previous member
+    const prevAccIds = ALL_ACCOUNTS
+      .filter(a => a.team_member_id === prevMemberId && a.id !== accId)
+      .map(a => a.id);
+    await fetch(`/api/mitarbeiter/${prevMemberId}/accounts`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({account_ids: prevAccIds})
+    });
+  }
+  // Update local data
+  acc.team_member_id   = memberId ? parseInt(memberId) : null;
+  acc.team_member_name = memberId ? (ALL_MEMBERS.find(m => m.id === parseInt(memberId))?.name || '') : '';
+  showToast('Zuweisung gespeichert.', 'success');
+}
+
+// ── Panel toggle ─────────────────────────────────────────
 function togglePanel(id, name) {
-  const panel = document.getElementById(`panel-${id}-${name}`);
+  const panel  = document.getElementById(`panel-${id}-${name}`);
   const isOpen = panel.style.display !== 'none';
   closePanel(id);
   if (!isOpen) {
     panel.style.display = '';
-    openPanels[id] = name;
     if (name === 'stats') loadStats(id);
   }
 }
-
 function closePanel(id) {
-  ['stats','accounts','edit'].forEach(n => {
+  ['stats','edit'].forEach(n => {
     const p = document.getElementById(`panel-${id}-${n}`);
     if (p) p.style.display = 'none';
   });
-  delete openPanels[id];
 }
 
-// ── Stats ───────────────────────────────────────────────
+// ── Inline account add ───────────────────────────────────
+function toggleInlineAdd(id) {
+  const dd = document.getElementById(`inline-dd-${id}`);
+  const isOpen = dd.classList.contains('open');
+  document.querySelectorAll('.inline-add-dropdown.open').forEach(el => el.classList.remove('open'));
+  if (!isOpen) {
+    dd.classList.add('open');
+    const s = document.getElementById(`inline-search-${id}`);
+    if (s) { s.value = ''; filterInlineDd(id, ''); s.focus(); }
+  }
+}
+function filterInlineDd(id, q) {
+  document.querySelectorAll(`#inline-items-${id} .inline-add-item`).forEach(el => {
+    el.style.display = el.dataset.name.includes(q.toLowerCase()) ? '' : 'none';
+  });
+}
+async function assignAccountInline(memberId, accId, el) {
+  const current = getCurrentAccountIds(memberId);
+  if (current.includes(accId)) { showToast('Bereits zugewiesen.','warning'); return; }
+  const res = await fetch(`/api/mitarbeiter/${memberId}/accounts`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({account_ids: current.concat(accId)})
+  });
+  const d = await res.json();
+  if (d.ok) {
+    const accName = el.textContent.trim().split('(')[0].trim();
+    const catDot  = el.querySelector('.cat-dot') ? el.querySelector('.cat-dot').outerHTML : '';
+    addChip(memberId, accId, accName);
+    el.remove();
+    document.getElementById(`inline-dd-${memberId}`).classList.remove('open');
+    // Update local ALL_ACCOUNTS
+    const a = ALL_ACCOUNTS.find(x => x.id === accId);
+    if (a) { a.team_member_id = memberId; a.team_member_name = ALL_MEMBERS.find(m=>m.id===memberId)?.name||''; }
+    showToast('Seite zugewiesen.','success');
+    // Update data-cats on card
+    updateCardCats(memberId);
+  }
+}
+function addChip(memberId, accId, name) {
+  const wrap = document.getElementById(`acc-chips-${memberId}`);
+  const addWrap = document.getElementById(`add-wrap-${memberId}`);
+  const chip = document.createElement('span');
+  chip.className = 'acc-chip';
+  chip.dataset.accId = accId;
+  chip.innerHTML = `${name}<button class="rm-btn" onclick="unassignAccount(${memberId},${accId},this)" title="Entfernen">✕</button>`;
+  wrap.insertBefore(chip, addWrap);
+}
+function updateCardCats(memberId) {
+  const cats = [...new Set(ALL_ACCOUNTS.filter(a => a.team_member_id === memberId && a.category_id).map(a => a.category_id))];
+  const card = document.getElementById(`card-${memberId}`);
+  if (card) card.dataset.cats = cats.join(',');
+  MEMBER_CATS[memberId] = cats;
+}
+
+async function unassignAccount(memberId, accId, btn) {
+  const current = getCurrentAccountIds(memberId).filter(id => id !== accId);
+  const res = await fetch(`/api/mitarbeiter/${memberId}/accounts`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({account_ids: current})
+  });
+  if ((await res.json()).ok) {
+    btn.closest('.acc-chip').remove();
+    const a = ALL_ACCOUNTS.find(x => x.id === accId);
+    if (a) { a.team_member_id = null; a.team_member_name = ''; }
+    // Re-add item to inline dropdown
+    const itemsEl = document.getElementById(`inline-items-${memberId}`);
+    if (itemsEl) {
+      const newItem = document.createElement('div');
+      newItem.className = 'inline-add-item';
+      newItem.dataset.accId  = accId;
+      newItem.dataset.name   = (a?.name || '').toLowerCase();
+      newItem.innerHTML      = `<span class="cat-dot" style="background:${a?.category_color||'#6366f1'}"></span>${a?.name||''}`;
+      newItem.onclick        = function() { assignAccountInline(memberId, accId, this); };
+      itemsEl.appendChild(newItem);
+    }
+    updateCardCats(memberId);
+    showToast('Seite entfernt.','success');
+  }
+}
+
+function getCurrentAccountIds(memberId) {
+  return Array.from(document.querySelectorAll(`#acc-chips-${memberId} .acc-chip`))
+    .map(el => parseInt(el.dataset.accId)).filter(Boolean);
+}
+
+// ── Work status ──────────────────────────────────────────
+function toggleWsMenu(id) {
+  const menu = document.getElementById(`ws-menu-${id}`);
+  const open = menu.style.display !== 'none';
+  document.querySelectorAll('[id^="ws-menu-"]').forEach(m => m.style.display = 'none');
+  menu.style.display = open ? 'none' : '';
+}
+async function setWorkStatus(id, status) {
+  document.getElementById(`ws-menu-${id}`).style.display = 'none';
+  await fetch(`/api/mitarbeiter/${id}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({work_status: status})
+  });
+  const badge = document.getElementById(`ws-badge-${id}`);
+  const card  = document.getElementById(`card-${id}`);
+  badge.className = `ws-badge ws-${status}`;
+  badge.textContent = {aktiv:'● Aktiv', urlaub:'✈ Urlaub', krank:'🤒 Krank'}[status];
+  card.className = card.className.replace(/status-\w+/g,'').trim();
+  if (status !== 'aktiv') card.classList.add(`status-${status}`);
+  card.dataset.workStatus = status;
+  showToast('Status aktualisiert.','success');
+}
+
+// ── Stats ────────────────────────────────────────────────
 async function loadStats(id) {
   const el = document.getElementById(`stats-${id}`);
   el.innerHTML = '<span style="color:var(--muted);font-size:13px">Lädt…</span>';
   const { days=[], totals={} } = await fetch(`/api/mitarbeiter/${id}/stats`).then(r=>r.json());
-
   if (!totals.sent) {
     el.innerHTML = '<span style="color:var(--muted);font-size:13px">Keine Daten für die letzten 7 Tage.</span>';
     return;
   }
-
   const rel = totals.sent ? Math.round(totals.posted / totals.sent * 100) : null;
   const relColor = rel===null ? 'var(--muted)' : rel>=90 ? 'var(--success)' : rel>=70 ? 'var(--warning)' : 'var(--danger)';
+  // Apply ampel to card border
+  const card = document.getElementById(`card-${id}`);
+  if (card) card.dataset.rel = rel===null?'none':rel>=90?'green':rel>=70?'yellow':'red';
 
+  const maxSent = Math.max(...days.map(d => d.sent), 1);
   const bars = days.map(d => {
-    const maxH = 48;
-    const h = d.sent ? Math.max(4, Math.round(d.sent / Math.max(...days.map(x=>x.sent)||[1]) * maxH)) : 4;
+    const maxH = 48, h = d.sent ? Math.max(4, Math.round(d.sent/maxSent*maxH)) : 4;
     const postedH = d.sent ? Math.round((d.posted/d.sent)*h) : 0;
-    const shortDate = d.date.slice(5); // MM-DD
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
-      <div style="position:relative;width:28px;height:${maxH}px;display:flex;align-items:flex-end">
-        <div style="width:100%;height:${h}px;background:var(--surface2);border-radius:4px;position:relative;overflow:hidden">
+      <div style="width:28px;height:${maxH}px;display:flex;align-items:flex-end">
+        <div style="width:100%;height:${h}px;background:var(--surface2);border-radius:4px;overflow:hidden;position:relative">
           <div style="position:absolute;bottom:0;width:100%;height:${postedH}px;background:${d.missing?'var(--danger)':d.late?'var(--warning)':'var(--success)'}"></div>
         </div>
       </div>
-      <div style="font-size:10px;color:var(--muted)">${shortDate}</div>
+      <div style="font-size:10px;color:var(--muted)">${d.date.slice(5)}</div>
       ${d.sent ? `<div style="font-size:10px;font-weight:600;color:${d.missing?'var(--danger)':d.late?'var(--warning)':'var(--success)'}">${d.posted}/${d.sent}</div>` : '<div style="font-size:10px;color:var(--muted)">—</div>'}
     </div>`;
   }).join('');
-
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:24px;margin-bottom:16px;flex-wrap:wrap">
-      <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Gesendet (7 Tage)</div><div style="font-size:20px;font-weight:700;color:var(--text)">${totals.sent}</div></div>
+      <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Gesendet</div><div style="font-size:20px;font-weight:700;color:var(--text)">${totals.sent}</div></div>
       <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Gepostet</div><div style="font-size:20px;font-weight:700;color:var(--success)">${totals.posted}</div></div>
       <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Spät</div><div style="font-size:20px;font-weight:700;color:var(--warning)">${totals.late}</div></div>
       <div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Nicht gepostet</div><div style="font-size:20px;font-weight:700;color:var(--danger)">${totals.missing}</div></div>
@@ -283,41 +650,19 @@ async function loadStats(id) {
     <div style="display:flex;gap:6px;align-items:flex-end">${bars}</div>`;
 }
 
-// ── Account assignment ──────────────────────────────────
-async function assignAccount(memberId) {
-  const sel = document.getElementById(`add-acc-${memberId}`);
-  const accId = parseInt(sel.value);
-  if (!accId) return;
-  const res = await fetch(`/api/mitarbeiter/${memberId}/accounts`, {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({account_ids: getCurrentAccountIds(memberId).concat(accId)})
+// Auto-load ampel for all cards in background
+window.addEventListener('load', () => {
+  document.querySelectorAll('#workers-list .ma-card').forEach(card => {
+    const id = card.id.replace('card-','');
+    fetch(`/api/mitarbeiter/${id}/stats`).then(r=>r.json()).then(({totals={}}) => {
+      if (!totals.sent) { card.dataset.rel = 'none'; return; }
+      const rel = Math.round(totals.posted / totals.sent * 100);
+      card.dataset.rel = rel>=90?'green':rel>=70?'yellow':'red';
+    }).catch(()=>{});
   });
-  if ((await res.json()).ok) { showToast('Seite zugewiesen.','success'); location.reload(); }
-}
+});
 
-async function unassignAccount(memberId, accId, btn) {
-  const current = getCurrentAccountIds(memberId).filter(id => id !== accId);
-  const res = await fetch(`/api/mitarbeiter/${memberId}/accounts`, {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({account_ids: current})
-  });
-  if ((await res.json()).ok) {
-    btn.closest('span').remove();
-    showToast('Seite entfernt.','success');
-  }
-}
-
-function getCurrentAccountIds(memberId) {
-  return Array.from(document.querySelectorAll(`#acc-chips-${memberId} span`))
-    .map(el => {
-      const btn = el.querySelector('button');
-      if (!btn) return null;
-      const m = btn.getAttribute('onclick').match(/unassignAccount\(\d+,(\d+)/);
-      return m ? parseInt(m[1]) : null;
-    }).filter(Boolean);
-}
-
-// ── Save member ─────────────────────────────────────────
+// ── Save member ──────────────────────────────────────────
 async function saveMember(id) {
   const body = {
     name:              document.getElementById(`edit-name-${id}`).value.trim(),
@@ -332,7 +677,7 @@ async function saveMember(id) {
   else showToast('Fehler beim Speichern.','danger');
 }
 
-// ── Delete member ───────────────────────────────────────
+// ── Delete member ────────────────────────────────────────
 async function deleteMember(id, name) {
   const ok = await customConfirm('Mitarbeiter entfernen', `"${name}" wirklich entfernen? Seiten-Zuweisungen werden aufgehoben.`, 'Entfernen', 'btn-danger');
   if (!ok) return;
@@ -341,16 +686,13 @@ async function deleteMember(id, name) {
   else showToast('Fehler.','danger');
 }
 
-// ── Add modal ───────────────────────────────────────────
+// ── Add modal ────────────────────────────────────────────
 function openAddModal() {
-  const m = document.getElementById('add-modal');
-  m.style.display = 'flex';
+  document.getElementById('add-modal').style.display = 'flex';
   document.getElementById('add-error').textContent = '';
   ['new-name','new-email','new-phone','new-tg','new-notes'].forEach(id => document.getElementById(id).value='');
 }
-function closeAddModal() {
-  document.getElementById('add-modal').style.display = 'none';
-}
+function closeAddModal() { document.getElementById('add-modal').style.display = 'none'; }
 async function addMember() {
   const body = {
     name:  document.getElementById('new-name').value.trim(),
@@ -367,10 +709,41 @@ async function addMember() {
   if (d.ok) { showToast('Mitarbeiter hinzugefügt.','success'); location.reload(); }
   else errEl.textContent = d.error || 'Fehler.';
 }
+document.getElementById('add-modal').addEventListener('click', e => { if (e.target===e.currentTarget) closeAddModal(); });
 
-// Close modal on backdrop click
-document.getElementById('add-modal').addEventListener('click', e => {
-  if (e.target === e.currentTarget) closeAddModal();
+// ── Telegram Ping ────────────────────────────────────────
+let pingMemberId = null;
+function openPingModal(id, name) {
+  pingMemberId = id;
+  const m = ALL_MEMBERS.find(x => x.id === id) || {};
+  document.getElementById('ping-target-info').textContent = `Empfänger: ${name}`;
+  document.getElementById('ping-message').value = '';
+  document.getElementById('ping-modal-overlay').classList.add('open');
+}
+function closePingModal() {
+  document.getElementById('ping-modal-overlay').classList.remove('open');
+  pingMemberId = null;
+}
+async function sendPing() {
+  if (!pingMemberId) return;
+  const message = document.getElementById('ping-message').value.trim();
+  const res = await fetch(`/api/mitarbeiter/${pingMemberId}/ping`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({message})
+  });
+  const d = await res.json();
+  closePingModal();
+  if (d.ok) showToast('Telegram-Reminder gesendet!','success');
+  else showToast('Fehler: ' + (d.error || 'Unbekannt'), 'danger');
+}
+document.getElementById('ping-modal-overlay').addEventListener('click', e => { if (e.target===e.currentTarget) closePingModal(); });
+
+// ── Close dropdowns on outside click ────────────────────
+document.addEventListener('click', e => {
+  if (!e.target.closest('.inline-add-wrap'))
+    document.querySelectorAll('.inline-add-dropdown.open').forEach(el => el.classList.remove('open'));
+  if (!e.target.closest('[id^="ws-wrap-"]'))
+    document.querySelectorAll('[id^="ws-menu-"]').forEach(m => m.style.display = 'none');
 });
 </script>
 {% endblock %}
