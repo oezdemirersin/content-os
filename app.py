@@ -7852,6 +7852,18 @@ def cron_morning_report():
     delta     = (int(total_now) - int(snap_sum)) if snap_sum else None
     delta_str = (f'+{delta:,}' if delta >= 0 else f'{delta:,}') if delta is not None else '–'
 
+    # Konfigurationsfehler: Accounts mit geplanten Posts aber ohne telegram_chat_id
+    today = datetime.now(berlin).date()
+    misconfigured = (db.session.query(Account)
+        .join(ScheduledPost, ScheduledPost.account_id == Account.id)
+        .filter(
+            Account.status == 'active',
+            Account.telegram_chat_id == None,
+            Account.automation_level < 3,
+            func.date(ScheduledPost.scheduled_at) == today,
+            ScheduledPost.status == 'scheduled',
+        ).distinct().all())
+
     lines = [f'🔔 <b>ContentOS — {yesterday.strftime("%d.%m.%Y")}</b>', '',
              f'📊 Follower gestern: <b>{delta_str}</b>', '']
 
@@ -7862,6 +7874,12 @@ def cron_morning_report():
             lines.append(f'⚠️ Nicht gepostet: <b>{len(not_posted)}</b>')
         if late_posted:
             lines.append(f'🌙 Nach 22 Uhr gepostet: <b>{len(late_posted)}</b>')
+
+    if misconfigured:
+        lines.append('')
+        lines.append(f'⚙️ Kein Telegram-Channel ({len(misconfigured)}):')
+        for acc in misconfigured[:10]:
+            lines.append(f'  • {acc.name}')
 
     keyboard = []
     ds = yesterday.isoformat()
