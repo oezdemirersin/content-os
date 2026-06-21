@@ -54,6 +54,101 @@
   <div style="padding:16px 20px"><canvas id="revenueChart" height="75"></canvas></div>
 </div>
 
+<!-- ══ RECHNUNGSPROFIL ════════════════════════════════════════ -->
+<div class="card" style="padding:0;overflow:hidden;margin-bottom:20px">
+  <div style="padding:14px 20px;display:flex;align-items:center;justify-content:space-between;cursor:pointer"
+       onclick="toggleRechnungsprofil()">
+    <span class="card-title" style="display:flex;align-items:center;gap:8px">
+      <i class="fa-solid fa-file-invoice" style="color:var(--accent)"></i>
+      RECHNUNGSPROFIL
+      <span id="invProfileBadge" style="display:none;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:rgba(34,197,94,.15);color:var(--success)">● Eingerichtet</span>
+    </span>
+    <i class="fa-solid fa-chevron-down" id="invProfileChevron" style="font-size:11px;color:var(--muted);transition:transform .2s"></i>
+  </div>
+  <div id="invProfileBody" style="display:none;border-top:1px solid var(--border);padding:20px 24px">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;align-items:start">
+
+      <!-- Absender -->
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:12px">Absender</div>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Name / Unternehmen</label>
+            <input id="inv_sender_name" type="text" class="input-field" placeholder="Max Mustermann" style="font-size:13px;padding:7px 10px"></div>
+          <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Straße &amp; Nr.</label>
+            <input id="inv_sender_street" type="text" class="input-field" placeholder="Musterstraße 1" style="font-size:13px;padding:7px 10px"></div>
+          <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">PLZ &amp; Stadt</label>
+            <input id="inv_sender_city" type="text" class="input-field" placeholder="60311 Frankfurt" style="font-size:13px;padding:7px 10px"></div>
+          <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">E-Mail</label>
+            <input id="inv_sender_email" type="email" class="input-field" placeholder="kontakt@example.de" style="font-size:13px;padding:7px 10px"></div>
+          <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Telefon <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+            <input id="inv_sender_phone" type="text" class="input-field" placeholder="+49 1234 567890" style="font-size:13px;padding:7px 10px"></div>
+          <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Steuernummer</label>
+            <input id="inv_sender_tax_number" type="text" class="input-field" placeholder="12/345/67890" style="font-size:13px;padding:7px 10px"></div>
+          <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">USt-IdNr. <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+            <input id="inv_sender_vat_number" type="text" class="input-field" placeholder="DE123456789" style="font-size:13px;padding:7px 10px"></div>
+        </div>
+      </div>
+
+      <!-- Bankverbindung -->
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:12px">Bankverbindung</div>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Bank</label>
+            <input id="inv_sender_bank_name" type="text" class="input-field" placeholder="Sparkasse Frankfurt" style="font-size:13px;padding:7px 10px"></div>
+          <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">IBAN</label>
+            <input id="inv_sender_iban" type="text" class="input-field" placeholder="DE89 3704 0044 …" style="font-size:13px;padding:7px 10px"></div>
+          <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">BIC</label>
+            <input id="inv_sender_bic" type="text" class="input-field" placeholder="COBADEFFXXX" style="font-size:13px;padding:7px 10px"></div>
+        </div>
+      </div>
+
+      <!-- Einstellungen + Logo -->
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:12px">Rechnungseinstellungen</div>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Nummern-Präfix</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input id="inv_prefix" type="text" class="input-field" placeholder="RE" style="font-size:13px;padding:7px 10px;width:70px">
+              <span style="font-size:11px;color:var(--muted)">→ RE-2026-001</span>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">Zahlungsziel</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input id="inv_payment_days" type="number" min="7" max="90" class="input-field" style="font-size:13px;padding:7px 10px;width:70px">
+              <span style="font-size:11px;color:var(--muted)">Tage</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:start;gap:10px;padding:10px 0;border-top:1px solid var(--border);margin-top:4px">
+            <input type="checkbox" id="inv_kleinunternehmer" style="width:15px;height:15px;accent-color:var(--accent);margin-top:2px;flex-shrink:0">
+            <div>
+              <div style="font-size:13px;font-weight:600">Kleinunternehmerregelung § 19 UStG</div>
+              <div style="font-size:11px;color:var(--muted)">Keine MwSt. auf Rechnungen</div>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Logo</label>
+            <div id="invLogoPreview" style="margin-bottom:6px"></div>
+            <input type="file" id="invLogoFile" accept="image/*" style="display:none" onchange="uploadInvLogo(this)">
+            <button onclick="document.getElementById('invLogoFile').click()" class="btn btn-ghost" style="font-size:12px;padding:5px 12px">
+              <i class="fa-solid fa-upload"></i> Logo hochladen
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+      <button onclick="saveInvoiceSettings()" class="btn btn-primary">
+        <i class="fa-solid fa-floppy-disk"></i> Rechnungsprofil speichern
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ LISTE ════════════════════════════════════════════════════ -->
 <div id="view-liste">
   <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
@@ -1228,5 +1323,69 @@ async function savePreisSettings() {
   if (r.ok) { _prSettings = s; showToast('Einstellungen gespeichert', 'success'); }
   else showToast('Fehler beim Speichern', 'error');
 }
+
+// ── Rechnungsprofil ───────────────────────────────────────────
+function toggleRechnungsprofil() {
+  const body  = document.getElementById('invProfileBody');
+  const chev  = document.getElementById('invProfileChevron');
+  const open  = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  chev.style.transform = open ? 'rotate(180deg)' : '';
+  if (open) loadInvoiceSettings();
+}
+
+async function loadInvoiceSettings() {
+  try {
+    const d = await fetch('/api/invoice/settings').then(r=>r.json());
+    ['sender_name','sender_street','sender_city','sender_email','sender_phone',
+     'sender_iban','sender_bic','sender_bank_name','sender_tax_number','sender_vat_number']
+      .forEach(f => { const el = document.getElementById('inv_'+f); if(el) el.value = d['invoice_'+f]||''; });
+    document.getElementById('inv_prefix').value = d.invoice_prefix || 'RE';
+    document.getElementById('inv_payment_days').value = d.invoice_payment_days || '14';
+    document.getElementById('inv_kleinunternehmer').checked = d.invoice_sender_is_kleinunternehmer !== 'false';
+    if (d.invoice_logo_b64) {
+      document.getElementById('invLogoPreview').innerHTML =
+        `<img src="${d.invoice_logo_b64}" style="max-height:36px;max-width:120px;object-fit:contain;border:1px solid var(--border);border-radius:6px;padding:3px">`;
+    }
+    // Badge anzeigen wenn Name gesetzt
+    if (d.invoice_sender_name) document.getElementById('invProfileBadge').style.display = 'inline';
+  } catch(e) {}
+}
+
+async function saveInvoiceSettings() {
+  const payload = {
+    invoice_sender_name:              document.getElementById('inv_sender_name').value,
+    invoice_sender_street:            document.getElementById('inv_sender_street').value,
+    invoice_sender_city:              document.getElementById('inv_sender_city').value,
+    invoice_sender_email:             document.getElementById('inv_sender_email').value,
+    invoice_sender_phone:             document.getElementById('inv_sender_phone').value,
+    invoice_sender_iban:              document.getElementById('inv_sender_iban').value,
+    invoice_sender_bic:               document.getElementById('inv_sender_bic').value,
+    invoice_sender_bank_name:         document.getElementById('inv_sender_bank_name').value,
+    invoice_sender_tax_number:        document.getElementById('inv_sender_tax_number').value,
+    invoice_sender_vat_number:        document.getElementById('inv_sender_vat_number').value,
+    invoice_prefix:                   document.getElementById('inv_prefix').value || 'RE',
+    invoice_payment_days:             document.getElementById('inv_payment_days').value || '14',
+    invoice_sender_is_kleinunternehmer: document.getElementById('inv_kleinunternehmer').checked ? 'true' : 'false',
+  };
+  const r = await fetch('/api/invoice/settings', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+  }).then(r=>r.json());
+  if (r.ok) {
+    showToast('Rechnungsprofil gespeichert ✓', 'success');
+    if (payload.invoice_sender_name) document.getElementById('invProfileBadge').style.display = 'inline';
+  } else showToast('Fehler beim Speichern', 'error');
+}
+
+async function uploadInvLogo(input) {
+  const fd = new FormData(); fd.append('logo', input.files[0]);
+  const r = await fetch('/api/invoice/logo', {method:'POST', body:fd}).then(r=>r.json());
+  if (r.ok) showToast('Logo gespeichert ✓', 'success');
+}
+
+// Badge-Status beim Laden prüfen
+fetch('/api/invoice/settings').then(r=>r.json()).then(d => {
+  if (d.invoice_sender_name) document.getElementById('invProfileBadge').style.display = 'inline';
+}).catch(()=>{});
 </script>
 {% endblock %}
