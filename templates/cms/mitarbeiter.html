@@ -36,11 +36,11 @@
   </div>
   <div class="stat-card" style="border-left:3px solid var(--success)">
     <div class="stat-label">Seiten zugewiesen</div>
-    <div class="stat-value green">{{ members|sum(attribute='accounts')|length }}</div>
+    <div class="stat-value green">{{ assigned_count }}</div>
   </div>
   <div class="stat-card" style="border-left:3px solid var(--warning)">
     <div class="stat-label">Seiten ohne Mitarbeiter</div>
-    <div class="stat-value yellow">{{ all_accounts|selectattr('team_member_id','none')|list|length }}</div>
+    <div class="stat-value yellow">{{ unassigned_count }}</div>
   </div>
 </div>
 

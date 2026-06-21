@@ -5065,8 +5065,11 @@ def mitarbeiter():
     berlin  = ZoneInfo('Europe/Berlin')
     today   = datetime.now(berlin).date()
     all_accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
+    assigned_count = sum(len(m.accounts) for m in members)
+    unassigned_count = sum(1 for a in all_accounts if a.team_member_id is None)
     return render_template('mitarbeiter.html', members=members, today=today,
-                           all_accounts=all_accounts, active_page='mitarbeiter')
+                           all_accounts=all_accounts, active_page='mitarbeiter',
+                           assigned_count=assigned_count, unassigned_count=unassigned_count)
 
 
 @app.route('/api/mitarbeiter/<int:member_id>', methods=['POST'])
