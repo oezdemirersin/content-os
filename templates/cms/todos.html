@@ -18,6 +18,18 @@
     </div>
   </div>
 
+  <!-- Bereich-Filter -->
+  <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+    <span style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;flex-shrink:0">Bereich:</span>
+    <button @click="pageFilter = ''"
+            class="fchip" :class="pageFilter === '' ? 'active' : ''">Alle</button>
+    <template x-for="p in usedPages" :key="p">
+      <button @click="pageFilter = (pageFilter === p ? '' : p)"
+              class="fchip" :class="pageFilter === p ? 'active' : ''"
+              x-text="pageLabel(p)"></button>
+    </template>
+  </div>
+
   <!-- Kategorie-Filter-Tabs -->
   <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
     <template x-for="tab in tabs" :key="tab.key">
@@ -50,6 +62,10 @@
           <span class="todo-cat-pill"
                 :style="`background:${catColor(item.category)}18;color:${catColor(item.category)}`"
                 x-text="catLabel(item.category)"></span>
+          <template x-if="item.linked_page">
+            <span style="font-size:10px;padding:2px 7px;border-radius:8px;font-weight:600;background:rgba(99,102,241,.12);color:var(--accent)"
+                  x-text="pageLabel(item.linked_page)"></span>
+          </template>
           <template x-if="item.priority === 1">
             <span style="font-size:10px;color:#f59e0b;font-weight:700">⭐ Hoch</span>
           </template>
@@ -169,6 +185,24 @@
     </div>
 
     <div style="margin-bottom:14px">
+      <label class="form-label">Bereich <span style="color:var(--muted);font-weight:400">(welcher Tab?)</span></label>
+      <select id="todoPage" class="select-field">
+        <option value="">— Allgemein —</option>
+        <option value="heute">📊 Dashboard</option>
+        <option value="accounts">📁 Seiten / Accounts</option>
+        <option value="calendar_view">📅 Kalender / Planer</option>
+        <option value="analytics">📈 Analytics</option>
+        <option value="kooperationen">🤝 Kooperationen</option>
+        <option value="growth_lab">🧪 Growth Lab</option>
+        <option value="seiten_watchlist">👁️ Watchlist</option>
+        <option value="mitarbeiter">👥 Mitarbeiter</option>
+        <option value="ausgaben">💸 Ausgaben</option>
+        <option value="automation">⚡ Automation</option>
+        <option value="settings">⚙️ Einstellungen</option>
+      </select>
+    </div>
+
+    <div style="margin-bottom:14px">
       <label class="form-label">Deadline (optional)</label>
       <input type="date" id="todoDeadline" class="input-field">
     </div>
@@ -266,12 +300,26 @@ const CAT_COLORS = {
 const CAT_LABELS = {
   idee:'💡 Idee', feature:'⚙️ Feature', bug:'🐛 Bug', notiz:'📝 Notiz', roadmap:'🗺️ Roadmap'
 };
+const PAGE_LABELS = {
+  heute:             '📊 Dashboard',
+  accounts:          '📁 Seiten',
+  calendar_view:     '📅 Kalender',
+  analytics:         '📈 Analytics',
+  kooperationen:     '🤝 Kooperationen',
+  growth_lab:        '🧪 Growth Lab',
+  seiten_watchlist:  '👁️ Watchlist',
+  mitarbeiter:       '👥 Mitarbeiter',
+  ausgaben:          '💸 Ausgaben',
+  automation:        '⚡ Automation',
+  settings:          '⚙️ Einstellungen',
+};
 
 
 function todoApp() {
   return {
     items: [],
     activeTab: 'all',
+    pageFilter: '',
     customCats: [],
     get tabs() {
       return [
@@ -296,8 +344,13 @@ function todoApp() {
       }
       return c;
     },
+    get usedPages() {
+      const seen = new Set(this.items.filter(i => i.linked_page).map(i => i.linked_page));
+      return [...seen].sort();
+    },
     get filtered() {
       let result = this.items;
+      if (this.pageFilter) result = result.filter(i => i.linked_page === this.pageFilter);
       if (this.activeTab === 'done') {
         result = result.filter(i => i.done);
       } else {
@@ -313,6 +366,7 @@ function todoApp() {
       }
       return result;
     },
+    pageLabel(p) { return PAGE_LABELS[p] || p; },
     async init() {
       this.items = _initialItems;
       try {
@@ -347,6 +401,7 @@ function todoApp() {
       document.getElementById('editTodoId').value = '';
       document.getElementById('todoTitle').value = '';
       document.getElementById('todoText').value = '';
+      document.getElementById('todoPage').value = '';
       document.getElementById('todoCategory').value = 'idee';
       document.getElementById('todoPriority').value = '0';
       document.getElementById('todoDeadline').value = '';
@@ -359,6 +414,7 @@ function todoApp() {
       document.getElementById('editTodoId').value = item.id;
       document.getElementById('todoTitle').value = item.title || '';
       document.getElementById('todoText').value = item.text;
+      document.getElementById('todoPage').value = item.linked_page || '';
       document.getElementById('todoCategory').value = item.category;
       document.getElementById('todoPriority').value = String(item.priority);
       document.getElementById('todoDeadline').value = item.deadline || '';
@@ -441,6 +497,7 @@ async function saveTodo() {
     category: document.getElementById('todoCategory').value,
     priority: parseInt(document.getElementById('todoPriority').value),
     deadline: deadlineVal || null,
+    linked_page: document.getElementById('todoPage').value || null,
   };
 
   const url    = id ? `/api/todos/${id}` : '/api/todos';
