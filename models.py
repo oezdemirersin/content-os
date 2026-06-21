@@ -981,3 +981,81 @@ class LocalEvent(db.Model):
     kategorie    = db.Column(db.String(50), default='Sonstiges')  # Fest|Markt|Konzert|Sport|Politik|Sonstiges
     content_idee = db.Column(db.Text)
     created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# ══════════════════════════════════════════════════════════
+#  GROWTH LAB — Experiment-System
+# ══════════════════════════════════════════════════════════
+
+class GrowthExperiment(db.Model):
+    """Ein A/B-Test, der Wachstumsstrategien für eine Kategorie vergleicht."""
+    __tablename__ = 'growth_experiment'
+    id               = db.Column(db.Integer, primary_key=True)
+    name             = db.Column(db.String(200), nullable=False)
+    category_id      = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=False)
+    goal             = db.Column(db.Text)
+    description      = db.Column(db.Text)
+    duration_days    = db.Column(db.Integer, default=30)
+    start_date       = db.Column(db.Date)
+    status           = db.Column(db.String(20), default='draft')  # draft | running | completed
+    ai_analysis_json = db.Column(db.Text)   # JSON: winner, insights, ratings, …
+    winner_variant_id = db.Column(db.Integer)  # plain int (no FK, to avoid circular cascade)
+    created_at       = db.Column(db.DateTime, default=datetime.utcnow)
+
+    category     = db.relationship('Category', backref='growth_experiments')
+    variants     = db.relationship('GrowthVariant', backref='experiment',
+                                   cascade='all, delete-orphan',
+                                   foreign_keys='GrowthVariant.experiment_id')
+    participants = db.relationship('GrowthParticipant', backref='experiment',
+                                   cascade='all, delete-orphan',
+                                   foreign_keys='GrowthParticipant.experiment_id')
+
+
+class GrowthVariant(db.Model):
+    """Eine Testvariante innerhalb eines Experiments (z.B. 'Bio A', 'Kontrollgruppe')."""
+    __tablename__ = 'growth_variant'
+    id            = db.Column(db.Integer, primary_key=True)
+    experiment_id = db.Column(db.Integer, db.ForeignKey('growth_experiment.id'), nullable=False)
+    name          = db.Column(db.String(100), nullable=False)
+    description   = db.Column(db.Text)   # Strategie-Beschreibung / Bio-Text / Notizen
+    is_control    = db.Column(db.Boolean, default=False)
+    color         = db.Column(db.String(20), default='#6366f1')
+
+
+class GrowthParticipant(db.Model):
+    """Ein Account der an einem Experiment teilnimmt und einer Variante zugeordnet ist."""
+    __tablename__ = 'growth_participant'
+    id                    = db.Column(db.Integer, primary_key=True)
+    experiment_id         = db.Column(db.Integer, db.ForeignKey('growth_experiment.id'), nullable=False)
+    account_id            = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
+    variant_id            = db.Column(db.Integer, db.ForeignKey('growth_variant.id'), nullable=False)
+    start_followers       = db.Column(db.Integer, default=0)
+    start_profile_visits  = db.Column(db.Integer, default=0)
+    start_reached_accounts = db.Column(db.Integer, default=0)
+
+    account     = db.relationship('Account', foreign_keys=[account_id])
+    data_points = db.relationship('GrowthDataPoint', cascade='all, delete-orphan')
+
+
+class GrowthDataPoint(db.Model):
+    """Manuell eingetragene Messwerte für einen Teilnehmer zu einem bestimmten Datum."""
+    __tablename__ = 'growth_data_point'
+    id                = db.Column(db.Integer, primary_key=True)
+    participant_id    = db.Column(db.Integer, db.ForeignKey('growth_participant.id'), nullable=False)
+    recorded_at       = db.Column(db.Date, nullable=False)
+    followers         = db.Column(db.Integer)
+    profile_visits    = db.Column(db.Integer)
+    reached_accounts  = db.Column(db.Integer)
+    notes             = db.Column(db.Text)
+
+
+class GrowthKnowledge(db.Model):
+    """Gewonnene Erkenntnisse pro Kategorie — wird durch KI-Auswertungen und manuelle Einträge befüllt."""
+    __tablename__ = 'growth_knowledge'
+    id            = db.Column(db.Integer, primary_key=True)
+    category_id   = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=False)
+    insight       = db.Column(db.Text, nullable=False)
+    experiment_id = db.Column(db.Integer, nullable=True)   # Referenz ohne FK-Constraint
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+    category = db.relationship('Category', backref='growth_knowledge')

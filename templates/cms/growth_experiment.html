@@ -1,0 +1,572 @@
+{% extends "base.html" %}
+{% block title %}{{ exp.name }} — Growth Lab{% endblock %}
+{% block page_title %}GROWTH LAB{% endblock %}
+{% block extra_head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>{% endblock %}
+
+{% block content %}
+<style>
+.prog-track { height:10px;background:var(--surface2);border-radius:5px;overflow:hidden }
+.prog-fill  { height:100%;border-radius:5px;transition:width .5s;background:linear-gradient(90deg,var(--accent),#8b5cf6) }
+.prog-fill.complete { background:var(--success) }
+.prog-fill.urgent   { background:var(--danger) }
+.var-card { background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;flex:1;min-width:0;transition:box-shadow .2s }
+.var-card:hover { box-shadow:0 4px 16px rgba(0,0,0,.1) }
+.var-card.winner { border-color:var(--success);box-shadow:0 0 0 2px rgba(34,197,94,.2) }
+.rank-badge { width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0 }
+.chart-tab { padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:6px;transition:all .15s }
+.chart-tab.active { background:var(--accent);color:#fff;border-color:var(--accent) }
+.insight-row { display:flex;align-items:flex-start;gap:10px;padding:10px 14px;background:var(--surface2);border-radius:8px;font-size:13px;color:var(--text) }
+.rating-badge { font-size:11px;padding:3px 10px;border-radius:20px;font-weight:700 }
+.rating-success { background:rgba(34,197,94,.15);color:var(--success) }
+.rating-neutral { background:rgba(245,158,11,.15);color:#f59e0b }
+.rating-weak    { background:rgba(239,68,68,.15);color:var(--danger) }
+.dp-acc-select  { background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 11px;color:var(--text);font-size:13px;width:100%;box-sizing:border-box }
+.ma-label { font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:5px }
+.ma-input { background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;color:var(--text);font-size:13px;width:100%;box-sizing:border-box }
+.ma-input:focus, .dp-acc-select:focus { outline:none;border-color:var(--accent) }
+</style>
+
+<!-- ── Breadcrumb ──────────────────────────────────────── -->
+<div style="margin-bottom:20px;font-size:12px;color:var(--muted)">
+  <a href="{{ url_for('growth_lab') }}" style="color:var(--muted);text-decoration:none">Growth Lab</a>
+  <span style="margin:0 8px">›</span>
+  <span style="color:var(--text)">{{ exp.name }}</span>
+</div>
+
+<!-- ── Experiment Header ───────────────────────────────── -->
+<div class="card" style="padding:24px 28px;margin-bottom:20px">
+  <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <h2 style="margin:0;font-size:20px;font-weight:800;color:var(--text)">{{ exp.name }}</h2>
+        <span style="font-size:11px;padding:2px 10px;border-radius:20px;font-weight:700;
+          {% if exp.status=='running' %}background:rgba(34,197,94,.15);color:var(--success)
+          {% elif exp.status=='completed' %}background:rgba(99,102,241,.15);color:var(--accent)
+          {% else %}background:rgba(100,116,139,.15);color:#94a3b8{% endif %}">
+          {% if exp.status=='running' %}Läuft{% elif exp.status=='completed' %}Abgeschlossen{% else %}Entwurf{% endif %}
+        </span>
+        <span style="font-size:11px;padding:2px 10px;border-radius:20px;font-weight:700;background:{{ exp.category.color }}22;color:{{ exp.category.color }}">
+          {{ exp.category.name }}
+        </span>
+      </div>
+      {% if exp.goal %}
+      <div style="font-size:13px;color:var(--muted);margin-bottom:4px"><b>Ziel:</b> {{ exp.goal }}</div>
+      {% endif %}
+      {% if exp.description %}
+      <div style="font-size:13px;color:var(--muted)">{{ exp.description }}</div>
+      {% endif %}
+    </div>
+    <!-- Action buttons -->
+    <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap">
+      {% if exp.status == 'draft' %}
+      <button onclick="openStartModal()" class="btn btn-primary">
+        <i class="fa-solid fa-play"></i> Experiment starten
+      </button>
+      {% elif exp.status == 'running' %}
+      <button onclick="openDataModal()" class="btn btn-ghost">
+        <i class="fa-solid fa-chart-line"></i> Daten eintragen
+      </button>
+      <button onclick="completeExperiment()" class="btn btn-ghost" style="color:var(--accent)">
+        <i class="fa-solid fa-flag-checkered"></i> Abschließen
+      </button>
+      {% elif exp.status == 'completed' and not ai_analysis %}
+      <button onclick="openDataModal()" class="btn btn-ghost">
+        <i class="fa-solid fa-chart-line"></i> Daten eintragen
+      </button>
+      <button onclick="runAnalysis()" class="btn btn-primary" id="analyze-btn">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> KI-Analyse starten
+      </button>
+      {% endif %}
+      <button onclick="deleteExperiment()" class="btn btn-ghost" style="color:var(--danger);border-color:rgba(239,68,68,.3)" title="Experiment löschen">
+        <i class="fa-solid fa-trash"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Progress bar -->
+  {% if exp.status != 'draft' %}
+  <div style="margin-top:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div style="font-size:12px;color:var(--muted)">
+        {% if exp.start_date %}Start: {{ exp.start_date.strftime('%d.%m.%Y') }}{% endif %}
+        · {{ exp.duration_days }} Tage
+      </div>
+      <div style="font-size:12px;font-weight:700;
+        {% if remaining <= 3 and exp.status == 'running' %}color:var(--danger)
+        {% elif exp.status == 'completed' %}color:var(--success)
+        {% else %}color:var(--muted){% endif %}">
+        {% if exp.status == 'completed' %}
+          Abgeschlossen
+        {% elif remaining <= 3 and remaining >= 0 %}
+          {{ remaining }} Tag{% if remaining != 1 %}e{% endif %} verbleibend ⚠️
+        {% elif remaining > 0 %}
+          noch {{ remaining }} Tage
+        {% endif %}
+        · {{ progress }}%
+      </div>
+    </div>
+    <div class="prog-track">
+      <div class="prog-fill {% if exp.status=='completed' %}complete{% elif remaining<=3 %}urgent{% endif %}" style="width:{{ progress }}%"></div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Variant Cards (live stats) ─────────────────────── -->
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+{% for vs in variant_stats %}
+<div class="var-card {% if exp.winner_variant_id == vs.id %}winner{% endif %}">
+  <!-- Rank + Name -->
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <div class="rank-badge" style="background:{{ vs.color }}22;color:{{ vs.color }}">
+      {% if exp.status == 'completed' %}{{ loop.index }}{% else %}<i class="fa-solid fa-circle" style="font-size:8px"></i>{% endif %}
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:7px">
+        <span style="font-size:13px;font-weight:700;color:var(--text)">{{ vs.name }}</span>
+        {% if vs.is_control %}<span style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--surface2);color:var(--muted);font-weight:700">Kontrolle</span>{% endif %}
+        {% if exp.winner_variant_id == vs.id %}<span style="font-size:10px">🏆</span>{% endif %}
+      </div>
+      <div style="font-size:11px;color:var(--muted)">{{ vs.account_count }} Seite{% if vs.account_count != 1 %}n{% endif %}</div>
+    </div>
+  </div>
+
+  <!-- Metrics -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+    <div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Ø Follower Δ</div>
+      <div style="font-size:22px;font-weight:800;color:{% if vs.avg_delta > 0 %}var(--success){% elif vs.avg_delta < 0 %}var(--danger){% else %}var(--muted){% endif %}">
+        {% if vs.avg_delta > 0 %}+{% endif %}{{ vs.avg_delta|int }}
+      </div>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Conversion</div>
+      <div style="font-size:22px;font-weight:800;color:{% if vs.conversion and vs.conversion > 0 %}var(--accent){% else %}var(--muted){% endif %}">
+        {% if vs.conversion is not none %}{{ vs.conversion }}%{% else %}—{% endif %}
+      </div>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Profilaufrufe</div>
+      <div style="font-size:15px;font-weight:700;color:var(--text)">{{ vs.total_profile_visits or '—' }}</div>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Gesamt Δ</div>
+      <div style="font-size:15px;font-weight:700;color:{% if vs.total_delta > 0 %}var(--success){% else %}var(--muted){% endif %}">
+        {% if vs.total_delta > 0 %}+{% endif %}{{ vs.total_delta }}
+      </div>
+    </div>
+  </div>
+
+  {% if vs.description %}
+  <div style="font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:10px;line-height:1.5">
+    {{ vs.description[:120] }}{% if vs.description|length > 120 %}…{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+</div>
+
+<!-- ── Charts ─────────────────────────────────────────── -->
+<div class="card" style="padding:20px;margin-bottom:20px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+    <div style="font-size:14px;font-weight:700;color:var(--text)">Entwicklung</div>
+    <div style="display:flex;gap:6px">
+      <button class="chart-tab active" id="ct-followers" onclick="switchChart('followers')">Follower-Wachstum</button>
+      <button class="chart-tab" id="ct-conversion" onclick="switchChart('conversion')">Conversion</button>
+    </div>
+  </div>
+  <div style="position:relative;height:260px">
+    <canvas id="chartFollowers"></canvas>
+    <canvas id="chartConversion" style="display:none"></canvas>
+  </div>
+  {% if exp.status == 'draft' %}
+  <div style="text-align:center;padding:20px;font-size:13px;color:var(--muted)">
+    Starte das Experiment und trage erste Daten ein, um die Charts zu sehen.
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── AI Analysis ─────────────────────────────────────── -->
+{% if ai_analysis %}
+<div class="card" style="padding:24px 28px;margin-bottom:20px;border-left:3px solid var(--accent)">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+    <i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent);font-size:16px"></i>
+    <div style="font-size:15px;font-weight:700;color:var(--text)">KI-Analyse</div>
+  </div>
+
+  <!-- Summary -->
+  {% if ai_analysis.summary %}
+  <div style="font-size:13px;color:var(--muted);margin-bottom:18px;padding:12px 16px;background:var(--surface2);border-radius:8px;line-height:1.6">
+    {{ ai_analysis.summary }}
+  </div>
+  {% endif %}
+
+  <!-- Winner -->
+  {% if ai_analysis.winner %}
+  <div style="margin-bottom:18px">
+    <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Sieger</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:24px">🏆</span>
+      <div>
+        <div style="font-size:16px;font-weight:800;color:var(--success)">{{ ai_analysis.winner }}</div>
+        {% if ai_analysis.winner_reason %}
+        <div style="font-size:13px;color:var(--muted);margin-top:3px;line-height:1.5">{{ ai_analysis.winner_reason }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Ratings -->
+  {% if ai_analysis.ratings %}
+  <div style="margin-bottom:18px">
+    <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Bewertungen</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      {% for variant_name, rating in ai_analysis.ratings.items() %}
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--surface2);border-radius:8px">
+        <span style="font-size:13px;font-weight:600;color:var(--text)">{{ variant_name }}</span>
+        <span class="rating-badge rating-{{ rating }}">
+          {% if rating == 'success' %}🟢 Sehr erfolgreich{% elif rating == 'neutral' %}🟡 Neutral{% else %}🔴 Schwach{% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Insights -->
+  {% if ai_analysis.insights %}
+  <div style="margin-bottom:18px">
+    <div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Erkenntnisse</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      {% for insight in ai_analysis.insights %}
+      <div class="insight-row">
+        <i class="fa-solid fa-lightbulb" style="color:#f59e0b;font-size:12px;margin-top:2px;flex-shrink:0"></i>
+        {{ insight }}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Recommendation -->
+  {% if ai_analysis.recommendation %}
+  <div style="padding:14px 16px;border:1px solid rgba(99,102,241,.3);background:rgba(99,102,241,.06);border-radius:8px">
+    <div style="font-size:11px;color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Empfehlung zum Ausrollen</div>
+    <div style="font-size:13px;color:var(--text);line-height:1.6">{{ ai_analysis.recommendation }}</div>
+  </div>
+  {% endif %}
+</div>
+{% elif exp.status == 'completed' %}
+<div class="card" style="padding:24px 28px;margin-bottom:20px;text-align:center">
+  <i class="fa-solid fa-wand-magic-sparkles" style="font-size:32px;color:var(--muted);opacity:.3;display:block;margin-bottom:12px"></i>
+  <div style="font-size:14px;font-weight:600;color:var(--muted);margin-bottom:8px">KI-Analyse noch nicht gestartet</div>
+  <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Lass die KI alle Varianten vergleichen und Erkenntnisse ableiten.</div>
+  <button onclick="runAnalysis()" class="btn btn-primary" id="analyze-btn">
+    <i class="fa-solid fa-wand-magic-sparkles"></i> Analyse jetzt starten
+  </button>
+</div>
+{% endif %}
+
+<!-- ── Participants & Data ─────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+    <div style="font-size:14px;font-weight:700;color:var(--text)">Teilnehmende Seiten</div>
+    {% if exp.status != 'draft' %}
+    <button onclick="openDataModal()" class="btn btn-ghost" style="font-size:12px">
+      <i class="fa-solid fa-plus"></i> Messwerte eintragen
+    </button>
+    {% endif %}
+  </div>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Seite</th><th>Variante</th><th>Start-Follower</th><th>Letzte Messung</th><th>Δ Follower</th><th>Conversion</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for vs in variant_stats %}
+      {% for p in exp.participants if p.variant_id == vs.id %}
+      {% set latest_dp = p.data_points|sort(attribute='recorded_at')|last if p.data_points else none %}
+      {% set curr_f = latest_dp.followers if latest_dp and latest_dp.followers else p.account.follower_count %}
+      {% set delta = (curr_f or 0) - (p.start_followers or 0) %}
+      {% set conv = (delta / latest_dp.profile_visits * 100)|round(2) if latest_dp and latest_dp.profile_visits and latest_dp.profile_visits > 0 else none %}
+      <tr>
+        <td>
+          <div style="font-size:13px;font-weight:600;color:var(--text)">{{ p.account.name }}</div>
+          {% if p.account.handle %}<div style="font-size:11px;color:var(--muted)">@{{ p.account.handle }}</div>{% endif %}
+        </td>
+        <td>
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:{{ vs.color }}">
+            <span style="width:8px;height:8px;border-radius:50%;background:{{ vs.color }};display:inline-block"></span>
+            {{ vs.name }}
+          </span>
+        </td>
+        <td style="font-size:13px;color:var(--text)">{{ p.start_followers if p.start_followers else '—' }}</td>
+        <td style="font-size:12px;color:var(--muted)">
+          {% if latest_dp %}{{ latest_dp.recorded_at.strftime('%d.%m.%Y') }}{% else %}—{% endif %}
+        </td>
+        <td>
+          <span style="font-size:13px;font-weight:700;color:{% if delta > 0 %}var(--success){% elif delta < 0 %}var(--danger){% else %}var(--muted){% endif %}">
+            {% if delta > 0 %}+{% endif %}{{ delta }}
+          </span>
+        </td>
+        <td style="font-size:13px;color:{% if conv %}var(--accent){% else %}var(--muted){% endif %}">
+          {% if conv %}{{ conv }}%{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ── Category Knowledge Base ────────────────────────── -->
+{% if knowledge %}
+<div class="card" style="padding:20px;margin-bottom:20px">
+  <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:14px">
+    Wissensbasis — {{ exp.category.name }}
+  </div>
+  <div style="display:flex;flex-direction:column;gap:6px">
+    {% for k in knowledge %}
+    <div class="insight-row">
+      <i class="fa-solid fa-database" style="color:var(--accent);font-size:11px;margin-top:2px;flex-shrink:0"></i>
+      <div style="flex:1;font-size:13px">{{ k.insight }}</div>
+      <div style="font-size:11px;color:var(--muted);flex-shrink:0">{{ k.created_at.strftime('%d.%m') }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+
+<!-- ══ Modal: Experiment starten ════════════════════════ -->
+<div id="start-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto">
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:32px;width:580px;max-width:100%;margin:auto">
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px"><i class="fa-solid fa-play" style="color:var(--success)"></i> Experiment starten</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:20px">Bitte die Start-Messwerte bestätigen. Follower werden automatisch aus dem aktuellen Stand übernommen.</div>
+    <div id="start-participants-list" style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeStartModal()" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="submitStart()" class="btn btn-primary" id="start-submit-btn">
+        <i class="fa-solid fa-play"></i> Jetzt starten
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Modal: Daten eintragen ════════════════════════════ -->
+<div id="data-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:28px;width:520px;max-width:90vw;max-height:90vh;overflow-y:auto">
+    <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:18px">
+      <i class="fa-solid fa-chart-line" style="color:var(--accent)"></i> Messwerte eintragen
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div style="grid-column:1/-1">
+        <label class="ma-label">Seite</label>
+        <select class="ma-input" id="dp-participant">
+          {% for vs in variant_stats %}
+            {% for p in exp.participants if p.variant_id == vs.id %}
+            <option value="{{ p.id }}">{{ p.account.name }} ({{ vs.name }})</option>
+            {% endfor %}
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="ma-label">Datum</label>
+        <input class="ma-input" type="date" id="dp-date" value="{{ today.strftime('%Y-%m-%d') }}">
+      </div>
+      <div>
+        <label class="ma-label">Follower</label>
+        <input class="ma-input" type="number" id="dp-followers" placeholder="12450">
+      </div>
+      <div>
+        <label class="ma-label">Profilaufrufe</label>
+        <input class="ma-input" type="number" id="dp-profile-visits" placeholder="5200">
+      </div>
+      <div>
+        <label class="ma-label">Erreichte Konten</label>
+        <input class="ma-input" type="number" id="dp-reached" placeholder="74000">
+      </div>
+      <div>
+        <label class="ma-label">Notiz (optional)</label>
+        <input class="ma-input" id="dp-notes" placeholder="z.B. Bio geändert">
+      </div>
+    </div>
+    <div id="dp-error" style="font-size:12px;color:var(--danger);min-height:16px;margin-bottom:10px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="closeDataModal()" class="btn btn-ghost">Abbrechen</button>
+      <button onclick="saveDataPoint()" class="btn btn-primary" id="dp-save-btn">
+        <i class="fa-solid fa-floppy-disk"></i> Speichern
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+const EXP_ID = {{ exp.id }};
+const EXP_STATUS = '{{ exp.status }}';
+
+// ── Charts ────────────────────────────────────────────────
+let chartFollowers = null, chartConversion = null;
+
+async function loadCharts() {
+  const res  = await fetch(`/api/growth-lab/${EXP_ID}/chart-data`);
+  const data = await res.json();
+  if (!data.labels || data.labels.length === 0) return;
+
+  const commonOpts = {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { position: 'top', labels: { usePointStyle: true, pointStyleWidth: 8 } } },
+    scales: {
+      x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { maxTicksLimit: 8 } },
+      y: { grid: { color: 'rgba(255,255,255,0.04)' } }
+    }
+  };
+
+  chartFollowers = new Chart(document.getElementById('chartFollowers'), {
+    type: 'line',
+    data: { labels: data.labels, datasets: data.follower_datasets },
+    options: { ...commonOpts, plugins: { ...commonOpts.plugins,
+      title: { display: false },
+      tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y} Follower` }}
+    }, scales: { ...commonOpts.scales, y: { ...commonOpts.scales.y, title: { display: true, text: 'Ø Follower-Zuwachs' } } }
+    }
+  });
+
+  chartConversion = new Chart(document.getElementById('chartConversion'), {
+    type: 'line',
+    data: { labels: data.labels, datasets: data.conversion_datasets },
+    options: { ...commonOpts, plugins: { ...commonOpts.plugins,
+      tooltip: { callbacks: { label: ctx => ctx.parsed.y !== null ? `${ctx.dataset.label}: ${ctx.parsed.y}%` : null }}
+    }, scales: { ...commonOpts.scales, y: { ...commonOpts.scales.y, title: { display: true, text: 'Conversion %' } } }
+    }
+  });
+}
+
+function switchChart(name) {
+  document.getElementById('chartFollowers').style.display   = name === 'followers'   ? '' : 'none';
+  document.getElementById('chartConversion').style.display  = name === 'conversion'  ? '' : 'none';
+  document.getElementById('ct-followers').classList.toggle('active', name === 'followers');
+  document.getElementById('ct-conversion').classList.toggle('active', name === 'conversion');
+}
+
+if (EXP_STATUS !== 'draft') window.addEventListener('load', loadCharts);
+
+// ── Start Modal ───────────────────────────────────────────
+const PARTICIPANTS = [
+  {% for vs in variant_stats %}
+    {% for p in exp.participants if p.variant_id == vs.id %}
+    { id: {{ p.id }}, name: {{ p.account.name | tojson }}, variant: {{ vs.name | tojson }}, color: {{ vs.color | tojson }}, current_followers: {{ p.account.follower_count or 0 }} },
+    {% endfor %}
+  {% endfor %}
+];
+
+function openStartModal() {
+  const list = document.getElementById('start-participants-list');
+  list.innerHTML = PARTICIPANTS.map(p => `
+    <div style="padding:12px 16px;background:var(--surface2);border-radius:8px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="width:8px;height:8px;border-radius:50%;background:${p.color};display:inline-block"></span>
+        <span style="font-size:13px;font-weight:700;color:var(--text)">${p.name}</span>
+        <span style="font-size:11px;color:var(--muted)">${p.variant}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div>
+          <label class="ma-label">Follower</label>
+          <input class="ma-input" type="number" id="sv-f-${p.id}" value="${p.current_followers}" placeholder="${p.current_followers}">
+        </div>
+        <div>
+          <label class="ma-label">Profilaufrufe</label>
+          <input class="ma-input" type="number" id="sv-pv-${p.id}" placeholder="optional">
+        </div>
+        <div>
+          <label class="ma-label">Erreichte Konten</label>
+          <input class="ma-input" type="number" id="sv-rc-${p.id}" placeholder="optional">
+        </div>
+      </div>
+    </div>`).join('');
+  document.getElementById('start-modal').style.display = 'flex';
+}
+function closeStartModal() { document.getElementById('start-modal').style.display = 'none'; }
+document.getElementById('start-modal').addEventListener('click', e => { if(e.target===e.currentTarget) closeStartModal(); });
+
+async function submitStart() {
+  const btn = document.getElementById('start-submit-btn');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  const start_values = {};
+  PARTICIPANTS.forEach(p => {
+    start_values[p.id] = {
+      followers:        parseInt(document.getElementById(`sv-f-${p.id}`)?.value)||null,
+      profile_visits:   parseInt(document.getElementById(`sv-pv-${p.id}`)?.value)||null,
+      reached_accounts: parseInt(document.getElementById(`sv-rc-${p.id}`)?.value)||null,
+    };
+  });
+  const res = await fetch(`/growth-lab/${EXP_ID}/start`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({start_values})
+  });
+  if ((await res.json()).ok) { showToast('Experiment gestartet!','success'); location.reload(); }
+  else { btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-play"></i> Jetzt starten'; showToast('Fehler','danger'); }
+}
+
+// ── Data Entry Modal ──────────────────────────────────────
+function openDataModal() {
+  document.getElementById('dp-error').textContent = '';
+  ['dp-followers','dp-profile-visits','dp-reached','dp-notes'].forEach(id => document.getElementById(id).value='');
+  document.getElementById('data-modal').style.display = 'flex';
+}
+function closeDataModal() { document.getElementById('data-modal').style.display = 'none'; }
+document.getElementById('data-modal').addEventListener('click', e => { if(e.target===e.currentTarget) closeDataModal(); });
+
+async function saveDataPoint() {
+  const btn = document.getElementById('dp-save-btn');
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  const payload = {
+    participant_id: parseInt(document.getElementById('dp-participant').value),
+    date:           document.getElementById('dp-date').value,
+    followers:      parseInt(document.getElementById('dp-followers').value)||null,
+    profile_visits: parseInt(document.getElementById('dp-profile-visits').value)||null,
+    reached_accounts: parseInt(document.getElementById('dp-reached').value)||null,
+    notes:          document.getElementById('dp-notes').value.trim()||null,
+  };
+  const res = await fetch(`/api/growth-lab/${EXP_ID}/data-point`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)
+  });
+  const d = await res.json();
+  if (d.ok) { showToast('Messwerte gespeichert!','success'); closeDataModal(); location.reload(); }
+  else { document.getElementById('dp-error').textContent = d.error||'Fehler'; btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-floppy-disk"></i> Speichern'; }
+}
+
+// ── Complete ──────────────────────────────────────────────
+async function completeExperiment() {
+  const ok = await customConfirm('Experiment abschließen', 'Das Experiment wird als abgeschlossen markiert. Danach kann die KI-Analyse gestartet werden.', 'Abschließen', 'btn-primary');
+  if (!ok) return;
+  const res = await fetch(`/growth-lab/${EXP_ID}/complete`, {method:'POST'});
+  if ((await res.json()).ok) { showToast('Abgeschlossen!','success'); location.reload(); }
+}
+
+// ── AI Analysis ───────────────────────────────────────────
+async function runAnalysis() {
+  const btn = document.getElementById('analyze-btn');
+  if (!btn) return;
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analysiere…';
+  const res = await fetch(`/api/growth-lab/${EXP_ID}/analyze`, {method:'POST'});
+  const d   = await res.json();
+  if (d.ok) { showToast('Analyse abgeschlossen!','success'); location.reload(); }
+  else { showToast('Fehler: ' + (d.error||'unbekannt'), 'danger'); btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-wand-magic-sparkles"></i> KI-Analyse starten'; }
+}
+
+// ── Delete ────────────────────────────────────────────────
+async function deleteExperiment() {
+  const ok = await customConfirm('Experiment löschen', 'Alle Daten (Varianten, Messwerte) werden unwiderruflich gelöscht.', 'Löschen', 'btn-danger');
+  if (!ok) return;
+  const res = await fetch(`/growth-lab/${EXP_ID}/delete`, {method:'POST'});
+  if ((await res.json()).ok) { showToast('Gelöscht.','success'); setTimeout(() => location.href='/growth-lab', 600); }
+}
+</script>
+{% endblock %}

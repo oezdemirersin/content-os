@@ -447,6 +447,11 @@
       <i class="fa-solid fa-receipt"></i> Ausgaben
     </a>
 
+    <div class="nav-section">Wachstum</div>
+    <a href="{{ url_for('growth_lab') }}" class="nav-item {% if active_page == 'growth_lab' %}active{% endif %}">
+      <i class="fa-solid fa-flask"></i> Growth Lab
+    </a>
+
     <div class="nav-section">Zukunft</div>
     <a href="{{ url_for('seiten_watchlist') }}" class="nav-item {% if active_page == 'watchlist' %}active{% endif %}">
       <i class="fa-solid fa-binoculars"></i> Seiten Watchlist

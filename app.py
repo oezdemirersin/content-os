@@ -24,7 +24,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
                     Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf,
-                    WatchlistSeite, WatchlistFollowerSnapshot, WatchlistCityMeta)
+                    WatchlistSeite, WatchlistFollowerSnapshot, WatchlistCityMeta,
+                    GrowthExperiment, GrowthVariant, GrowthParticipant, GrowthDataPoint, GrowthKnowledge)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -14536,6 +14537,415 @@ def server_error(e):
     return render_template('error.html', code=500,
         title='Serverfehler',
         message='Ein interner Fehler ist aufgetreten.'), 500
+
+
+# ══════════════════════════════════════════════════════════
+#  GROWTH LAB
+# ══════════════════════════════════════════════════════════
+
+@app.route('/growth-lab')
+@login_required
+def growth_lab():
+    from zoneinfo import ZoneInfo
+    berlin = ZoneInfo('Europe/Berlin')
+    today  = datetime.now(berlin).date()
+    experiments = (GrowthExperiment.query
+                   .options(joinedload(GrowthExperiment.category),
+                            joinedload(GrowthExperiment.variants),
+                            joinedload(GrowthExperiment.participants))
+                   .order_by(GrowthExperiment.created_at.desc()).all())
+    categories = (Category.query
+                  .filter(Category.accounts.any(Account.status == 'active'))
+                  .order_by(Category.name).all())
+    knowledge  = (GrowthKnowledge.query
+                  .options(joinedload(GrowthKnowledge.category))
+                  .order_by(GrowthKnowledge.created_at.desc()).all())
+    # Compute progress for running experiments
+    exp_meta = {}
+    for e in experiments:
+        if e.status == 'running' and e.start_date:
+            end_date = e.start_date + timedelta(days=e.duration_days)
+            elapsed  = (today - e.start_date).days
+            progress = min(100, round(elapsed / e.duration_days * 100))
+            remaining = (end_date - today).days
+        elif e.status == 'completed':
+            progress, remaining = 100, 0
+        else:
+            progress, remaining = 0, e.duration_days
+        exp_meta[e.id] = {'progress': progress, 'remaining': remaining}
+    import json as _json
+    cats_json = _json.dumps([{'id': c.id, 'name': c.name, 'color': c.color} for c in categories])
+    # Build accounts per category for the create modal
+    cat_accounts = {}
+    for c in categories:
+        cat_accounts[c.id] = [{'id': a.id, 'name': a.name, 'followers': a.follower_count or 0}
+                               for a in Account.query.filter_by(category_id=c.id, status='active')
+                                               .order_by(Account.name).all()]
+    cat_accounts_json = _json.dumps(cat_accounts)
+    return render_template('growth_lab.html',
+                           experiments=experiments, categories=categories,
+                           knowledge=knowledge, exp_meta=exp_meta,
+                           cats_json=cats_json, cat_accounts_json=cat_accounts_json,
+                           active_page='growth_lab', today=today)
+
+
+@app.route('/growth-lab/<int:exp_id>')
+@login_required
+def growth_experiment_detail(exp_id):
+    from zoneinfo import ZoneInfo
+    berlin = ZoneInfo('Europe/Berlin')
+    today  = datetime.now(berlin).date()
+    exp = (GrowthExperiment.query
+           .options(joinedload(GrowthExperiment.category),
+                    joinedload(GrowthExperiment.variants),
+                    joinedload(GrowthExperiment.participants).joinedload(GrowthParticipant.account))
+           .filter_by(id=exp_id).first_or_404())
+    # Progress
+    if exp.status == 'running' and exp.start_date:
+        end_date  = exp.start_date + timedelta(days=exp.duration_days)
+        elapsed   = (today - exp.start_date).days
+        progress  = min(100, round(elapsed / exp.duration_days * 100))
+        remaining = (end_date - today).days
+    elif exp.status == 'completed':
+        progress, remaining = 100, 0
+    else:
+        progress, remaining = 0, exp.duration_days
+    # Per-variant live stats
+    variant_stats = _compute_variant_stats(exp, today)
+    # Knowledge for this category
+    knowledge = (GrowthKnowledge.query
+                 .filter_by(category_id=exp.category_id)
+                 .order_by(GrowthKnowledge.created_at.desc()).all())
+    import json as _json
+    ai_analysis = None
+    if exp.ai_analysis_json:
+        try:
+            ai_analysis = _json.loads(exp.ai_analysis_json)
+        except Exception:
+            pass
+    return render_template('growth_experiment.html',
+                           exp=exp, progress=progress, remaining=remaining,
+                           variant_stats=variant_stats, knowledge=knowledge,
+                           ai_analysis=ai_analysis, today=today,
+                           active_page='growth_lab')
+
+
+def _compute_variant_stats(exp, today):
+    """Returns list of dicts with aggregated stats per variant, sorted by avg follower delta."""
+    results = []
+    for v in exp.variants:
+        parts = [p for p in exp.participants if p.variant_id == v.id]
+        total_delta = 0
+        total_pv    = 0
+        total_reach = 0
+        for p in parts:
+            # Latest data point or fallback to Account.follower_count
+            latest = (GrowthDataPoint.query
+                      .filter_by(participant_id=p.id)
+                      .order_by(GrowthDataPoint.recorded_at.desc()).first())
+            if latest:
+                curr_f = latest.followers or p.start_followers or 0
+                total_pv    += latest.profile_visits    or 0
+                total_reach += latest.reached_accounts  or 0
+            else:
+                acc = Account.query.get(p.account_id)
+                curr_f = (acc.follower_count if acc else 0) or p.start_followers or 0
+            total_delta += curr_f - (p.start_followers or 0)
+        n = max(len(parts), 1)
+        avg_delta  = round(total_delta / n, 1)
+        conversion = round(total_delta / total_pv * 100, 2) if total_pv > 0 else None
+        results.append({
+            'id': v.id, 'name': v.name, 'description': v.description or '',
+            'color': v.color, 'is_control': v.is_control,
+            'account_count': len(parts),
+            'total_delta': total_delta, 'avg_delta': avg_delta,
+            'total_profile_visits': total_pv, 'total_reached': total_reach,
+            'conversion': conversion,
+        })
+    results.sort(key=lambda x: x['avg_delta'], reverse=True)
+    return results
+
+
+@app.route('/growth-lab/new', methods=['POST'])
+@login_required
+def growth_lab_new():
+    d = request.get_json()
+    if not d or not d.get('name') or not d.get('category_id'):
+        return jsonify({'ok': False, 'error': 'Name und Kategorie erforderlich'}), 400
+    cat = Category.query.get(d['category_id'])
+    if not cat:
+        return jsonify({'ok': False, 'error': 'Kategorie nicht gefunden'}), 400
+    exp = GrowthExperiment(
+        name=d['name'].strip(),
+        category_id=cat.id,
+        goal=d.get('goal', '').strip() or None,
+        description=d.get('description', '').strip() or None,
+        duration_days=int(d.get('duration_days', 30)),
+    )
+    db.session.add(exp)
+    db.session.flush()  # get exp.id
+    # Create variants
+    for vd in (d.get('variants') or []):
+        v = GrowthVariant(
+            experiment_id=exp.id,
+            name=vd.get('name', 'Variante').strip(),
+            description=vd.get('description', '').strip() or None,
+            is_control=bool(vd.get('is_control', False)),
+            color=vd.get('color', '#6366f1'),
+        )
+        db.session.add(v)
+        db.session.flush()
+        # Assign accounts — validate same category
+        for acc_id in (vd.get('account_ids') or []):
+            acc = Account.query.get(acc_id)
+            if acc and acc.category_id == cat.id:
+                p = GrowthParticipant(experiment_id=exp.id, account_id=acc.id, variant_id=v.id)
+                db.session.add(p)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': exp.id})
+
+
+@app.route('/growth-lab/<int:exp_id>/start', methods=['POST'])
+@login_required
+def growth_lab_start(exp_id):
+    from zoneinfo import ZoneInfo
+    exp = GrowthExperiment.query.get_or_404(exp_id)
+    if exp.status != 'draft':
+        return jsonify({'ok': False, 'error': 'Experiment läuft bereits oder ist abgeschlossen'}), 400
+    d = request.get_json() or {}
+    berlin = ZoneInfo('Europe/Berlin')
+    exp.start_date = datetime.now(berlin).date()
+    exp.status     = 'running'
+    # Save start values per participant
+    start_values = d.get('start_values', {})  # {str(participant_id): {followers, profile_visits, reached_accounts}}
+    for p in exp.participants:
+        sv = start_values.get(str(p.id), {})
+        # Prefer manually entered start, fallback to Account.follower_count
+        if sv.get('followers') is not None:
+            p.start_followers = int(sv['followers'])
+        else:
+            acc = Account.query.get(p.account_id)
+            p.start_followers = acc.follower_count or 0 if acc else 0
+        if sv.get('profile_visits') is not None:
+            p.start_profile_visits = int(sv['profile_visits'])
+        if sv.get('reached_accounts') is not None:
+            p.start_reached_accounts = int(sv['reached_accounts'])
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/growth-lab/<int:exp_id>/complete', methods=['POST'])
+@login_required
+def growth_lab_complete(exp_id):
+    exp = GrowthExperiment.query.get_or_404(exp_id)
+    exp.status = 'completed'
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/growth-lab/<int:exp_id>/delete', methods=['POST'])
+@login_required
+def growth_lab_delete(exp_id):
+    exp = GrowthExperiment.query.get_or_404(exp_id)
+    db.session.delete(exp)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/growth-lab/<int:exp_id>/data-point', methods=['POST'])
+@login_required
+def api_growth_data_point(exp_id):
+    GrowthExperiment.query.get_or_404(exp_id)
+    d = request.get_json()
+    participant_id = d.get('participant_id')
+    if not participant_id:
+        return jsonify({'ok': False, 'error': 'participant_id fehlt'}), 400
+    p = GrowthParticipant.query.filter_by(id=participant_id, experiment_id=exp_id).first_or_404()
+    from datetime import date as _date
+    recorded_at = _date.fromisoformat(d['date']) if d.get('date') else datetime.utcnow().date()
+    # Upsert: one data point per participant per day
+    dp = GrowthDataPoint.query.filter_by(participant_id=p.id, recorded_at=recorded_at).first()
+    if not dp:
+        dp = GrowthDataPoint(participant_id=p.id, recorded_at=recorded_at)
+        db.session.add(dp)
+    if d.get('followers')        is not None: dp.followers        = int(d['followers'])
+    if d.get('profile_visits')   is not None: dp.profile_visits   = int(d['profile_visits'])
+    if d.get('reached_accounts') is not None: dp.reached_accounts = int(d['reached_accounts'])
+    if d.get('notes')            is not None: dp.notes            = d['notes'].strip() or None
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/growth-lab/<int:exp_id>/chart-data')
+@login_required
+def api_growth_chart(exp_id):
+    exp = GrowthExperiment.query.get_or_404(exp_id)
+    variants = GrowthVariant.query.filter_by(experiment_id=exp_id).order_by(GrowthVariant.id).all()
+    participants = GrowthParticipant.query.filter_by(experiment_id=exp_id).all()
+
+    # Build per-variant date → {deltas, profile_visits}
+    variant_data = {v.id: {} for v in variants}
+    for p in participants:
+        dps = GrowthDataPoint.query.filter_by(participant_id=p.id).order_by(GrowthDataPoint.recorded_at).all()
+        for dp in dps:
+            ds = str(dp.recorded_at)
+            if ds not in variant_data[p.variant_id]:
+                variant_data[p.variant_id][ds] = {'deltas': [], 'pv': []}
+            delta = (dp.followers or 0) - (p.start_followers or 0)
+            variant_data[p.variant_id][ds]['deltas'].append(delta)
+            if dp.profile_visits:
+                variant_data[p.variant_id][ds]['pv'].append(dp.profile_visits)
+
+    # Always include start date at zero
+    if exp.start_date:
+        sd = str(exp.start_date)
+        for vid in variant_data:
+            if sd not in variant_data[vid]:
+                variant_data[vid][sd] = {'deltas': [0], 'pv': []}
+
+    all_dates = sorted({d for v in variant_data.values() for d in v.keys()})
+
+    follower_datasets    = []
+    conversion_datasets  = []
+    for v in variants:
+        vd = variant_data[v.id]
+        f_pts = []
+        c_pts = []
+        for ds in all_dates:
+            if ds in vd and vd[ds]['deltas']:
+                avg_d = sum(vd[ds]['deltas']) / len(vd[ds]['deltas'])
+                f_pts.append(round(avg_d, 1))
+                total_pv = sum(vd[ds]['pv'])
+                total_d  = sum(vd[ds]['deltas'])
+                c_pts.append(round(total_d / total_pv * 100, 2) if total_pv > 0 else None)
+            else:
+                f_pts.append(None)
+                c_pts.append(None)
+        follower_datasets.append({'label': v.name, 'data': f_pts,
+                                  'borderColor': v.color, 'backgroundColor': v.color + '33',
+                                  'tension': 0.3, 'fill': False})
+        conversion_datasets.append({'label': v.name, 'data': c_pts,
+                                    'borderColor': v.color, 'backgroundColor': v.color + '33',
+                                    'tension': 0.3, 'fill': False})
+    return jsonify({'labels': all_dates,
+                    'follower_datasets': follower_datasets,
+                    'conversion_datasets': conversion_datasets})
+
+
+@app.route('/api/growth-lab/<int:exp_id>/analyze', methods=['POST'])
+@login_required
+def api_growth_analyze(exp_id):
+    exp = GrowthExperiment.query.get_or_404(exp_id)
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key hinterlegt'}), 400
+    import json as _json
+    from zoneinfo import ZoneInfo
+    berlin = ZoneInfo('Europe/Berlin')
+    today  = datetime.now(berlin).date()
+    variant_stats = _compute_variant_stats(exp, today)
+    prompt = f"""Du analysierst ein Instagram-Wachstumsexperiment.
+
+Kategorie: {exp.category.name}
+Experiment: {exp.name}
+Ziel: {exp.goal or '—'}
+Dauer: {exp.duration_days} Tage
+Beschreibung: {exp.description or '—'}
+
+Varianten-Ergebnisse (sortiert nach Ø Follower-Wachstum pro Account):
+{_json.dumps(variant_stats, ensure_ascii=False, indent=2)}
+
+Erstelle eine datenbasierte Analyse auf Deutsch. Antworte NUR mit validem JSON:
+{{
+  "winner": "Varianten-Name oder null wenn keine Daten",
+  "winner_reason": "Warum hat diese Variante besser funktioniert? Konkret, 2-3 Sätze.",
+  "insights": ["Erkenntnis 1", "Erkenntnis 2", "Erkenntnis 3"],
+  "recommendation": "Welche Strategie sollte auf weitere {exp.category.name}-Seiten ausgerollt werden? 1-2 Sätze.",
+  "ratings": {{"Varianten-Name": "success|neutral|weak"}},
+  "summary": "Kurze Gesamtzusammenfassung in 2 Sätzen."
+}}
+Ratings: success=deutlich besser, neutral=ähnlich, weak=schlechter als Durchschnitt. Ohne Kontrollgruppe: relativ zueinander."""
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=900,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        result = _json.loads(msg.content[0].text)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    exp.ai_analysis_json = _json.dumps(result, ensure_ascii=False)
+    exp.status = 'completed'
+    winner_name = result.get('winner')
+    if winner_name:
+        wv = next((v for v in exp.variants if v.name == winner_name), None)
+        if wv:
+            exp.winner_variant_id = wv.id
+    for insight in result.get('insights', []):
+        if insight.strip():
+            db.session.add(GrowthKnowledge(category_id=exp.category_id,
+                                           insight=insight.strip(), experiment_id=exp_id))
+    db.session.commit()
+    return jsonify({'ok': True, 'analysis': result})
+
+
+@app.route('/api/growth-lab/ideas/<int:cat_id>', methods=['POST'])
+@login_required
+def api_growth_ideas(cat_id):
+    cat = Category.query.get_or_404(cat_id)
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key'}), 400
+    import json as _json
+    knowledge = GrowthKnowledge.query.filter_by(category_id=cat_id).order_by(GrowthKnowledge.created_at.desc()).limit(10).all()
+    past_exps = GrowthExperiment.query.filter_by(category_id=cat_id).order_by(GrowthExperiment.created_at.desc()).limit(5).all()
+    knowledge_txt = '\n'.join(f'- {k.insight}' for k in knowledge) or '(noch keine Erkenntnisse)'
+    past_txt      = '\n'.join(f'- {e.name} ({e.status})' for e in past_exps) or '(noch keine Experimente)'
+    prompt = f"""Du bist ein Instagram-Wachstumsexperte. Generiere 5 konkrete Experiment-Ideen für Instagram-Seiten der Kategorie "{cat.name}".
+
+Bisherige Erkenntnisse:
+{knowledge_txt}
+
+Bisherige Experimente:
+{past_txt}
+
+Antworte NUR mit validem JSON:
+{{"ideas": [{{"name": "Experiment-Name", "goal": "Was wird getestet?", "variants": ["Variante A: ...", "Variante B: ...", "Kontrollgruppe: aktueller Stand"], "rationale": "Warum sinnvoll? (1 Satz)"}}]}}
+Testbare Variablen: Bio-Text, CTA in Bio, Posting-Frequenz, Caption-Stil, Hashtag-Strategie, Profilbild-Stil."""
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=1200,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        result = _json.loads(msg.content[0].text)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    return jsonify({'ok': True, 'ideas': result.get('ideas', []), 'category': cat.name})
+
+
+@app.route('/api/growth-lab/knowledge', methods=['POST'])
+@login_required
+def api_growth_knowledge_add():
+    d = request.get_json()
+    if not d or not d.get('category_id') or not d.get('insight'):
+        return jsonify({'ok': False, 'error': 'category_id und insight erforderlich'}), 400
+    k = GrowthKnowledge(category_id=int(d['category_id']),
+                        insight=d['insight'].strip())
+    db.session.add(k)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': k.id})
+
+
+@app.route('/api/growth-lab/knowledge/<int:k_id>/delete', methods=['POST'])
+@login_required
+def api_growth_knowledge_delete(k_id):
+    k = GrowthKnowledge.query.get_or_404(k_id)
+    db.session.delete(k)
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 if __name__ == '__main__':
