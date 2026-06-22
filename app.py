@@ -228,7 +228,10 @@ def login_required(f):
 
 
 # ── Global auth guard — schützt ALLE Routen außer Login/Logout/Static ──
-PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'cron_sync_followers', 'cron_morning_report'}
+# telegram_bot_webhook: Telegram ruft diesen Endpoint ohne Session auf → muss öffentlich sein,
+# sonst werden alle eingehenden Bot-Kommandos (/heute, /vorrat …) mit 401 abgewiesen.
+PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'cron_sync_followers',
+                    'cron_morning_report', 'telegram_bot_webhook'}
 
 @app.before_request
 def global_auth_guard():
@@ -3208,7 +3211,10 @@ def dashboard_ai_usage():
 @login_required
 def heute():
     """Tages-Briefing: alles was heute Aufmerksamkeit braucht, auf einen Blick."""
-    now = datetime.utcnow()
+    # scheduled_at/deadline werden als Berlin-Ortszeit (naiv) gespeichert → "heute"
+    # muss ebenfalls in Berliner Zeit berechnet werden, sonst zeigt die Seite
+    # zwischen 00:00–02:00 Uhr den falschen Tag.
+    now = datetime.now(ZoneInfo('Europe/Berlin')).replace(tzinfo=None)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # ── 1. Telegram Queue ─────────────────────────────────────────────────
