@@ -2884,6 +2884,38 @@ def _maybe_fire_weather(account, trigger, temp, city):
     return True
 
 
+def _ensure_telegram_webhook():
+    """Registriert den Telegram-Webhook beim App-Start automatisch — mit
+    secret_token, damit die Härtung ohne manuellen Klick aktiv wird.
+
+    Läuft nur, wenn ein Bot-Token gesetzt ist UND noch kein Secret existiert
+    (danach kein erneutes Registrieren → kein Churn). Im Background-Thread gibt
+    es keinen request.host, daher wird die Basis-URL aus app_base_url bzw.
+    RENDER_EXTERNAL_URL abgeleitet. Muss innerhalb eines app_context laufen.
+    MUSS vor dem Thread-Start definiert sein (sonst NameError beim ersten Tick)."""
+    token = get_setting('telegram_bot_token')
+    if not token or get_setting('telegram_webhook_secret'):
+        return
+    base_url = get_setting('app_base_url') or os.environ.get('RENDER_EXTERNAL_URL')
+    if not base_url:
+        return
+    base_url = base_url.rstrip('/')
+    import secrets as _secrets
+    secret = _secrets.token_urlsafe(32)
+    import requests as _r
+    res = _r.post(
+        f'https://api.telegram.org/bot{token}/setWebhook',
+        json={'url': f'{base_url}/api/telegram/bot-webhook', 'secret_token': secret},
+        timeout=10,
+    ).json()
+    if res.get('ok'):
+        set_setting('telegram_webhook_secret', secret)
+        db.session.commit()
+        app.logger.info('Telegram-Webhook automatisch registriert (gehärtet).')
+    else:
+        app.logger.error('Telegram setWebhook (Auto) fehlgeschlagen: %s', res.get('description'))
+
+
 def schedule_automations():
     """Background thread that runs automation rules and housekeeping."""
     tick = 0
@@ -14138,37 +14170,6 @@ def telegram_register_webhook():
         return jsonify({'ok': False, 'error': res.get('description', 'Unbekannter Fehler')})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
-
-
-def _ensure_telegram_webhook():
-    """Registriert den Telegram-Webhook beim App-Start automatisch — mit
-    secret_token, damit die Härtung ohne manuellen Klick aktiv wird.
-
-    Läuft nur, wenn ein Bot-Token gesetzt ist UND noch kein Secret existiert
-    (danach kein erneutes Registrieren → kein Churn). Im Background-Thread gibt
-    es keinen request.host, daher wird die Basis-URL aus app_base_url bzw.
-    RENDER_EXTERNAL_URL abgeleitet. Muss innerhalb eines app_context laufen."""
-    token = get_setting('telegram_bot_token')
-    if not token or get_setting('telegram_webhook_secret'):
-        return
-    base_url = get_setting('app_base_url') or os.environ.get('RENDER_EXTERNAL_URL')
-    if not base_url:
-        return
-    base_url = base_url.rstrip('/')
-    import secrets as _secrets
-    secret = _secrets.token_urlsafe(32)
-    import requests as _r
-    res = _r.post(
-        f'https://api.telegram.org/bot{token}/setWebhook',
-        json={'url': f'{base_url}/api/telegram/bot-webhook', 'secret_token': secret},
-        timeout=10,
-    ).json()
-    if res.get('ok'):
-        set_setting('telegram_webhook_secret', secret)
-        db.session.commit()
-        app.logger.info('Telegram-Webhook automatisch registriert (gehärtet).')
-    else:
-        app.logger.error('Telegram setWebhook (Auto) fehlgeschlagen: %s', res.get('description'))
 
 
 # ═══════════════════════════════════════════════════════════════
