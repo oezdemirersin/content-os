@@ -4052,18 +4052,6 @@ def post_mark_published(post_id):
     return jsonify({'ok': True})
 
 
-@app.route('/telegram-queue')
-@login_required
-def telegram_queue():
-    """Zeigt Posts die per Telegram verschickt wurden, aber noch nicht als gepostet markiert sind."""
-    posts = (ScheduledPost.query
-             .filter(ScheduledPost.telegram_sent_at.isnot(None))
-             .filter(ScheduledPost.status != 'published')
-             .order_by(ScheduledPost.telegram_sent_at.desc())
-             .limit(200).all())
-    return render_template('telegram_queue.html', posts=posts, active_page='accounts')
-
-
 @app.route('/api/accounts/quick-bulk-create', methods=['POST'])
 @login_required
 def accounts_quick_bulk_create():
