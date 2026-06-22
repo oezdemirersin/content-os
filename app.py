@@ -3635,7 +3635,7 @@ Nur das JSON-Array, keine Erklärungen drumherum."""
         import anthropic as _anthropic
         client = _anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
-            model='claude-opus-4-5',
+            model='claude-opus-4-8',
             max_tokens=4000,
             system=system,
             messages=[{'role': 'user', 'content': user_prompt}]
@@ -7404,6 +7404,7 @@ CAPTION_3: [Text]"""
                 ]
             }]
         )
+        _log_ai('captions_batch', msg)
         raw = msg.content[0].text
         captions = []
         for line in raw.split('\n'):
@@ -9121,6 +9122,7 @@ WOCHE_4: ..."""
             max_tokens=2000,
             messages=[{'role': 'user', 'content': prompt}]
         )
+        _log_ai('memes_seasonal', msg)
         raw = msg.content[0].text
 
         # Parse weeks
@@ -9229,7 +9231,7 @@ Nur die Städte in der Liste, kein extra Text, nur das JSON-Objekt."""
         import anthropic as _anthropic
         client = _anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
-            model='claude-opus-4-5',
+            model='claude-opus-4-8',
             max_tokens=4096,
             system=_MEME_SYSTEM_PROMPT,
             messages=[{'role': 'user', 'content': user_prompt}]
@@ -9455,7 +9457,7 @@ Antworte NUR mit dem JSON-Objekt (kein Markdown, kein anderer Text)."""
         import anthropic as _anthropic
         client = _anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
-            model='claude-opus-4-5',
+            model='claude-opus-4-8',
             max_tokens=6000,
             system=_MEME_IMAGE_ANALYSIS_PROMPT,
 
@@ -10302,7 +10304,7 @@ def inspiration_rewrite(post_id):
         import anthropic as _anthropic
         client = _anthropic.Anthropic(api_key=anthropic_key)
         msg = client.messages.create(
-            model      = 'claude-opus-4-5',
+            model      = 'claude-opus-4-8',
             max_tokens = 600,
             messages   = [{
                 'role': 'user',
@@ -11213,7 +11215,7 @@ FUSSBALL: [Ja / Nein]"""
     try:
         client = _ant.Anthropic(api_key=api_key)
         resp   = client.messages.create(
-            model='claude-opus-4-5',
+            model=(get_setting('caption_model') or 'claude-haiku-4-5'),
             max_tokens=500,
             system='Du bist ein Social-Media-Manager für deutschsprachige Instagram-Seiten.',
             messages=[{'role': 'user', 'content': [
@@ -12243,12 +12245,12 @@ def save_idea_to_vorrat(account_id):
 # ═══════════════════════════════════════════════════════════════
 
 _AI_PRICING = {
-    # USD pro Million Tokens → in EUR (×0.92)
-    'claude-haiku-4-5':           {'in': 0.80,  'out': 4.00},
-    'claude-haiku-4-5-20251001':  {'in': 0.80,  'out': 4.00},
+    # USD pro Million Tokens → in EUR (×0.92) — Preise Stand 2026-06
+    'claude-haiku-4-5':           {'in': 1.00,  'out': 5.00},
+    'claude-haiku-4-5-20251001':  {'in': 1.00,  'out': 5.00},
     'claude-sonnet-4-6':          {'in': 3.00,  'out': 15.00},
-    'claude-opus-4-5':            {'in': 15.00, 'out': 75.00},
-    'claude-opus-4-8':            {'in': 15.00, 'out': 75.00},
+    'claude-opus-4-5':            {'in': 5.00,  'out': 25.00},
+    'claude-opus-4-8':            {'in': 5.00,  'out': 25.00},
 }
 
 def _log_ai(feature, resp):
@@ -13029,15 +13031,19 @@ def ausgabe_update(aid):
     from datetime import date as _date
     a = Ausgabe.query.get_or_404(aid)
     d = request.json or {}
-    if 'titel'     in d: a.titel     = d['titel'].strip()
-    if 'betrag'    in d: a.betrag    = float(d['betrag'])
-    if 'kategorie' in d: a.kategorie = d['kategorie']
-    if 'datum'     in d: a.datum     = _date.fromisoformat(d['datum'])
-    if 'finanzamt' in d: a.finanzamt = bool(d['finanzamt'])
-    if 'notizen'   in d: a.notizen   = d['notizen'].strip() or None
-    if 'beleg_url' in d: a.beleg_url = d['beleg_url'].strip() or None
-    db.session.commit()
-    return jsonify({'ok': True})
+    try:
+        if 'titel'     in d: a.titel     = d['titel'].strip()
+        if 'betrag'    in d: a.betrag    = float(d['betrag'])
+        if 'kategorie' in d: a.kategorie = d['kategorie']
+        if 'datum'     in d: a.datum     = _date.fromisoformat(d['datum'])
+        if 'finanzamt' in d: a.finanzamt = bool(d['finanzamt'])
+        if 'notizen'   in d: a.notizen   = d['notizen'].strip() or None
+        if 'beleg_url' in d: a.beleg_url = d['beleg_url'].strip() or None
+        db.session.commit()
+        return jsonify({'ok': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 400
 
 
 @app.route('/api/ausgaben/<int:aid>', methods=['DELETE'])
@@ -13250,34 +13256,40 @@ def koop_list():
 @login_required
 def koop_create():
     d = request.get_json() or {}
-    k = Kooperation(
-        account_id=d.get('account_id') or None,
-        partner_name=d['partner_name'].strip(),
-        koop_type=d.get('koop_type', 'paid_post'),
-        status=d.get('status', 'anfrage'),
-        deadline=datetime.strptime(d['deadline'], '%Y-%m-%d').date() if d.get('deadline') else None,
-        start_date=datetime.strptime(d['start_date'], '%Y-%m-%d').date() if d.get('start_date') else None,
-        amount=float(d['amount']) if d.get('amount') else None,
-        currency=d.get('currency', 'EUR'),
-        notes=d.get('notes', '').strip(),
-        contact_name=d.get('contact_name', '').strip() or None,
-        contact_company=d.get('contact_company', '').strip() or None,
-        contact_street=d.get('contact_street', '').strip() or None,
-        contact_city=d.get('contact_city', '').strip() or None,
-        payment_status=d.get('payment_status', 'offen'),
-        deliverables=json.dumps(d.get('deliverables', []), ensure_ascii=False) if d.get('deliverables') else None,
-        partner_rating=int(d['partner_rating']) if d.get('partner_rating') else None,
-        payment_due_date=datetime.strptime(d['payment_due_date'], '%Y-%m-%d').date() if d.get('payment_due_date') else None,
-        invoice_number=d.get('invoice_number', '').strip() or None,
-        invoice_sent_at=datetime.strptime(d['invoice_sent_at'], '%Y-%m-%d').date() if d.get('invoice_sent_at') else None,
-        payment_received_at=datetime.strptime(d['payment_received_at'], '%Y-%m-%d').date() if d.get('payment_received_at') else None,
-        payment_notes=d.get('payment_notes', '').strip() or None,
-        posting_dates=json.dumps([x for x in d.get('posting_dates', []) if x], ensure_ascii=False) if d.get('posting_dates') else None,
-        campaign_name=d.get('campaign_name', '').strip() or None,
-    )
-    db.session.add(k)
-    db.session.commit()
-    return jsonify({'ok': True, 'id': k.id})
+    if not (d.get('partner_name') or '').strip():
+        return jsonify({'ok': False, 'error': 'Partnername fehlt'}), 400
+    try:
+        k = Kooperation(
+            account_id=d.get('account_id') or None,
+            partner_name=d['partner_name'].strip(),
+            koop_type=d.get('koop_type', 'paid_post'),
+            status=d.get('status', 'anfrage'),
+            deadline=datetime.strptime(d['deadline'], '%Y-%m-%d').date() if d.get('deadline') else None,
+            start_date=datetime.strptime(d['start_date'], '%Y-%m-%d').date() if d.get('start_date') else None,
+            amount=float(d['amount']) if d.get('amount') else None,
+            currency=d.get('currency', 'EUR'),
+            notes=d.get('notes', '').strip(),
+            contact_name=d.get('contact_name', '').strip() or None,
+            contact_company=d.get('contact_company', '').strip() or None,
+            contact_street=d.get('contact_street', '').strip() or None,
+            contact_city=d.get('contact_city', '').strip() or None,
+            payment_status=d.get('payment_status', 'offen'),
+            deliverables=json.dumps(d.get('deliverables', []), ensure_ascii=False) if d.get('deliverables') else None,
+            partner_rating=int(d['partner_rating']) if d.get('partner_rating') else None,
+            payment_due_date=datetime.strptime(d['payment_due_date'], '%Y-%m-%d').date() if d.get('payment_due_date') else None,
+            invoice_number=d.get('invoice_number', '').strip() or None,
+            invoice_sent_at=datetime.strptime(d['invoice_sent_at'], '%Y-%m-%d').date() if d.get('invoice_sent_at') else None,
+            payment_received_at=datetime.strptime(d['payment_received_at'], '%Y-%m-%d').date() if d.get('payment_received_at') else None,
+            payment_notes=d.get('payment_notes', '').strip() or None,
+            posting_dates=json.dumps([x for x in d.get('posting_dates', []) if x], ensure_ascii=False) if d.get('posting_dates') else None,
+            campaign_name=d.get('campaign_name', '').strip() or None,
+        )
+        db.session.add(k)
+        db.session.commit()
+        return jsonify({'ok': True, 'id': k.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 400
 
 
 @app.route('/api/kooperationen/<int:kid>', methods=['PUT', 'DELETE'])
@@ -13292,10 +13304,12 @@ def koop_update(kid):
     k.partner_name    = d.get('partner_name', k.partner_name).strip()
     k.koop_type       = d.get('koop_type', k.koop_type)
     k.status          = d.get('status', k.status)
-    k.amount          = float(d['amount']) if d.get('amount') else k.amount
+    if 'amount' in d:
+        k.amount = float(d['amount']) if d['amount'] not in (None, '') else None
     k.currency        = d.get('currency', k.currency)
     k.notes           = d.get('notes', k.notes or '').strip()
-    k.account_id      = d.get('account_id') or k.account_id
+    if 'account_id' in d:
+        k.account_id = d['account_id'] or None
     k.contact_name    = d.get('contact_name', k.contact_name or '').strip() or None
     contact_company = d.get('contact_company')
     if contact_company is not None: k.contact_company = contact_company.strip() or None
@@ -13519,6 +13533,7 @@ Nutze HTML-Formatierung (h2, h3, p, ol, strong) damit es druckfertig aussieht.""
             max_tokens=3000,
             messages=[{'role': 'user', 'content': prompt}]
         )
+        _log_ai('koop_vertrag', msg)
         text = msg.content[0].text
         return jsonify({'ok': True, 'html': text})
     except Exception as e:
@@ -14453,6 +14468,7 @@ Antworte NUR mit einem JSON-Array: [{{"frage": "...", "erklaerung": "Warum ich d
             max_tokens=1200,
             messages=[{'role': 'user', 'content': prompt}]
         )
+        _log_ai('studio_questions', msg)
         raw = msg.content[0].text.strip()
         # JSON aus Antwort extrahieren
         import re as _re
@@ -14517,6 +14533,7 @@ Sei konkret, spezifisch und praxis-orientiert. Kein Allgemein-Blabla."""
             max_tokens=2000,
             messages=[{'role': 'user', 'content': prompt}]
         )
+        _log_ai('studio_dna', msg)
         analysis = msg.content[0].text.strip()
         ctx.page_analysis  = analysis
         ctx.onboarding_done = True
@@ -14581,6 +14598,7 @@ Format als JSON-Array:
             max_tokens=2500,
             messages=[{'role': 'user', 'content': prompt}]
         )
+        _log_ai('studio_ideas', msg)
         raw = msg.content[0].text.strip()
         import re as _re
         m = _re.search(r'\[[\s\S]*\]', raw)
@@ -15170,6 +15188,7 @@ Ratings: success=deutlich besser, neutral=ähnlich, weak=schlechter als Durchsch
             max_tokens=900,
             messages=[{'role': 'user', 'content': prompt}]
         )
+        _log_ai('growth_analyse', msg)
         result = _json.loads(msg.content[0].text)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
@@ -15218,6 +15237,7 @@ Testbare Variablen: Bio-Text, CTA in Bio, Posting-Frequenz, Caption-Stil, Hashta
             max_tokens=1200,
             messages=[{'role': 'user', 'content': prompt}]
         )
+        _log_ai('growth_ideas', msg)
         result = _json.loads(msg.content[0].text)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
