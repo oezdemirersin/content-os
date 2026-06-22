@@ -2892,6 +2892,13 @@ def schedule_automations():
             with app.app_context():
                 now = datetime.utcnow()
 
+                # ── Einmalig beim Start: Telegram-Webhook automatisch registrieren ──
+                if tick == 0:
+                    try:
+                        _ensure_telegram_webhook()
+                    except Exception as _e:
+                        app.logger.error('Webhook-Auto-Registrierung: %s', _e)
+
                 # ── Täglicher Follower-Sync + Snapshot um 23:55 Berliner Zeit ──
                 from zoneinfo import ZoneInfo
                 global _last_daily_sync_date
@@ -14131,6 +14138,37 @@ def telegram_register_webhook():
         return jsonify({'ok': False, 'error': res.get('description', 'Unbekannter Fehler')})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
+
+
+def _ensure_telegram_webhook():
+    """Registriert den Telegram-Webhook beim App-Start automatisch — mit
+    secret_token, damit die Härtung ohne manuellen Klick aktiv wird.
+
+    Läuft nur, wenn ein Bot-Token gesetzt ist UND noch kein Secret existiert
+    (danach kein erneutes Registrieren → kein Churn). Im Background-Thread gibt
+    es keinen request.host, daher wird die Basis-URL aus app_base_url bzw.
+    RENDER_EXTERNAL_URL abgeleitet. Muss innerhalb eines app_context laufen."""
+    token = get_setting('telegram_bot_token')
+    if not token or get_setting('telegram_webhook_secret'):
+        return
+    base_url = get_setting('app_base_url') or os.environ.get('RENDER_EXTERNAL_URL')
+    if not base_url:
+        return
+    base_url = base_url.rstrip('/')
+    import secrets as _secrets
+    secret = _secrets.token_urlsafe(32)
+    import requests as _r
+    res = _r.post(
+        f'https://api.telegram.org/bot{token}/setWebhook',
+        json={'url': f'{base_url}/api/telegram/bot-webhook', 'secret_token': secret},
+        timeout=10,
+    ).json()
+    if res.get('ok'):
+        set_setting('telegram_webhook_secret', secret)
+        db.session.commit()
+        app.logger.info('Telegram-Webhook automatisch registriert (gehärtet).')
+    else:
+        app.logger.error('Telegram setWebhook (Auto) fehlgeschlagen: %s', res.get('description'))
 
 
 # ═══════════════════════════════════════════════════════════════
