@@ -2924,8 +2924,12 @@ def schedule_automations():
             with app.app_context():
                 now = datetime.utcnow()
 
-                # ── Einmalig beim Start: Telegram-Webhook automatisch registrieren ──
-                if tick == 0:
+                # ── Einmalig kurz nach dem Start: Telegram-Webhook registrieren ──
+                # tick==1 statt 0: Der Thread startet, BEVOR das Modul fertig geladen
+                # ist — get_setting/set_setting werden erst nach dem Thread-Start
+                # definiert. Bei tick 0 (sofort beim Boot) → NameError; tick 1
+                # (~60 s später) läuft garantiert nach vollständigem Modul-Laden.
+                if tick == 1:
                     try:
                         _ensure_telegram_webhook()
                     except Exception as _e:
