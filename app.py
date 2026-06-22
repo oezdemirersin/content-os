@@ -247,6 +247,18 @@ def current_user():
     return User.query.get(uid) if uid else None
 
 
+def now_berlin():
+    """Aktuelle Zeit als naive Berlin-Ortszeit.
+
+    scheduled_at und deadline werden als Berlin-naive Wanduhrzeit gespeichert
+    (User gibt im Kalender/Planer lokale Zeit ein). Tages- und Jetzt-Vergleiche
+    gegen diese Spalten müssen daher in Berliner Zeit erfolgen — nicht in UTC,
+    sonst zeigt die UI zwischen 00:00–02:00 Uhr den falschen Tag.
+    NICHT für Vergleiche gegen UTC-Audit-Timestamps (created_at, recorded_at,
+    published_at) verwenden."""
+    return datetime.now(ZoneInfo('Europe/Berlin')).replace(tzinfo=None)
+
+
 def log_activity(action, description, entity_type=None, entity_id=None):
     try:
         uid = session.get('user_id')
@@ -1769,7 +1781,7 @@ def generate_alerts():
     db.session.flush()  # sicherstellen dass deletes durch sind bevor neue eingefügt werden
 
     accounts = Account.query.filter_by(status='active').all()
-    now = datetime.utcnow()
+    now = now_berlin()  # Vorrats-/Lücken-Alerts vergleichen gegen scheduled_at (Berlin-naiv)
 
     for acc in accounts:
         # Vollautomatische Accounts (level ≥ 3) brauchen keinen Vorrat —
@@ -2424,7 +2436,11 @@ def _send_due_telegram_posts():
             token = _row.value if _row else None
             if not token:
                 return
-            now = datetime.utcnow()
+            # Fälligkeit gegen scheduled_at prüfen (Berlin-naiv gespeichert!) — sonst
+            # würde ein für 18:00 Berlin geplanter Post erst um 18:00 UTC = 19/20:00
+            # Berlin feuern (1–2 h zu spät).
+            now = now_berlin()
+            sent_at = datetime.utcnow()  # Audit-Timestamp bleibt UTC (App-Konvention)
             due = ScheduledPost.query.filter(
                 ScheduledPost.scheduled_at <= now,
                 ScheduledPost.status == 'scheduled',
@@ -2435,7 +2451,7 @@ def _send_due_telegram_posts():
             sent = 0
             for post in due:
                 if send_telegram_post(post, token=token):
-                    post.telegram_sent_at = now
+                    post.telegram_sent_at = sent_at
                     sent += 1
             if sent:
                 db.session.commit()
@@ -2999,7 +3015,7 @@ def _get_planned_days_batch(accounts):
     Gibt {account_id: days_float} zurück."""
     if not accounts:
         return {}
-    now = datetime.utcnow()
+    now = now_berlin()  # gegen scheduled_at (Berlin-naiv)
     ids = [a.id for a in accounts]
     rows = db.session.query(
         ScheduledPost.account_id,
@@ -3036,7 +3052,7 @@ def get_dashboard_stats(active_accounts=None, days_map=None):
 
     total_followers = db.session.query(func.sum(Account.follower_count)).scalar() or 0
 
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0)
+    today_start = now_berlin().replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
     posts_today = ScheduledPost.query.filter(
         ScheduledPost.scheduled_at >= today_start,
@@ -3105,7 +3121,7 @@ def root_redirect():
 def dashboard():
     # generate_alerts() wird jetzt vom Scheduler alle 5 Min. ausgeführt —
     # NICHT mehr bei jedem Seitenaufruf (war ~30 Extra-Queries pro Load).
-    now = datetime.utcnow()
+    now = now_berlin()  # nur für die "posts_today"-Tagesgrenze (scheduled_at, Berlin-naiv)
 
     # ── 1× Accounts mit Kategorie laden (verhindert N lazy-loads im Template) ─
     all_active = Account.query.filter_by(status='active')\
@@ -3211,10 +3227,8 @@ def dashboard_ai_usage():
 @login_required
 def heute():
     """Tages-Briefing: alles was heute Aufmerksamkeit braucht, auf einen Blick."""
-    # scheduled_at/deadline werden als Berlin-Ortszeit (naiv) gespeichert → "heute"
-    # muss ebenfalls in Berliner Zeit berechnet werden, sonst zeigt die Seite
-    # zwischen 00:00–02:00 Uhr den falschen Tag.
-    now = datetime.now(ZoneInfo('Europe/Berlin')).replace(tzinfo=None)
+    # "heute" in Berliner Zeit (scheduled_at/deadline sind Berlin-naiv gespeichert)
+    now = now_berlin()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # ── 1. Telegram Queue ─────────────────────────────────────────────────
@@ -3431,7 +3445,7 @@ def account_new():
 def account_detail(account_id):
     account = Account.query.get_or_404(account_id)
     upcoming = ScheduledPost.query.filter_by(account_id=account_id, status='scheduled')\
-        .filter(ScheduledPost.scheduled_at >= datetime.utcnow())\
+        .filter(ScheduledPost.scheduled_at >= now_berlin())\
         .order_by(ScheduledPost.scheduled_at).limit(20).all()
     analytics = AnalyticsSnapshot.query.filter_by(account_id=account_id)\
         .order_by(AnalyticsSnapshot.recorded_at.desc()).limit(30).all()
@@ -3439,8 +3453,8 @@ def account_detail(account_id):
     chart_labels = [a.recorded_at.strftime('%d.%m') for a in reversed(analytics)]
     chart_data = [a.followers for a in reversed(analytics)]
 
-    # Stock per type
-    now = datetime.utcnow()
+    # Stock per type — Vergleich gegen scheduled_at (Berlin-naiv)
+    now = now_berlin()
     feed_count = ScheduledPost.query.filter_by(account_id=account_id, post_type='feed', status='scheduled')\
         .filter(ScheduledPost.scheduled_at >= now).count()
     story_count = ScheduledPost.query.filter_by(account_id=account_id, post_type='story', status='scheduled')\
@@ -11011,7 +11025,7 @@ def autoplan():
         week_counts = _dd(int)
         future_posts = ScheduledPost.query.filter(
             ScheduledPost.account_id == account_id,
-            ScheduledPost.scheduled_at >= datetime.utcnow(),
+            ScheduledPost.scheduled_at >= now_berlin(),
             ScheduledPost.status.in_(['pending', 'scheduled'])
         ).all()
         for sp in future_posts:
@@ -13146,7 +13160,7 @@ def kooperationen():
     koops = Kooperation.query.all()
     koops.sort(key=_koop_ref_date, reverse=True)
     accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
-    today = datetime.utcnow().date()
+    today = now_berlin().date()  # Deadline-/Überfällig-Vergleich gegen User-Datümer
     return render_template('kooperationen.html', koops=koops,
                            accounts=accounts, today=today, active_page='kooperationen')
 
@@ -13854,7 +13868,7 @@ def telegram_bot_webhook():
 
     # ── /heute (/liste) — Heutige Posts für diesen Account (oder alle) ──
     if cmd in ('/heute', '/liste'):
-        today = datetime.utcnow().date()
+        today = now_berlin().date()  # scheduled_at ist Berlin-naiv
         q = ScheduledPost.query.filter(
             func.date(ScheduledPost.scheduled_at) == today,
             ScheduledPost.status.in_(['scheduled', 'draft'])
@@ -13877,7 +13891,7 @@ def telegram_bot_webhook():
     # ── /naechste [n] — Nächste n Posts ──
     elif cmd == '/naechste':
         n = min(int(args[0]) if args and args[0].isdigit() else 5, 10)
-        now = datetime.utcnow()
+        now = now_berlin()  # gegen scheduled_at (Berlin-naiv)
         q = ScheduledPost.query.filter(
             ScheduledPost.scheduled_at >= now,
             ScheduledPost.status.in_(['scheduled', 'draft'])
@@ -13903,7 +13917,7 @@ def telegram_bot_webhook():
             emoji = '🟢' if d >= 14 else '🟡' if d >= 7 else '🔴'
             total = ScheduledPost.query.filter_by(
                 account_id=account.id, status='scheduled'
-            ).filter(ScheduledPost.scheduled_at >= datetime.utcnow()).count()
+            ).filter(ScheduledPost.scheduled_at >= now_berlin()).count()
             _tg_reply(
                 f'{emoji} <b>{account.name}</b>\n'
                 f'Vorrat: <b>{round(d, 1)} Tage</b> ({total} Posts geplant)\n'
@@ -13966,7 +13980,7 @@ def telegram_bot_webhook():
             emoji = '🟢' if d >= 14 else '🟡' if d >= 7 else '🔴'
             today_count = ScheduledPost.query.filter(
                 ScheduledPost.account_id == account.id,
-                func.date(ScheduledPost.scheduled_at) == datetime.utcnow().date(),
+                func.date(ScheduledPost.scheduled_at) == now_berlin().date(),
                 ScheduledPost.status.in_(['scheduled', 'draft'])
             ).count()
             _tg_reply(
