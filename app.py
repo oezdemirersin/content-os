@@ -1773,6 +1773,19 @@ def _send_central_alert(message: str):
 
 def generate_alerts():
     """Auto-generate system alerts based on current state."""
+    # Telegram-relevante Alert-Typen: vor dem Löschen die bereits existierenden
+    # Signaturen merken, damit _send_central_alert nur für WIRKLICH neue Alerts
+    # feuert. Sonst geht bei dauerhaft bestehender Bedingung (z.B. Watchlist-
+    # Eintrag >56 Tage auf „Kontaktiert") alle 5 Min eine Telegram-Nachricht raus.
+    # In-App-SystemAlerts (DB) bleiben clear-and-regenerate — das ist unkritisch.
+    _CENTRAL_ALERT_TYPES = ('follower_loss', 'watchlist_no_reply')
+    _existing_central_sigs = {
+        (a.account_id, a.alert_type, a.message)
+        for a in SystemAlert.query.filter_by(resolved=False).filter(
+            SystemAlert.alert_type.in_(_CENTRAL_ALERT_TYPES)
+        ).all()
+    }
+
     # Clear old unresolved automated alerts
     SystemAlert.query.filter_by(resolved=False).filter(
         SystemAlert.alert_type.in_(['low_stock', 'no_posts', 'empty_stock', 'overcapacity',
@@ -1893,7 +1906,8 @@ def generate_alerts():
                     account_id=acc.id, alert_type='follower_loss', severity='warning',
                     message=msg,
                 ))
-                _send_central_alert(msg)
+                if (acc.id, 'follower_loss', msg) not in _existing_central_sigs:
+                    _send_central_alert(msg)
 
     # ── Watchlist: Einträge seit >56 Tagen auf "Kontaktiert" ohne Antwort ──
     wl_threshold = now - timedelta(days=56)
@@ -1914,7 +1928,8 @@ def generate_alerts():
             alert_type='watchlist_no_reply', severity='info',
             message=msg,
         ))
-        _send_central_alert(msg)
+        if (None, 'watchlist_no_reply', msg) not in _existing_central_sigs:
+            _send_central_alert(msg)
 
     # ── DB-Backup-Reminder: Render Free-DB wird 90 Tage nach Erstellung gelöscht ──
     # Nur In-App-Alert (kein zentraler Telegram-Spam alle 5 Min). Verschwindet
