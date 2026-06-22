@@ -145,8 +145,12 @@ if _db_url.startswith('postgres://'):
 app.config['SQLALCHEMY_DATABASE_URI'] = _db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    # pool_pre_ping entfernt: war +50-100ms auf JEDE Anfrage (Supabase-Roundtrip)
-    # pool_recycle=300 reicht um stale connections zu verhindern
+    # pool_pre_ping wieder aktiv: Render-Postgres läuft im selben Netz (interne
+    # Connection-URL), der SELECT-1-Ping kostet nur ~1-3ms — nicht die 50-100ms
+    # vom alten Supabase-Setup. Verhindert psycopg2.OperationalError im
+    # Background-Thread (z.B. _send_due_telegram_posts), wenn der Server eine
+    # idle Connection stale schließt — das fängt pool_recycle=300 allein NICHT ab.
+    'pool_pre_ping': True,
     'pool_recycle': 300,
     'pool_size': 5,
     'max_overflow': 10,
