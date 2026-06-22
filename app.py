@@ -1931,27 +1931,26 @@ def generate_alerts():
         if (None, 'watchlist_no_reply', msg) not in _existing_central_sigs:
             _send_central_alert(msg)
 
-    # ── DB-Backup-Reminder: Render Free-DB wird 90 Tage nach Erstellung gelöscht ──
-    # Nur In-App-Alert (kein zentraler Telegram-Spam alle 5 Min). Verschwindet
-    # automatisch, sobald ein Vollexport gemacht wurde (last_full_backup_at).
+    # ── Backup-Hygiene-Reminder: ab und zu einen Vollexport machen (Schutz vor
+    # versehentlichem Datenverlust / fehlerhaften Migrationen — NICHT wegen
+    # DB-Ablauf, die DB läuft auf basic_256mb/bezahlt). Reine In-App-Erinnerung,
+    # verschwindet nach dem nächsten Vollexport (last_full_backup_at).
     try:
         threshold_days = int(get_setting('backup_reminder_days') or 30)
         last_bk = get_setting('last_full_backup_at')
         if not last_bk:
             db.session.add(SystemAlert(
-                alert_type='backup_overdue', severity='warning',
-                message=('🛟 Noch kein Daten-Backup erstellt. Render löscht die kostenlose '
-                         'Datenbank 90 Tage nach Erstellung — jetzt unter Einstellungen → Daten '
-                         '→ "Vollexport" sichern.'),
+                alert_type='backup_overdue', severity='info',
+                message=('🛟 Noch kein Daten-Backup erstellt. Sichere deine Daten ab und zu unter '
+                         'Einstellungen → Daten → "Vollexport" (Schutz vor versehentlichem Datenverlust).'),
             ))
         else:
             days_since = (datetime.utcnow() - datetime.fromisoformat(last_bk)).days
             if days_since >= threshold_days:
                 db.session.add(SystemAlert(
-                    alert_type='backup_overdue', severity='warning',
-                    message=(f'🛟 Letztes Daten-Backup vor {days_since} Tagen. Render löscht die '
-                             f'kostenlose Datenbank 90 Tage nach Erstellung — bitte "Vollexport" '
-                             f'unter Einstellungen → Daten erstellen.'),
+                    alert_type='backup_overdue', severity='info',
+                    message=(f'🛟 Letztes Daten-Backup vor {days_since} Tagen — Zeit für einen '
+                             f'frischen "Vollexport" unter Einstellungen → Daten.'),
                 ))
     except Exception as e:
         app.logger.error('generate_alerts: Backup-Reminder-Fehler — %s', e)

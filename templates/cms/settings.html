@@ -491,9 +491,9 @@
             <b>Vollexport</b>
             <small style="display:block">Alle Accounts, Inhalte, Config als JSON
               {% if last_backup_days is not none %}
-                · <span style="color:{{ 'var(--danger)' if last_backup_days >= 30 else 'var(--success)' }}">letztes Backup vor {{ last_backup_days }} Tag{{ 'en' if last_backup_days != 1 else '' }}</span>
+                · <span style="color:{{ 'var(--muted)' if last_backup_days >= 30 else 'var(--success)' }}">letztes Backup vor {{ last_backup_days }} Tag{{ 'en' if last_backup_days != 1 else '' }}</span>
               {% else %}
-                · <span style="color:var(--danger)">noch kein Backup erstellt</span>
+                · <span style="color:var(--muted)">noch kein Backup erstellt</span>
               {% endif %}
             </small>
           </div>

@@ -17,4 +17,6 @@ services:
 databases:
   - name: content-os-db
     databaseName: content_os
-    plan: free
+    # DB wurde im Render-Dashboard auf basic_256mb (bezahlt) hochgestuft —
+    # via Render-API verifiziert 2026-06-22. KEIN Free-Tier, kein Ablauf-/Löschrisiko.
+    plan: basic_256mb
