@@ -1064,3 +1064,25 @@ class GrowthKnowledge(db.Model):
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
 
     category = db.relationship('Category', backref='growth_knowledge')
+
+
+class KnowledgeEntry(db.Model):
+    """Instagram Intelligence Center — eine Wissens-Einheit aus einer Quelle.
+    Befüllt durch die KI-Knowledge-Engine (Web-Research) oder manuell eingepflegte
+    Quellen (z.B. Mosseri-Transkripte)."""
+    __tablename__ = 'knowledge_entry'
+    id               = db.Column(db.Integer, primary_key=True)
+    title            = db.Column(db.String(300), nullable=False)
+    category         = db.Column(db.String(60), index=True)        # eine der IIC-Kategorien
+    source_name      = db.Column(db.String(200))
+    source_url       = db.Column(db.Text)
+    source_date      = db.Column(db.Date)                          # Datum der Info (z.B. Video-Datum)
+    summary          = db.Column(db.Text)
+    key_points       = db.Column(db.Text)                          # JSON-Liste von Strings
+    practical_impact = db.Column(db.Text)
+    confidence       = db.Column(db.Integer, default=50)           # 0-100
+    status           = db.Column(db.String(20), default='unklar')  # bestätigt/wahrscheinlich/unklar/widerlegt
+    raw_content      = db.Column(db.Text)                          # Originaltext / Transkript
+    pinned           = db.Column(db.Boolean, default=False)
+    created_at       = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at       = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

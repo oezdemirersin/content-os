@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block title %}Intelligence Center — Content OS{% endblock %}
+{% block page_title %}INSTAGRAM INTELLIGENCE CENTER{% endblock %}
+
+{% block content %}
+<style>
+  .iic-wrap { max-width:1100px }
+  .iic-chip { display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--muted);user-select:none;transition:all .12s }
+  .iic-chip.active { background:var(--accent);border-color:var(--accent);color:#fff }
+  .iic-card { background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:12px;transition:border-color .15s }
+  .iic-card:hover { border-color:var(--accent) }
+  .iic-badge { font-size:10px;font-weight:800;padding:2px 8px;border-radius:6px;letter-spacing:.3px }
+  .iic-conf-track { height:5px;background:var(--surface2);border-radius:20px;overflow:hidden;flex:1 }
+  .iic-conf-bar { height:100%;border-radius:20px }
+  .iic-tab { padding:8px 14px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted);border:1px solid transparent }
+  .iic-tab.active { background:var(--accent);color:#fff }
+  .iic-md h2 { font-size:14px;font-family:var(--font-display);margin:14px 0 6px;color:var(--accent2) }
+  .iic-md li { font-size:13px;line-height:1.7;color:var(--text);margin-left:4px }
+  .iic-md ul { padding-left:18px;margin:4px 0 }
+  .iic-md strong { color:var(--text) }
+</style>
+
+<div class="iic-wrap" x-data="iic()" x-init="init()">
+
+  <p style="color:var(--muted);font-size:13px;margin:-4px 0 18px;max-width:760px">
+    Eure lernende Instagram-Wissensdatenbank. Quellen rein → Claude fasst zusammen, kategorisiert,
+    vergibt einen Vertrauensscore und pflegt das Cheat&nbsp;Sheet. Mosseri-Material fütterst du
+    manuell, den Rest recherchiert die Engine selbst.
+  </p>
+
+  {% if not ai_ready %}
+  <div class="iic-card" style="border-color:var(--warning);background:rgba(245,158,11,.06)">
+    <b style="color:var(--warning)">⚠️ Kein Anthropic API-Key</b> — die Knowledge-Engine braucht einen Key
+    (Einstellungen → Verbindungen → KI). Einträge anlegen/anzeigen geht, KI-Funktionen nicht.
+  </div>
+  {% endif %}
+
+  <!-- ══ CHEAT SHEET ══ -->
+  <div class="iic-card" style="border-color:var(--accent);background:linear-gradient(180deg,rgba(99,102,241,.06),transparent)">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:18px">🧠</span>
+        <div>
+          <div style="font-family:var(--font-display);font-size:15px">CHEAT SHEET — Was funktioniert gerade?</div>
+          <div style="font-size:11px;color:var(--muted)" x-text="cheatUpdated ? ('Aktualisiert: ' + cheatUpdated) : 'Noch nicht generiert'"></div>
+        </div>
+      </div>
+      <button class="btn btn-ghost s-btn-sm" @click="regenCheat()" :disabled="cheatLoading">
+        <i class="fa-solid fa-rotate" :class="cheatLoading && 'fa-spin'"></i>
+        <span x-text="cheatLoading ? 'Generiere…' : 'Aktualisieren'"></span>
+      </button>
+    </div>
+    <div class="iic-md" x-show="cheatHtml" x-html="cheatHtml" style="border-top:1px solid var(--border);padding-top:10px"></div>
+    <div x-show="!cheatHtml" style="font-size:13px;color:var(--muted);padding:6px 0">
+      Sobald ein paar Wissens-Einträge da sind, klick „Aktualisieren" — Claude baut daraus das
+      priorisierte Cheat Sheet (Ranking-Faktoren, Do's/Don'ts, Warnungen) mit Status-Markierungen.
+    </div>
+  </div>
+
+  <!-- ══ QUELLE HINZUFÜGEN ══ -->
+  <div class="iic-card">
+    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+      <div class="iic-tab" :class="mode==='research'&&'active'" @click="mode='research'"><i class="fa-solid fa-magnifying-glass"></i> Recherche</div>
+      <div class="iic-tab" :class="mode==='text'&&'active'" @click="mode='text'"><i class="fa-solid fa-align-left"></i> Text / Mosseri-Transkript</div>
+      <div class="iic-tab" :class="mode==='url'&&'active'" @click="mode='url'"><i class="fa-solid fa-link"></i> URL</div>
+    </div>
+
+    <template x-if="mode==='research'">
+      <div>
+        <input type="text" class="input-field" style="width:100%" x-model="research"
+               placeholder="z.B. Wie ranken Reels 2026? — oder: Aktuelle Shadowban-Regeln">
+        <div style="font-size:11px;color:var(--muted);margin-top:5px">Claude durchsucht das Web (bevorzugt offizielle Meta-/Mosseri-Quellen) und legt fundierte Einträge an.</div>
+      </div>
+    </template>
+    <template x-if="mode==='text'">
+      <div>
+        <textarea class="input-field" rows="5" style="width:100%;resize:vertical" x-model="text"
+                  placeholder="Transkript oder Artikel-Text hier einfügen…"></textarea>
+        <input type="text" class="input-field" style="width:100%;margin-top:8px" x-model="sourceName"
+               placeholder="Quelle (optional, z.B. Adam Mosseri Reel 14.06.2026)">
+      </div>
+    </template>
+    <template x-if="mode==='url'">
+      <div>
+        <input type="text" class="input-field" style="width:100%" x-model="url"
+               placeholder="https://… (Meta-Blog, Help-Center, Artikel)">
+        <div style="font-size:11px;color:var(--muted);margin-top:5px">Claude holt die Seite und extrahiert die Erkenntnisse.</div>
+      </div>
+    </template>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">
+      <select class="s-select" x-model="catHint" style="font-size:12px">
+        <option value="">Kategorie automatisch</option>
+        <template x-for="c in categories" :key="c"><option :value="c" x-text="c"></option></template>
+      </select>
+      <button class="btn btn-primary s-btn-sm" @click="ingest()" :disabled="busy">
+        <i class="fa-solid" :class="busy ? 'fa-spinner fa-spin' : 'fa-plus'"></i>
+        <span x-text="busy ? 'Verarbeite…' : 'Einpflegen'"></span>
+      </button>
+      <span x-show="msg" x-text="msg" :style="msgErr ? 'color:var(--danger)' : 'color:var(--success)'" style="font-size:12px"></span>
+    </div>
+  </div>
+
+  <!-- ══ FILTER ══ -->
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:18px 0 12px">
+    <input type="text" class="input-field" style="flex:1;min-width:180px;font-size:13px" x-model="search" placeholder="🔍 Wissen durchsuchen…">
+    <select class="s-select" x-model="fStatus" style="font-size:12px">
+      <option value="">Alle Status</option>
+      <template x-for="s in statuses" :key="s"><option :value="s" x-text="s"></option></template>
+    </select>
+    <span style="font-size:12px;color:var(--muted)" x-text="filtered.length + ' / ' + entries.length"></span>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+    <span class="iic-chip" :class="fCat===''&&'active'" @click="fCat=''">Alle</span>
+    <template x-for="c in categories" :key="c">
+      <span class="iic-chip" :class="fCat===c&&'active'" @click="fCat=(fCat===c?'':c)" x-show="catCounts[c]"
+            x-text="c + ' (' + (catCounts[c]||0) + ')'"></span>
+    </template>
+  </div>
+
+  <!-- ══ EINTRÄGE ══ -->
+  <div x-show="!filtered.length" style="text-align:center;color:var(--muted);padding:40px 0;font-size:13px">
+    Noch keine Einträge im Filter. Starte oben mit einer Recherche oder füge ein Mosseri-Transkript ein.
+  </div>
+
+  <template x-for="e in filtered" :key="e.id">
+    <div class="iic-card">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px">
+            <span class="iic-badge" style="background:rgba(99,102,241,.15);color:var(--accent2)" x-text="e.category"></span>
+            <span class="iic-badge" :style="statusStyle(e.status)" x-text="statusLabel(e.status)"></span>
+            <span x-show="e.pinned" style="color:var(--accent)" title="Angepinnt">📌</span>
+          </div>
+          <div style="font-size:14px;font-weight:700;color:var(--text)" x-text="e.title"></div>
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button class="icon-btn" style="font-size:12px;padding:5px" @click="togglePin(e)" :title="e.pinned?'Lösen':'Anpinnen'">📌</button>
+          <button class="icon-btn" style="font-size:12px;padding:5px;color:var(--danger)" @click="del(e)" title="Löschen"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>
+
+      <div style="font-size:13px;color:var(--text);line-height:1.6;margin:8px 0" x-text="e.summary"></div>
+
+      <ul x-show="e.key_points && e.key_points.length" style="margin:6px 0;padding-left:18px">
+        <template x-for="kp in e.key_points" :key="kp"><li style="font-size:12px;color:var(--muted);line-height:1.6" x-text="kp"></li></template>
+      </ul>
+
+      <div x-show="e.practical_impact" style="font-size:12px;background:var(--surface2);border-radius:8px;padding:8px 10px;margin:8px 0;line-height:1.6">
+        <b style="color:var(--accent2)">→ Praxis:</b> <span x-text="e.practical_impact"></span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+        <span style="font-size:10px;color:var(--muted);font-weight:700;flex-shrink:0" x-text="'Vertrauen ' + e.confidence + '%'"></span>
+        <div class="iic-conf-track"><div class="iic-conf-bar" :style="'width:'+e.confidence+'%;background:'+confColor(e.confidence)"></div></div>
+        <span style="font-size:11px;color:var(--muted);flex-shrink:0">
+          <template x-if="e.source_url"><a :href="e.source_url" target="_blank" style="color:var(--accent)" x-text="e.source_name || 'Quelle'"></a></template>
+          <template x-if="!e.source_url"><span x-text="e.source_name || ''"></span></template>
+          <span x-show="e.source_date" x-text="' · ' + e.source_date"></span>
+        </span>
+      </div>
+    </div>
+  </template>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const IIC_DATA = {
+  entries: {{ entries|tojson }},
+  categories: {{ categories|tojson }},
+  statuses: {{ statuses|tojson }},
+  catCounts: {{ cat_counts|tojson }},
+  cheatsheet: {{ cheatsheet|tojson }},
+  cheatUpdated: {{ cheatsheet_updated|tojson }},
+};
+
+// Mini-Markdown → HTML (Überschriften, Listen, fett)
+function mdToHtml(md){
+  if(!md) return '';
+  const lines = md.split('\n'); let out=''; let inList=false;
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  for(let l of lines){
+    l = l.trimEnd();
+    if(/^##\s/.test(l)){ if(inList){out+='</ul>';inList=false;} out += '<h2>'+inline(l.replace(/^##\s/,''))+'</h2>'; }
+    else if(/^[-*]\s/.test(l)){ if(!inList){out+='<ul>';inList=true;} out += '<li>'+inline(l.replace(/^[-*]\s/,''))+'</li>'; }
+    else if(l.trim()===''){ if(inList){out+='</ul>';inList=false;} }
+    else { if(inList){out+='</ul>';inList=false;} out += '<div style="font-size:13px;line-height:1.6;margin:3px 0">'+inline(l)+'</div>'; }
+  }
+  if(inList) out+='</ul>';
+  return out;
+}
+
+function iic(){
+  return {
+    entries: IIC_DATA.entries, categories: IIC_DATA.categories, statuses: IIC_DATA.statuses,
+    catCounts: IIC_DATA.catCounts,
+    cheatHtml:'', cheatUpdated: IIC_DATA.cheatUpdated, cheatLoading:false,
+    mode:'research', research:'', text:'', sourceName:'', url:'', catHint:'',
+    busy:false, msg:'', msgErr:false,
+    search:'', fCat:'', fStatus:'',
+
+    init(){ this.cheatHtml = mdToHtml(IIC_DATA.cheatsheet); },
+
+    get filtered(){
+      const q = this.search.toLowerCase().trim();
+      return this.entries.filter(e =>
+        (!this.fCat || e.category===this.fCat) &&
+        (!this.fStatus || e.status===this.fStatus) &&
+        (!q || (e.title+' '+e.summary+' '+(e.practical_impact||'')+' '+(e.key_points||[]).join(' ')).toLowerCase().includes(q))
+      );
+    },
+
+    statusLabel(s){ return ({'bestätigt':'✅ bestätigt','wahrscheinlich':'🟡 wahrscheinlich','unklar':'❓ unklar','widerlegt':'❌ widerlegt'})[s]||s; },
+    statusStyle(s){ const m={'bestätigt':'background:rgba(34,197,94,.15);color:var(--success)','wahrscheinlich':'background:rgba(245,158,11,.15);color:var(--warning)','unklar':'background:var(--surface2);color:var(--muted)','widerlegt':'background:rgba(239,68,68,.15);color:var(--danger)'}; return m[s]||m['unklar']; },
+    confColor(c){ return c>=80?'var(--success)':c>=50?'var(--warning)':'var(--muted)'; },
+
+    recount(){ const cc={}; this.entries.forEach(e=>cc[e.category]=(cc[e.category]||0)+1); this.catCounts=cc; },
+
+    async ingest(){
+      const payload = {mode:this.mode, category:this.catHint};
+      if(this.mode==='research'){ if(!this.research.trim()){this.flash('Thema eingeben',true);return;} payload.topic=this.research; }
+      else if(this.mode==='url'){ if(!this.url.trim()){this.flash('URL eingeben',true);return;} payload.url=this.url; }
+      else { if(!this.text.trim()){this.flash('Text eingeben',true);return;} payload.text=this.text; payload.source_name=this.sourceName; }
+      this.busy=true; this.msg='';
+      try{
+        const r = await fetch('/api/intelligence/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.json());
+        if(r.ok){
+          (r.entries||[]).forEach(e=>this.entries.unshift(e));
+          this.recount();
+          this.flash('✓ '+r.count+' Eintrag'+(r.count!==1?'e':'')+' angelegt');
+          this.research=''; this.text=''; this.url=''; this.sourceName='';
+          if(typeof showToast==='function') showToast(r.count+' Wissens-Eintrag angelegt','success');
+        } else this.flash(r.error||'Fehler',true);
+      }catch(e){ this.flash('Netzwerkfehler',true); }
+      this.busy=false;
+    },
+
+    async regenCheat(){
+      this.cheatLoading=true;
+      try{
+        const r = await fetch('/api/intelligence/cheatsheet/regenerate',{method:'POST'}).then(r=>r.json());
+        if(r.ok){ this.cheatHtml=mdToHtml(r.cheatsheet); this.cheatUpdated=r.updated; if(typeof showToast==='function') showToast('Cheat Sheet aktualisiert','success'); }
+        else if(typeof showToast==='function') showToast(r.error||'Fehler','error');
+      }catch(e){ if(typeof showToast==='function') showToast('Netzwerkfehler','error'); }
+      this.cheatLoading=false;
+    },
+
+    async togglePin(e){
+      const r = await fetch('/api/intelligence/entry/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({pinned:!e.pinned})}).then(r=>r.json());
+      if(r.ok) e.pinned=!e.pinned;
+    },
+    async del(e){
+      if(!confirm('Diesen Wissens-Eintrag löschen?')) return;
+      const r = await fetch('/api/intelligence/entry/'+e.id,{method:'DELETE'}).then(r=>r.json());
+      if(r.ok){ this.entries=this.entries.filter(x=>x.id!==e.id); this.recount(); }
+    },
+
+    flash(m,err){ this.msg=m; this.msgErr=!!err; setTimeout(()=>{this.msg='';},4000); },
+  };
+}
+</script>
+{% endblock %}

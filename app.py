@@ -25,7 +25,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     ContentSeries, Kooperation, AccountIdeenContext,
                     Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf,
                     WatchlistSeite, WatchlistFollowerSnapshot, WatchlistCityMeta,
-                    GrowthExperiment, GrowthVariant, GrowthParticipant, GrowthDataPoint, GrowthKnowledge)
+                    GrowthExperiment, GrowthVariant, GrowthParticipant, GrowthDataPoint, GrowthKnowledge,
+                    KnowledgeEntry)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -15311,6 +15312,246 @@ def api_growth_knowledge_delete(k_id):
     db.session.delete(k)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+# ═══════════════════════════════════════════════════════════════
+# INSTAGRAM INTELLIGENCE CENTER — Wissens-DB + KI-Knowledge-Engine
+# ═══════════════════════════════════════════════════════════════
+
+IIC_CATEGORIES = [
+    'Algorithm Updates', 'Feed Ranking', 'Reels Ranking', 'Story Ranking',
+    'Explore Ranking', 'SEO', 'Community Guidelines', 'Recommendation Guidelines',
+    'Spam Detection', 'Shadowban & Einschränkungen', 'Monetarisierung', 'Urheberrecht',
+    'AI-Content', 'Hashtags', 'Posting-Frequenz', 'Engagement-Signale',
+    'Negative Ranking-Signale', 'Creator-Best-Practices', 'Mythen & Missverständnisse',
+    'Eigene Experimente',
+]
+IIC_STATUS = ['bestätigt', 'wahrscheinlich', 'unklar', 'widerlegt']
+
+IIC_SYSTEM = (
+    "Du bist der Research- und Wissensmotor des internen Dashboards Instagram "
+    "Intelligence Center. Ziel: die genaueste, ehrlichste, datenbasierte Wissensdatenbank "
+    "über den Instagram-Algorithmus aufbauen.\n\n"
+    "REGELN (zwingend):\n"
+    "- Stelle NIEMALS Vermutungen als Fakten dar. Kennzeichne Unsicherheit.\n"
+    "- Vertrauensscore: 100=offiziell bestätigt (Instagram/Meta/Mosseri direkt), "
+    "80=mehrere vertrauenswürdige Quellen, 50=starke Indizien, 20=unbestätigte Theorie.\n"
+    "- Status: 'bestätigt' (offizielle Quelle), 'wahrscheinlich' (gute Indizien), "
+    "'unklar' (widersprüchlich/dünn), 'widerlegt' (nachweislich falsch).\n"
+    "- Nenne Quelle + Link wenn vorhanden. Erfinde KEINE Quellen oder URLs.\n"
+    "- Kategorien NUR aus: " + ', '.join(IIC_CATEGORIES) + ".\n"
+    "- Leite konkrete praktische Auswirkungen fürs Seiten-Wachstum ab.\n\n"
+    "Antworte AUSSCHLIESSLICH mit einem JSON-Array (kein weiterer Text):\n"
+    '[{"title":"kurz & präzise","category":"<eine Kategorie>","source_name":"...",'
+    '"source_url":"... oder null","source_date":"YYYY-MM-DD oder null","summary":"2-4 Sätze",'
+    '"key_points":["...","..."],"practical_impact":"Was heißt das konkret fürs Posten?",'
+    '"confidence":0-100,"status":"bestätigt|wahrscheinlich|unklar|widerlegt"}]'
+)
+
+
+def _iic_claude(api_key, user_content, tools=None, model=None, max_tokens=4000, feature='iic'):
+    """Claude-Aufruf für die Knowledge-Engine; behandelt server-tool pause_turn."""
+    import anthropic as _ant
+    client = _ant.Anthropic(api_key=api_key)
+    model = model or (get_setting('analysis_model') or 'claude-sonnet-4-6')
+    messages = [{'role': 'user', 'content': user_content}]
+    resp = None
+    for _ in range(5):
+        kwargs = dict(model=model, max_tokens=max_tokens, system=IIC_SYSTEM, messages=messages)
+        if tools:
+            kwargs['tools'] = tools
+        resp = client.messages.create(**kwargs)
+        _log_ai(feature, resp)
+        if resp.stop_reason == 'pause_turn':
+            messages.append({'role': 'assistant', 'content': resp.content})
+            continue
+        break
+    return ''.join(b.text for b in resp.content if getattr(b, 'type', '') == 'text')
+
+
+def _iic_parse_and_save(text):
+    """Extrahiert das JSON-Array und legt KnowledgeEntries an. Gibt die Liste zurück."""
+    import re as _re, json as _json
+    m = _re.search(r'\[[\s\S]*\]', text or '')
+    items = _json.loads(m.group(0)) if m else []
+    created = []
+    for it in items:
+        if not isinstance(it, dict) or not it.get('title') or not it.get('summary'):
+            continue
+        cat = it.get('category') if it.get('category') in IIC_CATEGORIES else 'Algorithm Updates'
+        st  = it.get('status') if it.get('status') in IIC_STATUS else 'unklar'
+        sd = None
+        if it.get('source_date'):
+            try:
+                from datetime import date as _date
+                sd = _date.fromisoformat(str(it['source_date'])[:10])
+            except Exception:
+                sd = None
+        try:
+            conf = max(0, min(100, int(it.get('confidence', 50))))
+        except Exception:
+            conf = 50
+        e = KnowledgeEntry(
+            title=str(it['title'])[:300], category=cat,
+            source_name=(str(it.get('source_name') or '')[:200] or None),
+            source_url=(it.get('source_url') or None),
+            source_date=sd, summary=it.get('summary'),
+            key_points=_json.dumps(it.get('key_points', []), ensure_ascii=False),
+            practical_impact=it.get('practical_impact'),
+            confidence=conf, status=st)
+        db.session.add(e)
+        created.append(e)
+    db.session.commit()
+    return created
+
+
+def _iic_entry_dict(e):
+    import json as _json
+    try:
+        kp = _json.loads(e.key_points) if e.key_points else []
+    except Exception:
+        kp = []
+    return {
+        'id': e.id, 'title': e.title, 'category': e.category,
+        'source_name': e.source_name, 'source_url': e.source_url,
+        'source_date': e.source_date.isoformat() if e.source_date else None,
+        'summary': e.summary, 'key_points': kp, 'practical_impact': e.practical_impact,
+        'confidence': e.confidence, 'status': e.status, 'pinned': e.pinned,
+        'created_at': e.created_at.strftime('%d.%m.%Y') if e.created_at else None,
+    }
+
+
+@app.route('/intelligence')
+@login_required
+def intelligence_center():
+    from collections import Counter
+    entries = KnowledgeEntry.query.order_by(
+        KnowledgeEntry.pinned.desc(), KnowledgeEntry.created_at.desc()).all()
+    cat_counts = Counter(e.category for e in entries)
+    return render_template('intelligence.html',
+        entries=[_iic_entry_dict(e) for e in entries],
+        categories=IIC_CATEGORIES, statuses=IIC_STATUS, cat_counts=dict(cat_counts),
+        cheatsheet=get_setting('iic_cheatsheet', ''),
+        cheatsheet_updated=get_setting('iic_cheatsheet_updated', ''),
+        ai_ready=bool(os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')),
+        active_page='intelligence')
+
+
+@app.route('/api/intelligence/ingest', methods=['POST'])
+@login_required
+def iic_ingest():
+    d = request.get_json() or {}
+    mode = d.get('mode', 'text')
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert'}), 400
+    hint = (d.get('category') or '').strip()
+    cat_hint = f"\nKategorie-Schwerpunkt (falls passend): {hint}." if hint else ''
+    try:
+        if mode == 'url':
+            url = (d.get('url') or '').strip()
+            if not url:
+                return jsonify({'ok': False, 'error': 'Keine URL angegeben'}), 400
+            uc = (f"Hole den Inhalt dieser Quelle und extrahiere alle relevanten "
+                  f"Instagram-Algorithmus-Erkenntnisse als Wissens-Einträge:\n{url}{cat_hint}")
+            text = _iic_claude(api_key, uc, tools=[{'type': 'web_fetch_20260209', 'name': 'web_fetch'}],
+                               feature='iic_url', max_tokens=5000)
+        elif mode == 'research':
+            topic = (d.get('topic') or '').strip()
+            if not topic:
+                return jsonify({'ok': False, 'error': 'Kein Thema angegeben'}), 400
+            uc = (f"Recherchiere im Web (bevorzugt offizielle Quellen: Instagram-/Meta-Blog, "
+                  f"Help-Center, Adam Mosseri, Recommendation Guidelines) zu folgendem Thema und "
+                  f"lege fundierte Wissens-Einträge an. Thema: {topic}{cat_hint}\n"
+                  f"Nutze mehrere Suchen falls nötig. Offizielle Quellen → hoher Score.")
+            text = _iic_claude(api_key, uc, tools=[{'type': 'web_search_20260209', 'name': 'web_search'}],
+                               feature='iic_research', max_tokens=6000)
+        else:
+            raw = (d.get('text') or '').strip()
+            if not raw:
+                return jsonify({'ok': False, 'error': 'Kein Text angegeben'}), 400
+            src = (d.get('source_name') or '').strip()
+            uc = (f"Analysiere diesen Quelltext (z.B. Mosseri-Transkript oder Artikel) und "
+                  f"extrahiere die Instagram-Erkenntnisse als Wissens-Einträge."
+                  f"{(' Quelle: ' + src + '.') if src else ''}{cat_hint}\n\n"
+                  f"--- QUELLTEXT ---\n{raw[:20000]}")
+            text = _iic_claude(api_key, uc, feature='iic_text')
+        created = _iic_parse_and_save(text)
+        if mode == 'text' and created:
+            raw = (d.get('text') or '').strip()
+            src = (d.get('source_name') or '').strip()
+            for e in created:
+                e.raw_content = raw[:20000]
+                if src and not e.source_name:
+                    e.source_name = src[:200]
+            db.session.commit()
+        return jsonify({'ok': True, 'count': len(created),
+                        'entries': [_iic_entry_dict(e) for e in created]})
+    except Exception as ex:
+        app.logger.error('iic_ingest Fehler: %s', ex)
+        return jsonify({'ok': False, 'error': str(ex)}), 500
+
+
+@app.route('/api/intelligence/entry/<int:eid>', methods=['PUT', 'DELETE'])
+@login_required
+def iic_entry(eid):
+    e = KnowledgeEntry.query.get_or_404(eid)
+    if request.method == 'DELETE':
+        db.session.delete(e)
+        db.session.commit()
+        return jsonify({'ok': True})
+    d = request.get_json() or {}
+    if 'pinned' in d:
+        e.pinned = bool(d['pinned'])
+    if d.get('status') in IIC_STATUS:
+        e.status = d['status']
+    if 'confidence' in d:
+        try:
+            e.confidence = max(0, min(100, int(d['confidence'])))
+        except Exception:
+            pass
+    if d.get('category') in IIC_CATEGORIES:
+        e.category = d['category']
+    for f in ('title', 'summary', 'practical_impact', 'source_name', 'source_url'):
+        if f in d:
+            setattr(e, f, (d[f] or None))
+    db.session.commit()
+    return jsonify({'ok': True, 'entry': _iic_entry_dict(e)})
+
+
+@app.route('/api/intelligence/cheatsheet/regenerate', methods=['POST'])
+@login_required
+def iic_cheatsheet_regen():
+    api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key'}), 400
+    entries = KnowledgeEntry.query.order_by(KnowledgeEntry.confidence.desc()).limit(150).all()
+    if not entries:
+        return jsonify({'ok': False, 'error': 'Noch keine Wissens-Einträge vorhanden'}), 400
+    facts = '\n'.join(
+        f"- [{e.category} · {e.status} · {e.confidence}%] {e.title}: {e.summary}" for e in entries)
+    uc = (
+        "Erstelle aus den folgenden Wissens-Einträgen ein kompaktes, aktuelles Cheat Sheet "
+        "Was funktioniert gerade auf Instagram? in Markdown. Struktur exakt:\n"
+        "## Ranking-Faktoren nach Priorität\n## Wichtigste Do's\n## Wichtigste Don'ts\n"
+        "## Bekannte Änderungen\n## Warnungen\n## Offene Fragen\n\n"
+        "Markiere JEDE Aussage am Ende mit (✅ bestätigt / 🟡 wahrscheinlich / ❓ unklar / "
+        "❌ widerlegt). Formuliere Wahrscheinlichkeiten statt Absolutaussagen. Nur aus den "
+        "Einträgen ableiten, nichts erfinden.\n\n--- WISSENS-EINTRÄGE ---\n" + facts[:18000])
+    try:
+        import anthropic as _ant
+        client = _ant.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=(get_setting('analysis_model') or 'claude-sonnet-4-6'),
+            max_tokens=3000, messages=[{'role': 'user', 'content': uc}])
+        _log_ai('iic_cheatsheet', resp)
+        md = ''.join(b.text for b in resp.content if getattr(b, 'type', '') == 'text').strip()
+    except Exception as ex:
+        return jsonify({'ok': False, 'error': str(ex)}), 500
+    set_setting('iic_cheatsheet', md)
+    set_setting('iic_cheatsheet_updated', now_berlin().strftime('%d.%m.%Y %H:%M'))
+    db.session.commit()
+    return jsonify({'ok': True, 'cheatsheet': md, 'updated': get_setting('iic_cheatsheet_updated')})
 
 
 if __name__ == '__main__':
