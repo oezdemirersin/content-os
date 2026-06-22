@@ -487,7 +487,16 @@
       <div class="s-section-title">Export</div>
       <div class="s-group">
         <div class="s-row">
-          <div class="s-row-label"><b>Vollexport</b><small style="display:block">Alle Accounts, Inhalte, Config als JSON</small></div>
+          <div class="s-row-label">
+            <b>Vollexport</b>
+            <small style="display:block">Alle Accounts, Inhalte, Config als JSON
+              {% if last_backup_days is not none %}
+                · <span style="color:{{ 'var(--danger)' if last_backup_days >= 30 else 'var(--success)' }}">letztes Backup vor {{ last_backup_days }} Tag{{ 'en' if last_backup_days != 1 else '' }}</span>
+              {% else %}
+                · <span style="color:var(--danger)">noch kein Backup erstellt</span>
+              {% endif %}
+            </small>
+          </div>
           <a href="/api/export/all" class="btn btn-ghost s-btn-sm"><i class="fa-solid fa-download"></i> JSON</a>
         </div>
         <div class="s-row">

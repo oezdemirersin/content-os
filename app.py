@@ -1776,7 +1776,7 @@ def generate_alerts():
     # Clear old unresolved automated alerts
     SystemAlert.query.filter_by(resolved=False).filter(
         SystemAlert.alert_type.in_(['low_stock', 'no_posts', 'empty_stock', 'overcapacity',
-                                    'follower_loss', 'watchlist_no_reply'])
+                                    'follower_loss', 'watchlist_no_reply', 'backup_overdue'])
     ).delete()
     db.session.flush()  # sicherstellen dass deletes durch sind bevor neue eingefügt werden
 
@@ -1915,6 +1915,31 @@ def generate_alerts():
             message=msg,
         ))
         _send_central_alert(msg)
+
+    # ── DB-Backup-Reminder: Render Free-DB wird 90 Tage nach Erstellung gelöscht ──
+    # Nur In-App-Alert (kein zentraler Telegram-Spam alle 5 Min). Verschwindet
+    # automatisch, sobald ein Vollexport gemacht wurde (last_full_backup_at).
+    try:
+        threshold_days = int(get_setting('backup_reminder_days') or 30)
+        last_bk = get_setting('last_full_backup_at')
+        if not last_bk:
+            db.session.add(SystemAlert(
+                alert_type='backup_overdue', severity='warning',
+                message=('🛟 Noch kein Daten-Backup erstellt. Render löscht die kostenlose '
+                         'Datenbank 90 Tage nach Erstellung — jetzt unter Einstellungen → Daten '
+                         '→ "Vollexport" sichern.'),
+            ))
+        else:
+            days_since = (datetime.utcnow() - datetime.fromisoformat(last_bk)).days
+            if days_since >= threshold_days:
+                db.session.add(SystemAlert(
+                    alert_type='backup_overdue', severity='warning',
+                    message=(f'🛟 Letztes Daten-Backup vor {days_since} Tagen. Render löscht die '
+                             f'kostenlose Datenbank 90 Tage nach Erstellung — bitte "Vollexport" '
+                             f'unter Einstellungen → Daten erstellen.'),
+                ))
+    except Exception as e:
+        app.logger.error('generate_alerts: Backup-Reminder-Fehler — %s', e)
 
     try:
         db.session.commit()
@@ -5531,6 +5556,13 @@ def settings():
     labels = Label.query.order_by(Label.name).all()
     platforms = Platform.query.all()
     ns = NotificationSettings.query.first()
+    _lb = gs('last_full_backup_at')
+    last_backup_days = None
+    if _lb:
+        try:
+            last_backup_days = (datetime.utcnow() - datetime.fromisoformat(_lb)).days
+        except Exception:
+            pass
     return render_template('settings.html',
         categories=categories, labels=labels, platforms=platforms,
         active_page='settings',
@@ -5549,6 +5581,8 @@ def settings():
         ).count(),
         # Benachrichtigungen
         low_stock_days=(ns.low_stock_days if ns else None) or 3,
+        # Daten
+        last_backup_days=last_backup_days,
     )
 
 
@@ -6867,6 +6901,9 @@ def export_all_data():
     }
 
     json_str = json.dumps(data, ensure_ascii=False, indent=2)
+    # Backup-Zeitpunkt merken → Reminder-Alert (Render Free-DB Wipe nach 90 Tagen)
+    set_setting('last_full_backup_at', datetime.utcnow().isoformat())
+    db.session.commit()
     stamp = datetime.now().strftime('%Y-%m-%d_%H-%M')
     return Response(
         json_str, mimetype='application/json',
@@ -13729,6 +13766,18 @@ def toggle_watermark(account_id):
 @app.route('/api/telegram/bot-webhook', methods=['POST'])
 def telegram_bot_webhook():
     """Empfängt Updates vom Telegram-Bot. Reagiert account-spezifisch wenn Chat-ID einem Account gehört."""
+    # ── Sicherheit: secret_token prüfen ──────────────────────────
+    # Der Endpoint ist öffentlich (Telegram hat keine Session). Telegram sendet
+    # den bei setWebhook hinterlegten Secret-Token im Header zurück. Ist ein
+    # Secret konfiguriert, MUSS er passen — sonst stammt der Request nicht von
+    # Telegram und wird verworfen. (Kein Secret = Alt-Setup, dann durchlassen,
+    # bis der User den Webhook neu registriert.)
+    expected_secret = get_setting('telegram_webhook_secret')
+    if expected_secret:
+        sent_secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
+        if sent_secret != expected_secret:
+            return jsonify({'ok': False}), 403
+
     data  = request.get_json() or {}
     token = get_setting('telegram_bot_token')
     if not token:
@@ -14035,13 +14084,20 @@ def telegram_register_webhook():
     # Render-URL aus Request-Host ableiten oder aus AppSettings lesen
     base_url = get_setting('app_base_url') or f'https://{request.host}'
     webhook_url = f'{base_url}/api/telegram/bot-webhook'
+    # Secret-Token generieren + speichern: Telegram sendet ihn bei jedem Update
+    # im Header X-Telegram-Bot-Api-Secret-Token zurück → Webhook akzeptiert dann
+    # nur noch echte Telegram-Requests. (1–256 Zeichen A-Z a-z 0-9 _ -)
+    import secrets as _secrets
+    secret = _secrets.token_urlsafe(32)
     try:
         import requests as _r
         res = _r.post(
             f'https://api.telegram.org/bot{token}/setWebhook',
-            json={'url': webhook_url}, timeout=10
+            json={'url': webhook_url, 'secret_token': secret}, timeout=10
         ).json()
         if res.get('ok'):
+            set_setting('telegram_webhook_secret', secret)
+            db.session.commit()
             return jsonify({'ok': True, 'webhook_url': webhook_url})
         return jsonify({'ok': False, 'error': res.get('description', 'Unbekannter Fehler')})
     except Exception as e:
