@@ -478,6 +478,30 @@
         </div>
       </div>
 
+      <div class="s-section-title">KI-Budget</div>
+      <div class="s-group">
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Monatliches Budget</b>
+            <small>Alert, wenn die KI-Kosten diesen Monat das Budget übersteigen · 0 = aus</small>
+          </div>
+          <div class="s-row-ctrl" style="display:flex;align-items:center;gap:8px">
+            <span style="color:var(--muted)">€</span>
+            <input id="aiBudget" type="number" min="0" step="1" value="{{ ai_budget }}" class="s-input s-input-w80" placeholder="0">
+            <button onclick="saveAiBudget()" class="btn btn-ghost s-btn-sm">Speichern</button>
+          </div>
+        </div>
+        <div class="s-row">
+          <div class="s-row-label">
+            <b>Diesen Monat ausgegeben</b>
+            <small>Summe aller KI-Calls seit Monatsanfang</small>
+          </div>
+          <div class="s-row-ctrl">
+            <span style="font-weight:800;color:{% if ai_budget and ai_budget|float > 0 and ai_spend_month > ai_budget|float %}var(--danger){% else %}var(--success){% endif %}">{{ '%.2f'|format(ai_spend_month) }} €</span>
+          </div>
+        </div>
+      </div>
+
     </div><!-- /ki -->
 
     <!-- ══ RECHNUNG ══ -->
@@ -695,6 +719,14 @@ async function saveAiModel(key, value) {
     body: JSON.stringify({key, value})
   }).then(r=>r.json());
   if (r.ok) showToast('Modell gespeichert ✓', 'success');
+}
+async function saveAiBudget() {
+  const val = (document.getElementById('aiBudget').value || '0').toString().trim();
+  const r = await fetch('/api/settings/set', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({key:'ai_budget_eur', value: val})
+  }).then(r=>r.json());
+  if (r.ok) showToast('KI-Budget gespeichert ✓', 'success');
 }
 // Load saved models
 (async function() {

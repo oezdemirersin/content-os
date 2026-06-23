@@ -121,7 +121,8 @@ class Account(db.Model):
     following_count = db.Column(db.Integer, default=0)
     post_count = db.Column(db.Integer, default=0)
 
-    status = db.Column(db.String(20), default='active', index=True)  # active, paused, error, inactive
+    status = db.Column(db.String(20), default='active', index=True)  # active, paused, error, inactive, geplant
+    posting_enabled = db.Column(db.Boolean, default=True)  # Vorrat-Toggle: False = sammeln, nicht posten
     automation_level = db.Column(db.Integer, default=0)  # 0-4
     priority = db.Column(db.String(20), default='medium')  # low, medium, high, critical
 

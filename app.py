@@ -1656,6 +1656,7 @@ def init_db():
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS warning_count INTEGER DEFAULT 0')
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS tg_personal_chat_id VARCHAR(100)')
         safe_alter('ALTER TABLE knowledge_entry ADD COLUMN IF NOT EXISTS last_verified DATE')
+        safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS posting_enabled BOOLEAN DEFAULT TRUE')
 
         # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
         if is_postgres:
@@ -1795,7 +1796,8 @@ def generate_alerts():
     # Clear old unresolved automated alerts
     SystemAlert.query.filter_by(resolved=False).filter(
         SystemAlert.alert_type.in_(['low_stock', 'no_posts', 'empty_stock', 'overcapacity',
-                                    'follower_loss', 'watchlist_no_reply', 'backup_overdue'])
+                                    'follower_loss', 'watchlist_no_reply', 'backup_overdue',
+                                    'ai_budget'])
     ).delete()
     db.session.flush()  # sicherstellen dass deletes durch sind bevor neue eingefügt werden
 
@@ -1960,6 +1962,21 @@ def generate_alerts():
                 ))
     except Exception as e:
         app.logger.error('generate_alerts: Backup-Reminder-Fehler — %s', e)
+
+    # ── KI-Budget-Alert: Monats-KI-Kosten über dem gesetzten Budget? ──
+    try:
+        budget = float(get_setting('ai_budget_eur') or 0)
+        if budget > 0:
+            _ms = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            spend = db.session.query(func.coalesce(func.sum(AiUsageLog.cost_eur), 0.0)) \
+                .filter(AiUsageLog.created_at >= _ms).scalar() or 0.0
+            if spend > budget:
+                db.session.add(SystemAlert(
+                    alert_type='ai_budget', severity='warning',
+                    message=(f'🤖 KI-Budget überschritten: {spend:.2f} € diesen Monat '
+                             f'(Budget {budget:.0f} €). KI-Nutzung prüfen oder Budget anpassen.')))
+    except Exception as e:
+        app.logger.error('generate_alerts: KI-Budget-Fehler — %s', e)
 
     try:
         db.session.commit()
@@ -2486,11 +2503,13 @@ def _send_due_telegram_posts():
             # Berlin feuern (1–2 h zu spät).
             now = now_berlin()
             sent_at = datetime.utcnow()  # Audit-Timestamp bleibt UTC (App-Konvention)
-            due = ScheduledPost.query.filter(
+            # Nur Accounts mit aktivem Vorrat-/Posting-Toggle (posting_enabled != False)
+            due = ScheduledPost.query.join(Account, ScheduledPost.account_id == Account.id).filter(
                 ScheduledPost.scheduled_at <= now,
                 ScheduledPost.status == 'scheduled',
                 ScheduledPost.slot_type != 'disabled',
                 ScheduledPost.telegram_sent_at == None,
+                Account.posting_enabled.isnot(False),
             ).options(joinedload(ScheduledPost.account)).all()
 
             sent = 0
@@ -3476,6 +3495,19 @@ def accounts():
         for s in snaps:
             growth_map[s.account_id] = s.followers
 
+    # ── Setup-Tracker: wie viele Seiten startklar / brauchen noch was ──
+    _active_total = Account.query.filter_by(status='active').count()
+    _no_channel = Account.query.filter(Account.status == 'active',
+        db.or_(Account.telegram_chat_id == None, Account.telegram_chat_id == '')).count()
+    setup = {
+        'geplant':      Account.query.filter_by(status='geplant').count(),
+        'active_total': _active_total,
+        'no_channel':   _no_channel,
+        'ready':        _active_total - _no_channel,
+        'posting_off':  Account.query.filter(Account.status == 'active',
+                            Account.posting_enabled.is_(False)).count(),
+    }
+
     _f = {'q': q, 'category': category_id, 'platform': platform_id,
           'status': status, 'automation': automation, 'priority': priority, 'sort': sort}
     return render_template('accounts.html',
@@ -3484,6 +3516,7 @@ def accounts():
         active_page='accounts',
         acc_type=acc_type,
         growth_map=growth_map,
+        setup=setup,
         filters={k: v for k, v in _f.items() if v})
 
 
@@ -5626,9 +5659,14 @@ def settings():
             last_backup_days = (datetime.utcnow() - datetime.fromisoformat(_lb)).days
         except Exception:
             pass
+    _ms = now_berlin().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    ai_spend_month = db.session.query(func.coalesce(func.sum(AiUsageLog.cost_eur), 0.0)) \
+        .filter(AiUsageLog.created_at >= _ms).scalar() or 0.0
     return render_template('settings.html',
         categories=categories, labels=labels, platforms=platforms,
         active_page='settings',
+        ai_budget=gs('ai_budget_eur', ''),
+        ai_spend_month=round(ai_spend_month, 2),
         # Verbindungen
         ig_sync_method=gs('ig_sync_method', 'apify' if gs('apify_token') else 'direct'),
         apify_token_set=bool(gs('apify_token')),
@@ -6057,8 +6095,10 @@ def accounts_bulk():
     accs = Account.query.filter(Account.id.in_(ids)).all()
     count = 0
     for acc in accs:
-        if action == 'status' and value in ['active', 'paused', 'error', 'inactive']:
+        if action == 'status' and value in ['active', 'paused', 'error', 'inactive', 'geplant']:
             acc.status = value; count += 1
+        elif action == 'posting' and value in ['on', 'off']:
+            acc.posting_enabled = (value == 'on'); count += 1
         elif action == 'automation' and value is not None:
             acc.automation_level = int(value); count += 1
         elif action == 'priority' and value in ['critical', 'high', 'medium', 'low']:
@@ -6068,6 +6108,16 @@ def accounts_bulk():
 
     db.session.commit()
     return jsonify({'ok': True, 'affected': count})
+
+
+@app.route('/api/accounts/<int:account_id>/toggle-posting', methods=['POST'])
+@login_required
+def account_toggle_posting(account_id):
+    """Vorrat-/Posting-Toggle: an = Posts werden gesendet, aus = nur Vorrat sammeln."""
+    acc = Account.query.get_or_404(account_id)
+    acc.posting_enabled = not (acc.posting_enabled is not False)
+    db.session.commit()
+    return jsonify({'ok': True, 'posting_enabled': acc.posting_enabled})
 
 
 # ─────────────────────── GLOBAL SEARCH ───────────────────────

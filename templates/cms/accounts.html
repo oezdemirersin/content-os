@@ -184,6 +184,18 @@
   </div>
 </div>
 
+<!-- Setup-Tracker -->
+{% if setup and (setup.active_total or setup.geplant) %}
+<div class="card" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;padding:12px 18px;margin-bottom:16px">
+  <span style="font-size:12px;font-weight:700;color:var(--accent2)">🚀 Setup-Status</span>
+  <span style="font-size:13px">✅ <b style="color:var(--success)">{{ setup.ready }}</b> startklar</span>
+  {% if setup.no_channel %}<a href="{{ url_for('accounts', status='active') }}" style="font-size:13px;color:var(--warning);text-decoration:none">⚠️ <b>{{ setup.no_channel }}</b> ohne Channel-ID</a>{% endif %}
+  {% if setup.posting_off %}<span style="font-size:13px;color:var(--muted)">⏸ <b>{{ setup.posting_off }}</b> Posting aus (Vorrat)</span>{% endif %}
+  {% if setup.geplant %}<a href="{{ url_for('accounts', status='geplant') }}" style="font-size:13px;color:var(--accent);text-decoration:none">📋 <b>{{ setup.geplant }}</b> geplant</a>{% endif %}
+  <span style="font-size:11px;color:var(--muted);margin-left:auto">{{ setup.active_total }} aktive Seiten</span>
+</div>
+{% endif %}
+
 <!-- Bulk bar -->
 <div id="accBulkBar" class="acc-col-check" style="align-items:center;gap:12px;padding:12px 20px;
      background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);
@@ -193,6 +205,7 @@
     <option value="">Status…</option>
     <option value="active">Aktiv</option>
     <option value="paused">Pausiert</option>
+    <option value="geplant">Geplant</option>
     <option value="inactive">Inaktiv</option>
   </select>
   <select id="bulkAccPrio" class="select-field" style="width:auto;font-size:12px;padding:6px 10px">
@@ -204,6 +217,9 @@
   </select>
   <button onclick="accBulk('status',document.getElementById('bulkAccStatus').value)" class="btn btn-primary" style="font-size:12px;padding:6px 14px">Status setzen</button>
   <button onclick="accBulk('priority',document.getElementById('bulkAccPrio').value)" class="btn btn-ghost" style="font-size:12px;padding:6px 14px">Priorität</button>
+  <span style="width:1px;height:20px;background:var(--border)"></span>
+  <button onclick="accBulk('posting','on')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--success)" title="Posting aktivieren">▶ Posting an</button>
+  <button onclick="accBulk('posting','off')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--muted)" title="Nur Vorrat sammeln, nicht posten">⏸ Vorrat</button>
   <button onclick="accDeselect()" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;margin-left:auto">Aufheben</button>
 </div>
 
@@ -238,7 +254,9 @@
         <option value="">Alle</option>
         <option value="active" {% if filters.status=='active' %}selected{% endif %}>Aktiv</option>
         <option value="paused" {% if filters.status=='paused' %}selected{% endif %}>Pausiert</option>
+        <option value="geplant" {% if filters.status=='geplant' %}selected{% endif %}>Geplant</option>
         <option value="error" {% if filters.status=='error' %}selected{% endif %}>Fehler</option>
+        <option value="inactive" {% if filters.status=='inactive' %}selected{% endif %}>Inaktiv</option>
       </select>
     </div>
     <div style="min-width:110px">
@@ -270,6 +288,7 @@
         <th class="sortable" data-col="2" onclick="sortTable(2)" style="text-align:right;cursor:pointer;user-select:none">Follower <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th style="text-align:right">7T Wachstum</th>
         <th class="sortable" data-col="3" onclick="sortTable(3)" style="text-align:center;cursor:pointer;user-select:none">Vorrat <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
+        <th style="text-align:center" title="An = Posts werden gesendet. Aus = nur Vorrat sammeln.">Posting</th>
         <th style="text-align:center">Status</th>
         <th style="text-align:center">Priorität</th>
         <th></th>
@@ -368,10 +387,21 @@
           {% endif %}
         </td>
         <td style="text-align:center">
+          <button type="button" onclick="togglePosting({{ acc.id }}, this)"
+                  class="post-toggle" title="Posting an/aus — aus = nur Vorrat sammeln"
+                  style="border:none;cursor:pointer;border-radius:20px;padding:3px 10px;font-size:10px;font-weight:800;white-space:nowrap;
+                         background:{% if acc.posting_enabled == false %}var(--surface2){% else %}rgba(34,197,94,.16){% endif %};
+                         color:{% if acc.posting_enabled == false %}var(--muted){% else %}var(--success){% endif %}">
+            {% if acc.posting_enabled == false %}⏸ Vorrat{% else %}▶ Aktiv{% endif %}
+          </button>
+        </td>
+        <td style="text-align:center">
           {% if acc.status == 'active' %}
           <span class="badge badge-green">Aktiv</span>
           {% elif acc.status == 'paused' %}
           <span class="badge badge-yellow">Pause</span>
+          {% elif acc.status == 'geplant' %}
+          <span class="badge" style="background:rgba(99,102,241,.15);color:var(--accent2)">Geplant</span>
           {% elif acc.status == 'error' %}
           <span class="badge badge-red">Fehler</span>
           {% else %}
@@ -549,6 +579,17 @@ async function accBulk(action, value) {
   });
   const d = await res.json();
   if (d.ok) { showToast(`${d.affected} Account(s) aktualisiert.`); setTimeout(()=>location.reload(), 800); }
+}
+
+// Vorrat-/Posting-Toggle pro Seite
+async function togglePosting(id, btn){
+  const r = await fetch(`/api/accounts/${id}/toggle-posting`, {method:'POST'}).then(r=>r.json()).catch(()=>null);
+  if(!r || !r.ok) return;
+  const on = r.posting_enabled;
+  btn.style.background = on ? 'rgba(34,197,94,.16)' : 'var(--surface2)';
+  btn.style.color = on ? 'var(--success)' : 'var(--muted)';
+  btn.textContent = on ? '▶ Aktiv' : '⏸ Vorrat';
+  if(typeof showToast==='function') showToast(on ? 'Posting aktiviert.' : 'Posting aus — Vorrat wird gesammelt.', on ? 'success' : 'info');
 }
 
 // ── Quick-Bulk-Creator ──

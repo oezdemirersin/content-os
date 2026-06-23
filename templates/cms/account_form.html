@@ -90,7 +90,7 @@
         <div>
           <label class="form-label">Status</label>
           <select name="status" class="select-field">
-            {% for s,l in [('active','Aktiv'),('paused','Pausiert'),('error','Fehler'),('inactive','Inaktiv')] %}
+            {% for s,l in [('active','Aktiv'),('paused','Pausiert'),('geplant','Geplant (noch nicht erstellt)'),('error','Fehler'),('inactive','Inaktiv')] %}
             <option value="{{ s }}" {% if account and account.status==s %}selected{% endif %}>{{ l }}</option>
             {% endfor %}
           </select>
