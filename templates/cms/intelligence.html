@@ -108,6 +108,7 @@
       <option value="">Alle Status</option>
       <template x-for="s in statuses" :key="s"><option :value="s" x-text="s"></option></template>
     </select>
+    <span class="iic-chip" :class="fStale&&'active'" @click="fStale=!fStale" style="white-space:nowrap">⏳ nur Aktualität prüfen</span>
     <span style="font-size:12px;color:var(--muted)" x-text="filtered.length + ' / ' + entries.length"></span>
   </div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
@@ -130,6 +131,7 @@
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px">
             <span class="iic-badge" style="background:rgba(99,102,241,.15);color:var(--accent2)" x-text="e.category"></span>
             <span class="iic-badge" :style="statusStyle(e.status)" x-text="statusLabel(e.status)"></span>
+            <span x-show="e.stale" class="iic-badge" style="background:rgba(245,158,11,.15);color:var(--warning)" title="Seit über 6 Monaten nicht neu auf Aktualität geprüft">⏳ Aktualität prüfen</span>
             <span x-show="e.pinned" style="color:var(--accent)" title="Angepinnt">📌</span>
           </div>
           <div style="font-size:14px;font-weight:700;color:var(--text)" x-text="e.title"></div>
@@ -156,7 +158,8 @@
         <span style="font-size:11px;color:var(--muted);flex-shrink:0">
           <template x-if="e.source_url"><a :href="e.source_url" target="_blank" style="color:var(--accent)" x-text="e.source_name || 'Quelle'"></a></template>
           <template x-if="!e.source_url"><span x-text="e.source_name || ''"></span></template>
-          <span x-show="e.source_date" x-text="' · ' + e.source_date"></span>
+          <span x-show="e.source_year" x-text="' · Quelle ' + e.source_year"></span>
+          <span x-show="e.last_verified" x-text="' · geprüft ' + e.last_verified" :style="e.stale ? 'color:var(--warning)' : ''"></span>
         </span>
       </div>
     </div>
@@ -199,7 +202,7 @@ function iic(){
     cheatHtml:'', cheatUpdated: IIC_DATA.cheatUpdated, cheatLoading:false,
     mode:'research', research:'', text:'', sourceName:'', url:'', catHint:'',
     busy:false, msg:'', msgErr:false,
-    search:'', fCat:'', fStatus:'',
+    search:'', fCat:'', fStatus:'', fStale:false,
 
     init(){ this.cheatHtml = mdToHtml(IIC_DATA.cheatsheet); },
 
@@ -208,6 +211,7 @@ function iic(){
       return this.entries.filter(e =>
         (!this.fCat || e.category===this.fCat) &&
         (!this.fStatus || e.status===this.fStatus) &&
+        (!this.fStale || e.stale) &&
         (!q || (e.title+' '+e.summary+' '+(e.practical_impact||'')+' '+(e.key_points||[]).join(' ')).toLowerCase().includes(q))
       );
     },

@@ -1084,5 +1084,6 @@ class KnowledgeEntry(db.Model):
     status           = db.Column(db.String(20), default='unklar')  # bestätigt/wahrscheinlich/unklar/widerlegt
     raw_content      = db.Column(db.Text)                          # Originaltext / Transkript
     pinned           = db.Column(db.Boolean, default=False)
+    last_verified    = db.Column(db.Date)                          # wann zuletzt als „heute noch gültig" bestätigt
     created_at       = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at       = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

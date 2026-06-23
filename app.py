@@ -1655,6 +1655,7 @@ def init_db():
         safe_alter("ALTER TABLE team_member ADD COLUMN IF NOT EXISTS work_status VARCHAR(20) DEFAULT 'aktiv'")
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS warning_count INTEGER DEFAULT 0')
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS tg_personal_chat_id VARCHAR(100)')
+        safe_alter('ALTER TABLE knowledge_entry ADD COLUMN IF NOT EXISTS last_verified DATE')
 
         # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
         if is_postgres:
@@ -15339,6 +15340,11 @@ IIC_SYSTEM = (
     "- Status: 'bestätigt' (offizielle Quelle), 'wahrscheinlich' (gute Indizien), "
     "'unklar' (widersprüchlich/dünn), 'widerlegt' (nachweislich falsch).\n"
     "- Nenne Quelle + Link wenn vorhanden. Erfinde KEINE Quellen oder URLs.\n"
+    "- AKTUALITÄT IST PFLICHT: Nenne immer das Quelldatum (source_date, falls bekannt). "
+    "Bevorzuge aktuelle Quellen. Wenn eine Information möglicherweise veraltet ist oder du nicht "
+    "sicher bestätigen kannst, dass sie HEUTE noch gilt, senke den Vertrauensscore deutlich und "
+    "setze status auf 'unklar' mit Hinweis im Text. Eine ältere Aussage nur dann als 'bestätigt' "
+    "führen, wenn sie nachweislich weiterhin aktuell ist.\n"
     "- Kategorien NUR aus: " + ', '.join(IIC_CATEGORIES) + ".\n"
     "- Leite konkrete praktische Auswirkungen fürs Seiten-Wachstum ab.\n\n"
     "Antworte AUSSCHLIESSLICH mit einem JSON-Array (kein weiterer Text):\n"
@@ -15398,7 +15404,7 @@ def _iic_parse_and_save(text):
             source_date=sd, summary=it.get('summary'),
             key_points=_json.dumps(it.get('key_points', []), ensure_ascii=False),
             practical_impact=it.get('practical_impact'),
-            confidence=conf, status=st)
+            confidence=conf, status=st, last_verified=now_berlin().date())
         db.session.add(e)
         created.append(e)
     db.session.commit()
@@ -15407,14 +15413,22 @@ def _iic_parse_and_save(text):
 
 def _iic_entry_dict(e):
     import json as _json
+    from datetime import date as _d
     try:
         kp = _json.loads(e.key_points) if e.key_points else []
     except Exception:
         kp = []
+    # Aktualität: stale = seit >180 Tagen nicht mehr als „heute gültig" bestätigt
+    # (oder nie geprüft). source_year zeigt zusätzlich, wie alt die Ur-Quelle ist.
+    lv = getattr(e, 'last_verified', None)
+    stale = True if not lv else (_d.today() - lv).days > 180
     return {
         'id': e.id, 'title': e.title, 'category': e.category,
         'source_name': e.source_name, 'source_url': e.source_url,
         'source_date': e.source_date.isoformat() if e.source_date else None,
+        'source_year': e.source_date.year if e.source_date else None,
+        'last_verified': lv.strftime('%d.%m.%Y') if lv else None,
+        'stale': stale,
         'summary': e.summary, 'key_points': kp, 'practical_impact': e.practical_impact,
         'confidence': e.confidence, 'status': e.status, 'pinned': e.pinned,
         'created_at': e.created_at.strftime('%d.%m.%Y') if e.created_at else None,
