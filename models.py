@@ -123,6 +123,7 @@ class Account(db.Model):
 
     status = db.Column(db.String(20), default='active', index=True)  # active, paused, error, inactive, geplant
     posting_enabled = db.Column(db.Boolean, default=True)  # Vorrat-Toggle: False = sammeln, nicht posten
+    needs_stock = db.Column(db.Boolean, default=True)  # False = täglich frische Posts, kein Vorrat/keine Vorrat-Alerts
     automation_level = db.Column(db.Integer, default=0)  # 0-4
     priority = db.Column(db.String(20), default='medium')  # low, medium, high, critical
 

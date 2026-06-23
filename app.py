@@ -1657,6 +1657,7 @@ def init_db():
         safe_alter('ALTER TABLE team_member ADD COLUMN IF NOT EXISTS tg_personal_chat_id VARCHAR(100)')
         safe_alter('ALTER TABLE knowledge_entry ADD COLUMN IF NOT EXISTS last_verified DATE')
         safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS posting_enabled BOOLEAN DEFAULT TRUE')
+        safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS needs_stock BOOLEAN DEFAULT TRUE')
 
         # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
         if is_postgres:
@@ -1805,13 +1806,13 @@ def generate_alerts():
     now = now_berlin()  # Vorrats-/Lücken-Alerts vergleichen gegen scheduled_at (Berlin-naiv)
 
     for acc in accounts:
-        # Vollautomatische Accounts (level ≥ 3) brauchen keinen Vorrat —
-        # CityBot / externe Automation liefert den Content selbst.
-        is_auto = acc.automation_level >= 3
+        # „Kein Vorrat nötig": vollautomatisch (level ≥ 3, CityBot/Automation liefert
+        # selbst) ODER täglich frische Posts (needs_stock=False) — beide ohne Vorrats-Nag.
+        skip_stock = acc.automation_level >= 3 or acc.needs_stock is False
 
         days = acc.feed_stock_days()
 
-        if not is_auto:
+        if not skip_stock:
             if days == 0:
                 db.session.add(SystemAlert(
                     account_id=acc.id, alert_type='empty_stock', severity='critical',
@@ -1842,14 +1843,14 @@ def generate_alerts():
         # nicht bereits ein empty_stock-Alert (days==0) gesetzt wurde (sonst doppelt)
         upcoming = ScheduledPost.query.filter_by(account_id=acc.id, status='scheduled')\
             .filter(ScheduledPost.scheduled_at >= now).count()
-        if upcoming == 0 and not is_auto and days > 0:
+        if upcoming == 0 and not skip_stock and days > 0:
             db.session.add(SystemAlert(
                 account_id=acc.id, alert_type='no_posts', severity='warning',
                 message=f'"{acc.name}" hat keine geplanten Posts'
             ))
 
         # Content-Gap-Alarm: kein Post in den nächsten 48h (nur manuelle Accounts)
-        if not is_auto:
+        if not skip_stock:
             in_48h = now + timedelta(hours=48)
             gap_post = ScheduledPost.query.filter(
                 ScheduledPost.account_id == acc.id,
@@ -3539,6 +3540,7 @@ def account_new():
             target_feed_per_day=round(1.0 / interval, 3) if interval > 0 else 1.0,
             min_stock_days=int(d.get('min_stock_days') or 3),
             optimal_stock_days=int(d.get('optimal_stock_days') or 14),
+            needs_stock=(d.get('no_stock') != 'on'),
             telegram_chat_id=d.get('telegram_chat_id', '').strip() or None,
             canva_url=d.get('canva_url', '').strip() or None,
             layout_notes=d.get('layout_notes', '').strip() or None,
@@ -3638,6 +3640,7 @@ def account_edit(account_id):
         account.target_feed_per_day = round(1.0 / interval, 3) if interval > 0 else 1.0
         account.min_stock_days = int(d.get('min_stock_days') or 3)
         account.optimal_stock_days = int(d.get('optimal_stock_days') or 14)
+        account.needs_stock = (d.get('no_stock') != 'on')
         account.telegram_chat_id = d.get('telegram_chat_id', '').strip() or None
         account.canva_url         = d.get('canva_url', '').strip() or None
         account.layout_notes      = d.get('layout_notes', '').strip() or None
@@ -6099,6 +6102,8 @@ def accounts_bulk():
             acc.status = value; count += 1
         elif action == 'posting' and value in ['on', 'off']:
             acc.posting_enabled = (value == 'on'); count += 1
+        elif action == 'needs_stock' and value in ['on', 'off']:
+            acc.needs_stock = (value == 'on'); count += 1
         elif action == 'automation' and value is not None:
             acc.automation_level = int(value); count += 1
         elif action == 'priority' and value in ['critical', 'high', 'medium', 'low']:

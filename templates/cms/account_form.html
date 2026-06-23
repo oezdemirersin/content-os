@@ -158,6 +158,13 @@
             <input type="number" name="optimal_stock_days" value="{{ account.optimal_stock_days if account else 14 }}" min="1" class="input-field">
           </div>
         </div>
+
+        <label style="display:flex;align-items:center;gap:8px;margin-top:14px;cursor:pointer;font-size:13px">
+          <input type="checkbox" name="no_stock" value="on"
+                 {% if account and account.needs_stock == false %}checked{% endif %}
+                 style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer">
+          <span><b>Kein Vorrat nötig</b> — täglich frische Posts (keine Vorrat-Warnungen, Ampel zeigt „Täglich")</span>
+        </label>
       </div>
     </div>
 

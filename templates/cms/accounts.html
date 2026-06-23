@@ -220,6 +220,9 @@
   <span style="width:1px;height:20px;background:var(--border)"></span>
   <button onclick="accBulk('posting','on')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--success)" title="Posting aktivieren">▶ Posting an</button>
   <button onclick="accBulk('posting','off')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--muted)" title="Nur Vorrat sammeln, nicht posten">⏸ Vorrat</button>
+  <span style="width:1px;height:20px;background:var(--border)"></span>
+  <button onclick="accBulk('needs_stock','off')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" title="Täglich frische Posts — keine Vorrat-Alerts">📆 Kein Vorrat</button>
+  <button onclick="accBulk('needs_stock','on')" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" title="Vorrat wird wieder getrackt">📦 Vorrat nötig</button>
   <button onclick="accDeselect()" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;margin-left:auto">Aufheben</button>
 </div>
 
@@ -363,7 +366,15 @@
             </span>
           {% else %}
             {% set p = acc.auto_profile %}
-            {% if p and p.disable_stock_amp %}
+            {% if acc.needs_stock == false %}
+              {# Täglich frische Posts — kein Vorrat nötig #}
+              <span title="Täglich frische Posts — kein Vorrat nötig"
+                    style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;
+                           background:var(--surface2);color:var(--muted);border-radius:8px;
+                           font-size:10px;font-weight:700;border:1px solid var(--border)">
+                <i class="fa-solid fa-calendar-day" style="font-size:9px"></i> Täglich
+              </span>
+            {% elif p and p.disable_stock_amp %}
               <span style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;
                            color:#818cf8;font-size:11px;font-weight:700">
                 <i class="fa-solid fa-robot" style="font-size:10px"></i> Auto
