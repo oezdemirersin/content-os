@@ -15325,7 +15325,7 @@ IIC_CATEGORIES = [
     'Spam Detection', 'Shadowban & Einschränkungen', 'Monetarisierung', 'Urheberrecht',
     'AI-Content', 'Hashtags', 'Posting-Frequenz', 'Engagement-Signale',
     'Negative Ranking-Signale', 'Creator-Best-Practices', 'Mythen & Missverständnisse',
-    'Eigene Experimente',
+    'Eigene Experimente', 'Wachstums-Hacks (Indizien)',
 ]
 IIC_STATUS = ['bestätigt', 'wahrscheinlich', 'unklar', 'widerlegt']
 
@@ -15345,6 +15345,9 @@ IIC_SYSTEM = (
     "sicher bestätigen kannst, dass sie HEUTE noch gilt, senke den Vertrauensscore deutlich und "
     "setze status auf 'unklar' mit Hinweis im Text. Eine ältere Aussage nur dann als 'bestätigt' "
     "führen, wenn sie nachweislich weiterhin aktuell ist.\n"
+    "- Nicht-offizielle, aber plausible Tipps/Hacks (logisch aus bestätigten Mechaniken "
+    "abgeleitet): Kategorie 'Wachstums-Hacks (Indizien)', Vertrauensscore HÖCHSTENS 55, "
+    "status 'wahrscheinlich' oder 'unklar', und klar als Hypothese/Indiz kennzeichnen.\n"
     "- Kategorien NUR aus: " + ', '.join(IIC_CATEGORIES) + ".\n"
     "- Leite konkrete praktische Auswirkungen fürs Seiten-Wachstum ab.\n\n"
     "Antworte AUSSCHLIESSLICH mit einem JSON-Array (kein weiterer Text):\n"
