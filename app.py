@@ -15452,6 +15452,8 @@ def intelligence_center():
         cheatsheet_updated=get_setting('iic_cheatsheet_updated', ''),
         setup_guide=get_setting('iic_setup_guide', ''),
         setup_updated=get_setting('iic_setup_updated', ''),
+        setup_bm=get_setting('iic_setup_bm', ''),
+        setup_plan=get_setting('iic_setup_plan', ''),
         ai_ready=bool(os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')),
         active_page='intelligence')
 

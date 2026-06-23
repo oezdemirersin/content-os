@@ -190,6 +190,23 @@
       <div class="iic-md" x-show="setupHtml" x-html="setupHtml" style="border-top:1px solid var(--border);padding-top:12px"></div>
       <div x-show="!setupHtml" style="font-size:13px;color:var(--muted);padding:6px 0">Noch kein Setup-Leitfaden hinterlegt.</div>
     </div>
+
+    <div class="iic-card" x-show="bmHtml" style="margin-top:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" @click="openBM=!openBM">
+        <div style="font-family:var(--font-display);font-size:14px">🏢 Meta Business Manager — Schritt für Schritt</div>
+        <i class="fa-solid" :class="openBM ? 'fa-chevron-up' : 'fa-chevron-down'" style="color:var(--muted)"></i>
+      </div>
+      <div class="iic-md" x-show="openBM" x-html="bmHtml" style="border-top:1px solid var(--border);padding-top:12px;margin-top:8px"></div>
+    </div>
+
+    <div class="iic-card" x-show="planHtml">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" @click="openPlan=!openPlan">
+        <div style="font-family:var(--font-display);font-size:14px">📅 Erste 30 Tage — Tagesplan</div>
+        <i class="fa-solid" :class="openPlan ? 'fa-chevron-up' : 'fa-chevron-down'" style="color:var(--muted)"></i>
+      </div>
+      <div class="iic-md" x-show="openPlan" x-html="planHtml" style="border-top:1px solid var(--border);padding-top:12px;margin-top:8px"></div>
+    </div>
+
     <p style="font-size:11px;color:var(--muted);margin-top:10px">Vertiefende Details stehen in der Wissensdatenbank unter „Creator-Best-Practices", „Spam Detection", „Community Guidelines" und „Recommendation Guidelines".</p>
   </div>
 </div>
@@ -206,6 +223,8 @@ const IIC_DATA = {
   cheatUpdated: {{ cheatsheet_updated|tojson }},
   setupGuide: {{ setup_guide|tojson }},
   setupUpdated: {{ setup_updated|tojson }},
+  setupBm: {{ setup_bm|tojson }},
+  setupPlan: {{ setup_plan|tojson }},
 };
 
 // Mini-Markdown → HTML (Überschriften, Listen, fett)
@@ -231,12 +250,18 @@ function iic(){
     entries: IIC_DATA.entries, categories: IIC_DATA.categories, statuses: IIC_DATA.statuses,
     catCounts: IIC_DATA.catCounts,
     view:'wissen', setupHtml:'', setupUpdated: IIC_DATA.setupUpdated,
+    bmHtml:'', planHtml:'', openBM:false, openPlan:false,
     cheatHtml:'', cheatUpdated: IIC_DATA.cheatUpdated, cheatLoading:false,
     mode:'research', research:'', text:'', sourceName:'', url:'', catHint:'',
     busy:false, msg:'', msgErr:false,
     search:'', fCat:'', fStatus:'', fStale:false,
 
-    init(){ this.cheatHtml = mdToHtml(IIC_DATA.cheatsheet); this.setupHtml = mdToHtml(IIC_DATA.setupGuide); },
+    init(){
+      this.cheatHtml = mdToHtml(IIC_DATA.cheatsheet);
+      this.setupHtml = mdToHtml(IIC_DATA.setupGuide);
+      this.bmHtml    = mdToHtml(IIC_DATA.setupBm);
+      this.planHtml  = mdToHtml(IIC_DATA.setupPlan);
+    },
 
     get filtered(){
       const q = this.search.toLowerCase().trim();
