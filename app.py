@@ -3048,6 +3048,28 @@ def set_setting(key, value):
     s.updated_at = datetime.utcnow()
 
 
+def _last_synced_date():
+    """UTC-Datum des letzten echten Follower-Syncs durch den Bot (None = nie).
+    Analytics-Charts enden an diesem Tag — kein verfälschter „heute"-Punkt mit
+    noch nicht aktualisierten Followern."""
+    v = get_setting('last_follower_sync_at')
+    if v:
+        try:
+            return datetime.fromisoformat(v).date()
+        except Exception:
+            pass
+    return None
+
+
+def _chart_last_day(today):
+    """Letzter darstellbarer Tag: bis zum letzten Sync. Ohne Sync-Marker bis
+    gestern (heute erst zeigen, wenn der Bot die Follower aktualisiert hat)."""
+    cutoff = _last_synced_date()
+    if cutoff is None:
+        cutoff = today - timedelta(days=1)
+    return min(today, cutoff)
+
+
 def get_changelog():
     """Gibt alle Changelog-Einträge aus AppSettings zurück."""
     raw = get_setting('changelog', '[]')
@@ -4830,9 +4852,13 @@ def analytics_growth():
             account_timelines[account_id].sort()
 
     # Tages-Totale berechnen: pro Account letzten bekannten Wert ≤ diesem Tag summieren
+    # Nur bis zum letzten echten Sync — kein verfälschter „heute"-Punkt.
+    last_day = _chart_last_day(today)
     labels, data = [], []
     for i in range(days - 1, -1, -1):
         day = today - timedelta(days=i)
+        if day > last_day:
+            break
         day_iso = day.isoformat()
         day_total = 0
         for aid, timeline in account_timelines.items():
@@ -4849,7 +4875,7 @@ def analytics_growth():
     # Wachstums-Statistiken berechnen
     non_zero = [v for v in data if v > 0]
     start_val = non_zero[0] if non_zero else 0
-    end_val   = data[-1] or 0
+    end_val   = (data[-1] or 0) if data else 0
     growth    = end_val - start_val
     growth_pct = round(growth / start_val * 100, 1) if start_val else 0
     # Tägliches Delta (nur Tage mit Daten)
@@ -4863,9 +4889,9 @@ def analytics_growth():
             'growth': growth, 'growth_pct': growth_pct, 'daily_avg': int(daily_avg),
         }
     }
-    if include_forecast:
+    if include_forecast and data:
         forecast_vals = linear_forecast(data, 14)
-        forecast_labels = [(datetime.utcnow() + timedelta(days=i+1)).strftime('%d.%m') for i in range(14)]
+        forecast_labels = [(last_day + timedelta(days=i+1)).strftime('%d.%m') for i in range(14)]
         result['forecast_labels'] = forecast_labels
         result['forecast_data'] = forecast_vals
 
@@ -4902,10 +4928,13 @@ def analytics_active_accounts():
         Account.status == 'active', Account.hide_in_analytics == False
     ).scalar() or 0
 
+    last_day = _chart_last_day(today)
     labels, data = [], []
     last = 0
     for i in range(days - 1, -1, -1):
         day = today - timedelta(days=i)
+        if day > last_day:
+            break
         iso = day.isoformat()
         if iso in by_day:
             last = by_day[iso]
@@ -4969,10 +4998,13 @@ def analytics_portfolio():
     # In dict umwandeln
     snap_by_day = {str(r.day): int(r.total) for r in rows}
 
+    last_day = _chart_last_day(today)
     labels, data = [], []
     last_known = None
     for i in range(days - 1, -1, -1):
         d = today - timedelta(days=i)
+        if d > last_day:
+            break
         day_str = d.strftime('%d.%m')
         db_key  = str(d)
         labels.append(day_str)
@@ -5932,10 +5964,13 @@ def analytics_daily_growth():
 
     eng_by_day = {str(r.d): round(float(r.eng or 0), 2) for r in eq.all()}
 
+    last_day = _chart_last_day(today)
     labels, deltas, eng_rates = [], [], []
     prev_total = None
     for i in range(days - 1, -1, -1):
         day = today - timedelta(days=i)
+        if day > last_day:
+            break
         day_iso = day.isoformat()
         day_total = 0
         for aid, timeline in account_timelines.items():
@@ -8465,6 +8500,10 @@ def _run_ig_follower_sync():
 
             _ig_sync_status['progress'] = 95
 
+            # Persistenter Zeitstempel des letzten echten Follower-Syncs —
+            # die Analytics-Charts zeigen Tage erst, wenn sie hierdurch belegt sind.
+            if updated_list:
+                set_setting('last_follower_sync_at', datetime.utcnow().isoformat())
             db.session.commit()
             _growth_lab_daily_sync()
 
