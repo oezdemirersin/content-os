@@ -18,6 +18,10 @@
   .iic-md li { font-size:13px;line-height:1.7;color:var(--text);margin-left:4px }
   .iic-md ul { padding-left:18px;margin:4px 0 }
   .iic-md strong { color:var(--text) }
+  .iic-md h3 { font-size:13px;margin:10px 0 4px;color:var(--text) }
+  .iic-toptab { padding:9px 16px;font-size:14px;font-weight:700;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px }
+  .iic-toptab.active { color:var(--accent);border-bottom-color:var(--accent) }
+  [x-cloak] { display:none !important }
 </style>
 
 <div class="iic-wrap" x-data="iic()" x-init="init()">
@@ -35,6 +39,13 @@
   </div>
   {% endif %}
 
+  <!-- ══ TABS ══ -->
+  <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border)">
+    <div class="iic-toptab" :class="view==='wissen'&&'active'" @click="view='wissen'">🧠 Wissensdatenbank</div>
+    <div class="iic-toptab" :class="view==='setup'&&'active'" @click="view='setup'">🚀 Account Setup</div>
+  </div>
+
+  <div x-show="view==='wissen'">
   <!-- ══ CHEAT SHEET ══ -->
   <div class="iic-card" style="border-color:var(--accent);background:linear-gradient(180deg,rgba(99,102,241,.06),transparent)">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
@@ -164,6 +175,23 @@
       </div>
     </div>
   </template>
+  </div><!-- /wissen -->
+
+  <!-- ══ ACCOUNT SETUP ══ -->
+  <div x-show="view==='setup'" x-cloak>
+    <div class="iic-card" style="border-color:var(--accent2);background:linear-gradient(180deg,rgba(139,92,246,.06),transparent)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="font-size:18px">🚀</span>
+        <div>
+          <div style="font-family:var(--font-display);font-size:15px">ACCOUNT SETUP — Leitfaden</div>
+          <div style="font-size:11px;color:var(--muted)" x-text="setupUpdated ? ('Stand: ' + setupUpdated) : ''"></div>
+        </div>
+      </div>
+      <div class="iic-md" x-show="setupHtml" x-html="setupHtml" style="border-top:1px solid var(--border);padding-top:12px"></div>
+      <div x-show="!setupHtml" style="font-size:13px;color:var(--muted);padding:6px 0">Noch kein Setup-Leitfaden hinterlegt.</div>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-top:10px">Vertiefende Details stehen in der Wissensdatenbank unter „Creator-Best-Practices", „Spam Detection", „Community Guidelines" und „Recommendation Guidelines".</p>
+  </div>
 </div>
 {% endblock %}
 
@@ -176,6 +204,8 @@ const IIC_DATA = {
   catCounts: {{ cat_counts|tojson }},
   cheatsheet: {{ cheatsheet|tojson }},
   cheatUpdated: {{ cheatsheet_updated|tojson }},
+  setupGuide: {{ setup_guide|tojson }},
+  setupUpdated: {{ setup_updated|tojson }},
 };
 
 // Mini-Markdown → HTML (Überschriften, Listen, fett)
@@ -186,7 +216,8 @@ function mdToHtml(md){
   const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
   for(let l of lines){
     l = l.trimEnd();
-    if(/^##\s/.test(l)){ if(inList){out+='</ul>';inList=false;} out += '<h2>'+inline(l.replace(/^##\s/,''))+'</h2>'; }
+    if(/^###\s/.test(l)){ if(inList){out+='</ul>';inList=false;} out += '<h3>'+inline(l.replace(/^###\s/,''))+'</h3>'; }
+    else if(/^##\s/.test(l)){ if(inList){out+='</ul>';inList=false;} out += '<h2>'+inline(l.replace(/^##\s/,''))+'</h2>'; }
     else if(/^[-*]\s/.test(l)){ if(!inList){out+='<ul>';inList=true;} out += '<li>'+inline(l.replace(/^[-*]\s/,''))+'</li>'; }
     else if(l.trim()===''){ if(inList){out+='</ul>';inList=false;} }
     else { if(inList){out+='</ul>';inList=false;} out += '<div style="font-size:13px;line-height:1.6;margin:3px 0">'+inline(l)+'</div>'; }
@@ -199,12 +230,13 @@ function iic(){
   return {
     entries: IIC_DATA.entries, categories: IIC_DATA.categories, statuses: IIC_DATA.statuses,
     catCounts: IIC_DATA.catCounts,
+    view:'wissen', setupHtml:'', setupUpdated: IIC_DATA.setupUpdated,
     cheatHtml:'', cheatUpdated: IIC_DATA.cheatUpdated, cheatLoading:false,
     mode:'research', research:'', text:'', sourceName:'', url:'', catHint:'',
     busy:false, msg:'', msgErr:false,
     search:'', fCat:'', fStatus:'', fStale:false,
 
-    init(){ this.cheatHtml = mdToHtml(IIC_DATA.cheatsheet); },
+    init(){ this.cheatHtml = mdToHtml(IIC_DATA.cheatsheet); this.setupHtml = mdToHtml(IIC_DATA.setupGuide); },
 
     get filtered(){
       const q = this.search.toLowerCase().trim();

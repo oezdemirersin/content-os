@@ -15450,6 +15450,8 @@ def intelligence_center():
         categories=IIC_CATEGORIES, statuses=IIC_STATUS, cat_counts=dict(cat_counts),
         cheatsheet=get_setting('iic_cheatsheet', ''),
         cheatsheet_updated=get_setting('iic_cheatsheet_updated', ''),
+        setup_guide=get_setting('iic_setup_guide', ''),
+        setup_updated=get_setting('iic_setup_updated', ''),
         ai_ready=bool(os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')),
         active_page='intelligence')
 
