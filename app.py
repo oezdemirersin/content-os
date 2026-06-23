@@ -4872,6 +4872,52 @@ def analytics_growth():
     return jsonify(result)
 
 
+@app.route('/api/analytics/active-accounts')
+def analytics_active_accounts():
+    """
+    Anzahl aktiver Accounts pro Tag = distinct Accounts mit einem Snapshot an
+    dem Tag (der Snapshot-Job läuft täglich pro aktivem Account). Erfasst auch
+    Accounts, die FRÜHER aktiv waren (inzwischen pausiert) — zeigt also „wie
+    viele aktiv sind und waren". Orphan-Snapshots gelöschter/versteckter
+    Accounts sind ausgeschlossen. Lücken (z.B. Server-Restart) = forward-fill.
+    """
+    days = request.args.get('days', 30, type=int)
+    today = datetime.utcnow().date()
+    start_date = today - timedelta(days=days - 1)
+
+    existing_ids = db.session.query(Account.id).filter(
+        Account.hide_in_analytics == False
+    ).subquery()
+
+    rows = db.session.query(
+        func.date(AnalyticsSnapshot.recorded_at).label('d'),
+        func.count(func.distinct(AnalyticsSnapshot.account_id)).label('cnt')
+    ).filter(
+        func.date(AnalyticsSnapshot.recorded_at) >= start_date,
+        AnalyticsSnapshot.account_id.in_(existing_ids)
+    ).group_by(func.date(AnalyticsSnapshot.recorded_at)).all()
+    by_day = {str(r.d): int(r.cnt) for r in rows}
+
+    current_active = db.session.query(func.count(Account.id)).filter(
+        Account.status == 'active', Account.hide_in_analytics == False
+    ).scalar() or 0
+
+    labels, data = [], []
+    last = 0
+    for i in range(days - 1, -1, -1):
+        day = today - timedelta(days=i)
+        iso = day.isoformat()
+        if iso in by_day:
+            last = by_day[iso]
+        # sonst: forward-fill (last bleibt) — überbrückt Tage ohne Snapshot-Lauf
+        if day == today and current_active > last:
+            last = current_active  # heutiger Snapshot evtl. noch nicht / unvollständig erzeugt
+        labels.append(day.strftime('%d.%m'))
+        data.append(last)
+
+    return jsonify({'labels': labels, 'data': data, 'current': current_active})
+
+
 @app.route('/api/analytics/portfolio')
 def analytics_portfolio():
     """

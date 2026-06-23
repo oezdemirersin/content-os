@@ -118,6 +118,20 @@
   </div>
 </div>
 
+<!-- Active accounts chart -->
+<div style="margin-bottom:20px">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">AKTIVE ACCOUNTS</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="activeNow" style="font-size:15px;font-weight:800;color:var(--success)">—</span>
+        <span style="font-size:11px;color:var(--muted)">aktuell aktiv · folgt dem Zeitraum oben</span>
+      </div>
+    </div>
+    <div style="padding:20px;height:200px;position:relative"><canvas id="activeChart"></canvas></div>
+  </div>
+</div>
+
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
   <!-- Daily delta -->
   <div class="card">
@@ -294,7 +308,7 @@
 
 {% block scripts %}
 <script>
-let growthChart, currentDays = 30;
+let growthChart, activeChart, currentDays = 30;
 
 async function loadGrowth(days, btn) {
   currentDays = days || currentDays;
@@ -392,6 +406,45 @@ async function loadGrowth(days, btn) {
             }
           }
         }
+      },
+      interaction:{mode:'index', intersect:false}
+    }
+  });
+
+  loadActiveAccounts(currentDays);
+}
+
+async function loadActiveAccounts(days) {
+  const d = await (await fetch(`/api/analytics/active-accounts?days=${days||currentDays}`)).json();
+  const nowEl = document.getElementById('activeNow');
+  if (nowEl) nowEl.textContent = d.current;
+  const ctx = document.getElementById('activeChart').getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,0,200);
+  grad.addColorStop(0,'rgba(34,197,94,.25)'); grad.addColorStop(1,'rgba(34,197,94,0)');
+  if (activeChart) activeChart.destroy();
+  activeChart = new Chart(ctx, {
+    type:'line',
+    data:{labels:d.labels, datasets:[{
+      label:'Aktive Accounts', data:d.data,
+      borderColor:'#22c55e', backgroundColor:grad, borderWidth:2,
+      tension:.3, fill:true, pointRadius:0, pointHoverRadius:5,
+      pointHoverBackgroundColor:'#22c55e', pointHoverBorderColor:'white', pointHoverBorderWidth:2
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          mode:'index', intersect:false, backgroundColor:'#1e2640',
+          borderColor:'rgba(34,197,94,.4)', borderWidth:1,
+          titleColor:'#94a3b8', bodyColor:'#e2e8f0', padding:12, displayColors:false,
+          callbacks:{ title:items=>items[0]?.label||'', label:c=>'  '+c.raw+(c.raw===1?' aktiver Account':' aktive Accounts') }
+        }
+      },
+      scales:{
+        x:{grid:{display:false}, ticks:{maxTicksLimit:10, color:'rgba(255,255,255,.3)', font:{size:10}}},
+        y:{beginAtZero:true, grid:{color:'rgba(255,255,255,.04)'},
+           ticks:{precision:0, stepSize:1, color:'rgba(255,255,255,.3)', font:{size:10}}}
       },
       interaction:{mode:'index', intersect:false}
     }
