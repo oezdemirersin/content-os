@@ -290,8 +290,7 @@
         <th class="sortable" data-col="1" onclick="sortTable(1)" style="cursor:pointer;user-select:none">Kategorie <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th class="sortable" data-col="2" onclick="sortTable(2)" style="text-align:right;cursor:pointer;user-select:none">Follower <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th style="text-align:right">7T Wachstum</th>
-        <th class="sortable" data-col="3" onclick="sortTable(3)" style="text-align:center;cursor:pointer;user-select:none">Vorrat <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
-        <th style="text-align:center" title="An = Posts werden gesendet. Aus = nur Vorrat sammeln.">Posting</th>
+        <th class="sortable" data-col="3" onclick="sortTable(3)" style="text-align:center;cursor:pointer;user-select:none" title="Vorrat + Posting-Schalter (▶ aktiv · ⏸ nur sammeln)">Vorrat <i class="fa-solid fa-sort" style="font-size:9px;color:var(--muted)"></i></th>
         <th style="text-align:center">Status</th>
         <th style="text-align:center">Priorität</th>
         <th></th>
@@ -356,6 +355,8 @@
           {% endif %}
         </td>
         <td style="text-align:center">
+          <div style="display:inline-flex;align-items:center;gap:10px;justify-content:center">
+          <div style="min-width:52px">
           {% if acc.automation_level >= 3 %}
             {# Vollautomatischer Account — kein Vorrat nötig #}
             <span title="Vollautomatisch — läuft via CityBot/Automation"
@@ -396,15 +397,17 @@
               </div>
             {% endif %}
           {% endif %}
-        </td>
-        <td style="text-align:center">
+          </div>
           <button type="button" onclick="togglePosting({{ acc.id }}, this)"
-                  class="post-toggle" title="Posting an/aus — aus = nur Vorrat sammeln"
-                  style="border:none;cursor:pointer;border-radius:20px;padding:3px 10px;font-size:10px;font-weight:800;white-space:nowrap;
+                  class="post-toggle"
+                  title="{% if acc.posting_enabled == false %}Nur Vorrat sammeln — Posting aus{% else %}Posting aktiv — Posts werden gesendet{% endif %}"
+                  aria-label="Posting an/aus"
+                  style="flex:none;border:none;cursor:pointer;width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;line-height:1;
                          background:{% if acc.posting_enabled == false %}var(--surface2){% else %}rgba(34,197,94,.16){% endif %};
                          color:{% if acc.posting_enabled == false %}var(--muted){% else %}var(--success){% endif %}">
-            {% if acc.posting_enabled == false %}⏸ Vorrat{% else %}▶ Aktiv{% endif %}
+            {% if acc.posting_enabled == false %}⏸{% else %}▶{% endif %}
           </button>
+          </div>
         </td>
         <td style="text-align:center">
           {% if acc.status == 'active' %}
@@ -454,7 +457,7 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="10" style="text-align:center;padding:60px 20px">
+        <td colspan="9" style="text-align:center;padding:60px 20px">
           <i class="fa-solid fa-layer-group" style="font-size:32px;color:var(--border);display:block;margin-bottom:12px"></i>
           <div style="font-size:14px;color:var(--muted);margin-bottom:12px">Keine Accounts gefunden</div>
           <a href="{{ url_for('account_new') }}" class="btn btn-primary">
@@ -541,10 +544,11 @@ function sortTable(colIndex) {
     th.querySelector('i').style.color = 'var(--accent2)';
   }
 
+  // Echte Zellenposition aus dem Header (nicht-sortierbare Spalten dazwischen)
+  const cellIdx = th ? th.cellIndex : colIndex + 1;
   rows.sort((a, b) => {
-    // +1 because first cell is checkbox
-    const cellA = a.cells[colIndex + 1]?.textContent.trim() || '';
-    const cellB = b.cells[colIndex + 1]?.textContent.trim() || '';
+    const cellA = a.cells[cellIdx]?.textContent.trim() || '';
+    const cellB = b.cells[cellIdx]?.textContent.trim() || '';
     // numeric for follower/vorrat columns
     if (colIndex === 2 || colIndex === 3) {
       const numA = parseFloat(cellA.replace(/[^\d.,]/g,'').replace(',','.')) || 0;
@@ -599,7 +603,8 @@ async function togglePosting(id, btn){
   const on = r.posting_enabled;
   btn.style.background = on ? 'rgba(34,197,94,.16)' : 'var(--surface2)';
   btn.style.color = on ? 'var(--success)' : 'var(--muted)';
-  btn.textContent = on ? '▶ Aktiv' : '⏸ Vorrat';
+  btn.textContent = on ? '▶' : '⏸';
+  btn.title = on ? 'Posting aktiv — Posts werden gesendet' : 'Nur Vorrat sammeln — Posting aus';
   if(typeof showToast==='function') showToast(on ? 'Posting aktiviert.' : 'Posting aus — Vorrat wird gesammelt.', on ? 'success' : 'info');
 }
 
