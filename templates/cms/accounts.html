@@ -368,12 +368,12 @@
           {% else %}
             {% set p = acc.auto_profile %}
             {% if acc.needs_stock == false %}
-              {# Täglich frische Posts — kein Vorrat nötig #}
-              <span title="Täglich frische Posts — kein Vorrat nötig"
-                    style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;
+              {# Sammelt keinen Vorrat — z.B. News- oder täglich frische Seiten #}
+              <span title="Sammelt keinen Vorrat — z. B. News- oder täglich frische Seiten"
+                    style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;white-space:nowrap;
                            background:var(--surface2);color:var(--muted);border-radius:8px;
                            font-size:10px;font-weight:700;border:1px solid var(--border)">
-                <i class="fa-solid fa-calendar-day" style="font-size:9px"></i> Täglich
+                <i class="fa-solid fa-infinity" style="font-size:9px"></i> Kein Vorrat
               </span>
             {% elif p and p.disable_stock_amp %}
               <span style="display:inline-flex;align-items:center;gap:4px;text-decoration:none;
