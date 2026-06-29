@@ -58,6 +58,7 @@ async function loadStatus(){
           <span style="font-size:12px;font-weight:700;color:${c}">${it.label || ''}</span>
         </div>
         <div style="font-size:12px;color:var(--muted);margin-top:4px">${it.detail || ''}</div>
+        ${it.link ? `<a href="${it.link.url}" style="font-size:12px;color:var(--accent2);font-weight:700;text-decoration:none;display:inline-block;margin-top:6px">${it.link.label} →</a>` : ''}
       </div>
       ${actionHtml}`;
     grid.appendChild(card);

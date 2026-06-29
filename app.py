@@ -15819,8 +15819,11 @@ def _system_status():
         st, lab, det = 'green', 'aktuell', f'{sent24} Posts in 24 h gesendet'
     if nochan:
         det += f' · {nochan} warten auf Channel-Einrichtung'
-    items.append({'key': 'posting', 'title': 'Posting-Engine', 'icon': 'fa-paper-plane',
-                  'status': st, 'label': lab, 'detail': det})
+    posting = {'key': 'posting', 'title': 'Posting-Engine', 'icon': 'fa-paper-plane',
+               'status': st, 'label': lab, 'detail': det}
+    if due or nochan:
+        posting['link'] = {'label': 'Hängende Posts ansehen', 'url': '/haengende-posts'}
+    items.append(posting)
 
     # 4) Scheduler-Herzschlag
     lt = _sched_health.get('last_tick')
@@ -15881,6 +15884,78 @@ def api_system_status():
 @login_required
 def system_status_page():
     return render_template('status.html', active_page='status')
+
+
+# ─────────────────── HÄNGENDE POSTS ─────────────────────────────
+def _stuck_posts_data():
+    """Überfällige, nicht gesendete Posts (status=scheduled, fällig, Posting an).
+    Gruppiert pro Account mit Grund (kein echter Channel vs. Senden fehlgeschlagen)."""
+    nowb = now_berlin()
+    posts = ScheduledPost.query.join(Account, ScheduledPost.account_id == Account.id).filter(
+        ScheduledPost.scheduled_at <= nowb, ScheduledPost.status == 'scheduled',
+        ScheduledPost.telegram_sent_at == None, ScheduledPost.slot_type != 'disabled',
+        Account.posting_enabled.isnot(False)
+    ).order_by(ScheduledPost.scheduled_at).all()
+    groups = {}
+    for p in posts:
+        a = p.account
+        if a.id not in groups:
+            ch = (a.telegram_chat_id or '').strip()
+            groups[a.id] = {'account': a, 'channel': ch,
+                            'has_channel': bool(ch and ch not in ('None', 'null')),
+                            'posts': []}
+        groups[a.id]['posts'].append({
+            'id': p.id, 'when': p.scheduled_at.strftime('%d.%m.%Y %H:%M'),
+            'type': p.post_type, 'days_over': max(0, (nowb - p.scheduled_at).days),
+            'caption': (p.caption or '').strip()[:70],
+        })
+    # Kein-Channel zuerst (häufigste Ursache), dann nach Anzahl
+    return sorted(groups.values(), key=lambda g: (g['has_channel'], -len(g['posts']))), len(posts)
+
+
+@app.route('/haengende-posts')
+@login_required
+def stuck_posts_page():
+    groups, total = _stuck_posts_data()
+    return render_template('haengende_posts.html', groups=groups, total=total, active_page='status')
+
+
+@app.route('/api/scheduled-post/<int:pid>/cancel', methods=['POST'])
+@login_required
+def stuck_post_cancel(pid):
+    p = ScheduledPost.query.get_or_404(pid)
+    p.status = 'cancelled'
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/scheduled-post/<int:pid>/retry', methods=['POST'])
+@login_required
+def stuck_post_retry(pid):
+    p = ScheduledPost.query.get_or_404(pid)
+    try:
+        ok = send_telegram_post(p)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)[:120]})
+    if ok:
+        p.telegram_sent_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify({'ok': True})
+    return jsonify({'ok': False, 'error': 'Senden fehlgeschlagen — Channel-ID und Bot-Rechte (Admin im Channel?) prüfen.'})
+
+
+@app.route('/api/account/<int:account_id>/cancel-stuck', methods=['POST'])
+@login_required
+def account_cancel_stuck(account_id):
+    nowb = now_berlin()
+    rows = ScheduledPost.query.filter(
+        ScheduledPost.account_id == account_id, ScheduledPost.scheduled_at <= nowb,
+        ScheduledPost.status == 'scheduled', ScheduledPost.telegram_sent_at == None,
+        ScheduledPost.slot_type != 'disabled').all()
+    for p in rows:
+        p.status = 'cancelled'
+    db.session.commit()
+    return jsonify({'ok': True, 'cancelled': len(rows)})
 
 
 if __name__ == '__main__':

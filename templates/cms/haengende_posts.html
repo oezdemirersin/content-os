@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Hängende Posts — Content OS{% endblock %}
+{% block page_title %}HÄNGENDE POSTS{% endblock %}
+
+{% block content %}
+<div style="max-width:900px">
+  <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
+    Überfällige Posts, die nicht gesendet wurden — meist, weil dem Account ein gültiger Telegram-Channel fehlt.
+    {% if total %}<b style="color:var(--text)">{{ total }}</b> betroffen.{% endif %}
+  </p>
+
+  {% if not groups %}
+    <div class="card" style="padding:40px;text-align:center;color:var(--muted)">
+      <i class="fa-solid fa-circle-check" style="font-size:32px;color:var(--success);margin-bottom:12px;display:block"></i>
+      Keine hängenden Posts — alles läuft. 🎉
+    </div>
+  {% endif %}
+
+  {% for g in groups %}
+  <div class="card" style="padding:0;margin-bottom:16px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      <div style="flex:1;min-width:160px">
+        <div style="font-weight:700;font-size:15px">{{ g.account.name }}</div>
+        <div style="font-size:12px;color:var(--muted)">{{ g.posts|length }} Post(s) hängen{% if g.has_channel %} · Channel: {{ g.channel }}{% endif %}</div>
+      </div>
+      {% if g.has_channel %}
+        <span class="badge" style="background:rgba(249,115,22,.15);color:#f97316">Senden fehlgeschlagen</span>
+      {% else %}
+        <span class="badge badge-red">Kein Channel</span>
+        <a href="{{ url_for('account_edit', account_id=g.account.id) }}" class="btn btn-primary" style="font-size:12px;padding:6px 14px">
+          <i class="fa-solid fa-gear"></i> Channel einrichten
+        </a>
+      {% endif %}
+      <button onclick="cancelAllStuck({{ g.account.id }}, this)" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;color:var(--danger)">Alle entfernen</button>
+    </div>
+    <div>
+      {% for p in g.posts %}
+      <div id="sp-{{ p.id }}" style="display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--border);font-size:13px">
+        <div style="flex:1;min-width:0">
+          <span style="font-weight:600">{{ p.when }}</span>
+          <span style="color:var(--muted)">· {{ p.type }}{% if p.days_over %} · {{ p.days_over }} Tag(e) überfällig{% endif %}</span>
+          {% if p.caption %}<div style="color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.caption }}</div>{% endif %}
+        </div>
+        {% if g.has_channel %}
+        <button onclick="retryPost({{ p.id }}, this)" class="btn btn-ghost" style="font-size:11px;padding:5px 10px;flex:none">Erneut senden</button>
+        {% endif %}
+        <button onclick="cancelPost({{ p.id }}, this)" class="btn btn-ghost" style="font-size:11px;padding:5px 10px;color:var(--danger);flex:none">Entfernen</button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function cancelPost(id, btn){
+  btn.disabled = true;
+  const r = await fetch(`/api/scheduled-post/${id}/cancel`, {method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){ const row = document.getElementById('sp-'+id); if(row) row.remove(); if(typeof showToast==='function') showToast('Entfernt', 'success'); }
+  else { btn.disabled = false; if(typeof showToast==='function') showToast('Fehler', 'error'); }
+}
+async function retryPost(id, btn){
+  const o = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  const r = await fetch(`/api/scheduled-post/${id}/retry`, {method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){ const row = document.getElementById('sp-'+id); if(row) row.remove(); if(typeof showToast==='function') showToast('Gesendet ✓', 'success'); }
+  else { btn.disabled = false; btn.innerHTML = o; if(typeof showToast==='function') showToast(r.error || 'Senden fehlgeschlagen', 'error'); }
+}
+async function cancelAllStuck(accId, btn){
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Alle entfernen', 'Alle hängenden Posts dieser Seite werden auf „abgebrochen" gesetzt.', 'Entfernen', 'btn-primary')) return; }
+  btn.disabled = true;
+  const r = await fetch(`/api/account/${accId}/cancel-stuck`, {method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){ if(typeof showToast==='function') showToast(`${r.cancelled} entfernt`, 'success'); setTimeout(()=>location.reload(), 700); }
+  else btn.disabled = false;
+}
+</script>
+{% endblock %}
