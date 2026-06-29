@@ -461,6 +461,9 @@
     </a>
 
     <div class="nav-section">System</div>
+    <a href="{{ url_for('system_status_page') }}" class="nav-item {% if active_page == 'status' %}active{% endif %}">
+      <i class="fa-solid fa-heart-pulse"></i> Systemstatus
+    </a>
     <a href="{{ url_for('todos') }}" class="nav-item {% if active_page == 'todos' %}active{% endif %}">
       <i class="fa-solid fa-list-check"></i> To-Do / Ideen
     </a>

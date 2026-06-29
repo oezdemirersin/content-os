@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Systemstatus — Content OS{% endblock %}
+{% block page_title %}SYSTEMSTATUS{% endblock %}
+
+{% block content %}
+<div style="max-width:900px">
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap">
+    <div id="overallBadge" style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:12px;font-weight:800;font-size:14px;background:var(--surface2);color:var(--muted)">
+      <span id="overallDot" style="width:10px;height:10px;border-radius:50%;background:var(--muted)"></span>
+      <span id="overallText">Prüfe …</span>
+    </div>
+    <span id="checkedAt" style="font-size:12px;color:var(--muted)"></span>
+    <button onclick="loadStatus()" class="btn btn-ghost" style="margin-left:auto;font-size:12px;padding:7px 14px">
+      <i class="fa-solid fa-rotate"></i> Aktualisieren
+    </button>
+  </div>
+
+  <div id="statusGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(390px,1fr));gap:14px">
+    <div style="color:var(--muted);font-size:13px;padding:20px">Lade Status …</div>
+  </div>
+
+  <p style="font-size:11px;color:var(--muted);margin-top:18px">
+    <i class="fa-solid fa-circle-info"></i> Aktualisiert sich automatisch alle 30 Sekunden · Grün = läuft · Gelb = beobachten · Rot = Eingriff nötig.
+  </p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STC = {green:'var(--success)', yellow:'var(--warning)', red:'var(--danger)', unklar:'var(--accent2)', off:'var(--muted)'};
+const STL = {green:'Alles läuft', yellow:'Beobachten', red:'Eingriff nötig', unklar:'Unklar', off:'—'};
+
+async function loadStatus(){
+  let d;
+  try { d = await (await fetch('/api/status')).json(); }
+  catch(e){ document.getElementById('overallText').textContent = 'nicht erreichbar'; return; }
+  const oc = STC[d.overall] || 'var(--muted)';
+  document.getElementById('overallDot').style.background = oc;
+  document.getElementById('overallText').textContent = STL[d.overall] || d.overall;
+  document.getElementById('overallBadge').style.color = oc;
+  document.getElementById('checkedAt').textContent = 'zuletzt geprüft ' + (d.checked_at || '');
+
+  const grid = document.getElementById('statusGrid');
+  grid.innerHTML = '';
+  (d.items || []).forEach(it => {
+    const c = STC[it.status] || 'var(--muted)';
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--surface2);border:1px solid var(--border);border-left:3px solid '+c+';border-radius:12px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px';
+    const actionHtml = it.action
+      ? `<button onclick="runAction('${it.action.endpoint}', this)" class="btn btn-ghost" style="font-size:11px;padding:5px 10px;white-space:nowrap;flex:none">${it.action.label}</button>`
+      : '';
+    card.innerHTML = `
+      <span style="width:11px;height:11px;border-radius:50%;background:${c};margin-top:5px;flex:none"></span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <i class="fa-solid ${it.icon || 'fa-circle'}" style="font-size:12px;color:var(--muted)"></i>
+          <span style="font-weight:700;font-size:14px">${it.title}</span>
+          <span style="font-size:12px;font-weight:700;color:${c}">${it.label || ''}</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">${it.detail || ''}</div>
+      </div>
+      ${actionHtml}`;
+    grid.appendChild(card);
+  });
+}
+
+async function runAction(endpoint, btn){
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  try {
+    const r = await fetch(endpoint, {method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+    if (typeof showToast === 'function') showToast(r.ok !== false ? 'Ausgelöst ✓' : 'Fehler', r.ok !== false ? 'success' : 'error');
+  } catch(e){}
+  setTimeout(() => { btn.disabled = false; btn.innerHTML = orig; loadStatus(); }, 1800);
+}
+
+loadStatus();
+setInterval(loadStatus, 30000);
+</script>
+{% endblock %}

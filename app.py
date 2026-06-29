@@ -2942,6 +2942,9 @@ def _ensure_telegram_webhook():
         app.logger.error('Telegram setWebhook (Auto) fehlgeschlagen: %s', res.get('description'))
 
 
+# Heartbeat des Hintergrund-Schedulers (für /status). Dict-Mutation = kein global nötig.
+_sched_health = {'last_tick': None}
+
 def schedule_automations():
     """Background thread that runs automation rules and housekeeping."""
     tick = 0
@@ -2949,6 +2952,7 @@ def schedule_automations():
         try:
             with app.app_context():
                 now = datetime.utcnow()
+                _sched_health['last_tick'] = now  # Heartbeat für /status
 
                 # ── Einmalig kurz nach dem Start: Telegram-Webhook registrieren ──
                 # tick==1 statt 0: Der Thread startet, BEVOR das Modul fertig geladen
@@ -15713,6 +15717,170 @@ def iic_cheatsheet_regen():
     set_setting('iic_cheatsheet_updated', now_berlin().strftime('%d.%m.%Y %H:%M'))
     db.session.commit()
     return jsonify({'ok': True, 'cheatsheet': md, 'updated': get_setting('iic_cheatsheet_updated')})
+
+
+# ═══════════════════════════════════════════════════════════════
+# ─────────────────── SYSTEMSTATUS ───────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+def _ago(dt_utc):
+    """'vor X Min/Std/Tagen' aus einem UTC-datetime (naiv)."""
+    if not dt_utc:
+        return 'nie'
+    s = (datetime.utcnow() - dt_utc).total_seconds()
+    if s < 0:
+        return 'gerade eben'
+    if s < 90:
+        return 'gerade eben'
+    if s < 5400:
+        return f'vor {int(s // 60)} Min'
+    if s < 172800:
+        return f'vor {int(s // 3600)} Std'
+    return f'vor {int(s // 86400)} Tagen'
+
+
+def _system_status():
+    """Live-Status aller Subsysteme — eine Ampel pro System. Erkennt stillen
+    Stillstand (Sync/Webhook/Posting/Scheduler), bevor er alle Accounts trifft."""
+    nowb = now_berlin()
+    utcnow = datetime.utcnow()
+    items = []
+
+    # 1) Follower-Sync
+    sv = get_setting('last_follower_sync_at')
+    sdt = None
+    if sv:
+        try:
+            sdt = datetime.fromisoformat(sv)
+        except Exception:
+            sdt = None
+    if sdt:
+        age_h = (utcnow - sdt).total_seconds() / 3600
+        st = 'green' if age_h < 36 else ('yellow' if age_h < 72 else 'red')
+    else:
+        st = 'red'
+    res = _ig_sync_status.get('result') or {}
+    if _ig_sync_status.get('running'):
+        detail = 'läuft gerade …'
+    elif res:
+        detail = f"{res.get('updated', '?')}/{res.get('total_queried', '?')} Accounts aktualisiert"
+    else:
+        detail = 'kein Lauf in dieser Sitzung erfasst'
+    items.append({'key': 'sync', 'title': 'Follower-Sync', 'icon': 'fa-rotate', 'status': st,
+                  'label': _ago(sdt) if sdt else 'noch nie gelaufen', 'detail': detail,
+                  'action': {'label': 'Jetzt syncen', 'endpoint': '/api/analytics/sync-followers-apify'}})
+
+    # 2) Telegram-Webhook
+    token = get_setting('telegram_bot_token')
+    if not token:
+        items.append({'key': 'webhook', 'title': 'Telegram-Webhook', 'icon': 'fa-link', 'status': 'off',
+                      'label': 'nicht konfiguriert', 'detail': 'Kein Bot-Token gesetzt'})
+    else:
+        try:
+            import requests as _r
+            wi = _r.get(f'https://api.telegram.org/bot{token}/getWebhookInfo', timeout=6).json().get('result', {})
+            url = wi.get('url') or ''
+            pending = wi.get('pending_update_count', 0) or 0
+            lerr = wi.get('last_error_message')
+            lerr_date = wi.get('last_error_date', 0) or 0
+            recent_err = bool(lerr and (utcnow.timestamp() - lerr_date < 3600))
+            if not url:
+                st, lab, det = 'red', 'nicht registriert', 'Kein Webhook gesetzt'
+            elif recent_err:
+                st, lab, det = 'red', 'Fehler', str(lerr)[:90]
+            elif pending > 20:
+                st, lab, det = 'yellow', 'Rückstau', f'{pending} ausstehende Updates'
+            else:
+                det = f'{pending} ausstehend' + (f' · letzter Fehler: {lerr}' if lerr else ' · keine Fehler')
+                st, lab = 'green', 'aktiv'
+            items.append({'key': 'webhook', 'title': 'Telegram-Webhook', 'icon': 'fa-link', 'status': st,
+                          'label': lab, 'detail': det,
+                          'action': {'label': 'Neu registrieren', 'endpoint': '/api/telegram/register-webhook'}})
+        except Exception as e:
+            items.append({'key': 'webhook', 'title': 'Telegram-Webhook', 'icon': 'fa-link', 'status': 'unklar',
+                          'label': 'nicht erreichbar', 'detail': str(e)[:90]})
+
+    # 3) Posting-Engine — überfällige, SENDBARE Posts (Channel vorhanden) zählen.
+    base = ScheduledPost.query.join(Account, ScheduledPost.account_id == Account.id).filter(
+        ScheduledPost.scheduled_at <= nowb, ScheduledPost.status == 'scheduled',
+        ScheduledPost.slot_type != 'disabled', ScheduledPost.telegram_sent_at == None,
+        Account.posting_enabled.isnot(False))
+    due = base.filter(Account.telegram_chat_id.isnot(None),
+                      Account.telegram_chat_id != '',
+                      Account.telegram_chat_id != 'None').all()  # 'None'-String = kein echter Channel
+    nochan = max(0, base.count() - len(due))
+    sent24 = ScheduledPost.query.filter(ScheduledPost.telegram_sent_at >= utcnow - timedelta(hours=24)).count()
+    if due:
+        oldest = min(p.scheduled_at for p in due)
+        overdue_min = (nowb - oldest).total_seconds() / 60
+        st = 'red' if overdue_min > 10 else 'yellow'
+        lab = f'{len(due)} überfällig'
+        det = f'ältester seit {int(overdue_min)} Min · {sent24} in 24 h gesendet'
+    else:
+        st, lab, det = 'green', 'aktuell', f'{sent24} Posts in 24 h gesendet'
+    if nochan:
+        det += f' · {nochan} warten auf Channel-Einrichtung'
+    items.append({'key': 'posting', 'title': 'Posting-Engine', 'icon': 'fa-paper-plane',
+                  'status': st, 'label': lab, 'detail': det})
+
+    # 4) Scheduler-Herzschlag
+    lt = _sched_health.get('last_tick')
+    if not lt:
+        st, lab = 'unklar', 'noch kein Tick'
+    else:
+        age = (utcnow - lt).total_seconds()
+        st = 'green' if age < 180 else 'red'
+        lab = _ago(lt)
+    items.append({'key': 'scheduler', 'title': 'Hintergrund-Scheduler', 'icon': 'fa-heart-pulse',
+                  'status': st, 'label': lab, 'detail': 'Sendet Posts, Sync, Alerts (Tick ~60 s)'})
+
+    # 5) KI-Budget (nur wenn gesetzt)
+    try:
+        budget = float(get_setting('ai_budget_eur') or 0)
+    except Exception:
+        budget = 0
+    if budget > 0:
+        ms = nowb.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        spend = db.session.query(func.coalesce(func.sum(AiUsageLog.cost_eur), 0.0)) \
+            .filter(AiUsageLog.created_at >= ms).scalar() or 0
+        ratio = spend / budget
+        st = 'green' if ratio < 0.8 else ('yellow' if ratio <= 1 else 'red')
+        items.append({'key': 'ai', 'title': 'KI-Budget', 'icon': 'fa-wand-magic-sparkles', 'status': st,
+                      'label': f'{spend:.2f} / {budget:.0f} €', 'detail': f'{ratio * 100:.0f} % des Monatsbudgets'})
+
+    # 6) Letztes Backup
+    bv = get_setting('last_full_backup_at')
+    bdt = None
+    if bv:
+        try:
+            bdt = datetime.fromisoformat(bv)
+        except Exception:
+            bdt = None
+    if bdt:
+        age_d = (utcnow - bdt).days
+        st = 'green' if age_d < 14 else ('yellow' if age_d < 45 else 'red')
+        items.append({'key': 'backup', 'title': 'Letztes Backup', 'icon': 'fa-download', 'status': st,
+                      'label': _ago(bdt), 'detail': 'Voll-Export (Accounts, Config)'})
+    else:
+        items.append({'key': 'backup', 'title': 'Letztes Backup', 'icon': 'fa-download', 'status': 'yellow',
+                      'label': 'noch keins', 'detail': 'Noch kein Voll-Export erstellt'})
+
+    rank = {'red': 3, 'yellow': 2, 'unklar': 1, 'green': 0, 'off': 0}
+    overall = max(items, key=lambda i: rank.get(i['status'], 0))['status'] if items else 'green'
+    if overall not in ('red', 'yellow'):
+        overall = 'green'
+    return {'overall': overall, 'items': items, 'checked_at': nowb.strftime('%H:%M:%S')}
+
+
+@app.route('/api/status')
+@login_required
+def api_system_status():
+    return jsonify(_system_status())
+
+
+@app.route('/status')
+@login_required
+def system_status_page():
+    return render_template('status.html', active_page='status')
 
 
 if __name__ == '__main__':
