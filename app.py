@@ -15598,6 +15598,8 @@ def intelligence_center():
         setup_updated=get_setting('iic_setup_updated', ''),
         setup_bm=get_setting('iic_setup_bm', ''),
         setup_plan=get_setting('iic_setup_plan', ''),
+        protection_guide=get_setting('iic_protection_guide', ''),
+        protection_updated=get_setting('iic_protection_updated', ''),
         ai_ready=bool(os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')),
         active_page='intelligence')
 
