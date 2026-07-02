@@ -3039,6 +3039,7 @@ def _ensure_telegram_webhook():
 
 # Heartbeat des Hintergrund-Schedulers (für /status). Dict-Mutation = kein global nötig.
 _sched_health = {'last_tick': None}
+_last_mcf_research_at = None  # Missing-Children Auto-Recherche: letzter Lauf
 
 def schedule_automations():
     """Background thread that runs automation rules and housekeeping."""
@@ -3059,6 +3060,20 @@ def schedule_automations():
                         _ensure_telegram_webhook()
                     except Exception as _e:
                         app.logger.error('Webhook-Auto-Registrierung: %s', _e)
+
+                # ── Missing Children: Auto-Recherche (nur wenn aktiviert) ──
+                if tick >= 2 and get_setting('mcf_auto_research') == '1':
+                    global _last_mcf_research_at
+                    try:
+                        _iv = int(get_setting('mcf_research_interval_min') or 120)
+                    except Exception:
+                        _iv = 120
+                    if _last_mcf_research_at is None or (now - _last_mcf_research_at).total_seconds() >= _iv * 60:
+                        _last_mcf_research_at = now
+                        try:
+                            _mcf_run_research()
+                        except Exception as _e:
+                            app.logger.error('MCF Auto-Recherche: %s', _e)
 
                 # ── Täglicher Follower-Sync + Snapshot um 23:55 Berliner Zeit ──
                 from zoneinfo import ZoneInfo
@@ -16647,6 +16662,196 @@ def mcf_delete_case(cid):
     db.session.delete(c)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+# ─── Notfallnummern-Verwaltung ──────────────────────────────────
+@app.route('/api/mcf/emergency', methods=['POST'])
+@login_required
+def mcf_emergency_add():
+    d = request.get_json(silent=True) or request.form
+    stadt = (d.get('stadt') or '').strip()
+    number = (d.get('number') or '').strip()
+    if not stadt or not number:
+        return jsonify({'ok': False, 'error': 'Stadt und Nummer sind nötig.'}), 400
+    stadtteil = (d.get('stadtteil') or '').strip() or None
+    base = EmergencyNumber.query.filter(db.func.lower(EmergencyNumber.stadt) == stadt.lower())
+    if stadtteil:
+        ex = base.filter(db.func.lower(EmergencyNumber.stadtteil) == stadtteil.lower()).first()
+    else:
+        ex = base.filter((EmergencyNumber.stadtteil == None) | (EmergencyNumber.stadtteil == '')).first()
+    label = (d.get('label') or '').strip() or None
+    if ex:
+        ex.number, ex.label, ex.source, ex.verified = number, label, 'manuell', True
+    else:
+        db.session.add(EmergencyNumber(stadt=stadt, stadtteil=stadtteil, number=number,
+                                       label=label, source='manuell', verified=True))
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/mcf/emergency/<int:eid>/delete', methods=['POST'])
+@login_required
+def mcf_emergency_delete(eid):
+    e = EmergencyNumber.query.get_or_404(eid)
+    db.session.delete(e)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ─── Quellen-Verwaltung (RSS) ───────────────────────────────────
+@app.route('/api/mcf/source', methods=['POST'])
+@login_required
+def mcf_source_add():
+    d = request.get_json(silent=True) or request.form
+    url = (d.get('url') or '').strip()
+    if not url.startswith('http'):
+        return jsonify({'ok': False, 'error': 'Bitte eine gültige RSS-URL angeben.'}), 400
+    src = json.loads(get_setting('mcf_sources') or '[]')
+    if not any(s.get('url') == url for s in src):
+        src.append({'name': (d.get('name') or '').strip() or url, 'url': url})
+        set_setting('mcf_sources', json.dumps(src))
+        db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/mcf/source/delete', methods=['POST'])
+@login_required
+def mcf_source_delete():
+    d = request.get_json(silent=True) or {}
+    url = (d.get('url') or '').strip()
+    src = [s for s in json.loads(get_setting('mcf_sources') or '[]') if s.get('url') != url]
+    set_setting('mcf_sources', json.dumps(src))
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ─── Auto-Recherche (Phase 2) ───────────────────────────────────
+def _mcf_extract_case_from_text(text, api_key):
+    """Prüft eine Meldung auf Vermisstenmeldung eines KINDES und extrahiert Felder
+    NUR aus dem Text (erfindet nichts). Gibt dict|None."""
+    if not api_key or not text:
+        return None
+    system = (
+        'Du prüfst deutsche Polizei-/Nachrichtenmeldungen auf Vermisstenmeldungen von KINDERN '
+        '(unter 18 Jahren). Extrahiere AUSSCHLIESSLICH, was wörtlich im Text steht — erfinde oder '
+        'vermute NIEMALS etwas. Fehlt eine Angabe, setze null. Antworte NUR mit einem JSON-Objekt: '
+        '{"is_case": bool (Vermisstenmeldung?), "is_child": bool (vermisste Person unter 18? nur true '
+        'wenn im Text belegt, z.B. Alter<18 oder "Kind"/"Junge"/"Mädchen"/"Schüler"/"Jugendliche"), '
+        '"vorname": str|null, "nachname": str|null, "alter": int|null, "stadt": str|null, '
+        '"stadtteil": str|null, "vermisst_seit": "YYYY-MM-DD"|null, "letzter_ort": str|null, '
+        '"groesse": str|null, "haarfarbe": str|null, "augenfarbe": str|null, "kleidung": str|null, '
+        '"merkmale": str|null, "beschreibung": str|null, "quelle_nummer": str|null (im Text genannte '
+        'Polizei-Kontaktnummer)}.'
+    )
+    try:
+        import anthropic
+        import re as _re
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('caption_model') or 'claude-haiku-4-5'
+        resp = client.messages.create(model=model, max_tokens=600, system=system,
+                                       messages=[{'role': 'user', 'content': str(text)[:4000]}])
+        _log_ai('mcf_research', resp)
+        raw = resp.content[0].text.strip()
+        m = _re.search(r'\{.*\}', raw, _re.S)
+        return json.loads(m.group(0)) if m else None
+    except Exception as e:
+        app.logger.warning('MCF Extract: %s', e)
+        return None
+
+
+def _mcf_run_research():
+    """Scannt konfigurierte RSS-Quellen nach Vermisstenmeldungen von Kindern und
+    legt Auto-Entwürfe an (mit Dedup + Auto-Poster/Caption). Gibt (created, checked)."""
+    sources = json.loads(get_setting('mcf_sources') or '[]')
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key or not sources:
+        return 0, 0
+    KW = ['vermisst', 'vermisste', 'vermisster', 'vermisstenfahndung', 'abgängig', 'fahndung', 'wird vermisst']
+    checked = created = 0
+    for src in sources:
+        url = (src.get('url') or '').strip()
+        name = src.get('name') or url
+        if not url:
+            continue
+        try:
+            entries = fetch_rss_feed(url, keywords=KW) or []
+        except Exception as e:
+            app.logger.warning('MCF Feed %s: %s', url, e)
+            continue
+        for e in entries:
+            checked += 1
+            link = (e.get('url') or '').strip()
+            if link and MissingChildCase.query.filter_by(quelle_url=link).first():
+                continue
+            data = _mcf_extract_case_from_text(f"{e.get('title', '')}\n\n{e.get('description', '')}", api_key)
+            if not data or not data.get('is_case') or not data.get('is_child'):
+                continue
+            vs = _mcf_parse_date(data.get('vermisst_seit'))
+            alter = data.get('alter') if isinstance(data.get('alter'), int) else None
+            dk = _mcf_dedup_key(data.get('vorname'), data.get('nachname'), alter, data.get('stadt'), vs)
+            if _mcf_find_duplicate(dk):
+                continue
+            stadt = (data.get('stadt') or '').strip() or None
+            acc = _mcf_match_account_for_city(stadt)
+
+            def _s(k):
+                v = data.get(k)
+                return (str(v).strip() or None) if v else None
+
+            c = MissingChildCase(
+                origin='auto', status='entwurf', dedup_key=dk,
+                vorname=_s('vorname'), nachname=_s('nachname'), alter=alter,
+                stadt=stadt, stadtteil=_s('stadtteil'), vermisst_seit=vs,
+                letzter_ort=_s('letzter_ort'), groesse=_s('groesse'),
+                haarfarbe=_s('haarfarbe'), augenfarbe=_s('augenfarbe'),
+                kleidung=_s('kleidung'), merkmale=_s('merkmale'), beschreibung=_s('beschreibung'),
+                quelle_name=name, quelle_url=link or None, quelle_nummer=_s('quelle_nummer'),
+                account_id=acc.id if acc else None)
+            db.session.add(c)
+            db.session.flush()
+            cl, _ = _resolve_emergency_contact(c)
+            c.contact_line = cl
+            try:
+                c.generated_image_path = _render_missing_child_image(c, cl)
+                c.caption = _mcf_generate_caption(c, cl)
+            except Exception as ex:
+                app.logger.warning('MCF Auto-Gen: %s', ex)
+            created += 1
+        db.session.commit()
+    return created, checked
+
+
+@app.route('/api/mcf/research/run', methods=['POST'])
+@login_required
+def mcf_research_run():
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Auto-Recherche braucht einen Anthropic-API-Key (Einstellungen → KI).'}), 400
+    if not json.loads(get_setting('mcf_sources') or '[]'):
+        return jsonify({'ok': False, 'error': 'Noch keine Quellen hinterlegt.'}), 400
+    created, checked = _mcf_run_research()
+    return jsonify({'ok': True, 'created': created, 'checked': checked})
+
+
+@app.route('/api/mcf/research/toggle', methods=['POST'])
+@login_required
+def mcf_research_toggle():
+    d = request.get_json(silent=True) or {}
+    set_setting('mcf_auto_research', '1' if d.get('on') else '0')
+    db.session.commit()
+    return jsonify({'ok': True, 'on': d.get('on') and True or False})
+
+
+@app.route('/content-studio/missing-children/einstellungen')
+@login_required
+def mcf_einstellungen():
+    sources = json.loads(get_setting('mcf_sources') or '[]')
+    numbers = EmergencyNumber.query.order_by(EmergencyNumber.stadt, EmergencyNumber.stadtteil).all()
+    return render_template('mcf_einstellungen.html',
+        sources=sources,
+        numbers=[{'id': n.id, 'stadt': n.stadt, 'stadtteil': n.stadtteil, 'number': n.number,
+                  'label': n.label, 'verified': n.verified} for n in numbers],
+        auto_on=(get_setting('mcf_auto_research') == '1'), active_page='studio')
 
 
 if __name__ == '__main__':

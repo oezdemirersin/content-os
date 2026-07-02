@@ -17,8 +17,10 @@
       {{ lab }}{% if key %} ({{ counts.get(key,0) }}){% else %} ({{ cases|length }}){% endif %}
     </a>
     {% endfor %}
+    <a href="{{ url_for('mcf_einstellungen') }}" style="margin-left:auto;font-size:12px;color:var(--muted);text-decoration:none;padding:7px 10px" title="Quellen, Auto-Recherche & Notfallnummern">
+      <i class="fa-solid fa-gear"></i> Quellen &amp; Notfallnummern</a>
     <button onclick="var f=document.getElementById('mcfForm');f.style.display=f.style.display==='none'?'block':'none'"
-            class="btn btn-primary" style="margin-left:auto;font-size:13px;padding:8px 16px">＋ Neuer Fall</button>
+            class="btn btn-primary" style="font-size:13px;padding:8px 16px">＋ Neuer Fall</button>
   </div>
 
   <div id="mcfForm" class="card" style="padding:20px;margin-bottom:22px;display:none">
