@@ -32,6 +32,17 @@
         {{ case.stadt or '' }}{% if case.stadtteil %} · {{ case.stadtteil }}{% endif %} · Ziel-Seite: {{ case.account or '— keine —' }} · angelegt {{ case.created_at }}
       </div>
 
+      {% if case.update_detected and case.status != 'erledigt' %}
+      <div class="card" style="padding:14px;margin-bottom:16px;border:1px solid var(--warning);background:rgba(245,158,11,.08)">
+        <div style="font-weight:700;font-size:13px;color:var(--warning);margin-bottom:6px">⚠️ Mögliches Update erkannt</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Eine Quelle deutet auf eine Auflösung dieses Falls hin{% if case.update_source_url %} · <a href="{{ case.update_source_url }}" target="_blank" rel="noopener" style="color:var(--accent2)">Meldung ansehen</a>{% endif %}. Bitte prüfen — es wird nichts automatisch geändert.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="setStatus('erledigt',this)" class="btn btn-primary" style="font-size:12px;padding:7px 14px">✓ Kind gefunden — Fall erledigt</button>
+          <button onclick="dismissUpdate(this)" class="btn btn-ghost" style="font-size:12px;padding:7px 14px">Kein Update (verwerfen)</button>
+        </div>
+      </div>
+      {% endif %}
+
       <div class="card" style="padding:10px 14px;margin-bottom:16px;font-size:13px">
         <i class="fa-solid fa-phone" style="color:var(--danger)"></i> <b>Kontakt im Beitrag:</b> {{ case.contact_line or 'Notruf 110' }}
       </div>
@@ -126,6 +137,11 @@ async function toTelegram(btn){
   if(r.ok){ msg.textContent='✓ an Telegram gesendet — dort prüfen & veröffentlichen'; msg.style.color='var(--success)'; }
   else { msg.textContent='✗ '+(r.error||'Fehler'); msg.style.color='var(--danger)'; }
   btn.disabled=false; btn.innerHTML=o;
+}
+async function dismissUpdate(btn){
+  btn.disabled=true;
+  const r=await fetch(`/api/mcf/case/${CID}/dismiss-update`,{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){ _toast('Update verworfen'); setTimeout(()=>location.reload(),500); } else { _toast('Fehler','error'); btn.disabled=false; }
 }
 async function delCase(btn){
   if(typeof customConfirm==='function'){ if(!await customConfirm('Fall löschen','Diesen Vermisstenfall unwiderruflich löschen?','Löschen')) return; }

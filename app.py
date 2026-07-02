@@ -1753,6 +1753,9 @@ def init_db():
         safe_alter('ALTER TABLE knowledge_entry ADD COLUMN IF NOT EXISTS last_verified DATE')
         safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS posting_enabled BOOLEAN DEFAULT TRUE')
         safe_alter('ALTER TABLE account ADD COLUMN IF NOT EXISTS needs_stock BOOLEAN DEFAULT TRUE')
+        safe_alter('ALTER TABLE missing_child_case ADD COLUMN IF NOT EXISTS update_detected BOOLEAN DEFAULT FALSE')
+        safe_alter('ALTER TABLE missing_child_case ADD COLUMN IF NOT EXISTS update_source_url TEXT')
+        safe_alter('ALTER TABLE missing_child_case ADD COLUMN IF NOT EXISTS update_found_at TIMESTAMP')
 
         # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
         if is_postgres:
@@ -3072,8 +3075,9 @@ def schedule_automations():
                         _last_mcf_research_at = now
                         try:
                             _mcf_run_research()
+                            _mcf_monitor_updates()
                         except Exception as _e:
-                            app.logger.error('MCF Auto-Recherche: %s', _e)
+                            app.logger.error('MCF Auto-Recherche/Monitoring: %s', _e)
 
                 # ── Täglicher Follower-Sync + Snapshot um 23:55 Berliner Zeit ──
                 from zoneinfo import ZoneInfo
@@ -16449,6 +16453,7 @@ def _mcf_case_dict(c):
         'published_at': c.published_at.strftime('%d.%m.%Y %H:%M') if c.published_at else None,
         'ig_post_ref': c.ig_post_ref, 'update_comment': c.update_comment, 'story_draft': c.story_draft,
         'resolution_note': c.resolution_note,
+        'update_detected': bool(c.update_detected), 'update_source_url': c.update_source_url,
         'created_at': c.created_at.strftime('%d.%m.%Y') if c.created_at else None,
     }
 
@@ -16604,6 +16609,7 @@ def mcf_set_status(cid):
         cm, story = _mcf_resolution_texts(c)
         c.update_comment = c.update_comment or cm
         c.story_draft = c.story_draft or story
+        c.update_detected = False
         if (d.get('resolution_note') or '').strip():
             c.resolution_note = d.get('resolution_note').strip()
     db.session.commit()
@@ -16852,6 +16858,101 @@ def mcf_einstellungen():
         numbers=[{'id': n.id, 'stadt': n.stadt, 'stadtteil': n.stadtteil, 'number': n.number,
                   'label': n.label, 'verified': n.verified} for n in numbers],
         auto_on=(get_setting('mcf_auto_research') == '1'), active_page='studio')
+
+
+# ─── Phase 3: Überwachung nach Veröffentlichung ─────────────────
+def _mcf_extract_resolution(text, api_key):
+    """Prüft, ob eine Meldung die AUFLÖSUNG einer Kinder-Vermisstenmeldung ist
+    (gefunden / Fahndung eingestellt). Extrahiert Namen/Stadt zur Zuordnung. dict|None."""
+    if not api_key or not text:
+        return None
+    system = (
+        'Du prüfst deutsche Meldungen, ob sie die AUFLÖSUNG einer Vermisstenmeldung eines Kindes '
+        'beschreiben (Kind wohlbehalten/lebend gefunden oder aufgefunden, Fahndung eingestellt oder '
+        'zurückgenommen, Suche beendet). Extrahiere NUR was im Text steht, erfinde nichts. Antworte '
+        'NUR als JSON: {"is_resolution": bool, "positive": bool (wohlbehalten/lebend gefunden?), '
+        '"vorname": str|null, "nachname": str|null, "stadt": str|null, "alter": int|null}.'
+    )
+    try:
+        import anthropic
+        import re as _re
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('caption_model') or 'claude-haiku-4-5'
+        resp = client.messages.create(model=model, max_tokens=300, system=system,
+                                       messages=[{'role': 'user', 'content': str(text)[:4000]}])
+        _log_ai('mcf_monitor', resp)
+        m = _re.search(r'\{.*\}', resp.content[0].text.strip(), _re.S)
+        return json.loads(m.group(0)) if m else None
+    except Exception as e:
+        app.logger.warning('MCF Resolution-Extract: %s', e)
+        return None
+
+
+def _mcf_match_published(cases, info):
+    """Ordnet eine Auflösungs-Info einem veröffentlichten Fall zu — konservativ:
+    Nachname + (Vorname ODER Stadt), oder Vorname + Stadt. None wenn unsicher."""
+    def norm(s):
+        return (s or '').strip().lower()
+    iv, inn, ist = norm(info.get('vorname')), norm(info.get('nachname')), norm(info.get('stadt'))
+    for c in cases:
+        cv, cnn, cst = norm(c.vorname), norm(c.nachname), norm(c.stadt)
+        name_last = bool(inn and cnn and inn == cnn)
+        name_first = bool(iv and cv and iv == cv)
+        city = bool(ist and cst and (ist in cst or cst in ist))
+        if (name_last and (name_first or city)) or (name_first and city):
+            return c
+    return None
+
+
+def _mcf_monitor_updates():
+    """Scannt Quellen nach Auflösungs-Meldungen zu VERÖFFENTLICHTEN Fällen und
+    markiert Treffer (update_detected). Setzt NIE automatisch auf erledigt — der
+    Mensch bestätigt. Gibt (flagged, checked)."""
+    published = MissingChildCase.query.filter_by(status='veroeffentlicht', update_detected=False).all()
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    sources = json.loads(get_setting('mcf_sources') or '[]')
+    if not published or not api_key or not sources:
+        return 0, 0
+    RES_KW = ['gefunden', 'wohlbehalten', 'aufgefunden', 'fahndung eingestellt', 'fahndung zurück',
+              'nicht mehr vermisst', 'wohlauf', 'angetroffen', 'suche beendet']
+    flagged = checked = 0
+    for src in sources:
+        try:
+            entries = fetch_rss_feed(src.get('url'), keywords=RES_KW) or []
+        except Exception:
+            continue
+        for e in entries:
+            checked += 1
+            info = _mcf_extract_resolution(f"{e.get('title', '')}\n\n{e.get('description', '')}", api_key)
+            if not info or not info.get('is_resolution'):
+                continue
+            m = _mcf_match_published(published, info)
+            if m and not m.update_detected:
+                m.update_detected = True
+                m.update_source_url = (e.get('url') or None)
+                m.update_found_at = datetime.utcnow()
+                flagged += 1
+        db.session.commit()
+    return flagged, checked
+
+
+@app.route('/api/mcf/monitor/run', methods=['POST'])
+@login_required
+def mcf_monitor_run():
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Braucht einen Anthropic-API-Key.'}), 400
+    flagged, checked = _mcf_monitor_updates()
+    return jsonify({'ok': True, 'flagged': flagged, 'checked': checked})
+
+
+@app.route('/api/mcf/case/<int:cid>/dismiss-update', methods=['POST'])
+@login_required
+def mcf_dismiss_update(cid):
+    c = MissingChildCase.query.get_or_404(cid)
+    c.update_detected = False
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 if __name__ == '__main__':

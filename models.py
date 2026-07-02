@@ -1137,6 +1137,10 @@ class MissingChildCase(db.Model):
     # Herkunft + Dedup
     origin        = db.Column(db.String(20), default='manuell')  # manuell / auto
     dedup_key     = db.Column(db.String(300), index=True)
+    # Phase 3: erkanntes Auflösungs-Update (unbestätigt — Mensch bestätigt manuell)
+    update_detected   = db.Column(db.Boolean, default=False)
+    update_source_url = db.Column(db.Text)
+    update_found_at   = db.Column(db.DateTime)
     created_at    = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
