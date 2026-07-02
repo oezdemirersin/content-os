@@ -2,6 +2,7 @@ import os
 import json
 import csv
 import io
+import secrets
 import threading
 import difflib
 import mimetypes
@@ -26,7 +27,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf,
                     WatchlistSeite, WatchlistFollowerSnapshot, WatchlistCityMeta,
                     GrowthExperiment, GrowthVariant, GrowthParticipant, GrowthDataPoint, GrowthKnowledge,
-                    KnowledgeEntry)
+                    KnowledgeEntry, MissingChildCase, EmergencyNumber)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -221,6 +222,99 @@ def _cloudinary_delete(public_id, resource_type='image'):
         app.logger.error(f'Cloudinary delete error: {e}')
 
 
+# ─────────────────────── MEMEOS BRIDGE ───────────────────────
+# Nimmt fertige Meme-Posts (Einzelbild oder Karussell) von MemeOS entgegen.
+# Öffentlich erreichbar (kein Login), deshalb eigene Auth über einen geteilten Secret-Key —
+# fail-closed: ohne konfigurierten Key wird der Request abgelehnt, nicht durchgelassen
+# (siehe CityBot-Telegram-Webhook-Fund vom 2026-07-02 — dort war das umgekehrt und ausnutzbar).
+
+def _find_account_for_city(city_name):
+    """Bevorzugt einen dedizierten Meme-Account (\"<Stadt> Memes\"),
+    fällt sonst auf den News-Account (\"<Stadt>schau\") zurück."""
+    if not city_name:
+        return None
+    candidates = [f'{city_name} Memes', f'{city_name}schau']
+    for cand in candidates:
+        acc = Account.query.filter(Account.name.ilike(cand)).first()
+        if acc:
+            return acc
+    return Account.query.filter(Account.name.ilike(f'%{city_name}%')).first()
+
+
+@app.route('/api/memeos/receive', methods=['POST'])
+def api_memeos_receive():
+    expected_key = os.environ.get('MEMEOS_BRIDGE_KEY') or get_setting('memeos_bridge_key')
+    if not expected_key:
+        return jsonify({'ok': False, 'error': 'MEMEOS_BRIDGE_KEY nicht konfiguriert'}), 503
+    given_key = request.headers.get('X-MemeOS-Key', '')
+    if not secrets.compare_digest(given_key, expected_key):
+        return jsonify({'ok': False, 'error': 'unauthorized'}), 403
+
+    meta = {}
+    if 'meta' in request.form:
+        try:
+            meta = json.loads(request.form['meta'])
+        except Exception:
+            meta = {}
+    elif request.is_json:
+        meta = request.json or {}
+
+    city_name = meta.get('city', '')
+    account = _find_account_for_city(city_name)
+    if not account:
+        return jsonify({'ok': False, 'error': f'Kein Account für Stadt "{city_name}" gefunden'}), 404
+
+    # Bilder einsammeln: entweder mehrere Dateien (Karussell) oder eine einzelne
+    files = request.files.getlist('images') or request.files.getlist('image')
+    if not files:
+        return jsonify({'ok': False, 'error': 'Keine Bilder im Request'}), 400
+
+    media_ids = []
+    for file in files:
+        if not file or not file.filename:
+            continue
+        original = secure_filename(file.filename)
+        ftype = get_file_type(original) if original else 'image'
+        mime = mimetypes.guess_type(original)[0] or 'image/png'
+        file_bytes = file.read()
+        cl = _cloudinary_upload(io.BytesIO(file_bytes), original or 'memeos.png')
+        media = MediaItem(
+            filename=cl['public_id'],
+            original_filename=original,
+            file_type=ftype,
+            mime_type=mime,
+            file_size=cl.get('bytes', len(file_bytes)),
+            width=cl.get('width'),
+            height=cl.get('height'),
+            url=cl['secure_url'],
+            storage_source='local' if cl.get('_local') else 'cloudinary',
+        )
+        db.session.add(media)
+        db.session.flush()
+        media_ids.append(media.id)
+
+    if not media_ids:
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': 'Keine gültigen Bilder empfangen'}), 400
+
+    post_type = 'carousel' if len(media_ids) > 1 else 'feed'
+    post = ScheduledPost(
+        account_id=account.id,
+        media_item_id=media_ids[0],
+        media_ids=json.dumps(media_ids),
+        caption=meta.get('caption', ''),
+        post_type=post_type,
+        status='draft',
+        slot_type='disabled',
+        scheduled_at=datetime.utcnow(),
+    )
+    db.session.add(post)
+    db.session.commit()
+
+    return jsonify({'ok': True, 'scheduled_post_id': post.id, 'media_ids': media_ids,
+                    'account': account.name, 'post_type': post_type})
+
+
 # ─────────────────────── AUTH ───────────────────────
 
 def login_required(f):
@@ -235,8 +329,9 @@ def login_required(f):
 # ── Global auth guard — schützt ALLE Routen außer Login/Logout/Static ──
 # telegram_bot_webhook: Telegram ruft diesen Endpoint ohne Session auf → muss öffentlich sein,
 # sonst werden alle eingehenden Bot-Kommandos (/heute, /vorrat …) mit 401 abgewiesen.
+# api_memeos_receive: MemeOS hat keine Session hier → eigene Auth via X-MemeOS-Key (siehe Route).
 PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'cron_sync_followers',
-                    'cron_morning_report', 'telegram_bot_webhook'}
+                    'cron_morning_report', 'telegram_bot_webhook', 'api_memeos_receive'}
 
 @app.before_request
 def global_auth_guard():
@@ -15958,6 +16053,305 @@ def account_cancel_stuck(account_id):
         p.status = 'cancelled'
     db.session.commit()
     return jsonify({'ok': True, 'cancelled': len(rows)})
+
+
+# ═══════════════════════════════════════════════════════════════
+# ─────────── MISSING CHILDREN FACTORY (Content Studio) ──────────
+# Eigenständiger Workflow: Vermisstenmeldungen → seriöses IG-Poster.
+# LEITPLANKE: Es wird NIE eine Angabe erfunden. Fehlende Felder bleiben weg.
+# ═══════════════════════════════════════════════════════════════
+_MCF_FONT_DIR = os.path.join(os.path.dirname(__file__), 'fonts')
+
+def _mcf_font(size, bold=False):
+    from PIL import ImageFont
+    name = 'LiberationSans-Bold.ttf' if bold else 'LiberationSans-Regular.ttf'
+    for p in (os.path.join(_MCF_FONT_DIR, name),
+              '/usr/share/fonts/truetype/liberation/' + name,
+              '/usr/share/fonts/truetype/dejavu/DejaVuSans%s.ttf' % ('-Bold' if bold else '')):
+        try:
+            return ImageFont.truetype(p, size)
+        except Exception:
+            continue
+    from PIL import ImageFont as _IF
+    return _IF.load_default()
+
+
+def _mcf_load_image_bytes(media):
+    """Bytes eines MediaItem laden (Cloudinary-URL oder lokal). None bei Fehler."""
+    if not media:
+        return None
+    try:
+        u = media.url or ''
+        if u.startswith('http'):
+            import requests as _r
+            resp = _r.get(u, timeout=8)
+            if resp.ok:
+                return resp.content
+        fp = os.path.join(app.config['UPLOAD_FOLDER'], media.filename)
+        if os.path.exists(fp):
+            return open(fp, 'rb').read()
+        if u.startswith('/'):
+            fp2 = os.path.join(app.root_path, u.lstrip('/'))
+            if os.path.exists(fp2):
+                return open(fp2, 'rb').read()
+    except Exception as e:
+        app.logger.warning('MCF Bild-Load: %s', e)
+    return None
+
+
+def _mcf_wrap(draw, text, font, max_w):
+    """Text in Zeilen umbrechen, die in max_w passen."""
+    lines, cur = [], ''
+    for w in str(text).split():
+        test = (cur + ' ' + w).strip()
+        if draw.textlength(test, font=font) <= max_w:
+            cur = test
+        else:
+            if cur:
+                lines.append(cur)
+            cur = w
+    if cur:
+        lines.append(cur)
+    return lines or ['']
+
+
+def _render_missing_child_image(case, contact_line=None):
+    """Seriöses, adaptives 1080×1350-Vermissten-Poster. Rendert NUR vorhandene
+    Felder (keine Lücken). Speichert flach im Upload-Ordner, gibt Dateinamen zurück."""
+    from PIL import Image, ImageDraw, ImageOps
+    import io as _io
+    W, H = 1080, 1350
+    RED = (198, 40, 40); DARK = (26, 32, 44); GRAY = (95, 105, 120)
+    WHITE = (255, 255, 255); LINE = (230, 233, 238)
+    img = Image.new('RGB', (W, H), WHITE)
+    d = ImageDraw.Draw(img)
+    PAD = 70
+
+    # Kopf: roter Alarm-Balken
+    hdr_h = 150
+    d.rectangle([0, 0, W, hdr_h], fill=RED)
+    f_hdr = _mcf_font(74, bold=True)
+    t = 'VERMISST'
+    d.text(((W - d.textlength(t, font=f_hdr)) / 2, 30), t, font=f_hdr, fill=WHITE)
+    if case.stadt:
+        f_sub = _mcf_font(30, bold=False)
+        s = case.stadt.upper()
+        d.text(((W - d.textlength(s, font=f_sub)) / 2, 112), s, font=f_sub, fill=(255, 218, 218))
+
+    y = hdr_h + 40
+
+    # Foto (optional, adaptiv)
+    photo = None
+    if case.foto_media_id:
+        b = _mcf_load_image_bytes(MediaItem.query.get(case.foto_media_id))
+        if b:
+            try:
+                photo = ImageOps.exif_transpose(Image.open(_io.BytesIO(b)).convert('RGB'))
+            except Exception:
+                photo = None
+    if photo:
+        box_w, box_h = W - 2 * PAD, 560
+        ratio = max(box_w / photo.width, box_h / photo.height)
+        photo = photo.resize((int(photo.width * ratio), int(photo.height * ratio)), Image.LANCZOS)
+        lft, top = (photo.width - box_w) // 2, (photo.height - box_h) // 2
+        photo = photo.crop((lft, top, lft + box_w, top + box_h))
+        img.paste(photo, (PAD, y))
+        d.rectangle([PAD, y, PAD + box_w, y + box_h], outline=(215, 219, 226), width=3)
+        y += box_h + 34
+
+    # Name + Alter
+    name = case.display_name()
+    f_name = _mcf_font(58, bold=True)
+    d.text(((W - d.textlength(name, font=f_name)) / 2, y), name, font=f_name, fill=DARK)
+    y += 74
+    if case.alter is not None:
+        a = f'{case.alter} Jahre'
+        f_age = _mcf_font(36, bold=False)
+        d.text(((W - d.textlength(a, font=f_age)) / 2, y), a, font=f_age, fill=RED)
+        y += 54
+    y += 8
+    d.line([PAD, y, W - PAD, y], fill=LINE, width=2)
+    y += 28
+
+    # Detail-Zeilen (nur vorhandene Felder)
+    f_lbl = _mcf_font(27, bold=True)
+    f_val = _mcf_font(30, bold=False)
+    rows = []
+    if case.vermisst_seit:
+        try:
+            rows.append(('Vermisst seit', case.vermisst_seit.strftime('%d.%m.%Y')))
+        except Exception:
+            pass
+    if case.letzter_ort:
+        rows.append(('Zuletzt gesehen', case.letzter_ort))
+    if case.stadtteil:
+        rows.append(('Ortsteil', case.stadtteil))
+    if case.groesse:
+        rows.append(('Größe', case.groesse))
+    if case.haarfarbe:
+        rows.append(('Haare', case.haarfarbe))
+    if case.augenfarbe:
+        rows.append(('Augen', case.augenfarbe))
+    if case.kleidung:
+        rows.append(('Kleidung', case.kleidung))
+    if case.merkmale:
+        rows.append(('Besondere Merkmale', case.merkmale))
+    if case.beschreibung:
+        rows.append(('Beschreibung', case.beschreibung))
+
+    max_w, label_w, cb_h = W - 2 * PAD, 300, 130
+    for label, val in rows:
+        if y > H - cb_h - 70:
+            break
+        d.text((PAD, y), label, font=f_lbl, fill=GRAY)
+        short = _mcf_wrap(d, val, f_val, max_w - label_w - 16)
+        if len(short) == 1 and d.textlength(short[0], font=f_val) <= max_w - label_w - 16:
+            d.text((PAD + label_w, y - 2), short[0], font=f_val, fill=DARK)
+            y += 46
+        else:
+            y += 36
+            for ln in _mcf_wrap(d, val, f_val, max_w):
+                if y > H - cb_h - 46:
+                    break
+                d.text((PAD, y), ln, font=f_val, fill=DARK)
+                y += 40
+            y += 8
+
+    # Kontakt-Balken unten (fix)
+    d.rectangle([0, H - cb_h, W, H], fill=DARK)
+    cl = contact_line or 'Hinweise an die Polizei: Notruf 110'
+    f_cl = _mcf_font(34, bold=True)
+    cll = _mcf_wrap(d, cl, f_cl, W - 2 * PAD)
+    cy = H - cb_h + (cb_h - len(cll) * 42) // 2
+    for ln in cll:
+        d.text(((W - d.textlength(ln, font=f_cl)) / 2, cy), ln, font=f_cl, fill=WHITE)
+        cy += 42
+
+    fname = f'mcf_{case.id}_{int(datetime.utcnow().timestamp())}.jpg'
+    img.save(os.path.join(app.config['UPLOAD_FOLDER'], fname), format='JPEG', quality=92)
+    return fname
+
+
+def _mcf_extract_number(text):
+    """Findet eine deutsche Telefon-/Kontaktnummer in einem Text. None wenn keine."""
+    if not text:
+        return None
+    import re as _re
+    m = _re.search(r'(\+49[\s\-/]?\d[\d\s\-/]{6,}\d|0\d{2,5}[\s\-/]?\d[\d\s\-/]{4,}\d)', str(text))
+    return _re.sub(r'\s+', ' ', m.group(1)).strip() if m else None
+
+
+def _resolve_emergency_contact(case):
+    """Kontaktzeile: Quell-Nummer > Stadt/Stadtteil-DB > nur 110. Erfindet NIE eine
+    Nummer. Gibt (contact_line, local_number_or_None)."""
+    local = (case.quelle_nummer or '').strip() or None
+    if not local and case.stadt:
+        base = EmergencyNumber.query.filter(db.func.lower(EmergencyNumber.stadt) == case.stadt.strip().lower())
+        row = None
+        if case.stadtteil:
+            row = base.filter(db.func.lower(EmergencyNumber.stadtteil) == case.stadtteil.strip().lower()).first()
+        if not row:
+            row = base.filter((EmergencyNumber.stadtteil == None) | (EmergencyNumber.stadtteil == '')).first()
+        if not row:
+            row = base.first()
+        if row:
+            local = row.number
+    if local:
+        return (f'Hinweise: Polizei {local} · Notruf 110', local)
+    return ('Hinweise an die Polizei: Notruf 110', None)
+
+
+def _mcf_dedup_key(vorname, nachname, alter, stadt, vermisst_seit):
+    parts = [(vorname or '').strip().lower(), (nachname or '').strip().lower(),
+             str(alter or ''), (stadt or '').strip().lower(),
+             vermisst_seit.isoformat() if vermisst_seit else '']
+    key = '|'.join(parts)
+    return key if key.replace('|', '').strip() else ''
+
+
+def _mcf_find_duplicate(dedup_key, exclude_id=None):
+    if not dedup_key:
+        return None
+    q = MissingChildCase.query.filter(MissingChildCase.dedup_key == dedup_key)
+    if exclude_id:
+        q = q.filter(MissingChildCase.id != exclude_id)
+    return q.first()
+
+
+def _mcf_generate_caption(case, contact_line):
+    """Caption NUR aus bekannten Feldern — erfindet nichts. KI optional, mit
+    faktentreuem Fallback ohne KI."""
+    facts = []
+    if case.display_name() != 'Unbekannt':
+        facts.append(f'Name: {case.display_name()}')
+    if case.alter is not None:
+        facts.append(f'Alter: {case.alter} Jahre')
+    if case.vermisst_seit:
+        try:
+            facts.append(f"Vermisst seit: {case.vermisst_seit.strftime('%d.%m.%Y')}")
+        except Exception:
+            pass
+    if case.stadt:
+        facts.append(f'Stadt: {case.stadt}')
+    if case.stadtteil:
+        facts.append(f'Ortsteil: {case.stadtteil}')
+    if case.letzter_ort:
+        facts.append(f'Zuletzt gesehen: {case.letzter_ort}')
+    if case.groesse:
+        facts.append(f'Größe: {case.groesse}')
+    if case.haarfarbe:
+        facts.append(f'Haare: {case.haarfarbe}')
+    if case.augenfarbe:
+        facts.append(f'Augen: {case.augenfarbe}')
+    if case.kleidung:
+        facts.append(f'Kleidung: {case.kleidung}')
+    if case.merkmale:
+        facts.append(f'Besondere Merkmale: {case.merkmale}')
+    if case.beschreibung:
+        facts.append(f'Beschreibung: {case.beschreibung}')
+    if case.weitere_infos:
+        facts.append(f'Weitere Informationen: {case.weitere_infos}')
+
+    def _fallback():
+        tag = f" #{case.stadt.replace(' ', '')}" if case.stadt else ''
+        return '\n'.join(['🚨 VERMISST 🚨', ''] + facts + ['', contact_line, '',
+                         'Bitte teilen, um zu helfen. #Vermisst' + tag])
+
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key or not facts:
+        return _fallback()
+    system = (
+        'Du erstellst Instagram-Captions für Vermisstenmeldungen von Kindern. '
+        'ABSOLUT ZWINGEND: Verwende AUSSCHLIESSLICH die angegebenen Fakten. Erfinde, '
+        'ergänze oder vermute NIEMALS etwas. Fehlende Angaben lässt du komplett weg. '
+        'Ton: sachlich, ernst, respektvoll, klar strukturiert, gut lesbar. Beginne mit '
+        "'🚨 VERMISST'. Liste die bekannten Angaben übersichtlich. Baue die vorgegebene "
+        'Kontaktzeile unverändert ein. Ende mit kurzem Aufruf zum Teilen und wenigen '
+        'passenden Hashtags. Keine Spekulation, keine Übertreibung, kein Clickbait.'
+    )
+    user = f"Bekannte Fakten (NUR diese verwenden):\n{chr(10).join(facts)}\n\nKontaktzeile (unverändert einbauen):\n{contact_line}"
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('caption_model') or 'claude-haiku-4-5'
+        resp = client.messages.create(model=model, max_tokens=700, system=system,
+                                       messages=[{'role': 'user', 'content': user}])
+        _log_ai('mcf_caption', resp)
+        return resp.content[0].text.strip()
+    except Exception as e:
+        app.logger.warning('MCF Caption-Fehler: %s', e)
+        return _fallback()
+
+
+def _mcf_resolution_texts(case):
+    """Vorschläge für Update-Kommentar + Story bei Auflösung (Kind gefunden).
+    Bewusst generisch/faktentreu — keine erfundenen Details."""
+    name = case.display_name()
+    who = name if name != 'Unbekannt' else 'das vermisste Kind'
+    comment = (f'Update: {who} wurde nach offiziellen Angaben wohlbehalten gefunden. '
+               'Vielen Dank an alle, die beim Teilen geholfen haben. 💙')
+    story = f'Gute Nachrichten: {who} wurde wohlbehalten gefunden. Danke fürs Teilen!'
+    return comment, story
 
 
 if __name__ == '__main__':

@@ -1089,3 +1089,73 @@ class KnowledgeEntry(db.Model):
     last_verified    = db.Column(db.Date)                          # wann zuletzt als „heute noch gültig" bestätigt
     created_at       = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at       = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MissingChildCase(db.Model):
+    """Missing-Children-Factory (Content Studio): ein Vermisstenfall eines Kindes.
+    WICHTIG: Es wird NIE eine Angabe erfunden — fehlende Felder bleiben None/leer."""
+    __tablename__ = 'missing_child_case'
+    id = db.Column(db.Integer, primary_key=True)
+    # Kind
+    vorname       = db.Column(db.String(120))
+    nachname      = db.Column(db.String(120))
+    alter         = db.Column(db.Integer)              # Jahre
+    geschlecht    = db.Column(db.String(20))
+    # Ort / Zeit
+    stadt         = db.Column(db.String(160), index=True)
+    stadtteil     = db.Column(db.String(160))
+    vermisst_seit = db.Column(db.Date)
+    letzter_ort   = db.Column(db.String(300))
+    # Beschreibung
+    groesse       = db.Column(db.String(60))           # Text, da Quellen variieren ("1,40 m")
+    haarfarbe     = db.Column(db.String(80))
+    augenfarbe    = db.Column(db.String(80))
+    kleidung      = db.Column(db.Text)
+    merkmale      = db.Column(db.Text)
+    beschreibung  = db.Column(db.Text)
+    weitere_infos = db.Column(db.Text)
+    # Fotos
+    foto_media_id = db.Column(db.Integer, db.ForeignKey('media_item.id'))
+    weitere_fotos = db.Column(db.Text, default='[]')   # JSON-Liste von media_ids
+    # Quelle
+    quelle_name   = db.Column(db.String(200))
+    quelle_url    = db.Column(db.Text)
+    quelle_nummer = db.Column(db.String(60))           # aus der Quellmeldung extrahierte Kontakt-Nr.
+    # Produktion
+    account_id    = db.Column(db.Integer, db.ForeignKey('account.id'))   # Ziel-Seite
+    generated_image_path = db.Column(db.String(600))
+    caption       = db.Column(db.Text)
+    contact_line  = db.Column(db.String(300))          # aufgelöste Kontaktzeile
+    telegram_sent_at = db.Column(db.DateTime)
+    ig_post_ref   = db.Column(db.String(600))          # Link/Referenz zum IG-Post
+    published_at  = db.Column(db.DateTime)
+    status        = db.Column(db.String(20), default='entwurf', index=True)  # entwurf/veroeffentlicht/erledigt
+    # Auflösung (Kind gefunden)
+    resolution_note = db.Column(db.Text)
+    update_comment  = db.Column(db.Text)
+    story_draft     = db.Column(db.Text)
+    # Herkunft + Dedup
+    origin        = db.Column(db.String(20), default='manuell')  # manuell / auto
+    dedup_key     = db.Column(db.String(300), index=True)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def display_name(self):
+        n = ' '.join(x for x in [self.vorname, self.nachname] if x).strip()
+        return n or 'Unbekannt'
+
+
+class EmergencyNumber(db.Model):
+    """Örtliche Polizei-/Kontaktnummer pro Stadt (optional Stadtteil) für die
+    Missing-Children-Factory. Wird über Zeit befüllt, NIE geraten. 110 kommt
+    immer separat dazu."""
+    __tablename__ = 'emergency_number'
+    id = db.Column(db.Integer, primary_key=True)
+    stadt      = db.Column(db.String(160), index=True, nullable=False)
+    stadtteil  = db.Column(db.String(160))             # optional; None = stadtweit
+    number     = db.Column(db.String(60), nullable=False)
+    label      = db.Column(db.String(200))             # z.B. "Polizeirevier Mitte"
+    source     = db.Column(db.String(300))             # Quelle/URL/'manuell'
+    verified   = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
