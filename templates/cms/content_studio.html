@@ -61,6 +61,19 @@
             onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
       <i class="fa-solid fa-plus" style="font-size:11px"></i> Seite hinzufügen
     </button>
+
+    <!-- Factories -->
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-bottom:6px;padding-left:2px">FACTORIES</div>
+      <a href="{{ url_for('missing_children_factory') }}"
+         style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;text-decoration:none;color:var(--text)">
+        <div style="width:28px;height:28px;border-radius:8px;background:rgba(239,68,68,.15);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">🚨</div>
+        <div style="min-width:0">
+          <div style="font-size:12px;font-weight:600;white-space:nowrap">Missing Children</div>
+          <div style="font-size:10px;opacity:.6">Vermisstenmeldungen</div>
+        </div>
+      </a>
+    </div>
   </div>
 
   <!-- ── Rechter Workspace ───────────────────────────────────── -->

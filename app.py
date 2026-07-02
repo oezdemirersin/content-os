@@ -14126,6 +14126,24 @@ def telegram_bot_webhook():
             except Exception as e:
                 _tg_answer_callback(token, cb_id, f'Fehler: {e}', alert=True)
 
+        elif cb_data.startswith('mcfposted_'):
+            try:
+                case_id = int(cb_data.split('_', 1)[1])
+                case = MissingChildCase.query.get(case_id)
+                if case and case.status != 'veroeffentlicht':
+                    case.status = 'veroeffentlicht'
+                    if not case.published_at:
+                        case.published_at = datetime.utcnow()
+                    db.session.commit()
+                    _tg_answer_callback(token, cb_id, '✅ Als veröffentlicht markiert!', alert=False)
+                    _tg_edit_message_text(token, cb_chat_id, cb_msg_id,
+                        f'✅ <b>Veröffentlicht von {cb_user}</b> um {datetime.utcnow().strftime("%H:%M")} UTC\n'
+                        f'Vermisstenfall #{case_id}')
+                else:
+                    _tg_answer_callback(token, cb_id, 'Bereits markiert.', alert=False)
+            except Exception as e:
+                _tg_answer_callback(token, cb_id, f'Fehler: {e}', alert=True)
+
         elif cb_data.startswith('morning_np_'):
             try:
                 d = datetime.strptime(cb_data[len('morning_np_'):], '%Y-%m-%d').date()
@@ -16352,6 +16370,283 @@ def _mcf_resolution_texts(case):
                'Vielen Dank an alle, die beim Teilen geholfen haben. 💙')
     story = f'Gute Nachrichten: {who} wurde wohlbehalten gefunden. Danke fürs Teilen!'
     return comment, story
+
+
+def _mcf_save_photo(fobj):
+    """Speichert ein hochgeladenes Foto lokal + legt MediaItem an. Gibt id/None."""
+    try:
+        import uuid as _uuid
+        ext = os.path.splitext(fobj.filename)[1].lower() or '.jpg'
+        name = f'mcfphoto_{_uuid.uuid4().hex}{ext}'
+        fobj.save(os.path.join(app.config['UPLOAD_FOLDER'], name))
+        w = h = None
+        try:
+            from PIL import Image as _I
+            w, h = _I.open(os.path.join(app.config['UPLOAD_FOLDER'], name)).size
+        except Exception:
+            pass
+        m = MediaItem(filename=name, original_filename=fobj.filename, url=f'/media/file/{name}',
+                      file_type='image', storage_source='local', width=w, height=h)
+        db.session.add(m)
+        db.session.flush()
+        return m.id
+    except Exception as e:
+        app.logger.warning('MCF Foto-Upload: %s', e)
+        return None
+
+
+def _mcf_match_account_for_city(stadt):
+    """Aktiver Account, dessen Name die Stadt enthält (Vorbelegung Ziel-Seite)."""
+    if not stadt:
+        return None
+    s = stadt.strip().lower()
+    for a in Account.query.filter(Account.status.in_(['active', 'paused'])).all():
+        if s and s in (a.name or '').lower():
+            return a
+    return None
+
+
+def _mcf_parse_date(s):
+    s = (s or '').strip()
+    for fmt in ('%Y-%m-%d', '%d.%m.%Y'):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            continue
+    return None
+
+
+def _mcf_case_dict(c):
+    acc = Account.query.get(c.account_id) if c.account_id else None
+    return {
+        'id': c.id, 'name': c.display_name(), 'vorname': c.vorname, 'nachname': c.nachname,
+        'alter': c.alter, 'stadt': c.stadt, 'stadtteil': c.stadtteil, 'geschlecht': c.geschlecht,
+        'vermisst_seit': c.vermisst_seit.isoformat() if c.vermisst_seit else None,
+        'letzter_ort': c.letzter_ort, 'groesse': c.groesse, 'haarfarbe': c.haarfarbe,
+        'augenfarbe': c.augenfarbe, 'kleidung': c.kleidung, 'merkmale': c.merkmale,
+        'beschreibung': c.beschreibung, 'weitere_infos': c.weitere_infos,
+        'quelle_name': c.quelle_name, 'quelle_url': c.quelle_url, 'quelle_nummer': c.quelle_nummer,
+        'status': c.status, 'origin': c.origin,
+        'image': f'/media/file/{c.generated_image_path}' if c.generated_image_path else None,
+        'caption': c.caption, 'contact_line': c.contact_line,
+        'account': acc.name if acc else None, 'account_id': c.account_id,
+        'telegram_sent': bool(c.telegram_sent_at),
+        'published_at': c.published_at.strftime('%d.%m.%Y %H:%M') if c.published_at else None,
+        'ig_post_ref': c.ig_post_ref, 'update_comment': c.update_comment, 'story_draft': c.story_draft,
+        'resolution_note': c.resolution_note,
+        'created_at': c.created_at.strftime('%d.%m.%Y') if c.created_at else None,
+    }
+
+
+@app.route('/content-studio/missing-children')
+@login_required
+def missing_children_factory():
+    status_f = request.args.get('status', '')
+    q = MissingChildCase.query
+    if status_f:
+        q = q.filter_by(status=status_f)
+    cases = q.order_by((MissingChildCase.status == 'erledigt'),
+                       MissingChildCase.created_at.desc()).all()
+    accounts = Account.query.filter(Account.status.in_(['active', 'paused'])).order_by(Account.name).all()
+    from collections import Counter
+    counts = Counter(c.status for c in MissingChildCase.query.all())
+    return render_template('missing_children.html',
+        cases=[_mcf_case_dict(c) for c in cases],
+        accounts=[{'id': a.id, 'name': a.name} for a in accounts],
+        counts=dict(counts), status_f=status_f, active_page='studio')
+
+
+@app.route('/content-studio/missing-children/<int:case_id>')
+@login_required
+def missing_child_case(case_id):
+    c = MissingChildCase.query.get_or_404(case_id)
+    accounts = Account.query.filter(Account.status.in_(['active', 'paused'])).order_by(Account.name).all()
+    return render_template('missing_child_detail.html', case=_mcf_case_dict(c),
+        accounts=[{'id': a.id, 'name': a.name} for a in accounts], active_page='studio')
+
+
+@app.route('/api/mcf/case', methods=['POST'])
+@login_required
+def mcf_create_case():
+    d = request.form
+    vorname = (d.get('vorname') or '').strip() or None
+    nachname = (d.get('nachname') or '').strip() or None
+    stadt = (d.get('stadt') or '').strip() or None
+    files = [f for f in request.files.getlist('fotos') if f and f.filename]
+    if not (vorname or nachname or stadt or files):
+        return jsonify({'ok': False, 'error': 'Bitte mindestens Foto oder Name/Stadt angeben.'}), 400
+    try:
+        alter = int(d.get('alter')) if (d.get('alter') or '').strip() else None
+    except Exception:
+        alter = None
+    vs = _mcf_parse_date(d.get('vermisst_seit'))
+    dk = _mcf_dedup_key(vorname, nachname, alter, stadt, vs)
+    dup = _mcf_find_duplicate(dk)
+    if dup:
+        return jsonify({'ok': True, 'duplicate': True, 'case_id': dup.id,
+                        'msg': 'Dieser Fall existiert bereits — es wurde kein Duplikat angelegt.'})
+    acc_id = None
+    try:
+        acc_id = int(d.get('account_id')) if (d.get('account_id') or '').strip() else None
+    except Exception:
+        acc_id = None
+    account = Account.query.get(acc_id) if acc_id else _mcf_match_account_for_city(stadt)
+    c = MissingChildCase(
+        vorname=vorname, nachname=nachname, alter=alter,
+        geschlecht=(d.get('geschlecht') or '').strip() or None,
+        stadt=stadt, stadtteil=(d.get('stadtteil') or '').strip() or None,
+        vermisst_seit=vs, letzter_ort=(d.get('letzter_ort') or '').strip() or None,
+        groesse=(d.get('groesse') or '').strip() or None,
+        haarfarbe=(d.get('haarfarbe') or '').strip() or None,
+        augenfarbe=(d.get('augenfarbe') or '').strip() or None,
+        kleidung=(d.get('kleidung') or '').strip() or None,
+        merkmale=(d.get('merkmale') or '').strip() or None,
+        beschreibung=(d.get('beschreibung') or '').strip() or None,
+        weitere_infos=(d.get('weitere_infos') or '').strip() or None,
+        quelle_name=(d.get('quelle_name') or '').strip() or None,
+        quelle_url=(d.get('quelle_url') or '').strip() or None,
+        quelle_nummer=(d.get('quelle_nummer') or '').strip() or None,
+        account_id=account.id if account else None,
+        origin='manuell', dedup_key=dk, status='entwurf')
+    db.session.add(c)
+    db.session.flush()
+    media_ids = []
+    for f in files:
+        mid = _mcf_save_photo(f)
+        if mid:
+            media_ids.append(mid)
+    if media_ids:
+        c.foto_media_id = media_ids[0]
+        c.weitere_fotos = json.dumps(media_ids[1:])
+    cl, _ = _resolve_emergency_contact(c)
+    c.contact_line = cl
+    c.generated_image_path = _render_missing_child_image(c, cl)
+    c.caption = _mcf_generate_caption(c, cl)
+    db.session.commit()
+    return jsonify({'ok': True, 'case_id': c.id, 'case': _mcf_case_dict(c)})
+
+
+@app.route('/api/mcf/case/<int:cid>/regenerate-image', methods=['POST'])
+@login_required
+def mcf_regen_image(cid):
+    c = MissingChildCase.query.get_or_404(cid)
+    cl, _ = _resolve_emergency_contact(c)
+    c.contact_line = cl
+    c.generated_image_path = _render_missing_child_image(c, cl)
+    db.session.commit()
+    return jsonify({'ok': True, 'image': f'/media/file/{c.generated_image_path}'})
+
+
+@app.route('/api/mcf/case/<int:cid>/regenerate-caption', methods=['POST'])
+@login_required
+def mcf_regen_caption(cid):
+    c = MissingChildCase.query.get_or_404(cid)
+    cl, _ = _resolve_emergency_contact(c)
+    c.caption = _mcf_generate_caption(c, cl)
+    db.session.commit()
+    return jsonify({'ok': True, 'caption': c.caption})
+
+
+@app.route('/api/mcf/case/<int:cid>/update', methods=['POST'])
+@login_required
+def mcf_update_case(cid):
+    c = MissingChildCase.query.get_or_404(cid)
+    d = request.get_json(silent=True) or request.form
+    for f in ('vorname', 'nachname', 'stadt', 'stadtteil', 'letzter_ort', 'groesse',
+              'haarfarbe', 'augenfarbe', 'kleidung', 'merkmale', 'beschreibung',
+              'weitere_infos', 'quelle_name', 'quelle_url', 'quelle_nummer', 'caption'):
+        if f in d:
+            setattr(c, f, (d.get(f) or '').strip() or None)
+    if 'alter' in d:
+        try:
+            c.alter = int(d.get('alter')) if str(d.get('alter') or '').strip() else None
+        except Exception:
+            pass
+    if 'account_id' in d:
+        try:
+            c.account_id = int(d.get('account_id')) or None
+        except Exception:
+            c.account_id = None
+    c.dedup_key = _mcf_dedup_key(c.vorname, c.nachname, c.alter, c.stadt, c.vermisst_seit)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/mcf/case/<int:cid>/status', methods=['POST'])
+@login_required
+def mcf_set_status(cid):
+    c = MissingChildCase.query.get_or_404(cid)
+    d = request.get_json(silent=True) or {}
+    st = d.get('status')
+    if st not in ('entwurf', 'veroeffentlicht', 'erledigt'):
+        return jsonify({'ok': False, 'error': 'ungültiger Status'}), 400
+    c.status = st
+    if st == 'veroeffentlicht' and not c.published_at:
+        c.published_at = datetime.utcnow()
+        if (d.get('ig_post_ref') or '').strip():
+            c.ig_post_ref = d.get('ig_post_ref').strip()
+    if st == 'erledigt':
+        cm, story = _mcf_resolution_texts(c)
+        c.update_comment = c.update_comment or cm
+        c.story_draft = c.story_draft or story
+        if (d.get('resolution_note') or '').strip():
+            c.resolution_note = d.get('resolution_note').strip()
+    db.session.commit()
+    return jsonify({'ok': True, 'case': _mcf_case_dict(c)})
+
+
+@app.route('/api/mcf/case/<int:cid>/telegram', methods=['POST'])
+@login_required
+def mcf_send_telegram(cid):
+    c = MissingChildCase.query.get_or_404(cid)
+    token = get_setting('telegram_bot_token')
+    if not token:
+        return jsonify({'ok': False, 'error': 'Kein Telegram-Bot-Token konfiguriert.'}), 400
+    acc = Account.query.get(c.account_id) if c.account_id else None
+    chat_id = ((acc.telegram_chat_id or '').strip() if acc else '')
+    if not chat_id or chat_id in ('None', 'null'):
+        return jsonify({'ok': False, 'error': 'Ziel-Seite hat keinen Telegram-Channel. Bitte Seite wählen und Channel eintragen.'}), 400
+    # Bild sicherstellen
+    if not c.generated_image_path or not os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], c.generated_image_path)):
+        cl, _ = _resolve_emergency_contact(c)
+        c.contact_line = cl
+        c.generated_image_path = _render_missing_child_image(c, cl)
+    img_path = os.path.join(app.config['UPLOAD_FOLDER'], c.generated_image_path)
+    try:
+        with open(img_path, 'rb') as f:
+            _tg_call(token, 'sendPhoto', data={'chat_id': chat_id}, files={'photo': f})
+        # Caption + Quelle als kopierbarer Text
+        parts = [c.caption or '']
+        src = []
+        if c.quelle_name:
+            src.append(f'Quelle: {c.quelle_name}')
+        if c.quelle_url:
+            src.append(c.quelle_url)
+        if src:
+            parts.append('\n'.join(src))
+        text = '\n\n'.join(p for p in parts if p).strip()[:4000]
+        if text:
+            _tg_call(token, 'sendMessage', json={'chat_id': chat_id, 'text': text})
+        _tg_call(token, 'sendMessage', json={
+            'chat_id': chat_id,
+            'text': 'Nach dem Posten auf Instagram bitte bestätigen:',
+            'reply_markup': {'inline_keyboard': [[
+                {'text': '✅ Auf Instagram veröffentlicht', 'callback_data': f'mcfposted_{c.id}'}]]}})
+    except Exception as e:
+        app.logger.warning('MCF Telegram-Versand: %s', e)
+        return jsonify({'ok': False, 'error': f'Versand fehlgeschlagen: {e}'}), 500
+    c.telegram_sent_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/mcf/case/<int:cid>/delete', methods=['POST'])
+@login_required
+def mcf_delete_case(cid):
+    c = MissingChildCase.query.get_or_404(cid)
+    db.session.delete(c)
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 if __name__ == '__main__':
