@@ -16414,15 +16414,13 @@ def _mcf_save_photo(fobj):
         return None
 
 
-def _mcf_match_account_for_city(stadt):
-    """Aktiver Account, dessen Name die Stadt enthält (Vorbelegung Ziel-Seite)."""
-    if not stadt:
+def _mcf_target_account():
+    """Feste Ziel-Seite für Missing-Children-Fälle: eine bundesweite IG-Seite,
+    keine Stadt-Zuordnung (in Einstellungen konfiguriert)."""
+    acc_id = get_setting('mcf_target_account_id')
+    if not acc_id:
         return None
-    s = stadt.strip().lower()
-    for a in Account.query.filter(Account.status.in_(['active', 'paused'])).all():
-        if s and s in (a.name or '').lower():
-            return a
-    return None
+    return Account.query.get(int(acc_id))
 
 
 def _mcf_parse_date(s):
@@ -16510,7 +16508,7 @@ def mcf_create_case():
         acc_id = int(d.get('account_id')) if (d.get('account_id') or '').strip() else None
     except Exception:
         acc_id = None
-    account = Account.query.get(acc_id) if acc_id else _mcf_match_account_for_city(stadt)
+    account = Account.query.get(acc_id) if acc_id else _mcf_target_account()
     c = MissingChildCase(
         vorname=vorname, nachname=nachname, alter=alter,
         geschlecht=(d.get('geschlecht') or '').strip() or None,
@@ -16798,7 +16796,7 @@ def _mcf_run_research():
             if _mcf_find_duplicate(dk):
                 continue
             stadt = (data.get('stadt') or '').strip() or None
-            acc = _mcf_match_account_for_city(stadt)
+            acc = _mcf_target_account()
 
             def _s(k):
                 v = data.get(k)
@@ -16848,16 +16846,30 @@ def mcf_research_toggle():
     return jsonify({'ok': True, 'on': d.get('on') and True or False})
 
 
+@app.route('/api/mcf/target-account', methods=['POST'])
+@login_required
+def mcf_target_account_save():
+    d = request.get_json(silent=True) or {}
+    acc_id = (str(d.get('account_id')) or '').strip()
+    set_setting('mcf_target_account_id', acc_id or '')
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
 @app.route('/content-studio/missing-children/einstellungen')
 @login_required
 def mcf_einstellungen():
     sources = json.loads(get_setting('mcf_sources') or '[]')
     numbers = EmergencyNumber.query.order_by(EmergencyNumber.stadt, EmergencyNumber.stadtteil).all()
+    target_account_id = get_setting('mcf_target_account_id')
     return render_template('mcf_einstellungen.html',
         sources=sources,
         numbers=[{'id': n.id, 'stadt': n.stadt, 'stadtteil': n.stadtteil, 'number': n.number,
                   'label': n.label, 'verified': n.verified} for n in numbers],
-        auto_on=(get_setting('mcf_auto_research') == '1'), active_page='studio')
+        auto_on=(get_setting('mcf_auto_research') == '1'),
+        accounts=Account.query.order_by(Account.name).all(),
+        target_account_id=int(target_account_id) if target_account_id else None,
+        active_page='studio')
 
 
 # ─── Phase 3: Überwachung nach Veröffentlichung ─────────────────
