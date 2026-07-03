@@ -16,17 +16,17 @@
       <div style="padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div style="grid-column:1/3">
           <label class="form-label">Name *</label>
-          <input type="text" name="name" value="{{ account.name if account else '' }}" required
+          <input type="text" name="name" value="{{ account.name or '' }}" required
                  class="input-field" placeholder="z.B. Frankfurt News">
         </div>
         <div>
           <label class="form-label">Handle / Username</label>
-          <input type="text" name="handle" value="{{ account.handle if account else '' }}"
+          <input type="text" name="handle" value="{{ account.handle or '' }}"
                  class="input-field" placeholder="@username">
         </div>
         <div>
           <label class="form-label">Profil-Link</label>
-          <input type="text" name="profile_url" value="{{ account.profile_url if account else '' }}"
+          <input type="text" name="profile_url" value="{{ account.profile_url or '' }}"
                  class="input-field" placeholder="https://instagram.com/username">
         </div>
         <div>
@@ -77,7 +77,7 @@
         </div>
         <div>
           <label class="form-label">Follower</label>
-          <input type="number" name="follower_count" value="{{ account.follower_count if account else 0 }}"
+          <input type="number" name="follower_count" value="{{ account.follower_count or 0 }}"
                  class="input-field" min="0">
         </div>
       </div>
@@ -151,11 +151,11 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
           <div>
             <label class="form-label">Mindestvorrat (Tage)</label>
-            <input type="number" name="min_stock_days" value="{{ account.min_stock_days if account else 3 }}" min="1" class="input-field">
+            <input type="number" name="min_stock_days" value="{{ account.min_stock_days or 3 }}" min="1" class="input-field">
           </div>
           <div>
             <label class="form-label">Optimalvorrat (Tage)</label>
-            <input type="number" name="optimal_stock_days" value="{{ account.optimal_stock_days if account else 14 }}" min="1" class="input-field">
+            <input type="number" name="optimal_stock_days" value="{{ account.optimal_stock_days or 14 }}" min="1" class="input-field">
           </div>
         </div>
 
@@ -178,7 +178,7 @@
         <div style="flex:1">
           <label class="form-label">Channel-ID</label>
           <input type="text" name="telegram_chat_id"
-                 value="{{ account.telegram_chat_id if account else '' }}"
+                 value="{{ account.telegram_chat_id or '' }}"
                  class="input-field" placeholder="-1001234567890"
                  id="tgChatId">
           <div style="font-size:11px;color:var(--muted);margin-top:6px">
@@ -208,18 +208,18 @@
       <div style="display:flex;flex-direction:column;gap:12px">
         <div>
           <label class="form-label">Canva-Link (Ordner oder Template) <span style="color:var(--muted);font-weight:400">— optional</span></label>
-          <input type="text" name="canva_url" value="{{ account.canva_url if account else '' }}"
+          <input type="text" name="canva_url" value="{{ account.canva_url or '' }}"
                  class="input-field" placeholder="https://www.canva.com/design/...">
         </div>
         <div>
           <label class="form-label">Layout-Notizen (Farben, Schriften, Stil)</label>
           <textarea name="layout_notes" rows="2" class="input-field" style="resize:vertical"
-                    placeholder="z.B. Hauptfarbe: #FF5500 · Schrift: Bebas Neue · Dunkel-Theme">{{ account.layout_notes if account else '' }}</textarea>
+                    placeholder="z.B. Hauptfarbe: #FF5500 · Schrift: Bebas Neue · Dunkel-Theme">{{ account.layout_notes or '' }}</textarea>
         </div>
         <div>
           <label class="form-label">Seiten-Persönlichkeit (für Content-Inspiration)</label>
           <textarea name="page_persona" rows="3" class="input-field" style="resize:vertical"
-                    placeholder="z.B. Satirische Fake-News im Tagesschau-Stil. Zielgruppe: Deutsche 18-35. Ton: ironisch, humoristisch.">{{ account.page_persona if account else '' }}</textarea>
+                    placeholder="z.B. Satirische Fake-News im Tagesschau-Stil. Zielgruppe: Deutsche 18-35. Ton: ironisch, humoristisch.">{{ account.page_persona or '' }}</textarea>
         </div>
       </div>
     </div>
@@ -237,7 +237,7 @@
         <div>
           <label class="form-label">Standard-Hashtags dieser Seite</label>
           <input type="text" name="default_hashtags"
-                 value="{{ account.default_hashtags if account else '' }}"
+                 value="{{ account.default_hashtags or '' }}"
                  class="input-field"
                  placeholder="#Frankfurt #Frankfurtmemes #Stadtmemes">
           <div style="font-size:10px;color:var(--muted);margin-top:4px">
@@ -249,7 +249,7 @@
             Fußball-Hashtag <span style="color:var(--muted);font-weight:400">— optional</span>
           </label>
           <input type="text" name="sports_hashtag"
-                 value="{{ account.sports_hashtag if account else '' }}"
+                 value="{{ account.sports_hashtag or '' }}"
                  class="input-field"
                  placeholder="#EintrachtFrankfurt">
           <div style="font-size:10px;color:var(--muted);margin-top:4px">
@@ -261,7 +261,7 @@
             Wetter-Stadt <span style="color:var(--muted);font-weight:400">— für Wetter-Trigger</span>
           </label>
           <input type="text" name="weather_city"
-                 value="{{ account.weather_city if account else '' }}"
+                 value="{{ account.weather_city or '' }}"
                  class="input-field"
                  placeholder="Frankfurt">
           <div style="font-size:10px;color:var(--muted);margin-top:4px">
@@ -275,7 +275,7 @@
     <div class="card" style="padding:20px">
       <label class="form-label">Notizen</label>
       <textarea name="notes" rows="3" class="input-field" style="resize:vertical"
-                placeholder="Interne Notizen…">{{ account.notes if account else '' }}</textarea>
+                placeholder="Interne Notizen…">{{ account.notes or '' }}</textarea>
     </div>
 
     <div style="display:flex;gap:10px">
