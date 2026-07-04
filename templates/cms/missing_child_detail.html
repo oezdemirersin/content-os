@@ -78,10 +78,18 @@
       <details style="margin-top:18px">
         <summary style="cursor:pointer;font-size:13px;color:var(--muted)">Angaben bearbeiten</summary>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
-          {% for f,lab in [('vorname','Vorname'),('nachname','Nachname'),('stadt','Stadt'),('stadtteil','Stadtteil'),('letzter_ort','Letzter Ort'),('groesse','Größe'),('haarfarbe','Haare'),('augenfarbe','Augen'),('kleidung','Kleidung'),('merkmale','Merkmale'),('quelle_name','Quelle'),('quelle_nummer','Notfall-Nr. Quelle')] %}
+          {% for f,lab in [('vorname','Vorname'),('nachname','Nachname'),('stadt','Stadt'),('stadtteil','Stadtteil'),('letzter_ort','Letzter Ort'),('groesse','Größe'),('haarfarbe','Haare'),('kleidung','Kleidung'),('merkmale','Merkmale'),('quelle_nummer','Notfall-Nr. Quelle')] %}
           <div><label class="form-label">{{ lab }}</label><input data-field="{{ f }}" value="{{ case[f] or '' }}" class="input-field ef"></div>
           {% endfor %}
           <div><label class="form-label">Alter</label><input data-field="alter" type="number" value="{{ case.alter if case.alter is not none else '' }}" class="input-field ef"></div>
+          <div><label class="form-label">Ungefähre Uhrzeit</label>
+            <select data-field="vermisst_zeit" class="select-field ef">
+              <option value="">Unbekannt</option>
+              {% for zv,zl in [('morgens','Morgens (vor 10 Uhr)'),('vormittags','Vormittags'),('mittags','Mittags'),('nachmittags','Nachmittags'),('abends','Abends'),('nachts','Nachts')] %}
+              <option value="{{ zv }}" {% if case.vermisst_zeit==zv %}selected{% endif %}>{{ zl }}</option>
+              {% endfor %}
+            </select>
+          </div>
           <div><label class="form-label">Ziel-Seite</label>
             <select data-field="account_id" class="select-field ef"><option value="">— keine —</option>
             {% for a in accounts %}<option value="{{ a.id }}" {% if a.id==case.account_id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}</select></div>

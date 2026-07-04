@@ -1756,6 +1756,7 @@ def init_db():
         safe_alter('ALTER TABLE missing_child_case ADD COLUMN IF NOT EXISTS update_detected BOOLEAN DEFAULT FALSE')
         safe_alter('ALTER TABLE missing_child_case ADD COLUMN IF NOT EXISTS update_source_url TEXT')
         safe_alter('ALTER TABLE missing_child_case ADD COLUMN IF NOT EXISTS update_found_at TIMESTAMP')
+        safe_alter('ALTER TABLE missing_child_case ADD COLUMN IF NOT EXISTS vermisst_zeit VARCHAR(40)')
 
         # ── Performance-Indizes (CREATE INDEX IF NOT EXISTS läuft idempotent) ──
         if is_postgres:
@@ -16152,32 +16153,115 @@ def _mcf_wrap(draw, text, font, max_w):
     return lines or ['']
 
 
+_MCF_ZEIT_LABEL = {
+    'morgens': 'morgens', 'vormittags': 'vormittags', 'mittags': 'mittags',
+    'nachmittags': 'nachmittags', 'abends': 'abends', 'nachts': 'nachts',
+}
+
+
+def _mcf_seit_label(case):
+    """Kombiniertes 'Vermisst seit'-Label aus Datum + optionaler Tageszeit.
+    Erfindet nichts — nur was gesetzt ist."""
+    zeit = _MCF_ZEIT_LABEL.get((case.vermisst_zeit or '').strip().lower())
+    if case.vermisst_seit:
+        try:
+            d = case.vermisst_seit.strftime('%d.%m.%Y')
+        except Exception:
+            d = None
+        if d:
+            return f'{d}, {zeit}' if zeit else d
+    return zeit
+
+
 def _render_missing_child_image(case, contact_line=None):
-    """Seriöses, adaptives 1080×1350-Vermissten-Poster. Rendert NUR vorhandene
-    Felder (keine Lücken). Speichert flach im Upload-Ordner, gibt Dateinamen zurück."""
+    """Modernes, adaptives 1080×1350-Vermissten-Poster mit Branding + Call-to-Action.
+    Rendert NUR vorhandene Felder (keine Lücken, funktioniert auch mit minimalen Angaben).
+    Speichert flach im Upload-Ordner, gibt Dateinamen zurück."""
     from PIL import Image, ImageDraw, ImageOps
     import io as _io
     W, H = 1080, 1350
-    RED = (198, 40, 40); DARK = (26, 32, 44); GRAY = (95, 105, 120)
-    WHITE = (255, 255, 255); LINE = (230, 233, 238)
+    RED = (196, 30, 43); DARK = (21, 24, 31); GRAY = (100, 108, 124)
+    WHITE = (255, 255, 255); LINE = (232, 234, 238); LIGHT_RED = (255, 214, 214)
+    BRAND_GRAY = (172, 177, 188)
     img = Image.new('RGB', (W, H), WHITE)
     d = ImageDraw.Draw(img)
     PAD = 70
 
-    # Kopf: roter Alarm-Balken
+    acc = Account.query.get(case.account_id) if case.account_id else None
+    brand = ((acc.handle or acc.name) if acc else '') or ''
+    brand = brand.strip()
+
+    # Footer-Bereich (CTA-Banner + Kontakt-Balken) — Höhe vorab reservieren
+    cta_h, cb_h = 70, 128
+    FOOTER_H = cta_h + cb_h
+
+    # Kopf: roter Alarm-Balken, links Titel, rechts Branding
     hdr_h = 150
     d.rectangle([0, 0, W, hdr_h], fill=RED)
-    f_hdr = _mcf_font(74, bold=True)
+    f_hdr = _mcf_font(70, bold=True)
     t = 'VERMISST'
-    d.text(((W - d.textlength(t, font=f_hdr)) / 2, 30), t, font=f_hdr, fill=WHITE)
+    d.text((PAD, 32), t, font=f_hdr, fill=WHITE)
+    if brand:
+        f_brand = _mcf_font(24, bold=True)
+        bw = d.textlength(brand, font=f_brand)
+        d.text((W - PAD - bw, 40), brand, font=f_brand, fill=LIGHT_RED)
     if case.stadt:
         f_sub = _mcf_font(30, bold=False)
         s = case.stadt.upper()
-        d.text(((W - d.textlength(s, font=f_sub)) / 2, 112), s, font=f_sub, fill=(255, 218, 218))
+        d.text((PAD, 110), s, font=f_sub, fill=LIGHT_RED)
 
-    y = hdr_h + 40
+    y0 = hdr_h + 30
 
-    # Foto (optional, adaptiv)
+    # Detail-Zeilen (nur vorhandene Felder) vorab aufbauen — Datum + Tageszeit
+    # kombiniert, kein Augenfarbe-Feld mehr (nicht relevant für Wiedererkennung).
+    # Wird VOR dem Foto berechnet, damit die Foto-Höhe sich an den Platzbedarf
+    # der Texte anpassen kann (siehe unten) — so geht bei vielen/langen Angaben
+    # kein Feld mehr stillschweigend verloren, es wird höchstens gekürzt.
+    f_lbl = _mcf_font(24, bold=True)
+    f_val = _mcf_font(28, bold=False)
+    max_w = W - 2 * PAD
+    # Reihenfolge nach Wichtigkeit für Wiedererkennung/Fahndung — falls im
+    # absoluten Extremfall (sehr viele + sehr lange Felder) doch mal etwas
+    # weichen muss, soll das Unwichtigste zuerst wegfallen, nie die
+    # sicherheitsrelevanten Merkmale.
+    rows = []
+    seit = _mcf_seit_label(case)
+    if seit:
+        rows.append(('Vermisst seit', seit))
+    if case.letzter_ort:
+        rows.append(('Zuletzt gesehen', case.letzter_ort))
+    if case.merkmale:
+        rows.append(('Besondere Merkmale', case.merkmale))
+    if case.kleidung:
+        rows.append(('Kleidung', case.kleidung))
+    if case.haarfarbe:
+        rows.append(('Haare', case.haarfarbe))
+    if case.groesse:
+        rows.append(('Größe', case.groesse))
+    if case.stadtteil:
+        rows.append(('Ortsteil', case.stadtteil))
+
+    # Jede Zeile auf max. 2 Zeilen begrenzen (mit „…“ gekürzt) statt Felder
+    # komplett zu verwerfen — jedes vorhandene Feld bleibt sichtbar.
+    ROW_LABEL_H, ROW_LINE_H, ROW_GAP, MAX_LINES = 30, 34, 14, 2
+    row_render = []
+    for label, val in rows:
+        lines = _mcf_wrap(d, str(val), f_val, max_w)
+        if len(lines) > MAX_LINES:
+            lines = lines[:MAX_LINES]
+            last = lines[-1]
+            while d.textlength(last + '…', font=f_val) > max_w and len(last) > 1:
+                last = last[:-1]
+            lines[-1] = last.rstrip() + '…'
+        row_render.append((label, lines))
+    rows_height = sum(ROW_LABEL_H + len(lines) * ROW_LINE_H + ROW_GAP for _, lines in row_render)
+
+    name_block_h = 72 + (46 if case.alter is not None else 0) + 6 + 20
+    row_cutoff = H - FOOTER_H - 30
+    available_after_name = row_cutoff - y0 - name_block_h
+
+    # Foto (optional, Höhe passt sich an den Platzbedarf der Text-Zeilen an,
+    # damit Foto + alle Angaben zusammen immer auf das Poster passen)
     photo = None
     if case.foto_media_id:
         b = _mcf_load_image_bytes(MediaItem.query.get(case.foto_media_id))
@@ -16186,80 +16270,77 @@ def _render_missing_child_image(case, contact_line=None):
                 photo = ImageOps.exif_transpose(Image.open(_io.BytesIO(b)).convert('RGB'))
             except Exception:
                 photo = None
+    y = y0
     if photo:
-        box_w, box_h = W - 2 * PAD, 560
+        photo_overhead = 18 + 5 + 34  # Abstand + Akzentstreifen + Abstand danach
+        max_box_h = available_after_name - rows_height - photo_overhead
+        box_h = max(220, min(560, max_box_h))
+        box_w = W - 2 * PAD
         ratio = max(box_w / photo.width, box_h / photo.height)
         photo = photo.resize((int(photo.width * ratio), int(photo.height * ratio)), Image.LANCZOS)
         lft, top = (photo.width - box_w) // 2, (photo.height - box_h) // 2
         photo = photo.crop((lft, top, lft + box_w, top + box_h))
         img.paste(photo, (PAD, y))
         d.rectangle([PAD, y, PAD + box_w, y + box_h], outline=(215, 219, 226), width=3)
-        y += box_h + 34
+        y += box_h + 18
+        d.rectangle([PAD, y, W - PAD, y + 5], fill=RED)
+        y += 34
+    else:
+        y += 6
 
     # Name + Alter
     name = case.display_name()
-    f_name = _mcf_font(58, bold=True)
+    f_name = _mcf_font(56, bold=True)
     d.text(((W - d.textlength(name, font=f_name)) / 2, y), name, font=f_name, fill=DARK)
-    y += 74
+    y += 72
     if case.alter is not None:
         a = f'{case.alter} Jahre'
-        f_age = _mcf_font(36, bold=False)
+        f_age = _mcf_font(34, bold=False)
         d.text(((W - d.textlength(a, font=f_age)) / 2, y), a, font=f_age, fill=RED)
-        y += 54
-    y += 8
+        y += 46
+    y += 6
     d.line([PAD, y, W - PAD, y], fill=LINE, width=2)
-    y += 28
+    y += 20
 
-    # Detail-Zeilen (nur vorhandene Felder)
-    f_lbl = _mcf_font(27, bold=True)
-    f_val = _mcf_font(30, bold=False)
-    rows = []
-    if case.vermisst_seit:
-        try:
-            rows.append(('Vermisst seit', case.vermisst_seit.strftime('%d.%m.%Y')))
-        except Exception:
-            pass
-    if case.letzter_ort:
-        rows.append(('Zuletzt gesehen', case.letzter_ort))
-    if case.stadtteil:
-        rows.append(('Ortsteil', case.stadtteil))
-    if case.groesse:
-        rows.append(('Größe', case.groesse))
-    if case.haarfarbe:
-        rows.append(('Haare', case.haarfarbe))
-    if case.augenfarbe:
-        rows.append(('Augen', case.augenfarbe))
-    if case.kleidung:
-        rows.append(('Kleidung', case.kleidung))
-    if case.merkmale:
-        rows.append(('Besondere Merkmale', case.merkmale))
-    if case.beschreibung:
-        rows.append(('Beschreibung', case.beschreibung))
-
-    max_w, label_w, cb_h = W - 2 * PAD, 300, 130
-    for label, val in rows:
-        if y > H - cb_h - 70:
+    # Gestapeltes Layout (Label oben klein/grau, Wert darunter groß/dunkel) —
+    # funktioniert unabhängig von Label-Länge ohne Überlappungsrisiko.
+    # row_cutoff bleibt als letztes Sicherheitsnetz für echte Extremfälle;
+    # geprüft wird die VOLLE Höhe der Zeile bevor sie gezeichnet wird, damit
+    # nie ein Wert mitten im Text vom Footer überdeckt/abgeschnitten wird —
+    # eine Zeile wird entweder komplett gezeichnet oder ganz weggelassen.
+    for label, lines in row_render:
+        row_h = ROW_LABEL_H + len(lines) * ROW_LINE_H + ROW_GAP
+        if y + row_h > row_cutoff:
             break
-        d.text((PAD, y), label, font=f_lbl, fill=GRAY)
-        short = _mcf_wrap(d, val, f_val, max_w - label_w - 16)
-        if len(short) == 1 and d.textlength(short[0], font=f_val) <= max_w - label_w - 16:
-            d.text((PAD + label_w, y - 2), short[0], font=f_val, fill=DARK)
-            y += 46
-        else:
-            y += 36
-            for ln in _mcf_wrap(d, val, f_val, max_w):
-                if y > H - cb_h - 46:
-                    break
-                d.text((PAD, y), ln, font=f_val, fill=DARK)
-                y += 40
-            y += 8
+        d.text((PAD, y), label.upper(), font=f_lbl, fill=GRAY)
+        y += ROW_LABEL_H
+        for ln in lines:
+            d.text((PAD, y), ln, font=f_val, fill=DARK)
+            y += ROW_LINE_H
+        y += ROW_GAP
+        d.line([PAD, y - 8, W - PAD, y - 8], fill=LINE, width=1)
 
-    # Kontakt-Balken unten (fix)
+    # Call-to-Action-Banner (rot) direkt über dem Kontakt-Balken
+    d.rectangle([0, H - FOOTER_H, W, H - cb_h], fill=RED)
+    f_cta = _mcf_font(30, bold=True)
+    cta_text = 'JEDER HINWEIS KANN HELFEN — BITTE TEILEN'
+    cta_lines = _mcf_wrap(d, cta_text, f_cta, W - 2 * PAD)
+    cy = H - FOOTER_H + (cta_h - len(cta_lines) * 38) // 2
+    for ln in cta_lines:
+        d.text(((W - d.textlength(ln, font=f_cta)) / 2, cy), ln, font=f_cta, fill=WHITE)
+        cy += 38
+
+    # Kontakt-Balken unten (dunkel) — mit kleinem Branding darüber
     d.rectangle([0, H - cb_h, W, H], fill=DARK)
+    top_pad = 16
+    if brand:
+        f_b2 = _mcf_font(20, bold=False)
+        d.text(((W - d.textlength(brand, font=f_b2)) / 2, H - cb_h + 14), brand, font=f_b2, fill=BRAND_GRAY)
+        top_pad = 44
     cl = contact_line or 'Hinweise an die Polizei: Notruf 110'
     f_cl = _mcf_font(34, bold=True)
     cll = _mcf_wrap(d, cl, f_cl, W - 2 * PAD)
-    cy = H - cb_h + (cb_h - len(cll) * 42) // 2
+    cy = H - cb_h + top_pad + (cb_h - top_pad - len(cll) * 42) // 2
     for ln in cll:
         d.text(((W - d.textlength(ln, font=f_cl)) / 2, cy), ln, font=f_cl, fill=WHITE)
         cy += 42
@@ -16323,11 +16404,9 @@ def _mcf_generate_caption(case, contact_line):
         facts.append(f'Name: {case.display_name()}')
     if case.alter is not None:
         facts.append(f'Alter: {case.alter} Jahre')
-    if case.vermisst_seit:
-        try:
-            facts.append(f"Vermisst seit: {case.vermisst_seit.strftime('%d.%m.%Y')}")
-        except Exception:
-            pass
+    seit = _mcf_seit_label(case)
+    if seit:
+        facts.append(f'Vermisst seit: {seit}')
     if case.stadt:
         facts.append(f'Stadt: {case.stadt}')
     if case.stadtteil:
@@ -16338,8 +16417,6 @@ def _mcf_generate_caption(case, contact_line):
         facts.append(f'Größe: {case.groesse}')
     if case.haarfarbe:
         facts.append(f'Haare: {case.haarfarbe}')
-    if case.augenfarbe:
-        facts.append(f'Augen: {case.augenfarbe}')
     if case.kleidung:
         facts.append(f'Kleidung: {case.kleidung}')
     if case.merkmale:
@@ -16414,6 +16491,31 @@ def _mcf_save_photo(fobj):
         return None
 
 
+def _mcf_save_photo_bytes(raw_bytes, ext='.jpg', orig_filename=None):
+    """Speichert rohe Bild-Bytes (z.B. Auto-Ausschnitt aus einer Vorlage) als
+    MediaItem. Committet sofort (steht noch keinem Fall zu). Gibt id/None."""
+    try:
+        import uuid as _uuid
+        name = f'mcfphoto_{_uuid.uuid4().hex}{ext}'
+        path = os.path.join(app.config['UPLOAD_FOLDER'], name)
+        with open(path, 'wb') as fh:
+            fh.write(raw_bytes)
+        w = h = None
+        try:
+            from PIL import Image as _I
+            w, h = _I.open(path).size
+        except Exception:
+            pass
+        m = MediaItem(filename=name, original_filename=orig_filename or name, url=f'/media/file/{name}',
+                      file_type='image', storage_source='local', width=w, height=h)
+        db.session.add(m)
+        db.session.commit()
+        return m.id
+    except Exception as e:
+        app.logger.warning('MCF Foto-Bytes-Upload: %s', e)
+        return None
+
+
 def _mcf_target_account():
     """Feste Ziel-Seite für Missing-Children-Fälle: eine bundesweite IG-Seite,
     keine Stadt-Zuordnung (in Einstellungen konfiguriert)."""
@@ -16439,8 +16541,9 @@ def _mcf_case_dict(c):
         'id': c.id, 'name': c.display_name(), 'vorname': c.vorname, 'nachname': c.nachname,
         'alter': c.alter, 'stadt': c.stadt, 'stadtteil': c.stadtteil, 'geschlecht': c.geschlecht,
         'vermisst_seit': c.vermisst_seit.isoformat() if c.vermisst_seit else None,
+        'vermisst_zeit': c.vermisst_zeit,
         'letzter_ort': c.letzter_ort, 'groesse': c.groesse, 'haarfarbe': c.haarfarbe,
-        'augenfarbe': c.augenfarbe, 'kleidung': c.kleidung, 'merkmale': c.merkmale,
+        'kleidung': c.kleidung, 'merkmale': c.merkmale,
         'beschreibung': c.beschreibung, 'weitere_infos': c.weitere_infos,
         'quelle_name': c.quelle_name, 'quelle_url': c.quelle_url, 'quelle_nummer': c.quelle_nummer,
         'status': c.status, 'origin': c.origin,
@@ -16491,7 +16594,11 @@ def mcf_create_case():
     nachname = (d.get('nachname') or '').strip() or None
     stadt = (d.get('stadt') or '').strip() or None
     files = [f for f in request.files.getlist('fotos') if f and f.filename]
-    if not (vorname or nachname or stadt or files):
+    try:
+        extracted_photo_id = int(d.get('extracted_photo_media_id')) if (d.get('extracted_photo_media_id') or '').strip() else None
+    except Exception:
+        extracted_photo_id = None
+    if not (vorname or nachname or stadt or files or extracted_photo_id):
         return jsonify({'ok': False, 'error': 'Bitte mindestens Foto oder Name/Stadt angeben.'}), 400
     try:
         alter = int(d.get('alter')) if (d.get('alter') or '').strip() else None
@@ -16513,10 +16620,10 @@ def mcf_create_case():
         vorname=vorname, nachname=nachname, alter=alter,
         geschlecht=(d.get('geschlecht') or '').strip() or None,
         stadt=stadt, stadtteil=(d.get('stadtteil') or '').strip() or None,
-        vermisst_seit=vs, letzter_ort=(d.get('letzter_ort') or '').strip() or None,
+        vermisst_seit=vs, vermisst_zeit=(d.get('vermisst_zeit') or '').strip() or None,
+        letzter_ort=(d.get('letzter_ort') or '').strip() or None,
         groesse=(d.get('groesse') or '').strip() or None,
         haarfarbe=(d.get('haarfarbe') or '').strip() or None,
-        augenfarbe=(d.get('augenfarbe') or '').strip() or None,
         kleidung=(d.get('kleidung') or '').strip() or None,
         merkmale=(d.get('merkmale') or '').strip() or None,
         beschreibung=(d.get('beschreibung') or '').strip() or None,
@@ -16533,6 +16640,8 @@ def mcf_create_case():
         mid = _mcf_save_photo(f)
         if mid:
             media_ids.append(mid)
+    if extracted_photo_id and extracted_photo_id not in media_ids:
+        media_ids.append(extracted_photo_id)
     if media_ids:
         c.foto_media_id = media_ids[0]
         c.weitere_fotos = json.dumps(media_ids[1:])
@@ -16542,6 +16651,100 @@ def mcf_create_case():
     c.caption = _mcf_generate_caption(c, cl)
     db.session.commit()
     return jsonify({'ok': True, 'case_id': c.id, 'case': _mcf_case_dict(c)})
+
+
+@app.route('/api/mcf/extract-from-image', methods=['POST'])
+@login_required
+def mcf_extract_from_image():
+    """Nimmt ein Foto/Scan einer bestehenden (offiziellen) Vermisstenanzeige entgegen,
+    liest die Angaben per Claude Vision aus (erfindet NIE etwas) und versucht best-effort,
+    das Foto der vermissten Person aus der Vorlage auszuschneiden. Klappt der Auto-Ausschnitt
+    nicht sicher, wird kein Foto geraten — der Mensch lädt es dann manuell zugeschnitten hoch."""
+    f = request.files.get('poster_image')
+    if not f or not f.filename:
+        return jsonify({'ok': False, 'error': 'Kein Bild hochgeladen.'}), 400
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert (Einstellungen → KI).'}), 400
+
+    img_bytes = f.read()
+    if not img_bytes:
+        return jsonify({'ok': False, 'error': 'Bild ist leer.'}), 400
+    if len(img_bytes) > 15 * 1024 * 1024:
+        return jsonify({'ok': False, 'error': 'Bild zu groß (max. 15 MB).'}), 400
+    ext = (os.path.splitext(f.filename)[1] or '.jpg').lower()
+    mime = {'.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif'}.get(ext, 'image/jpeg')
+
+    import base64 as _b64
+    import io as _io
+    img_b64 = _b64.standard_b64encode(img_bytes).decode()
+
+    system = (
+        'Du liest eine gescannte/fotografierte OFFIZIELLE Vermisstenanzeige (Polizei o.ä.) für ein '
+        'Kind aus. ABSOLUT ZWINGEND: Extrahiere AUSSCHLIESSLICH, was wörtlich auf dem Bild steht — '
+        'erfinde oder vermute NIEMALS etwas. Fehlt eine Angabe, setze null. Antworte NUR mit einem '
+        'JSON-Objekt, keine Erklärungen davor/danach:\n'
+        '{"vorname": str|null, "nachname": str|null, "alter": int|null, "geschlecht": str|null, '
+        '"stadt": str|null, "stadtteil": str|null, "vermisst_seit": "YYYY-MM-DD"|null, '
+        '"vermisst_zeit": "morgens"|"vormittags"|"mittags"|"nachmittags"|"abends"|"nachts"|null '
+        '(NUR wenn eine Tageszeit/Uhrzeit explizit angegeben ist), '
+        '"letzter_ort": str|null, "groesse": str|null, "haarfarbe": str|null, "kleidung": str|null, '
+        '"merkmale": str|null, "beschreibung": str|null, "quelle_nummer": str|null '
+        '(auf der Anzeige genannte Kontakt-/Notrufnummer), '
+        '"photo_bbox": [x0,y0,x1,y1]|null — NUR wenn auf der Vorlage ein klar abgegrenztes separates '
+        'Foto der vermissten Person zu sehen ist (kein Logo, kein Wappen, kein Fließtext). Gib die '
+        'Bounding-Box als Bruchteile (0.0–1.0) der Bildbreite/-höhe zurück (x0,y0 = oben-links, '
+        'x1,y1 = unten-rechts). Bei Unsicherheit: null.}'
+    )
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('vision_model') or 'claude-sonnet-4-6'
+        resp = client.messages.create(
+            model=model, max_tokens=800, system=system,
+            messages=[{'role': 'user', 'content': [
+                {'type': 'image', 'source': {'type': 'base64', 'media_type': mime, 'data': img_b64}},
+                {'type': 'text', 'text': 'Lies diese Vermisstenanzeige aus und antworte nur mit dem JSON-Objekt.'}
+            ]}]
+        )
+        _log_ai('mcf_extract_image', resp)
+        raw = resp.content[0].text.strip()
+        import re as _re
+        m = _re.search(r'\{.*\}', raw, _re.S)
+        data = json.loads(m.group(0)) if m else {}
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Claude-Fehler: {e}'}), 500
+
+    # Best-effort Foto-Ausschnitt — nur übernehmen, wenn Bounding-Box plausibel ist
+    photo_media_id = None
+    photo_extracted = False
+    bbox = data.get('photo_bbox')
+    if isinstance(bbox, list) and len(bbox) == 4:
+        try:
+            from PIL import Image, ImageOps
+            im = ImageOps.exif_transpose(Image.open(_io.BytesIO(img_bytes)).convert('RGB'))
+            iw, ih = im.size
+            x0, y0, x1, y1 = [float(v) for v in bbox]
+            if 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1 and (x1 - x0) * (y1 - y0) >= 0.02:
+                box = (int(x0 * iw), int(y0 * ih), int(x1 * iw), int(y1 * ih))
+                crop = im.crop(box)
+                buf = _io.BytesIO()
+                crop.save(buf, format='JPEG', quality=90)
+                photo_media_id = _mcf_save_photo_bytes(buf.getvalue(), '.jpg', f.filename)
+                photo_extracted = bool(photo_media_id)
+        except Exception as e:
+            app.logger.warning('MCF Foto-Ausschnitt: %s', e)
+
+    fields = {k: data.get(k) for k in (
+        'vorname', 'nachname', 'alter', 'geschlecht', 'stadt', 'stadtteil',
+        'vermisst_seit', 'vermisst_zeit', 'letzter_ort', 'groesse', 'haarfarbe',
+        'kleidung', 'merkmale', 'beschreibung', 'quelle_nummer')}
+    resp_data = {'ok': True, 'fields': fields, 'photo_extracted': photo_extracted}
+    if photo_media_id:
+        mi = MediaItem.query.get(photo_media_id)
+        resp_data['photo_media_id'] = photo_media_id
+        resp_data['photo_url'] = mi.url if mi else None
+    return jsonify(resp_data)
 
 
 @app.route('/api/mcf/case/<int:cid>/regenerate-image', methods=['POST'])
@@ -16571,7 +16774,7 @@ def mcf_update_case(cid):
     c = MissingChildCase.query.get_or_404(cid)
     d = request.get_json(silent=True) or request.form
     for f in ('vorname', 'nachname', 'stadt', 'stadtteil', 'letzter_ort', 'groesse',
-              'haarfarbe', 'augenfarbe', 'kleidung', 'merkmale', 'beschreibung',
+              'haarfarbe', 'vermisst_zeit', 'kleidung', 'merkmale', 'beschreibung',
               'weitere_infos', 'quelle_name', 'quelle_url', 'quelle_nummer', 'caption'):
         if f in d:
             setattr(c, f, (d.get(f) or '').strip() or None)
@@ -16742,8 +16945,10 @@ def _mcf_extract_case_from_text(text, api_key):
         '{"is_case": bool (Vermisstenmeldung?), "is_child": bool (vermisste Person unter 18? nur true '
         'wenn im Text belegt, z.B. Alter<18 oder "Kind"/"Junge"/"Mädchen"/"Schüler"/"Jugendliche"), '
         '"vorname": str|null, "nachname": str|null, "alter": int|null, "stadt": str|null, '
-        '"stadtteil": str|null, "vermisst_seit": "YYYY-MM-DD"|null, "letzter_ort": str|null, '
-        '"groesse": str|null, "haarfarbe": str|null, "augenfarbe": str|null, "kleidung": str|null, '
+        '"stadtteil": str|null, "vermisst_seit": "YYYY-MM-DD"|null, '
+        '"vermisst_zeit": "morgens"|"vormittags"|"mittags"|"nachmittags"|"abends"|"nachts"|null '
+        '(NUR wenn eine Tageszeit/Uhrzeit explizit im Text steht), "letzter_ort": str|null, '
+        '"groesse": str|null, "haarfarbe": str|null, "kleidung": str|null, '
         '"merkmale": str|null, "beschreibung": str|null, "quelle_nummer": str|null (im Text genannte '
         'Polizei-Kontaktnummer)}.'
     )
@@ -16806,8 +17011,9 @@ def _mcf_run_research():
                 origin='auto', status='entwurf', dedup_key=dk,
                 vorname=_s('vorname'), nachname=_s('nachname'), alter=alter,
                 stadt=stadt, stadtteil=_s('stadtteil'), vermisst_seit=vs,
+                vermisst_zeit=_s('vermisst_zeit'),
                 letzter_ort=_s('letzter_ort'), groesse=_s('groesse'),
-                haarfarbe=_s('haarfarbe'), augenfarbe=_s('augenfarbe'),
+                haarfarbe=_s('haarfarbe'),
                 kleidung=_s('kleidung'), merkmale=_s('merkmale'), beschreibung=_s('beschreibung'),
                 quelle_name=name, quelle_url=link or None, quelle_nummer=_s('quelle_nummer'),
                 account_id=acc.id if acc else None)

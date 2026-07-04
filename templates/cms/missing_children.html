@@ -25,29 +25,56 @@
 
   <div id="mcfForm" class="card" style="padding:20px;margin-bottom:22px;display:none">
     <div style="font-weight:700;margin-bottom:14px">Neue Vermisstenmeldung erfassen <span style="font-weight:400;color:var(--muted);font-size:12px">— nur ausfüllen, was bekannt ist</span></div>
+
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:18px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px"><i class="fa-solid fa-file-image"></i> Bestehende Anzeige hochladen <span style="font-weight:400;color:var(--muted)">— optional</span></div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+        Foto/Scan einer offiziellen Vermisstenanzeige hochladen — die Angaben werden automatisch ausgelesen und unten eingetragen.
+        Wird das Foto der Person dabei nicht sicher erkannt, bitte unten manuell zuschneiden &amp; separat hochladen.
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="file" id="posterUpload" accept="image/*" class="input-field" style="flex:1;min-width:200px;padding:6px;font-size:12px">
+        <button type="button" onclick="extractFromPoster()" id="extractBtn" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">Daten übernehmen</button>
+      </div>
+      <div id="extractMsg" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+      <div id="extractedPhotoBox" style="display:none;margin-top:10px;align-items:center;gap:10px">
+        <img id="extractedPhotoImg" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">
+        <span style="font-size:11px;color:var(--success)">Foto automatisch erkannt &amp; übernommen ✓</span>
+      </div>
+    </div>
+
     <form id="mcfCreateForm" onsubmit="return submitMcf(event)">
+      <input type="hidden" name="extracted_photo_media_id" id="extractedPhotoMediaId">
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
         <div><label class="form-label">Vorname</label><input name="vorname" class="input-field"></div>
         <div><label class="form-label">Nachname</label><input name="nachname" class="input-field"></div>
         <div><label class="form-label">Alter</label><input name="alter" type="number" min="0" max="17" class="input-field"></div>
         <div><label class="form-label">Stadt</label><input name="stadt" class="input-field"></div>
         <div><label class="form-label">Stadtteil</label><input name="stadtteil" class="input-field"></div>
-        <div><label class="form-label">Vermisst seit</label><input name="vermisst_seit" type="date" class="input-field"></div>
-        <div style="grid-column:span 3"><label class="form-label">Letzter bekannter Aufenthaltsort</label><input name="letzter_ort" class="input-field"></div>
+        <div><label class="form-label">Vermisst seit (Datum)</label><input name="vermisst_seit" type="date" class="input-field"></div>
+        <div><label class="form-label">Ungefähre Uhrzeit</label>
+          <select name="vermisst_zeit" class="select-field">
+            <option value="">Unbekannt</option>
+            <option value="morgens">Morgens (vor 10 Uhr)</option>
+            <option value="vormittags">Vormittags</option>
+            <option value="mittags">Mittags</option>
+            <option value="nachmittags">Nachmittags</option>
+            <option value="abends">Abends</option>
+            <option value="nachts">Nachts</option>
+          </select>
+        </div>
         <div><label class="form-label">Größe</label><input name="groesse" class="input-field" placeholder="z.B. 1,40 m"></div>
         <div><label class="form-label">Haarfarbe</label><input name="haarfarbe" class="input-field"></div>
-        <div><label class="form-label">Augenfarbe</label><input name="augenfarbe" class="input-field"></div>
+        <div style="grid-column:span 3"><label class="form-label">Letzter bekannter Aufenthaltsort</label><input name="letzter_ort" class="input-field" placeholder="z.B. Schulweg an der Bergstraße, Höhe Hauptbahnhof"></div>
         <div style="grid-column:span 3"><label class="form-label">Kleidung</label><input name="kleidung" class="input-field"></div>
         <div style="grid-column:span 3"><label class="form-label">Besondere Merkmale</label><input name="merkmale" class="input-field"></div>
         <div style="grid-column:span 3"><label class="form-label">Beschreibung</label><textarea name="beschreibung" rows="2" class="input-field"></textarea></div>
         <div style="grid-column:span 3"><label class="form-label">Weitere Informationen</label><textarea name="weitere_infos" rows="2" class="input-field"></textarea></div>
-        <div><label class="form-label">Quelle (Name)</label><input name="quelle_name" class="input-field" placeholder="z.B. Polizei Darmstadt"></div>
-        <div><label class="form-label">Quelle (Link)</label><input name="quelle_url" class="input-field"></div>
         <div><label class="form-label">Notfall-Nr. aus Quelle</label><input name="quelle_nummer" class="input-field" placeholder="optional"></div>
         <div style="grid-column:span 2"><label class="form-label">Ziel-Seite</label>
           <select name="account_id" class="select-field"><option value="">— automatisch nach Stadt —</option>
           {% for a in accounts %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
-        <div><label class="form-label">Foto(s) des Kindes</label><input name="fotos" type="file" accept="image/*" multiple class="input-field" style="padding:6px;font-size:12px"></div>
+        <div style="grid-column:span 3"><label class="form-label">Foto(s) des Kindes</label><input name="fotos" type="file" accept="image/*" multiple class="input-field" style="padding:6px;font-size:12px"></div>
       </div>
       <div style="display:flex;gap:12px;margin-top:16px;align-items:center">
         <button type="submit" id="mcfSubmit" class="btn btn-primary" style="font-size:13px;padding:9px 20px">Fall anlegen &amp; Poster erzeugen</button>
@@ -85,6 +112,32 @@
 
 {% block scripts %}
 <script>
+async function extractFromPoster(){
+  const inp=document.getElementById('posterUpload'), msg=document.getElementById('extractMsg'), btn=document.getElementById('extractBtn');
+  if(!inp.files[0]){ msg.textContent='Bitte zuerst ein Bild auswählen.'; msg.style.color='var(--warning)'; return; }
+  btn.disabled=true; const o=btn.textContent; btn.textContent='Lese aus…'; msg.textContent=''; msg.style.color='var(--muted)';
+  try{
+    const fd=new FormData(); fd.append('poster_image', inp.files[0]);
+    const r=await fetch('/api/mcf/extract-from-image',{method:'POST',body:fd}).then(r=>r.json());
+    if(!r.ok){ msg.textContent=r.error||'Fehler beim Auslesen.'; msg.style.color='var(--danger)'; }
+    else{
+      const form=document.getElementById('mcfCreateForm');
+      Object.entries(r.fields||{}).forEach(([k,v])=>{
+        const el=form.querySelector(`[name="${k}"]`);
+        if(el && v!==null && v!==undefined && v!=='') el.value=v;
+      });
+      if(r.photo_extracted && r.photo_media_id){
+        document.getElementById('extractedPhotoMediaId').value=r.photo_media_id;
+        const box=document.getElementById('extractedPhotoBox'), img=document.getElementById('extractedPhotoImg');
+        img.src=r.photo_url; box.style.display='flex';
+        msg.textContent='Angaben übernommen — bitte prüfen.'; msg.style.color='var(--success)';
+      } else {
+        msg.textContent='Angaben übernommen — Foto nicht sicher erkannt: bitte unten manuell zuschneiden & hochladen.'; msg.style.color='var(--warning)';
+      }
+    }
+  }catch(err){ msg.textContent='Netzwerkfehler.'; msg.style.color='var(--danger)'; }
+  btn.disabled=false; btn.textContent=o;
+}
 async function submitMcf(e){
   e.preventDefault();
   const btn=document.getElementById('mcfSubmit'), msg=document.getElementById('mcfMsg');

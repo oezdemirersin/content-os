@@ -1105,6 +1105,7 @@ class MissingChildCase(db.Model):
     stadt         = db.Column(db.String(160), index=True)
     stadtteil     = db.Column(db.String(160))
     vermisst_seit = db.Column(db.Date)
+    vermisst_zeit = db.Column(db.String(40))            # morgens/vormittags/mittags/nachmittags/abends/nachts
     letzter_ort   = db.Column(db.String(300))
     # Beschreibung
     groesse       = db.Column(db.String(60))           # Text, da Quellen variieren ("1,40 m")
