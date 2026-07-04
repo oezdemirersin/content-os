@@ -16767,22 +16767,36 @@ from html.parser import HTMLParser as _HTMLParser
 
 class _MCFTextExtractor(_HTMLParser):
     """Minimaler HTML→Text-Extraktor ohne Zusatz-Dependency (kein bs4 im
-    Projekt) — überspringt script/style, sammelt sichtbaren Text."""
+    Projekt) — überspringt script/style sowie Navigation/Header/Footer/Formulare
+    (auf vielen Seiten, v.a. Behörden-/News-Portalen, macht allein das Hauptmenü
+    tausende Zeichen aus und würde sonst den eigentlichen Meldungstext aus dem
+    an Claude gesendeten Textausschnitt verdrängen). Stack-basiert, damit
+    verschachtelte/unsauber geschlossene Tags nicht durcheinanderkommen."""
+    SKIP_TAGS = ('script', 'style', 'noscript', 'nav', 'header', 'footer', 'form')
+    # Einzelne Tags ohne Ende (z.B. <img>, <input>) werden nicht auf den Stack gelegt
+    VOID_TAGS = ('area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+                 'link', 'meta', 'param', 'source', 'track', 'wbr')
+
     def __init__(self):
         super().__init__()
-        self._skip = 0
+        self._skip_stack = []
         self.parts = []
 
     def handle_starttag(self, tag, attrs):
-        if tag in ('script', 'style', 'noscript'):
-            self._skip += 1
+        if tag in self.SKIP_TAGS and tag not in self.VOID_TAGS:
+            self._skip_stack.append(tag)
 
     def handle_endtag(self, tag):
-        if tag in ('script', 'style', 'noscript') and self._skip:
-            self._skip -= 1
+        if tag in self._skip_stack:
+            # letztes offenes Vorkommen dieses Tags entfernen (robust gegen
+            # unsauber verschachteltes/nicht geschlossenes HTML)
+            for i in range(len(self._skip_stack) - 1, -1, -1):
+                if self._skip_stack[i] == tag:
+                    del self._skip_stack[i:]
+                    break
 
     def handle_data(self, data):
-        if not self._skip:
+        if not self._skip_stack:
             t = data.strip()
             if t:
                 self.parts.append(t)
