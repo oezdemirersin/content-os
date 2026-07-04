@@ -16747,6 +16747,147 @@ def mcf_extract_from_image():
     return jsonify(resp_data)
 
 
+def _mcf_is_safe_url(url):
+    """Blockt SSRF: nur http/https, keine privaten/internen IP-Ziele."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+            return False
+        ip = ipaddress.ip_address(socket.gethostbyname(parsed.hostname))
+        return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast)
+    except Exception:
+        return False
+
+
+from html.parser import HTMLParser as _HTMLParser
+
+
+class _MCFTextExtractor(_HTMLParser):
+    """Minimaler HTML→Text-Extraktor ohne Zusatz-Dependency (kein bs4 im
+    Projekt) — überspringt script/style, sammelt sichtbaren Text."""
+    def __init__(self):
+        super().__init__()
+        self._skip = 0
+        self.parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ('script', 'style', 'noscript'):
+            self._skip += 1
+
+    def handle_endtag(self, tag):
+        if tag in ('script', 'style', 'noscript') and self._skip:
+            self._skip -= 1
+
+    def handle_data(self, data):
+        if not self._skip:
+            t = data.strip()
+            if t:
+                self.parts.append(t)
+
+    def text(self):
+        return '\n'.join(self.parts)
+
+
+def _mcf_fetch_url_content(url):
+    """Lädt eine Vermisstenanzeigen-Webseite, gibt (text, image_url) zurück.
+    text: sichtbarer Seiteninhalt (gekürzt) für die Feld-Extraktion per Claude.
+    image_url: bestes verfügbares Vorschaubild (og:image/twitter:image) oder None
+    — wird NICHT blind übernommen, sondern dem Nutzer vor dem Speichern angezeigt."""
+    import re as _re
+    from urllib.parse import urljoin
+    resp = _requests.get(url, timeout=10, headers={'User-Agent': 'ContentOS/1.0'},
+                          stream=True, allow_redirects=True)
+    resp.raise_for_status()
+    # Redirect-Ziel erneut prüfen (SSRF via Redirect auf internes Ziel verhindern)
+    if not _mcf_is_safe_url(resp.url):
+        raise ValueError('Umleitung auf nicht erlaubtes Ziel.')
+    raw = resp.raw.read(3 * 1024 * 1024, decode_content=True)
+    html = raw.decode(resp.encoding or 'utf-8', errors='ignore')
+
+    parser = _MCFTextExtractor()
+    try:
+        parser.feed(html)
+    except Exception:
+        pass
+    text = parser.text()[:6000]
+
+    image_url = None
+    for pat in (r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+                r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']'):
+        m = _re.search(pat, html, _re.I)
+        if m:
+            image_url = urljoin(resp.url, m.group(1))
+            break
+    return text, image_url
+
+
+@app.route('/api/mcf/extract-from-url', methods=['POST'])
+@login_required
+def mcf_extract_from_url():
+    """Nimmt einen Link zu einer bestehenden (offiziellen) Vermisstenanzeige entgegen,
+    liest die Seite aus und extrahiert die Angaben per Claude (erfindet NIE etwas).
+    Ein gefundenes Vorschaubild wird als Kandidat übernommen, aber im Frontend erst
+    nach Sichtprüfung durch den Nutzer gespeichert — klappt kein sicherer Fund,
+    bleibt der manuelle Zuschnitt-Upload wie beim Foto-Upload-Pfad der Fallback."""
+    from urllib.parse import urlparse as _urlparse
+    d = request.get_json(silent=True) or request.form
+    url = (d.get('url') or '').strip()
+    if not url:
+        return jsonify({'ok': False, 'error': 'Bitte einen Link angeben.'}), 400
+    if not _mcf_is_safe_url(url):
+        return jsonify({'ok': False, 'error': 'Diese URL ist nicht erlaubt.'}), 400
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert (Einstellungen → KI).'}), 400
+
+    try:
+        text, image_url = _mcf_fetch_url_content(url)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Seite konnte nicht geladen werden: {e}'}), 400
+    if not text.strip():
+        return jsonify({'ok': False, 'error': 'Auf der Seite wurde kein lesbarer Text gefunden.'}), 400
+
+    data = _mcf_extract_case_from_text(text, api_key) or {}
+    if not any(data.get(k) for k in (
+            'vorname', 'nachname', 'alter', 'stadt', 'letzter_ort',
+            'groesse', 'haarfarbe', 'kleidung', 'merkmale', 'beschreibung')):
+        return jsonify({'ok': False, 'error': 'Auf der Seite konnten keine Angaben zu einer Vermisstenmeldung erkannt werden.'}), 400
+
+    # Vorschaubild bestenfalls laden — best effort, gleiche SSRF-Prüfung wie die Seite selbst
+    photo_media_id = None
+    photo_extracted = False
+    if image_url and _mcf_is_safe_url(image_url):
+        try:
+            ir = _requests.get(image_url, timeout=8, headers={'User-Agent': 'ContentOS/1.0'}, stream=True)
+            ir.raise_for_status()
+            if not _mcf_is_safe_url(ir.url):
+                raise ValueError('Bild-Umleitung nicht erlaubt.')
+            ctype = (ir.headers.get('Content-Type') or '').lower()
+            if ctype.startswith('image/'):
+                img_bytes = ir.raw.read(15 * 1024 * 1024, decode_content=True)
+                ext = {'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif'}.get(ctype, '.jpg')
+                photo_media_id = _mcf_save_photo_bytes(img_bytes, ext, os.path.basename(image_url))
+                photo_extracted = bool(photo_media_id)
+        except Exception as e:
+            app.logger.warning('MCF URL-Foto: %s', e)
+
+    fields = {k: data.get(k) for k in (
+        'vorname', 'nachname', 'alter', 'stadt', 'stadtteil',
+        'vermisst_seit', 'vermisst_zeit', 'letzter_ort', 'groesse', 'haarfarbe',
+        'kleidung', 'merkmale', 'beschreibung', 'quelle_nummer')}
+    resp_data = {'ok': True, 'fields': fields, 'photo_extracted': photo_extracted,
+                 'quelle_url': url, 'quelle_name': _urlparse(url).hostname or url}
+    if photo_media_id:
+        mi = MediaItem.query.get(photo_media_id)
+        resp_data['photo_media_id'] = photo_media_id
+        resp_data['photo_url'] = mi.url if mi else None
+    return jsonify(resp_data)
+
+
 @app.route('/api/mcf/case/<int:cid>/regenerate-image', methods=['POST'])
 @login_required
 def mcf_regen_image(cid):
