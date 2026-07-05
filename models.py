@@ -945,7 +945,7 @@ class WatchlistSeite(db.Model):
     preis_vorstellung = db.Column(db.Float)   # Preisvorstellung des Verkäufers in €
     mein_angebot      = db.Column(db.Float)   # Eigenes Angebot in €
     notizen           = db.Column(db.Text)
-    zweck             = db.Column(db.String(30))   # kopieren|farmen|kaufen|sonstiges
+    zweck             = db.Column(db.String(30))   # content_kopieren|werbung_kopieren|farmen|kaufen|sonstiges (Altbestand: kopieren)
     ist_befreundet    = db.Column(db.Boolean, default=False)
     seite_geplant     = db.Column(db.Boolean, default=False)  # city-level: hier eigene Seite erstellen
     haben_seite       = db.Column(db.Boolean, default=False)  # city-level: wir haben hier bereits eine Seite

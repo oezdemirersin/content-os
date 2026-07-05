@@ -141,7 +141,8 @@
       </select>
       <select x-model="zweckFilter" class="select-field" style="font-size:12px;padding:8px 10px">
         <option value="">Alle Zwecke</option>
-        <option value="kopieren">📋 Kopieren</option>
+        <option value="content_kopieren">📋 Content kopieren</option>
+        <option value="werbung_kopieren">📢 Werbung kopieren</option>
         <option value="farmen">🌾 Farmen</option>
         <option value="kaufen">💰 Kaufen</option>
         <option value="sonstiges">⋯ Sonstiges</option>
@@ -700,7 +701,8 @@
           <label class="form-label">Zweck</label>
           <select x-model="form.zweck" class="select-field">
             <option value="">—</option>
-            <option value="kopieren">📋 Kopieren</option>
+            <option value="content_kopieren">📋 Content kopieren</option>
+            <option value="werbung_kopieren">📢 Werbung kopieren</option>
             <option value="farmen">🌾 Farmen</option>
             <option value="kaufen">💰 Kaufen</option>
             <option value="sonstiges">⋯ Sonstiges</option>
@@ -1019,7 +1021,11 @@ function watchlistApp() {
 
     zweckCfg(z) {
       const m = {
+        // Altbestand: früher gab es nur ein pauschales "Kopieren" — bereits
+        // gespeicherte Einträge sollen weiter sauber angezeigt werden.
         kopieren:  {label:'📋 Kopieren',  style:'background:rgba(99,102,241,.15);color:#818cf8'},
+        content_kopieren:  {label:'📋 Content kopieren',  style:'background:rgba(99,102,241,.15);color:#818cf8'},
+        werbung_kopieren:  {label:'📢 Werbung kopieren',  style:'background:rgba(236,72,153,.15);color:#ec4899'},
         farmen:    {label:'🌾 Farmen',    style:'background:rgba(245,158,11,.15);color:#f59e0b'},
         kaufen:    {label:'💰 Kaufen',    style:'background:rgba(16,185,129,.15);color:#10b981'},
         sonstiges: {label:'⋯ Sonstiges', style:'background:rgba(148,163,184,.15);color:#94a3b8'},
