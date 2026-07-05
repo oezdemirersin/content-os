@@ -120,6 +120,10 @@
       </select>
       <select x-model="statusFilter" class="select-field" style="font-size:12px;padding:8px 10px">
         <option value="">Alle Status</option>
+        <optgroup label="─ L0 · Aktivität ─">
+          <option value="aktiv">Aktiv</option>
+          <option value="tot">Tot (extrem inaktiv)</option>
+        </optgroup>
         <optgroup label="─ L1 · Suche ─">
           <option value="nicht_gesucht">Nicht gesucht</option>
           <option value="nichts_gefunden">Nichts gefunden</option>
@@ -669,6 +673,10 @@
         <div style="grid-column:1/-1">
           <label class="form-label">Status *</label>
           <select x-model="form.seiten_status" class="select-field">
+            <optgroup label="─ L0 · Aktivität ─">
+              <option value="aktiv">Aktiv</option>
+              <option value="tot">Tot (extrem inaktiv)</option>
+            </optgroup>
             <optgroup label="─ L1 · Suche ─">
               <option value="nicht_gesucht">Noch nicht gesucht</option>
               <option value="nichts_gefunden">Nichts gefunden</option>
@@ -689,7 +697,7 @@
             </optgroup>
           </select>
           <!-- Angeschrieben am — sichtbar ab L2 -->
-          <div x-show="!['nicht_gesucht','nichts_gefunden','gefunden'].includes(form.seiten_status)"
+          <div x-show="!['aktiv','tot','nicht_gesucht','nichts_gefunden','gefunden'].includes(form.seiten_status)"
                style="margin-top:8px">
             <label class="form-label" style="margin-bottom:3px">Angeschrieben am</label>
             <input type="date" x-model="form.kontaktiert_am_input" class="input-field"
@@ -709,7 +717,7 @@
           </select>
         </div>
         <!-- Kaufpriorität (nur wenn Status kaufrelevant) -->
-        <div x-show="!['nicht_gesucht','nichts_gefunden'].includes(form.seiten_status)">
+        <div x-show="!['aktiv','tot','nicht_gesucht','nichts_gefunden'].includes(form.seiten_status)">
           <label class="form-label">Kaufpriorität</label>
           <select x-model="form.kaufprioritaet" class="select-field">
             <option value="keine">Keine</option>
@@ -719,12 +727,12 @@
           </select>
         </div>
         <!-- Preisfelder (nur wenn Status kaufrelevant) -->
-        <div x-show="!['nicht_gesucht','nichts_gefunden'].includes(form.seiten_status)">
+        <div x-show="!['aktiv','tot','nicht_gesucht','nichts_gefunden'].includes(form.seiten_status)">
           <label class="form-label">Preis-Vorstellung (€)</label>
           <input type="number" x-model.number="form.preis_vorstellung" class="input-field"
                  placeholder="Verkäufer möchte…" min="0" step="50">
         </div>
-        <div x-show="!['nicht_gesucht','nichts_gefunden'].includes(form.seiten_status)">
+        <div x-show="!['aktiv','tot','nicht_gesucht','nichts_gefunden'].includes(form.seiten_status)">
           <label class="form-label">Mein Angebot (€)</label>
           <input type="number" x-model.number="form.mein_angebot" class="input-field"
                  placeholder="Ich biete…" min="0" step="50">
@@ -994,6 +1002,9 @@ function watchlistApp() {
 
     statusCfg(s) {
       const m = {
+        // L0 — Aktivität der Zielseite selbst (vor jeder Suche/Kontaktaufnahme)
+        aktiv:           {label:'Aktiv',             lvl:0, color:'#22c55e', bg:'rgba(34,197,94,.15)'},
+        tot:             {label:'Tot (extrem inaktiv)', lvl:0, color:'#dc2626', bg:'rgba(220,38,38,.15)'},
         // L1 — Suche
         nicht_gesucht:   {label:'Nicht gesucht',   lvl:1, color:'#64748b', bg:'rgba(100,116,139,.15)'},
         nichts_gefunden: {label:'Nichts gefunden',  lvl:1, color:'#ef4444', bg:'rgba(239,68,68,.15)'},
@@ -1014,7 +1025,6 @@ function watchlistApp() {
         interesse:       {label:'Interessiert',        lvl:4, color:'#10b981', bg:'rgba(16,185,129,.15)'},
         inaktiv:         {label:'Inaktiv',             lvl:1, color:'#64748b', bg:'rgba(100,116,139,.15)'},
         gelegentlich:    {label:'Ab & zu aktiv',       lvl:1, color:'#64748b', bg:'rgba(100,116,139,.15)'},
-        aktiv:           {label:'Aktiv',               lvl:1, color:'#22c55e', bg:'rgba(34,197,94,.15)'},
       };
       return m[s]||{label:s||'?', lvl:0, color:'#64748b', bg:'rgba(100,116,139,.15)'};
     },
