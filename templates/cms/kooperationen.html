@@ -163,7 +163,7 @@
             style="margin-left:4px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;
                    color:var(--text);font-family:var(--font-body);font-size:11px;padding:6px 10px">
       <option value="">Alle Seiten</option>
-      {% for acc in accounts %}<option value="{{ acc.id }}">{{ acc.name }}</option>{% endfor %}
+      {% for acc in accounts %}<option value="{{ acc.id }}">{{ acc.name }}{% if acc.status != 'active' %} (inaktiv){% endif %}</option>{% endfor %}
     </select>
     <select id="sortSelect" onchange="renderKoops()"
             style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;
@@ -234,7 +234,7 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div><label class="flabel">ACCOUNT *</label>
           <select id="koopAccount" class="finput">
-            {% for acc in accounts %}<option value="{{ acc.id }}">{{ acc.name }}</option>{% endfor %}
+            {% for acc in accounts %}<option value="{{ acc.id }}">{{ acc.name }}{% if acc.status != 'active' %} (inaktiv){% endif %}</option>{% endfor %}
           </select></div>
         <div><label class="flabel">TYP *</label>
           <select id="koopType" class="finput">

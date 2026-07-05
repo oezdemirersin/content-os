@@ -13512,7 +13512,11 @@ def event_delete(eid):
 def kooperationen():
     koops = Kooperation.query.all()
     koops.sort(key=_koop_ref_date, reverse=True)
-    accounts = Account.query.filter_by(status='active').order_by(Account.name).all()
+    # Alle Accounts laden (nicht nur aktive!) — sonst verliert das Bearbeiten-Formular
+    # bei älteren Kooperationen, deren Account inzwischen pausiert/inaktiv ist, den
+    # Account-Bezug (Dropdown hat kein passendes <option>, Speichern überschreibt
+    # account_id stillschweigend mit dem ersten Eintrag der Liste).
+    accounts = Account.query.order_by(Account.status != 'active', Account.name).all()
     today = now_berlin().date()  # Deadline-/Überfällig-Vergleich gegen User-Datümer
     return render_template('kooperationen.html', koops=koops,
                            accounts=accounts, today=today, active_page='kooperationen')
