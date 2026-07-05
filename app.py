@@ -16173,6 +16173,33 @@ def _mcf_seit_label(case):
     return zeit
 
 
+def _mcf_draw_photo_placeholder(img, box):
+    """Zeichnet einen Platzhalter (helles Feld + Silhouette-Icon + Hinweistext) in
+    die gegebene Box, wenn für einen Fall (noch) kein Foto vorliegt — damit das
+    Poster nie eine leere weiße Fläche zeigt, sondern klar erkennbar 'kein Foto'."""
+    from PIL import ImageDraw
+    BG, ICON = (238, 240, 244), (196, 201, 212)
+    x0, y0, x1, y1 = box
+    bw, bh = x1 - x0, y1 - y0
+    d = ImageDraw.Draw(img)
+    d.rectangle(box, fill=BG)
+    cx, cy = x0 + bw / 2, y0 + bh / 2
+    scale = min(max(min(bw, bh) / 300.0, 0.5), 1.5)
+    head_r = 42 * scale
+    head_cy = cy - 50 * scale
+    d.ellipse([cx - head_r, head_cy - head_r, cx + head_r, head_cy + head_r], fill=ICON)
+    body_w, body_h = 168 * scale, 110 * scale
+    body_top = head_cy + head_r * 0.55
+    d.rounded_rectangle([cx - body_w / 2, body_top, cx + body_w / 2, body_top + body_h],
+                         radius=body_h * 0.5, fill=ICON)
+    d.rectangle([x0, body_top + body_h * 0.55, x1, y1], fill=BG)  # Schulter-Überstand kappen
+    f_ph = _mcf_font(22, bold=False)
+    txt = 'Kein Foto verfügbar'
+    tw = d.textlength(txt, font=f_ph)
+    ty = min(body_top + body_h + 18 * scale, y1 - 32)
+    d.text((cx - tw / 2, ty), txt, font=f_ph, fill=(150, 156, 168))
+
+
 def _render_missing_child_image(case, contact_line=None):
     """Modernes, adaptives 1080×1350-Vermissten-Poster mit Branding + Call-to-Action.
     Rendert NUR vorhandene Felder (keine Lücken, funktioniert auch mit minimalen Angaben).
@@ -16271,11 +16298,11 @@ def _render_missing_child_image(case, contact_line=None):
             except Exception:
                 photo = None
     y = y0
+    photo_overhead = 18 + 5 + 34  # Abstand + Akzentstreifen + Abstand danach
+    max_box_h = available_after_name - rows_height - photo_overhead
+    box_w = W - 2 * PAD
     if photo:
-        photo_overhead = 18 + 5 + 34  # Abstand + Akzentstreifen + Abstand danach
-        max_box_h = available_after_name - rows_height - photo_overhead
         box_h = max(220, min(560, max_box_h))
-        box_w = W - 2 * PAD
         ratio = max(box_w / photo.width, box_h / photo.height)
         photo = photo.resize((int(photo.width * ratio), int(photo.height * ratio)), Image.LANCZOS)
         lft, top = (photo.width - box_w) // 2, (photo.height - box_h) // 2
@@ -16286,7 +16313,16 @@ def _render_missing_child_image(case, contact_line=None):
         d.rectangle([PAD, y, W - PAD, y + 5], fill=RED)
         y += 34
     else:
-        y += 6
+        # Kein Foto vorhanden — statt einer leeren Fläche einen Platzhalter mit
+        # Silhouette-Icon zeigen (gleiche Box-Optik/Akzentstreifen wie bei einem
+        # echten Foto), damit das Poster nicht leer/unfertig wirkt.
+        box_h = max(160, min(560, max_box_h))
+        box = (PAD, y, PAD + box_w, y + box_h)
+        _mcf_draw_photo_placeholder(img, box)
+        d.rectangle(box, outline=(215, 219, 226), width=3)
+        y += box_h + 18
+        d.rectangle([PAD, y, W - PAD, y + 5], fill=RED)
+        y += 34
 
     # Name + Alter
     name = case.display_name()
