@@ -751,6 +751,8 @@ class Kooperation(db.Model):
     contact_company         = db.Column(db.String(200))
     contact_street          = db.Column(db.String(200))
     contact_city            = db.Column(db.String(200))
+    contact_country         = db.Column(db.String(100), default='Deutschland')
+    vat_exempt              = db.Column(db.Boolean, default=False)  # ohne MwSt (z.B. Reverse Charge/steuerfrei) -> Rechnung zeigt nur "Betrag" statt Netto/MwSt-Aufschlüsselung
     partner_id              = db.Column(db.Integer, db.ForeignKey('partner.id'), nullable=True)
     account         = db.relationship('Account', backref='kooperationen')
     content_item    = db.relationship('ContentItem', backref=db.backref('kooperation', uselist=False))

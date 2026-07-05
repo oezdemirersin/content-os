@@ -1711,6 +1711,10 @@ def init_db():
                     safe_alter('ALTER TABLE kooperation ADD COLUMN contact_street VARCHAR(200)')
                 if 'contact_city' not in k_cols:
                     safe_alter('ALTER TABLE kooperation ADD COLUMN contact_city VARCHAR(200)')
+                if 'contact_country' not in k_cols:
+                    safe_alter("ALTER TABLE kooperation ADD COLUMN contact_country VARCHAR(100) DEFAULT 'Deutschland'")
+                if 'vat_exempt' not in k_cols:
+                    safe_alter('ALTER TABLE kooperation ADD COLUMN vat_exempt BOOLEAN DEFAULT 0')
                 if 'follow_up_reminder_sent' not in k_cols:
                     safe_alter('ALTER TABLE kooperation ADD COLUMN follow_up_reminder_sent BOOLEAN DEFAULT 0')
                 td_cols = [c['name'] for c in inspector.get_columns('app_todo')]
@@ -1741,6 +1745,8 @@ def init_db():
         safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_company VARCHAR(200)')
         safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_street VARCHAR(200)')
         safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_city VARCHAR(200)')
+        safe_alter("ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS contact_country VARCHAR(100) DEFAULT 'Deutschland'")
+        safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS vat_exempt BOOLEAN DEFAULT FALSE')
         safe_alter('ALTER TABLE kooperation ADD COLUMN IF NOT EXISTS follow_up_reminder_sent BOOLEAN DEFAULT FALSE')
         safe_alter('ALTER TABLE app_todo ADD COLUMN IF NOT EXISTS deadline DATE')
         safe_alter('ALTER TABLE app_todo ADD COLUMN IF NOT EXISTS title VARCHAR(200)')
@@ -13549,6 +13555,8 @@ def koop_list():
             'contact_company': k.contact_company or '',
             'contact_street': k.contact_street or '',
             'contact_city': k.contact_city or '',
+            'contact_country': k.contact_country or 'Deutschland',
+            'vat_exempt': bool(k.vat_exempt),
             'payment_status': k.payment_status or 'offen',
             'deliverables': delivs,
             'partner_rating': k.partner_rating,
@@ -13585,6 +13593,8 @@ def koop_create():
             contact_company=d.get('contact_company', '').strip() or None,
             contact_street=d.get('contact_street', '').strip() or None,
             contact_city=d.get('contact_city', '').strip() or None,
+            contact_country=d.get('contact_country', '').strip() or 'Deutschland',
+            vat_exempt=bool(d.get('vat_exempt')),
             payment_status=d.get('payment_status', 'offen'),
             deliverables=json.dumps(d.get('deliverables', []), ensure_ascii=False) if d.get('deliverables') else None,
             partner_rating=int(d['partner_rating']) if d.get('partner_rating') else None,
@@ -13629,6 +13639,10 @@ def koop_update(kid):
     if contact_street  is not None: k.contact_street  = contact_street.strip() or None
     contact_city    = d.get('contact_city')
     if contact_city    is not None: k.contact_city    = contact_city.strip() or None
+    contact_country = d.get('contact_country')
+    if contact_country is not None: k.contact_country = contact_country.strip() or 'Deutschland'
+    if 'vat_exempt' in d:
+        k.vat_exempt = bool(d['vat_exempt'])
     k.payment_status  = d.get('payment_status', k.payment_status or 'offen')
     if 'campaign_name' in d:
         k.campaign_name = d['campaign_name'].strip() or None

@@ -375,6 +375,7 @@
         {% if k.contact_company %}{{ k.contact_company }}<br>{% endif %}
         {% if k.contact_street %}{{ k.contact_street }}<br>{% endif %}
         {% if k.contact_city %}{{ k.contact_city }}<br>{% endif %}
+        {% if k.contact_country %}{{ k.contact_country }}<br>{% endif %}
         {% if k.campaign_name %}<em style="color:#6b7280;font-size:9.5pt">Kampagne: {{ k.campaign_name }}</em>{% endif %}
       </div>
     </div>
@@ -507,7 +508,8 @@
   <div class="inv-totals">
     <div class="inv-totals-box">
       {% set is_klein = settings.get('invoice_sender_is_kleinunternehmer', 'true') == 'true' %}
-      {% if not is_klein %}
+      {% set no_vat = is_klein or k.vat_exempt %}
+      {% if not no_vat %}
       <div class="totals-row">
         <span>Nettobetrag</span>
         <span>{% if k.amount %}{{ '%.2f'|format(k.amount / 1.19) }} {{ k.currency or 'EUR' }}{% else %}—{% endif %}</span>
@@ -518,7 +520,7 @@
       </div>
       {% endif %}
       <div class="totals-row total-final">
-        <span>Gesamtbetrag</span>
+        <span>{{ 'Betrag' if no_vat else 'Gesamtbetrag' }}</span>
         <span class="amount">
           {% if k.amount %}{{ '%.2f'|format(k.amount) }} {{ k.currency or 'EUR' }}
           {% else %}—{% endif %}
@@ -528,9 +530,13 @@
   </div>
 
   <!-- Kleinunternehmer-Hinweis -->
-  {% if settings.get('invoice_sender_is_kleinunternehmer', 'true') == 'true' %}
+  {% if is_klein %}
   <div class="kleinunternehmer-notice">
     Gemäß § 19 UStG wird keine Umsatzsteuer berechnet (Kleinunternehmerregelung).
+  </div>
+  {% elif k.vat_exempt %}
+  <div class="kleinunternehmer-notice">
+    Rechnungsbetrag ohne Umsatzsteuer.
   </div>
   {% endif %}
 
