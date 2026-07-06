@@ -16191,18 +16191,6 @@ def _mcf_seit_label(case):
     return zeit
 
 
-def _mcf_vgradient(w, h, top_rgb, bottom_rgb):
-    """Vertikaler Farbverlauf als RGB-Image (top_rgb oben -> bottom_rgb unten)."""
-    from PIL import Image as _Image
-    h = max(1, int(h))
-    grad = _Image.new('RGB', (1, h))
-    for y in range(h):
-        t = y / max(h - 1, 1)
-        px = tuple(int(top_rgb[i] + (bottom_rgb[i] - top_rgb[i]) * t) for i in range(3))
-        grad.putpixel((0, y), px)
-    return grad.resize((int(w), h))
-
-
 def _mcf_rounded_mask(w, h, radius):
     """Weiße abgerundete Fläche auf schwarzem Grund — als Paste-Maske für
     abgerundete Ecken (z.B. Foto/Platzhalter-Box) nutzbar."""
@@ -16227,23 +16215,19 @@ def _mcf_draw_box_shadow(img, box, radius=28, offset=10, blur=16, alpha=85):
     img.paste(shadow, (0, 0), shadow)
 
 
-def _mcf_draw_ribbon(img, box, text='VERMISST', color=(196, 30, 43), fg=(255, 255, 255)):
-    """Diagonales Eck-Ribbon (wie bei redaktionellen 'Corner-Badges') oben links
-    auf der gegebenen Box — zusätzlicher, gut sichtbarer Dringlichkeits-Akzent
-    direkt auf dem Foto/Platzhalter."""
-    from PIL import Image as _Image, ImageDraw as _ImageDraw
-    x0, y0, _x1, _y1 = box
-    strip_w, strip_h = 360, 46
-    strip = _Image.new('RGBA', (strip_w, strip_h), (0, 0, 0, 0))
-    sd = _ImageDraw.Draw(strip)
-    sd.rectangle([0, 0, strip_w, strip_h], fill=(*color, 255))
+def _mcf_draw_flat_badge(img, x, y, text='VERMISST', bg=(196, 30, 43), fg=(255, 255, 255)):
+    """Flaches, nicht rotiertes Tag/Badge (abgerundetes Rechteck) oben links auf der
+    gegebenen Box — moderner Social-Media-Grafik-Stil (klare Fläche statt Verlauf/
+    gedrehtem Eck-Ribbon)."""
+    from PIL import ImageDraw as _ImageDraw
+    d = _ImageDraw.Draw(img)
     f = _mcf_font(24, bold=True)
-    tw = sd.textlength(text, font=f)
-    sd.text(((strip_w - tw) / 2, (strip_h - 28) / 2), text, font=f, fill=(*fg, 255))
-    rotated = strip.rotate(-45, expand=True, resample=_Image.BICUBIC)
-    rw, rh = rotated.size
-    px, py = int(x0 - rw * 0.32), int(y0 - rh * 0.32)
-    img.paste(rotated, (px, py), rotated)
+    pad_x, pad_y = 20, 10
+    tw = d.textlength(text, font=f)
+    th = 26
+    d.rounded_rectangle([x, y, x + tw + pad_x * 2, y + th + pad_y * 2],
+                         radius=(th + pad_y * 2) / 2, fill=bg)
+    d.text((x + pad_x, y + pad_y - 1), text, font=f, fill=fg)
 
 
 def _mcf_draw_row_icon(d, cx, cy, r, kind, fg=(255, 255, 255), bg=(196, 30, 43)):
@@ -16323,15 +16307,15 @@ def _mcf_draw_photo_placeholder(bw, bh):
 
 
 def _render_missing_child_image(case, contact_line=None):
-    """Aufwendigeres, adaptives 1080×1350-Vermissten-Poster im 'modernen Alert-Stil':
-    Farbverlauf im Kopf-/CTA-Bereich, abgerundetes Foto mit Schlagschatten,
-    diagonales 'VERMISST'-Eck-Ribbon auf dem Foto, Info-Zeilen als Icon-Chips.
+    """Adaptives 1080×1350-Vermissten-Poster im modernen, flachen Social-Media-Grafik-
+    Stil: klare Flächen statt Farbverlauf/Ribbon, großes quadratisches Foto mit
+    Schlagschatten + flachem 'VERMISST'-Tag, Info-Zeilen als Icon-Chips.
     Rendert NUR vorhandene Felder (keine Lücken, funktioniert auch mit minimalen Angaben).
     Speichert flach im Upload-Ordner, gibt Dateinamen zurück."""
     from PIL import Image, ImageDraw, ImageOps
     import io as _io
     W, H = 1080, 1350
-    RED = (196, 30, 43); RED_DARK = (150, 18, 28); DARK = (21, 24, 31); GRAY = (100, 108, 124)
+    RED = (196, 30, 43); DARK = (21, 24, 31); GRAY = (100, 108, 124)
     WHITE = (255, 255, 255); LINE = (232, 234, 238); LIGHT_RED = (255, 214, 214)
     BRAND_GRAY = (172, 177, 188); CARD_BG = (247, 248, 250)
     img = Image.new('RGB', (W, H), WHITE)
@@ -16346,9 +16330,9 @@ def _render_missing_child_image(case, contact_line=None):
     cta_h, cb_h = 70, 128
     FOOTER_H = cta_h + cb_h
 
-    # Kopf: Farbverlauf statt flacher Fläche (mehr Tiefe), links Titel, rechts Branding
+    # Kopf: klare, flache Fläche (kein Verlauf) — links Titel, rechts Branding
     hdr_h = 150
-    img.paste(_mcf_vgradient(W, hdr_h, RED_DARK, RED), (0, 0))
+    d.rectangle([0, 0, W, hdr_h], fill=RED)
     f_hdr = _mcf_font(70, bold=True)
     t = 'VERMISST'
     d.text((PAD, 32), t, font=f_hdr, fill=WHITE)
@@ -16457,12 +16441,11 @@ def _render_missing_child_image(case, contact_line=None):
         # damit das Poster nicht leer/unfertig wirkt.
         content = _mcf_draw_photo_placeholder(box_w, box_h)
 
-    # Ribbon VOR dem Maskieren direkt auf den Foto-/Platzhalter-Inhalt zeichnen
-    # (lokale Koordinaten, Box-Ursprung = (0,0)) — dadurch wird es zusammen mit
-    # dem Foto von der abgerundeten Maske sauber begrenzt und kann nie in den
-    # Header/Titel darüber hineinbluten (das passierte, wenn das Ribbon direkt
-    # auf das Gesamtbild gezeichnet wurde, unabhängig von der Foto-Box-Position).
-    _mcf_draw_ribbon(content, (0, 0, box_w, box_h), text='VERMISST', color=RED, fg=WHITE)
+    # Flaches "VERMISST"-Tag VOR dem Maskieren direkt auf den Foto-/Platzhalter-
+    # Inhalt zeichnen (lokale Koordinaten, Box-Ursprung = (0,0)) — dadurch wird es
+    # zusammen mit dem Foto von der abgerundeten Maske sauber begrenzt und kann nie
+    # in den Header/Titel darüber hineinbluten.
+    _mcf_draw_flat_badge(content, 18, 18, text='VERMISST', bg=RED, fg=WHITE)
 
     mask = _mcf_rounded_mask(box_w, box_h, RADIUS)
     img.paste(content, (box_x0, y), mask)
@@ -16513,8 +16496,8 @@ def _render_missing_child_image(case, contact_line=None):
             ty += ROW_LINE_H
         y += card_h + CARD_GAP
 
-    # Call-to-Action-Banner (Farbverlauf) direkt über dem Kontakt-Balken
-    img.paste(_mcf_vgradient(W, cta_h, RED, RED_DARK), (0, H - FOOTER_H))
+    # Call-to-Action-Banner (flache Fläche) direkt über dem Kontakt-Balken
+    d.rectangle([0, H - FOOTER_H, W, H - FOOTER_H + cta_h], fill=RED)
     f_cta = _mcf_font(30, bold=True)
     cta_text = 'JEDER HINWEIS KANN HELFEN — BITTE TEILEN'
     cta_lines = _mcf_wrap(d, cta_text, f_cta, W - 2 * PAD)
