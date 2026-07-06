@@ -16191,93 +16191,6 @@ def _mcf_seit_label(case):
     return zeit
 
 
-def _mcf_rounded_mask(w, h, radius):
-    """Weiße abgerundete Fläche auf schwarzem Grund — als Paste-Maske für
-    abgerundete Ecken (z.B. Foto/Platzhalter-Box) nutzbar."""
-    from PIL import Image as _Image, ImageDraw as _ImageDraw
-    w, h = int(w), int(h)
-    mask = _Image.new('L', (w, h), 0)
-    _ImageDraw.Draw(mask).rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=255)
-    return mask
-
-
-def _mcf_draw_box_shadow(img, box, radius=28, offset=10, blur=16, alpha=85):
-    """Zeichnet einen weichen, leicht nach unten versetzten Schlagschatten hinter
-    einer abgerundeten Box (z.B. Foto-Box) direkt auf img — für mehr Tiefe/
-    hochwertigere Optik statt einer flachen, kantigen Fläche."""
-    from PIL import Image as _Image, ImageDraw as _ImageDraw, ImageFilter as _ImageFilter
-    x0, y0, x1, y1 = box
-    w, h = img.size
-    shadow = _Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    _ImageDraw.Draw(shadow).rounded_rectangle(
-        [x0, y0 + offset, x1, y1 + offset], radius=radius, fill=(15, 16, 20, alpha))
-    shadow = shadow.filter(_ImageFilter.GaussianBlur(blur))
-    img.paste(shadow, (0, 0), shadow)
-
-
-def _mcf_draw_flat_badge(img, x, y, text='VERMISST', bg=(196, 30, 43), fg=(255, 255, 255)):
-    """Flaches, nicht rotiertes Tag/Badge (abgerundetes Rechteck) oben links auf der
-    gegebenen Box — moderner Social-Media-Grafik-Stil (klare Fläche statt Verlauf/
-    gedrehtem Eck-Ribbon)."""
-    from PIL import ImageDraw as _ImageDraw
-    d = _ImageDraw.Draw(img)
-    f = _mcf_font(24, bold=True)
-    pad_x, pad_y = 20, 10
-    tw = d.textlength(text, font=f)
-    th = 26
-    d.rounded_rectangle([x, y, x + tw + pad_x * 2, y + th + pad_y * 2],
-                         radius=(th + pad_y * 2) / 2, fill=bg)
-    d.text((x + pad_x, y + pad_y - 1), text, font=f, fill=fg)
-
-
-def _mcf_draw_row_icon(d, cx, cy, r, kind, fg=(255, 255, 255), bg=(196, 30, 43)):
-    """Zeichnet ein einfaches, gut erkennbares Glyphen-Icon (nur Grundformen,
-    keine externe Icon-Datei nötig) zentriert um (cx, cy) mit 'Radius' r, passend
-    zur Kategorie der Info-Zeile (Datum, Ort, Merkmale, Kleidung, Haare, Größe,
-    Ortsteil) — macht aus den reinen Text-Zeilen echte Icon-Chips."""
-    if kind == 'clock':
-        d.ellipse([cx - r * 0.62, cy - r * 0.62, cx + r * 0.62, cy + r * 0.62], outline=fg, width=3)
-        d.line([cx, cy, cx, cy - r * 0.4], fill=fg, width=3)
-        d.line([cx, cy, cx + r * 0.3, cy + r * 0.08], fill=fg, width=3)
-    elif kind == 'pin':
-        top = cy - r * 0.42
-        d.ellipse([cx - r * 0.45, top - r * 0.45, cx + r * 0.45, top + r * 0.45], fill=fg)
-        d.polygon([(cx - r * 0.4, top + r * 0.15), (cx + r * 0.4, top + r * 0.15), (cx, cy + r * 0.62)], fill=fg)
-    elif kind == 'star':
-        pts = []
-        for ang, rad in [(0, 0.7), (45, 0.2), (90, 0.7), (135, 0.2),
-                          (180, 0.7), (225, 0.2), (270, 0.7), (315, 0.2)]:
-            import math as _m
-            rr = r * rad
-            pts.append((cx + rr * _m.sin(_m.radians(ang)), cy - rr * _m.cos(_m.radians(ang))))
-        d.polygon(pts, fill=fg)
-    elif kind == 'shirt':
-        pts = [
-            (cx - r * 0.5, cy - r * 0.5), (cx - r * 0.18, cy - r * 0.68), (cx, cy - r * 0.52),
-            (cx + r * 0.18, cy - r * 0.68), (cx + r * 0.5, cy - r * 0.5), (cx + r * 0.68, cy - r * 0.22),
-            (cx + r * 0.42, cy - r * 0.08), (cx + r * 0.42, cy + r * 0.6), (cx - r * 0.42, cy + r * 0.6),
-            (cx - r * 0.42, cy - r * 0.08), (cx - r * 0.68, cy - r * 0.22),
-        ]
-        d.polygon(pts, fill=fg)
-    elif kind == 'hair':
-        for dy in (-0.28, 0.02, 0.32):
-            yy = cy + dy * r
-            d.arc([cx - r * 0.6, yy - r * 0.22, cx + r * 0.6, yy + r * 0.22], start=200, end=340, fill=fg, width=4)
-    elif kind == 'ruler':
-        d.rounded_rectangle([cx - r * 0.65, cy - r * 0.28, cx + r * 0.65, cy + r * 0.28], radius=4, outline=fg, width=3)
-        for t in (-0.4, -0.13, 0.13, 0.4):
-            d.line([cx + t * r * 1.2, cy - r * 0.28, cx + t * r * 1.2, cy - r * 0.02], fill=fg, width=2)
-    elif kind == 'building':
-        d.rectangle([cx - r * 0.45, cy - r * 0.58, cx + r * 0.45, cy + r * 0.58], fill=fg)
-        for row in range(2):
-            for col in range(2):
-                wx = cx - r * 0.32 + col * r * 0.42
-                wy = cy - r * 0.4 + row * r * 0.42
-                d.rectangle([wx, wy, wx + r * 0.2, wy + r * 0.2], fill=bg)
-    else:
-        d.ellipse([cx - r * 0.3, cy - r * 0.3, cx + r * 0.3, cy + r * 0.3], fill=fg)
-
-
 def _mcf_draw_photo_placeholder(bw, bh):
     """Baut ein Platzhalter-Bild (helles Feld + Silhouette-Icon + Hinweistext) in
     der Größe (bw, bh), wenn für einen Fall (noch) kein Foto vorliegt — damit das
@@ -16307,112 +16220,104 @@ def _mcf_draw_photo_placeholder(bw, bh):
 
 
 def _render_missing_child_image(case, contact_line=None):
-    """Adaptives 1080×1350-Vermissten-Poster im modernen, flachen Social-Media-Grafik-
-    Stil: klare Flächen statt Farbverlauf/Ribbon, großes quadratisches Foto mit
-    Schlagschatten + flachem 'VERMISST'-Tag, Info-Zeilen als Icon-Chips.
-    Rendert NUR vorhandene Felder (keine Lücken, funktioniert auch mit minimalen Angaben).
-    Speichert flach im Upload-Ordner, gibt Dateinamen zurück."""
+    """Adaptives 1080×1350-Vermisstenposter im klassischen 'Abreißzettel'-Stil
+    (Aushang am Schwarzen Brett): dicker schwarzer Rahmen, große Blocktypografie,
+    quadratisches Foto mit schlichtem schwarzen Rand (kein Verlauf/Schatten/Karten-
+    Optik), Fakten als zentrierte Text-Zeilen, abreißbare Kontakt-Streifen am
+    unteren Rand. Rendert NUR vorhandene Felder (keine Lücken, funktioniert auch
+    mit minimalen Angaben). Speichert flach im Upload-Ordner, gibt Dateinamen zurück."""
     from PIL import Image, ImageDraw, ImageOps
     import io as _io
     W, H = 1080, 1350
-    RED = (196, 30, 43); DARK = (21, 24, 31); GRAY = (100, 108, 124)
-    WHITE = (255, 255, 255); LINE = (232, 234, 238); LIGHT_RED = (255, 214, 214)
-    BRAND_GRAY = (172, 177, 188); CARD_BG = (247, 248, 250)
+    WHITE = (255, 255, 255); BLACK = (18, 18, 18); RED = (176, 24, 24); GRAY = (110, 110, 110)
     img = Image.new('RGB', (W, H), WHITE)
     d = ImageDraw.Draw(img)
-    PAD = 70
+
+    M = 40  # Rand bis zum äußeren Rahmen
+    d.rectangle([M, M, W - M, H - M], outline=BLACK, width=8)
+    PAD = M + 44
 
     acc = Account.query.get(case.account_id) if case.account_id else None
     brand = ((acc.handle or acc.name) if acc else '') or ''
     brand = brand.strip()
-
-    # Footer-Bereich (CTA-Banner + Kontakt-Balken) — Höhe vorab reservieren
-    cta_h, cb_h = 70, 128
-    FOOTER_H = cta_h + cb_h
-
-    # Kopf: klare, flache Fläche (kein Verlauf) — links Titel, rechts Branding
-    hdr_h = 150
-    d.rectangle([0, 0, W, hdr_h], fill=RED)
-    f_hdr = _mcf_font(70, bold=True)
-    t = 'VERMISST'
-    d.text((PAD, 32), t, font=f_hdr, fill=WHITE)
     if brand:
-        f_brand = _mcf_font(24, bold=True)
+        f_brand = _mcf_font(20, bold=True)
         bw = d.textlength(brand, font=f_brand)
-        d.text((W - PAD - bw, 40), brand, font=f_brand, fill=LIGHT_RED)
+        d.text((W - PAD - bw, M + 24), brand, font=f_brand, fill=GRAY)
+
+    f_hdr = _mcf_font(84, bold=True)
+    hdr = 'VERMISST'
+    d.text(((W - d.textlength(hdr, font=f_hdr)) / 2, M + 26), hdr, font=f_hdr, fill=BLACK)
+    y0 = M + 26 + 96
     if case.stadt:
-        f_sub = _mcf_font(30, bold=False)
+        f_sub = _mcf_font(26, bold=True)
         s = case.stadt.upper()
-        d.text((PAD, 110), s, font=f_sub, fill=LIGHT_RED)
+        d.text(((W - d.textlength(s, font=f_sub)) / 2, y0), s, font=f_sub, fill=RED)
+        y0 += 42
+    else:
+        y0 += 14
 
-    y0 = hdr_h + 30
-
-    # Detail-Zeilen (nur vorhandene Felder) vorab aufbauen — Datum + Tageszeit
-    # kombiniert, kein Augenfarbe-Feld mehr (nicht relevant für Wiedererkennung).
-    # Wird VOR dem Foto berechnet, damit die Foto-Höhe sich an den Platzbedarf
-    # der Texte anpassen kann (siehe unten) — so geht bei vielen/langen Angaben
-    # kein Feld mehr stillschweigend verloren, es wird höchstens gekürzt.
-    # Jede Zeile wird als Icon-Chip-Karte gerendert (Icon-Kreis + Label/Wert),
-    # statt als reine Text-Zeile mit Trennlinie.
-    ICON_D, CARD_PAD_V, CARD_PAD_H, ICON_TEXT_GAP = 44, 8, 16, 14
-    ROW_LABEL_H, LABEL_VALUE_GAP, ROW_LINE_H, CARD_GAP, MAX_LINES = 19, 2, 27, 8, 2
-    f_lbl = _mcf_font(20, bold=True)
+    # Detail-Zeilen (nur vorhandene Felder) als kombinierte, zentrierte
+    # "Label: Wert"-Zeilen vorab aufbauen — VOR dem Foto, damit die Foto-Höhe
+    # sich an den verbleibenden Platzbedarf anpassen kann (siehe unten). So
+    # geht bei vielen/langen Angaben kein Feld mehr stillschweigend verloren,
+    # es wird höchstens auf max. 2 Zeilen gekürzt. Reihenfolge nach Wichtigkeit
+    # für Wiedererkennung/Fahndung — falls im Extremfall doch etwas weichen
+    # muss, fällt zuerst das Unwichtigste weg.
     f_val = _mcf_font(27, bold=False)
-    max_w = W - 2 * PAD - 2 * CARD_PAD_H - ICON_D - ICON_TEXT_GAP
-    # Reihenfolge nach Wichtigkeit für Wiedererkennung/Fahndung — falls im
-    # absoluten Extremfall (sehr viele + sehr lange Felder) doch mal etwas
-    # weichen muss, soll das Unwichtigste zuerst wegfallen, nie die
-    # sicherheitsrelevanten Merkmale. Icon-Kategorie je Zeile für die Chip-Optik.
-    rows = []
+    LINE_H, ROW_GAP, MAX_LINES = 34, 18, 2
+    max_w = W - 2 * PAD
+    rows_src = []
     seit = _mcf_seit_label(case)
     if seit:
-        rows.append(('Vermisst seit', seit, 'clock'))
+        rows_src.append(('Vermisst seit', seit))
     if case.letzter_ort:
-        rows.append(('Zuletzt gesehen', case.letzter_ort, 'pin'))
+        rows_src.append(('Zuletzt gesehen', case.letzter_ort))
     if case.merkmale:
-        rows.append(('Besondere Merkmale', case.merkmale, 'star'))
+        rows_src.append(('Besondere Merkmale', case.merkmale))
     if case.kleidung:
-        rows.append(('Kleidung', case.kleidung, 'shirt'))
+        rows_src.append(('Kleidung', case.kleidung))
     if case.haarfarbe:
-        rows.append(('Haare', case.haarfarbe, 'hair'))
+        rows_src.append(('Haare', case.haarfarbe))
     if case.groesse:
-        rows.append(('Größe', case.groesse, 'ruler'))
+        rows_src.append(('Größe', case.groesse))
     if case.stadtteil:
-        rows.append(('Ortsteil', case.stadtteil, 'building'))
+        rows_src.append(('Ortsteil', case.stadtteil))
 
-    # Jede Zeile auf max. 2 Zeilen begrenzen (mit „…“ gekürzt) statt Felder
-    # komplett zu verwerfen — jedes vorhandene Feld bleibt sichtbar.
     row_render = []
-    for label, val, kind in rows:
-        lines = _mcf_wrap(d, str(val), f_val, max_w)
+    for label, val in rows_src:
+        text = f'{label}: {val}'
+        lines = _mcf_wrap(d, text, f_val, max_w)
         if len(lines) > MAX_LINES:
             lines = lines[:MAX_LINES]
             last = lines[-1]
             while d.textlength(last + '…', font=f_val) > max_w and len(last) > 1:
                 last = last[:-1]
             lines[-1] = last.rstrip() + '…'
-        row_render.append((label, lines, kind))
+        row_render.append(lines)
 
-    def _card_h(lines):
-        text_block_h = ROW_LABEL_H + LABEL_VALUE_GAP + len(lines) * ROW_LINE_H
-        return max(ICON_D, text_block_h) + CARD_PAD_V * 2
+    rows_height = sum(len(lines) * LINE_H + ROW_GAP for lines in row_render)
 
-    rows_height = sum(_card_h(lines) + CARD_GAP for _, lines, _k in row_render)
+    # Footer (CTA-Zeile + gestrichelte Linie + abreißbare Kontakt-Streifen) hat
+    # eine feste, von den Fall-Daten unabhängige Höhe — wird komplett vorab
+    # reserviert, damit er nie mit den Fakten-Zeilen kollidiert.
+    FOOTER_H = 190
+    row_cutoff = H - M - FOOTER_H
 
-    name_block_h = 72 + (46 if case.alter is not None else 0) + 6 + 20
-    row_cutoff = H - FOOTER_H - 30
-    photo_overhead = 26 + 5 + 34  # Schatten-Puffer + Akzentstreifen + Abstand danach
+    name = case.display_name()
+    f_name = _mcf_font(50, bold=True)
+    f_meta = _mcf_font(28, bold=False)
+    name_block_h = 58 + (38 if (case.alter is not None or case.stadt) else 0) + 14
 
-    # Foto: hat IMMER Vorrang vor den Detail-Zeilen — ein gut erkennbares Gesicht ist
-    # für ein Vermisstenposter wichtiger als möglichst viele Textzeilen. Das Foto wird
-    # deshalb NIE zu einem dünnen, breiten Streifen zusammengequetscht (führte vorher
-    # dazu, dass vom Gesicht z.B. nur Mund/Kinn zu sehen war), sondern ist immer
-    # mindestens quadratisch (1:1) und ausreichend groß. Reicht der Platz nicht für
-    # alle Zeilen, werden zuerst die unwichtigsten Zeilen gekürzt/weggelassen — nie
-    # das Foto beschnitten.
-    PHOTO_MIN, PHOTO_MAX = 480, 760
-    budget_for_photo_and_rows = row_cutoff - y0 - name_block_h - photo_overhead
-    photo_side = max(PHOTO_MIN, min(PHOTO_MAX, budget_for_photo_and_rows - rows_height))
+    # Foto: hat IMMER Vorrang vor den Detail-Zeilen — ein gut erkennbares Gesicht
+    # ist für ein Vermisstenposter wichtiger als möglichst viele Textzeilen. Das
+    # Foto ist deshalb immer mindestens quadratisch (1:1) und ausreichend groß;
+    # reicht der Platz nicht für alle Zeilen, werden zuerst die unwichtigsten
+    # Zeilen gekürzt/weggelassen — nie das Foto verkleinert.
+    PHOTO_MIN, PHOTO_MAX = 460, 700
+    photo_overhead = 26  # Abstand zwischen Foto und Name
+    budget = row_cutoff - y0 - name_block_h - photo_overhead
+    photo_side = max(PHOTO_MIN, min(PHOTO_MAX, budget - rows_height))
 
     photo = None
     if case.foto_media_id:
@@ -16422,14 +16327,10 @@ def _render_missing_child_image(case, contact_line=None):
                 photo = ImageOps.exif_transpose(Image.open(_io.BytesIO(b)).convert('RGB'))
             except Exception:
                 photo = None
-    y = y0
-    RADIUS = 28
+
     box_w = box_h = photo_side
-    box_x0 = int(PAD + (W - 2 * PAD - box_w) / 2)
-    box = (box_x0, y, box_x0 + box_w, y + box_h)
-
-    _mcf_draw_box_shadow(img, box, radius=RADIUS, offset=10, blur=16, alpha=85)
-
+    box_x0 = int((W - box_w) / 2)
+    y = y0
     if photo:
         ratio = max(box_w / photo.width, box_h / photo.height)
         photo = photo.resize((int(photo.width * ratio), int(photo.height * ratio)), Image.LANCZOS)
@@ -16437,94 +16338,64 @@ def _render_missing_child_image(case, contact_line=None):
         content = photo.crop((lft, top, lft + box_w, top + box_h))
     else:
         # Kein Foto vorhanden — statt einer leeren Fläche einen Platzhalter mit
-        # Silhouette-Icon zeigen (gleiche Box-Optik wie bei einem echten Foto),
-        # damit das Poster nicht leer/unfertig wirkt.
+        # Silhouette-Icon zeigen, damit das Poster nicht leer/unfertig wirkt.
         content = _mcf_draw_photo_placeholder(box_w, box_h)
+    img.paste(content, (box_x0, int(y)))
+    d.rectangle([box_x0, y, box_x0 + box_w, y + box_h], outline=BLACK, width=4)
 
-    # Flaches "VERMISST"-Tag VOR dem Maskieren direkt auf den Foto-/Platzhalter-
-    # Inhalt zeichnen (lokale Koordinaten, Box-Ursprung = (0,0)) — dadurch wird es
-    # zusammen mit dem Foto von der abgerundeten Maske sauber begrenzt und kann nie
-    # in den Header/Titel darüber hineinbluten.
-    _mcf_draw_flat_badge(content, 18, 18, text='VERMISST', bg=RED, fg=WHITE)
+    y += box_h + photo_overhead
 
-    mask = _mcf_rounded_mask(box_w, box_h, RADIUS)
-    img.paste(content, (box_x0, y), mask)
-    d.rounded_rectangle(box, radius=RADIUS, outline=(215, 219, 226), width=3)
-
-    y += box_h + 26
-    d.rounded_rectangle([PAD, y, W - PAD, y + 5], radius=3, fill=RED)
-    y += 34
-
-    # Name + Alter
-    name = case.display_name()
-    f_name = _mcf_font(56, bold=True)
-    d.text(((W - d.textlength(name, font=f_name)) / 2, y), name, font=f_name, fill=DARK)
-    y += 72
+    # Name + Alter/Stadt
+    d.text(((W - d.textlength(name, font=f_name)) / 2, y), name, font=f_name, fill=BLACK)
+    y += 58
+    meta_parts = []
     if case.alter is not None:
-        a = f'{case.alter} Jahre'
-        f_age = _mcf_font(34, bold=False)
-        d.text(((W - d.textlength(a, font=f_age)) / 2, y), a, font=f_age, fill=RED)
-        y += 46
-    y += 6
-    accent_w = 64
-    d.rounded_rectangle([(W - accent_w) / 2, y - 2, (W + accent_w) / 2, y + 2], radius=2, fill=RED)
-    y += 20
+        meta_parts.append(f'{case.alter} Jahre')
+    if case.stadt:
+        meta_parts.append(case.stadt)
+    if meta_parts:
+        meta = ' · '.join(meta_parts)
+        d.text(((W - d.textlength(meta, font=f_meta)) / 2, y), meta, font=f_meta, fill=BLACK)
+        y += 38
+    y += 14
 
-    # Icon-Chip-Karten (Icon-Kreis links, Label oben klein/grau, Wert darunter
-    # groß/dunkel) statt reiner Text-Zeilen mit Trennlinie — row_cutoff bleibt
-    # als letztes Sicherheitsnetz für echte Extremfälle; geprüft wird die VOLLE
-    # Höhe der Karte bevor sie gezeichnet wird, damit nie ein Wert mitten im
-    # Text vom Footer überdeckt/abgeschnitten wird — eine Karte wird entweder
-    # komplett gezeichnet oder ganz weggelassen.
-    for label, lines, kind in row_render:
-        card_h = _card_h(lines)
-        if y + card_h > row_cutoff:
+    # Fakten-Zeilen: schlichter, zentrierter Text (kein Karten-/Icon-Design) —
+    # row_cutoff bleibt als Sicherheitsnetz für echte Extremfälle; eine Zeile
+    # wird entweder komplett gezeichnet oder ganz weggelassen.
+    for lines in row_render:
+        row_h = len(lines) * LINE_H + ROW_GAP
+        if y + row_h > row_cutoff:
             break
-        card_box = (PAD, y, W - PAD, y + card_h)
-        d.rounded_rectangle(card_box, radius=16, fill=CARD_BG, outline=LINE, width=1)
-        icon_cy = y + card_h / 2
-        icon_cx = PAD + CARD_PAD_H + ICON_D / 2
-        d.ellipse([icon_cx - ICON_D / 2, icon_cy - ICON_D / 2, icon_cx + ICON_D / 2, icon_cy + ICON_D / 2], fill=RED)
-        _mcf_draw_row_icon(d, icon_cx, icon_cy, ICON_D / 2 * 0.85, kind, fg=WHITE, bg=RED)
-        text_block_h = ROW_LABEL_H + LABEL_VALUE_GAP + len(lines) * ROW_LINE_H
-        text_x = PAD + CARD_PAD_H + ICON_D + ICON_TEXT_GAP
-        text_y = icon_cy - text_block_h / 2
-        d.text((text_x, text_y), label.upper(), font=f_lbl, fill=GRAY)
-        ty = text_y + ROW_LABEL_H + LABEL_VALUE_GAP
         for ln in lines:
-            d.text((text_x, ty), ln, font=f_val, fill=DARK)
-            ty += ROW_LINE_H
-        y += card_h + CARD_GAP
+            d.text(((W - d.textlength(ln, font=f_val)) / 2, y), ln, font=f_val, fill=BLACK)
+            y += LINE_H
+        y += ROW_GAP
 
-    # Call-to-Action-Banner (flache Fläche) direkt über dem Kontakt-Balken
-    d.rectangle([0, H - FOOTER_H, W, H - FOOTER_H + cta_h], fill=RED)
-    f_cta = _mcf_font(30, bold=True)
-    cta_text = 'JEDER HINWEIS KANN HELFEN — BITTE TEILEN'
-    cta_lines = _mcf_wrap(d, cta_text, f_cta, W - 2 * PAD)
-    cy = H - FOOTER_H + (cta_h - len(cta_lines) * 38) // 2
+    # Footer: CTA-Zeile, Trennlinie, große Kontaktzeile — bewusst OHNE
+    # Abreiß-Streifen: das Poster ist für Instagram gedacht, ein physisch
+    # abreißbarer Zettel ergibt in einem digitalen Bild keinen Sinn.
+    footer_top = row_cutoff
+    f_cta = _mcf_font(22, bold=True)
+    cta_lines = _mcf_wrap(d, 'JEDER HINWEIS KANN HELFEN — BITTE TEILEN ODER ANRUFEN', f_cta, max_w)
+    cy = footer_top
     for ln in cta_lines:
-        d.text(((W - d.textlength(ln, font=f_cta)) / 2, cy), ln, font=f_cta, fill=WHITE)
-        cy += 38
+        d.text(((W - d.textlength(ln, font=f_cta)) / 2, cy), ln, font=f_cta, fill=RED)
+        cy += 28
 
-    # Kontakt-Balken unten (dunkel) — mit kleinem Branding darüber
-    d.rectangle([0, H - cb_h, W, H], fill=DARK)
-    top_pad = 16
-    if brand:
-        f_b2 = _mcf_font(20, bold=False)
-        d.text(((W - d.textlength(brand, font=f_b2)) / 2, H - cb_h + 14), brand, font=f_b2, fill=BRAND_GRAY)
-        top_pad = 44
+    rule_y = cy + 12
+    d.line([PAD, rule_y, W - PAD, rule_y], fill=BLACK, width=2)
+
     cl = contact_line or 'Hinweise an die Polizei: Notruf 110'
-    f_cl = _mcf_font(34, bold=True)
-    cll = _mcf_wrap(d, cl, f_cl, W - 2 * PAD)
-    cy = H - cb_h + top_pad + (cb_h - top_pad - len(cll) * 42) // 2
+    f_cl = _mcf_font(36, bold=True)
+    cll = _mcf_wrap(d, cl, f_cl, max_w)
+    cy = rule_y + 28
     for ln in cll:
-        d.text(((W - d.textlength(ln, font=f_cl)) / 2, cy), ln, font=f_cl, fill=WHITE)
-        cy += 42
+        d.text(((W - d.textlength(ln, font=f_cl)) / 2, cy), ln, font=f_cl, fill=BLACK)
+        cy += 44
 
     fname = f'mcf_{case.id}_{int(datetime.utcnow().timestamp())}.jpg'
     img.save(os.path.join(app.config['UPLOAD_FOLDER'], fname), format='JPEG', quality=92)
     return fname
-
 
 def _mcf_extract_number(text):
     """Findet eine deutsche Telefon-/Kontaktnummer in einem Text. None wenn keine."""
