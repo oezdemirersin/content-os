@@ -286,15 +286,33 @@
 
   /* ── Print ── */
   @media print {
+    @page { size: A4; margin: 0; }
     body { background: #fff; padding: 0; }
     .screen-controls { display: none; }
     .invoice-page {
       box-shadow: none;
-      padding: 20mm 20mm;
+      padding: 12mm 14mm;
       max-width: 100%;
+      min-height: 0;
       border-radius: 0;
     }
     .inv-table tbody tr:hover { background: transparent; }
+
+    /* Abstände kompakter, damit die Rechnung auf eine Seite passt */
+    .inv-header { margin-bottom: 20px; padding-bottom: 14px; }
+    .inv-addresses { margin-bottom: 20px; }
+    .inv-meta { margin-bottom: 18px; padding: 10px 16px; }
+    .inv-table { margin-bottom: 14px; }
+    .inv-table th { padding: 7px 12px; }
+    .inv-table td { padding: 8px 12px; }
+    .inv-totals { margin-bottom: 18px; }
+    .kleinunternehmer-notice { margin-bottom: 16px; }
+    .inv-payment { padding: 14px; margin-bottom: 18px; }
+    .inv-footer { margin-top: 20px; padding-top: 10px; }
+
+    /* Verhindert, dass Tabellenzeilen/Blöcke mitten durchgeschnitten werden,
+       falls doch mal knapp zwei Seiten nötig sind */
+    .inv-table tr, .inv-payment, .inv-footer { page-break-inside: avoid; }
   }
 </style>
 </head>
