@@ -16370,8 +16370,8 @@ def _render_missing_child_image(case, contact_line=None):
     # kein Feld mehr stillschweigend verloren, es wird höchstens gekürzt.
     # Jede Zeile wird als Icon-Chip-Karte gerendert (Icon-Kreis + Label/Wert),
     # statt als reine Text-Zeile mit Trennlinie.
-    ICON_D, CARD_PAD_V, CARD_PAD_H, ICON_TEXT_GAP = 50, 10, 18, 16
-    ROW_LABEL_H, LABEL_VALUE_GAP, ROW_LINE_H, CARD_GAP, MAX_LINES = 21, 3, 29, 10, 2
+    ICON_D, CARD_PAD_V, CARD_PAD_H, ICON_TEXT_GAP = 44, 8, 16, 14
+    ROW_LABEL_H, LABEL_VALUE_GAP, ROW_LINE_H, CARD_GAP, MAX_LINES = 19, 2, 27, 8, 2
     f_lbl = _mcf_font(20, bold=True)
     f_val = _mcf_font(27, bold=False)
     max_w = W - 2 * PAD - 2 * CARD_PAD_H - ICON_D - ICON_TEXT_GAP
@@ -16417,11 +16417,19 @@ def _render_missing_child_image(case, contact_line=None):
 
     name_block_h = 72 + (46 if case.alter is not None else 0) + 6 + 20
     row_cutoff = H - FOOTER_H - 30
-    available_after_name = row_cutoff - y0 - name_block_h
+    photo_overhead = 26 + 5 + 34  # Schatten-Puffer + Akzentstreifen + Abstand danach
 
-    # Foto (optional, Höhe passt sich an den Platzbedarf der Text-Zeilen an,
-    # damit Foto + alle Angaben zusammen immer auf das Poster passen) —
-    # abgerundete Ecken + weicher Schlagschatten für mehr Tiefe/hochwertigere Optik.
+    # Foto: hat IMMER Vorrang vor den Detail-Zeilen — ein gut erkennbares Gesicht ist
+    # für ein Vermisstenposter wichtiger als möglichst viele Textzeilen. Das Foto wird
+    # deshalb NIE zu einem dünnen, breiten Streifen zusammengequetscht (führte vorher
+    # dazu, dass vom Gesicht z.B. nur Mund/Kinn zu sehen war), sondern ist immer
+    # mindestens quadratisch (1:1) und ausreichend groß. Reicht der Platz nicht für
+    # alle Zeilen, werden zuerst die unwichtigsten Zeilen gekürzt/weggelassen — nie
+    # das Foto beschnitten.
+    PHOTO_MIN, PHOTO_MAX = 480, 760
+    budget_for_photo_and_rows = row_cutoff - y0 - name_block_h - photo_overhead
+    photo_side = max(PHOTO_MIN, min(PHOTO_MAX, budget_for_photo_and_rows - rows_height))
+
     photo = None
     if case.foto_media_id:
         b = _mcf_load_image_bytes(MediaItem.query.get(case.foto_media_id))
@@ -16432,11 +16440,9 @@ def _render_missing_child_image(case, contact_line=None):
                 photo = None
     y = y0
     RADIUS = 28
-    photo_overhead = 26 + 5 + 34  # Schatten-Puffer + Akzentstreifen + Abstand danach
-    max_box_h = available_after_name - rows_height - photo_overhead
-    box_w = W - 2 * PAD
-    box_h = max(220, min(560, max_box_h)) if photo else max(160, min(560, max_box_h))
-    box = (PAD, y, PAD + box_w, y + box_h)
+    box_w = box_h = photo_side
+    box_x0 = int(PAD + (W - 2 * PAD - box_w) / 2)
+    box = (box_x0, y, box_x0 + box_w, y + box_h)
 
     _mcf_draw_box_shadow(img, box, radius=RADIUS, offset=10, blur=16, alpha=85)
 
@@ -16451,12 +16457,16 @@ def _render_missing_child_image(case, contact_line=None):
         # damit das Poster nicht leer/unfertig wirkt.
         content = _mcf_draw_photo_placeholder(box_w, box_h)
 
-    mask = _mcf_rounded_mask(box_w, box_h, RADIUS)
-    img.paste(content, (PAD, y), mask)
-    d.rounded_rectangle(box, radius=RADIUS, outline=(215, 219, 226), width=3)
+    # Ribbon VOR dem Maskieren direkt auf den Foto-/Platzhalter-Inhalt zeichnen
+    # (lokale Koordinaten, Box-Ursprung = (0,0)) — dadurch wird es zusammen mit
+    # dem Foto von der abgerundeten Maske sauber begrenzt und kann nie in den
+    # Header/Titel darüber hineinbluten (das passierte, wenn das Ribbon direkt
+    # auf das Gesamtbild gezeichnet wurde, unabhängig von der Foto-Box-Position).
+    _mcf_draw_ribbon(content, (0, 0, box_w, box_h), text='VERMISST', color=RED, fg=WHITE)
 
-    # Diagonales "VERMISST"-Eck-Ribbon oben links auf dem Foto/Platzhalter
-    _mcf_draw_ribbon(img, box, text='VERMISST', color=RED, fg=WHITE)
+    mask = _mcf_rounded_mask(box_w, box_h, RADIUS)
+    img.paste(content, (box_x0, y), mask)
+    d.rounded_rectangle(box, radius=RADIUS, outline=(215, 219, 226), width=3)
 
     y += box_h + 26
     d.rounded_rectangle([PAD, y, W - PAD, y + 5], radius=3, fill=RED)
