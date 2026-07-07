@@ -17649,6 +17649,14 @@ def _tr_fetch_ig_posts_page(username, rapidapi_key):
     return []
 
 
+# Absolute Relevanz-Stufen für Instagram-Posts (unabhängig vom Account-Schnitt):
+# ein Post mit 150k+ Likes ist auf deutschen News-Accounts (z.B. Tagesschau)
+# IMMER ein Massenthema, selbst wenn der Account-Median so hoch liegt, dass die
+# 2×-Ratio-Schwelle ihn nicht triggern würde.
+_TR_IG_VERY_RELEVANT_LIKES = 150_000   # → "SEHR RELEVANT"
+_TR_IG_CRITICAL_LIKES      = 200_000   # → "KRITISCH RELEVANT"
+
+
 def _tr_process_account_posts(source, parsed, platform, url_fmt):
     """Gemeinsame Overperformance-Auswertung für Instagram/TikTok-Quellen:
     cached den Account-Median (TrendSource.avg_likes/avg_updated_at), berechnet
@@ -17671,9 +17679,17 @@ def _tr_process_account_posts(source, parsed, platform, url_fmt):
     count = 0
     for likes, comments, ts, caption, code in parsed:
         ratio = likes / median
-        # nur klar überdurchschnittliche UND frische Posts (max. 72h alt)
-        if ratio < 2.0 or likes < 3000:
+        # Absolute Stufen (Instagram): ab 150k Likes zählt der Post unabhängig
+        # vom Account-Schnitt, ab 200k gilt er als kritisch relevant
+        level = None
+        if platform == 'instagram' and likes >= _TR_IG_CRITICAL_LIKES:
+            level = '🔴 KRITISCH RELEVANT'
+        elif platform == 'instagram' and likes >= _TR_IG_VERY_RELEVANT_LIKES:
+            level = '🟠 SEHR RELEVANT'
+        # sonst: nur klar überdurchschnittliche Posts
+        if level is None and (ratio < 2.0 or likes < 3000):
             continue
+        # frisch muss er immer sein (max. 72h alt)
         if ts and (now_ts - ts) > 72 * 3600:
             continue
         parts = [f'{likes:,} Likes'.replace(',', '.')]
@@ -17687,6 +17703,8 @@ def _tr_process_account_posts(source, parsed, platform, url_fmt):
         headline = caption.split('\n')[0][:200] if caption else f'Post {code}'
         title = f'@{source.handle}: {headline}'
         detail = ' · '.join(parts) + f' ({source.niche})'
+        if level:
+            detail = f'{level} · {detail}'
         url = url_fmt(code) if code else None
         if _tr_add_signal(platform, title, detail, url, float(likes)):
             count += 1
@@ -17878,6 +17896,12 @@ Harte Regeln:
   Like-Geschwindigkeit pro Stunde, Upvotes, Suchvolumen) sind aussagekräftiger
   als die reine Tatsache, dass eine einzelne Quelle etwas erwähnt hat — gewichte
   sie im Score entsprechend stärker als bloße Erwähnungen ohne Zahlen dahinter.
+- Instagram-Signale mit der Markierung "SEHR RELEVANT" (150k+ Likes) sind ein
+  starker Beleg für deutschlandweite Aufmerksamkeit — das zugehörige Thema
+  gehört fast immer in die Liste (Score typischerweise 70+). Die Markierung
+  "KRITISCH RELEVANT" (200k+ Likes) ist das stärkste Einzelsignal überhaupt:
+  Thema IMMER aufnehmen und den Score sehr hoch ansetzen (typischerweise 85+),
+  auch wenn andere Quellen es (noch) nicht zeigen.
 - Begriffe zum selben Ereignis IMMER zu EINEM Thema zusammenführen
   (z.B. "Bahn", "DB", "Streik", "Zugausfall" → "Bahn-Streik"). Nie zwei Einträge
   für dasselbe Ereignis.
