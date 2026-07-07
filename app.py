@@ -28,7 +28,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     WatchlistSeite, WatchlistFollowerSnapshot, WatchlistCityMeta,
                     GrowthExperiment, GrowthVariant, GrowthParticipant, GrowthDataPoint, GrowthKnowledge,
                     KnowledgeEntry, MissingChildCase, EmergencyNumber,
-                    TrendTopic, TrendSignal)
+                    TrendTopic, TrendSignal, TrendSource)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -1835,6 +1835,25 @@ def init_db():
         except Exception as _e:
             db.session.rollback()
             app.logger.warning(f'[CityMeta Migration] {_e}')
+
+        # ── Trend Radar: einmalig trend_ig_accounts-Setting in TrendSource
+        # migrieren (ersetzt die alte Komma-Liste durch echte Quellen-Zeilen).
+        # Nutzt AppSettings/TrendSource direkt (nicht get_setting()/_TR_DEFAULT_
+        # IG_ACCOUNTS — die sind erst viel weiter unten im Modul definiert und
+        # wären an dieser Stelle im Ladeprozess noch ein NameError, siehe
+        # [[project_scheduler_loadorder]]).
+        try:
+            if TrendSource.query.count() == 0:
+                _legacy_setting = AppSettings.query.filter_by(key='trend_ig_accounts').first()
+                _legacy = (_legacy_setting.value if _legacy_setting and _legacy_setting.value else
+                          'tagesschau,zdfheute,derspiegel,sportschau,br24,hessenschau,ndr,swr3online,wdraktuell')
+                for handle in [a.strip().lstrip('@') for a in _legacy.split(',') if a.strip()]:
+                    db.session.add(TrendSource(platform='instagram', niche='News',
+                                               handle=handle, scan_interval_hours=3))
+                db.session.commit()
+        except Exception as _e:
+            db.session.rollback()
+            app.logger.warning(f'[TrendSource Migration] {_e}')
 
         # ── Changelog-Seed: initiale Einträge ────────────────────────
         try:
@@ -16046,6 +16065,51 @@ def system_status_page():
     return render_template('status.html', active_page='status')
 
 
+@app.route('/citybot-team', methods=['GET', 'POST'])
+@login_required
+def citybot_team():
+    """Holt die Team-/Aktivitätsübersicht aus dem CityBot (News-Bot), damit die
+    Mitarbeiter-Kontrolle für ALLE Systeme an einer Stelle liegt. Nur Kennzahlen —
+    die Inhalte der beiden Systeme bleiben getrennt.
+    Konfiguration (CityBot-URL + API-Key) direkt auf dieser Seite."""
+    if request.method == 'POST':
+        set_setting('citybot_base_url', (request.form.get('base_url') or '').strip().rstrip('/'))
+        set_setting('citybot_api_key', (request.form.get('api_key') or '').strip())
+        flash('CityBot-Verbindung gespeichert.', 'success')
+        return redirect(url_for('citybot_team'))
+
+    base_url = get_setting('citybot_base_url', '') or ''
+    api_key  = get_setting('citybot_api_key', '') or ''
+    days     = request.args.get('days', '7')
+    try:
+        days = max(1, min(90, int(days)))
+    except (ValueError, TypeError):
+        days = 7
+
+    data, error = None, None
+    if base_url and api_key:
+        try:
+            resp = _requests.get(
+                f'{base_url}/api/external/team-activity',
+                headers={'X-CityBot-Key': api_key},
+                params={'days': days}, timeout=12,
+            )
+            if resp.status_code == 403:
+                error = 'API-Key wird vom CityBot abgelehnt (403). Key prüfen.'
+            elif resp.status_code == 503:
+                error = 'Im CityBot ist noch kein API-Key gesetzt (Team-Tab → Key generieren).'
+            elif not resp.ok:
+                error = f'CityBot antwortete mit HTTP {resp.status_code}.'
+            else:
+                data = resp.json()
+        except Exception as e:
+            error = f'CityBot nicht erreichbar: {e}'
+
+    return render_template('citybot_team.html', active_page='citybot_team',
+                           data=data, error=error, base_url=base_url,
+                           api_key=api_key, days=days)
+
+
 # ─────────────────── HÄNGENDE POSTS ─────────────────────────────
 def _stuck_posts_data():
     """Überfällige, nicht gesendete Posts (status=scheduled, fällig, Posting an).
@@ -17390,16 +17454,13 @@ def mcf_dismiss_update(cid):
 
 _TR_PLATFORM_LABELS = {
     'google':    'Google Trends',
-    'instagram': 'Instagram News',
+    'instagram': 'Instagram',
     'tiktok':    'TikTok',
     'tv':        'TV',
     'youtube':   'YouTube',
     'wikipedia': 'Wikipedia',
     'reddit':    'Reddit',
 }
-_TR_DEFAULT_IG_ACCOUNTS = ('tagesschau,zdfheute,derspiegel,sportschau,'
-                           'br24,hessenschau,ndr,swr3online,wdraktuell')
-
 _tr_scan_status = {'running': False, 'error': None, 'started_at': None,
                    'finished_at': None, 'signals': 0, 'topics': 0, 'step': ''}
 
@@ -17588,20 +17649,67 @@ def _tr_fetch_ig_posts_page(username, rapidapi_key):
     return []
 
 
+def _tr_process_account_posts(source, parsed, platform, url_fmt):
+    """Gemeinsame Overperformance-Auswertung für Instagram/TikTok-Quellen:
+    cached den Account-Median (TrendSource.avg_likes/avg_updated_at), berechnet
+    neben dem reinen Verhältnis auch die Like-Geschwindigkeit pro Stunde (ein
+    frischer Post mit hoher Rate ist aussagekräftiger als nur "viele Likes
+    insgesamt") und erzeugt daraus TrendSignals. `parsed` = Liste von
+    (likes, comments, ts_oder_None, caption, code). `url_fmt(code)` baut die
+    Post-URL für die jeweilige Plattform."""
+    now_ts = datetime.utcnow().timestamp()
+    source.last_scanned_at = datetime.utcnow()
+    likes_list = [p[0] for p in parsed]
+    if len(likes_list) < 6:
+        return 0
+    sorted_likes = sorted(likes_list)
+    median = sorted_likes[len(sorted_likes) // 2]
+    if median <= 0:
+        return 0
+    source.avg_likes = float(median)
+    source.avg_updated_at = datetime.utcnow()
+    count = 0
+    for likes, comments, ts, caption, code in parsed:
+        ratio = likes / median
+        # nur klar überdurchschnittliche UND frische Posts (max. 72h alt)
+        if ratio < 2.0 or likes < 3000:
+            continue
+        if ts and (now_ts - ts) > 72 * 3600:
+            continue
+        parts = [f'{likes:,} Likes'.replace(',', '.')]
+        if comments:
+            parts.append(f'{comments:,} Kommentare'.replace(',', '.'))
+        if ts:
+            hours_since = max((now_ts - ts) / 3600, 0.5)
+            velocity = likes / hours_since
+            parts.append(f'{velocity:,.0f}/Std. (seit {hours_since:.0f} Std.)'.replace(',', '.'))
+        parts.append(f'{ratio:.1f}× über Account-Schnitt'.replace(',', '.'))
+        headline = caption.split('\n')[0][:200] if caption else f'Post {code}'
+        title = f'@{source.handle}: {headline}'
+        detail = ' · '.join(parts) + f' ({source.niche})'
+        url = url_fmt(code) if code else None
+        if _tr_add_signal(platform, title, detail, url, float(likes)):
+            count += 1
+    return count
+
+
 def _tr_fetch_instagram_news():
-    """Nur Posts deutlich ÜBER der Durchschnitts-Performance des Accounts zählen."""
+    """Nur Posts deutlich ÜBER der Durchschnitts-Performance des Accounts
+    zählen. Läuft über alle aktiven Instagram-TrendSources und respektiert je
+    Quelle ihr eigenes Scan-Intervall (scan_interval_hours) — Nischen, die
+    seltener geprüft werden müssen (z.B. Memes), sparen dadurch API-Calls,
+    ohne dass zeitkritische News-Accounts seltener gescanned werden."""
     rapidapi_key = get_setting('rapidapi_key')
     if not rapidapi_key:
         return 0
-    accounts = [a.strip().lstrip('@') for a in
-                (get_setting('trend_ig_accounts') or _TR_DEFAULT_IG_ACCOUNTS).split(',')
-                if a.strip()]
+    now = datetime.utcnow()
+    sources = TrendSource.query.filter_by(platform='instagram', active=True).all()
+    due = [s for s in sources if not s.last_scanned_at
+           or (now - s.last_scanned_at).total_seconds() >= s.scan_interval_hours * 3600]
     count = 0
-    now_ts = datetime.utcnow().timestamp()
-    for username in accounts[:12]:
+    for source in due[:20]:
         try:
-            items = _tr_fetch_ig_posts_page(username, rapidapi_key)
-            likes_list = []
+            items = _tr_fetch_ig_posts_page(source.handle, rapidapi_key)
             parsed = []
             for item in items:
                 raw_likes = (item.get('likeCount') or item.get('like_count') or
@@ -17628,30 +17736,104 @@ def _tr_fetch_instagram_news():
                     caption = caption.get('text') or ''
                 code = str(item.get('shortCode') or item.get('code') or
                            item.get('shortcode') or item.get('id') or '')
-                likes_list.append(likes)
                 parsed.append((likes, comments, ts, caption.strip(), code))
-            if len(likes_list) < 6:
-                continue
-            sorted_likes = sorted(likes_list)
-            median = sorted_likes[len(sorted_likes) // 2]
-            if median <= 0:
-                continue
-            for likes, comments, ts, caption, code in parsed:
-                ratio = likes / median
-                # nur klar überdurchschnittliche UND frische Posts (max. 72h alt)
-                if ratio < 2.0 or likes < 3000:
-                    continue
-                if ts and (now_ts - ts) > 72 * 3600:
-                    continue
-                headline = caption.split('\n')[0][:200] if caption else f'Post {code}'
-                title = f'@{username}: {headline}'
-                detail = (f'{likes:,} Likes · {comments:,} Kommentare · '
-                          f'{ratio:.1f}× über Account-Schnitt').replace(',', '.')
-                url = f'https://www.instagram.com/p/{code}/' if code else None
-                if _tr_add_signal('instagram', title, detail, url, float(likes)):
-                    count += 1
+            count += _tr_process_account_posts(
+                source, parsed, 'instagram',
+                lambda code: f'https://www.instagram.com/p/{code}/')
+            db.session.commit()
         except Exception as e:
-            app.logger.warning('Trend Radar IG @%s: %s', username, e)
+            db.session.rollback()
+            app.logger.warning('Trend Radar IG @%s: %s', source.handle, e)
+    return count
+
+
+# ── Collector 6: TikTok-Overperformance (RapidAPI) ───────────────────────────
+def _tr_fetch_tiktok_posts_page(username, rapidapi_key):
+    """Erste Posts-Seite eines TikTok-Accounts — mehrere Kandidaten-Hosts nach
+    dem gleichen Fallback-Muster wie bei Instagram. ACHTUNG: ungetestet, da
+    beim Aufbau keine echte TikTok-RapidAPI-Subscription verfügbar war —
+    Host/Feld-Namen nach dem ersten echten Scan ggf. nachjustieren."""
+    import requests as req_lib
+    candidates = [
+        ('tiktok-scraper7.p.rapidapi.com',
+         'https://tiktok-scraper7.p.rapidapi.com/user/posts',
+         {'unique_id': f'@{username}', 'count': '30', 'cursor': '0'}),
+        ('tiktok-video-no-watermark2.p.rapidapi.com',
+         'https://tiktok-video-no-watermark2.p.rapidapi.com/user/posts',
+         {'unique_id': f'@{username}', 'count': '30', 'cursor': '0'}),
+        ('tokapi-mobile-version.p.rapidapi.com',
+         'https://tokapi-mobile-version.p.rapidapi.com/v1/post/user',
+         {'username': username, 'count': '30'}),
+    ]
+    for host, url, params in candidates:
+        try:
+            resp = req_lib.get(url, params=params, timeout=20,
+                               headers={'x-rapidapi-key': rapidapi_key,
+                                        'x-rapidapi-host': host})
+            if resp.status_code != 200:
+                continue
+            raw = resp.json()
+            data_block = raw.get('data') or {}
+            if isinstance(data_block, list) and data_block:
+                return data_block
+            items = (data_block.get('videos') or data_block.get('items')
+                     or data_block.get('posts') or raw.get('videos')
+                     or raw.get('items') or raw.get('posts') or [])
+            if items:
+                return items
+        except Exception:
+            continue
+    return []
+
+
+def _tr_fetch_tiktok():
+    """TikTok-Overperformance analog zu Instagram (_tr_process_account_posts
+    wird geteilt) — läuft über aktive TikTok-TrendSources, respektiert je
+    Quelle ihr Scan-Intervall."""
+    rapidapi_key = get_setting('rapidapi_key')
+    if not rapidapi_key:
+        return 0
+    now = datetime.utcnow()
+    sources = TrendSource.query.filter_by(platform='tiktok', active=True).all()
+    due = [s for s in sources if not s.last_scanned_at
+           or (now - s.last_scanned_at).total_seconds() >= s.scan_interval_hours * 3600]
+    count = 0
+    for source in due[:20]:
+        try:
+            items = _tr_fetch_tiktok_posts_page(source.handle, rapidapi_key)
+            parsed = []
+            for item in items:
+                stats = item.get('stats') or {}
+                raw_likes = (item.get('digg_count') or item.get('diggCount') or
+                             item.get('like_count') or item.get('likeCount') or
+                             stats.get('diggCount') or stats.get('digg_count'))
+                raw_comments = (item.get('comment_count') or item.get('commentCount') or
+                                stats.get('commentCount') or stats.get('comment_count'))
+                try:
+                    likes = int(raw_likes)
+                except Exception:
+                    continue
+                try:
+                    comments = int(raw_comments)
+                except Exception:
+                    comments = 0
+                ts = (item.get('create_time') or item.get('createTime'))
+                try:
+                    ts = float(ts)
+                except Exception:
+                    ts = None
+                caption = item.get('desc') or item.get('title') or item.get('description') or ''
+                if isinstance(caption, dict):
+                    caption = caption.get('text') or ''
+                code = str(item.get('video_id') or item.get('aweme_id') or item.get('id') or '')
+                parsed.append((likes, comments, ts, str(caption).strip(), code))
+            count += _tr_process_account_posts(
+                source, parsed, 'tiktok',
+                lambda code, u=source.handle: f'https://www.tiktok.com/@{u}/video/{code}')
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.warning('Trend Radar TikTok @%s: %s', source.handle, e)
     return count
 
 
@@ -17663,6 +17845,7 @@ def _tr_collect_signals():
         ('Reddit', _tr_fetch_reddit),
         ('YouTube', _tr_fetch_youtube),
         ('Instagram', _tr_fetch_instagram_news),
+        ('TikTok', _tr_fetch_tiktok),
     ]
     total = 0
     for name, fn in collectors:
@@ -17686,15 +17869,26 @@ Harte Regeln:
 - Nur Themen mit breiter, deutschlandweiter Aufmerksamkeit (Score >= 55). Nischenthemen,
   Lokalnachrichten, Evergreen-Wikipedia-Artikel (Feiertage, Serien-Dauerbrenner,
   Promi-Biografien ohne aktuellen Anlass) konsequent weglassen.
+- Ein EINZELNES Wikipedia-Signal OHNE Bestätigung durch mindestens eine andere
+  Quelle (Social-Media-Overperformance, Reddit, Google Trends, YouTube) reicht
+  NICHT für ein Thema. Wikipedia-Ausreißer entstehen oft durch Zufall, Trivia,
+  Kreuzworträtsel-Fragen oder TV-Wiederholungen, ohne dass es ein echtes,
+  breites Gesprächsthema ist — im Zweifel weglassen statt raten.
+- Signale mit konkreten Kennzahlen (Like-Verhältnis zum Account-Schnitt,
+  Like-Geschwindigkeit pro Stunde, Upvotes, Suchvolumen) sind aussagekräftiger
+  als die reine Tatsache, dass eine einzelne Quelle etwas erwähnt hat — gewichte
+  sie im Score entsprechend stärker als bloße Erwähnungen ohne Zahlen dahinter.
 - Begriffe zum selben Ereignis IMMER zu EINEM Thema zusammenführen
   (z.B. "Bahn", "DB", "Streik", "Zugausfall" → "Bahn-Streik"). Nie zwei Einträge
   für dasselbe Ereignis.
 - Score 0-100 = geschätzter Anteil der Bevölkerung, der das Thema mitbekommen hat,
   gestützt auf Stärke und ANZAHL unabhängiger Quellen. Mehrere Plattformen
   gleichzeitig = stärkstes Indiz.
-- platforms nur nennen, wenn Signale es belegen. "tiktok" und "tv" darfst du
-  zusätzlich per Websuche prüfen (max. 2 Suchen, z.B. TV-Quoten gestern oder ob ein
-  Thema auf TikTok viral ist) — nur setzen, wenn du es wirklich bestätigen kannst.
+- platforms nur nennen, wenn Signale es belegen. Instagram/TikTok-Signale kommen
+  jetzt direkt aus echten Account-Overperformance-Daten (inkl. Meme-Nischen,
+  nicht nur News) — nutze sie wie jedes andere Signal. "tv" darfst du zusätzlich
+  per Websuche prüfen (max. 2 Suchen, z.B. TV-Quoten gestern) — nur setzen, wenn
+  du es wirklich bestätigen kannst.
 - Wenn ein existierendes Thema (existing_id) dasselbe Ereignis beschreibt, dieses
   weiterführen statt ein neues anzulegen.
 
@@ -17952,18 +18146,77 @@ def trend_radar_topic_delete(tid):
 def trend_radar_settings():
     if request.method == 'GET':
         return jsonify({
-            'ig_accounts': get_setting('trend_ig_accounts') or _TR_DEFAULT_IG_ACCOUNTS,
             'youtube_key_set': bool(get_setting('youtube_api_key')),
             'auto': get_setting('trend_radar_auto', '1') != '0',
         })
     d = request.get_json() or {}
-    if 'ig_accounts' in d:
-        set_setting('trend_ig_accounts', (d['ig_accounts'] or '').strip())
     if 'youtube_api_key' in d and (d['youtube_api_key'] or '').strip():
         set_setting('youtube_api_key', d['youtube_api_key'].strip())
     if 'auto' in d:
         set_setting('trend_radar_auto', '1' if d['auto'] else '0')
     return jsonify({'ok': True})
+
+
+def _tr_source_dict(s):
+    return {
+        'id': s.id, 'platform': s.platform, 'niche': s.niche, 'handle': s.handle,
+        'active': s.active, 'scan_interval_hours': s.scan_interval_hours,
+        'avg_likes': s.avg_likes,
+        'avg_updated_rel': _tr_rel_time(s.avg_updated_at) if s.avg_updated_at else '',
+        'last_scanned_rel': _tr_rel_time(s.last_scanned_at) if s.last_scanned_at else '',
+    }
+
+
+@app.route('/api/trend-radar/sources', methods=['GET', 'POST'])
+@login_required
+def trend_radar_sources():
+    """Quellen-Verwaltung: mehrere Nischen (News/Memes/eigene) statt einer
+    einzelnen Komma-Liste — ersetzt das frühere Setting trend_ig_accounts."""
+    if request.method == 'GET':
+        sources = TrendSource.query.order_by(
+            TrendSource.niche, TrendSource.platform, TrendSource.handle).all()
+        return jsonify({'sources': [_tr_source_dict(s) for s in sources]})
+    d = request.get_json() or {}
+    handle = (d.get('handle') or '').strip().lstrip('@')
+    platform = (d.get('platform') or '').strip().lower()
+    if not handle or platform not in ('instagram', 'tiktok'):
+        return jsonify({'ok': False, 'error': 'handle und platform (instagram/tiktok) erforderlich'}), 400
+    niche = (d.get('niche') or 'News').strip() or 'News'
+    try:
+        interval = max(1, int(d.get('scan_interval_hours') or (3 if niche.lower() == 'news' else 12)))
+    except Exception:
+        interval = 12
+    src = TrendSource(platform=platform, niche=niche, handle=handle,
+                      scan_interval_hours=interval, active=True)
+    db.session.add(src)
+    db.session.commit()
+    return jsonify({'ok': True, 'source': _tr_source_dict(src)})
+
+
+@app.route('/api/trend-radar/sources/<int:sid>', methods=['PATCH', 'DELETE'])
+@login_required
+def trend_radar_source_edit(sid):
+    src = TrendSource.query.get_or_404(sid)
+    if request.method == 'DELETE':
+        db.session.delete(src)
+        db.session.commit()
+        return jsonify({'ok': True})
+    d = request.get_json() or {}
+    if 'handle' in d and (d['handle'] or '').strip():
+        src.handle = d['handle'].strip().lstrip('@')
+    if 'niche' in d and (d['niche'] or '').strip():
+        src.niche = d['niche'].strip()
+    if 'platform' in d and d['platform'] in ('instagram', 'tiktok'):
+        src.platform = d['platform']
+    if 'active' in d:
+        src.active = bool(d['active'])
+    if 'scan_interval_hours' in d:
+        try:
+            src.scan_interval_hours = max(1, int(d['scan_interval_hours']))
+        except Exception:
+            pass
+    db.session.commit()
+    return jsonify({'ok': True, 'source': _tr_source_dict(src)})
 
 
 if __name__ == '__main__':

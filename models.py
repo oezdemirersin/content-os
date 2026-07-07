@@ -1191,6 +1191,24 @@ class TrendSignal(db.Model):
     detected_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)  # UTC
 
 
+class TrendSource(db.Model):
+    """Trend Radar — konfigurierte Quelle (Social-Media-Account) für die
+    Overperformance-Erkennung, gruppiert nach frei benennbarer Nische
+    (z.B. "News", "Memes"). Ersetzt die frühere einzelne Komma-Liste
+    (Setting trend_ig_accounts)."""
+    __tablename__ = 'trend_source'
+    id                  = db.Column(db.Integer, primary_key=True)
+    platform            = db.Column(db.String(20), nullable=False)  # instagram / tiktok
+    niche               = db.Column(db.String(60), nullable=False, default='News')
+    handle              = db.Column(db.String(120), nullable=False)  # ohne @
+    active              = db.Column(db.Boolean, default=True)
+    scan_interval_hours = db.Column(db.Integer, default=3)  # News=3, Memes/TikTok default 12
+    avg_likes           = db.Column(db.Float)               # gecachter Median aus letztem Scan
+    avg_updated_at      = db.Column(db.DateTime)
+    last_scanned_at     = db.Column(db.DateTime, index=True)
+    created_at          = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class EmergencyNumber(db.Model):
     """Örtliche Polizei-/Kontaktnummer pro Stadt (optional Stadtteil) für die
     Missing-Children-Factory. Wird über Zeit befüllt, NIE geraten. 110 kommt

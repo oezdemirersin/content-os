@@ -179,13 +179,70 @@
       </div>
       <div style="padding:18px 22px;display:flex;flex-direction:column;gap:16px">
         <div>
-          <label class="form-label">Instagram-News-Accounts (kommagetrennt)</label>
-          <textarea class="input-field" rows="3" x-model="settings.ig_accounts"
-                    placeholder="tagesschau, zdfheute, derspiegel, …"></textarea>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">
+          <label class="form-label">Quellen (Instagram/TikTok, nach Nische gruppiert)</label>
+          <div style="font-size:11px;color:var(--muted);margin:2px 0 8px">
             {% if rapidapi_ready %}Nur Posts deutlich über dem Account-Schnitt zählen als Signal.
-            {% else %}⚠️ Kein RapidAPI-Key hinterlegt — Instagram-Signale sind deaktiviert
+            Nische frei benennbar (z.B. "News", "Memes") — eigene Meme-Seiten funktionieren genauso
+            wie News-Accounts. Änderungen hier werden sofort gespeichert.
+            {% else %}⚠️ Kein RapidAPI-Key hinterlegt — Instagram/TikTok-Signale sind deaktiviert
             (Einstellungen → Integrationen).{% endif %}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;padding-right:2px">
+            <template x-for="s in sources" :key="s.id">
+              <div style="background:var(--surface2);border-radius:10px;padding:8px 10px">
+                <div style="display:flex;gap:6px;align-items:center">
+                  <select class="input-field" style="width:88px;flex-shrink:0;font-size:12px;padding:6px 8px"
+                          x-model="s.platform" @change="updateSource(s)">
+                    <option value="instagram">Instagram</option>
+                    <option value="tiktok">TikTok</option>
+                  </select>
+                  <input class="input-field" style="width:84px;flex-shrink:0;font-size:12px;padding:6px 8px"
+                         x-model="s.niche" @change="updateSource(s)" placeholder="Nische" list="tr-niches">
+                  <input class="input-field" style="flex:1;min-width:0;font-size:12px;padding:6px 8px"
+                         x-model="s.handle" @change="updateSource(s)" placeholder="@handle">
+                  <input type="number" min="1" class="input-field"
+                         style="width:52px;flex-shrink:0;font-size:12px;padding:6px 4px"
+                         x-model.number="s.scan_interval_hours" @change="updateSource(s)"
+                         title="Scan-Intervall in Stunden">
+                  <label style="display:flex;align-items:center;flex-shrink:0" title="Aktiv">
+                    <input type="checkbox" x-model="s.active" @change="updateSource(s)"
+                           style="accent-color:var(--accent);width:15px;height:15px">
+                  </label>
+                  <button @click="removeSource(s.id)" title="Entfernen"
+                          style="background:none;border:none;color:var(--muted);cursor:pointer;
+                                 padding:2px;flex-shrink:0">
+                    <i class="fa-solid fa-xmark"></i>
+                  </button>
+                </div>
+                <div style="font-size:10px;color:var(--muted);margin-top:4px"
+                     x-show="s.avg_likes || s.last_scanned_rel">
+                  <span x-show="s.avg_likes">Ø <span x-text="Math.round(s.avg_likes).toLocaleString('de-DE')"></span> Likes</span>
+                  <span x-show="s.last_scanned_rel"> · zuletzt gescanned <span x-text="s.last_scanned_rel"></span></span>
+                </div>
+              </div>
+            </template>
+            <div x-show="!sources.length" style="font-size:12px;color:var(--muted);padding:8px 0">
+              Noch keine Quellen konfiguriert.
+            </div>
+          </div>
+          <datalist id="tr-niches">
+            <template x-for="n in nicheOptions" :key="n"><option :value="n"></option></template>
+          </datalist>
+          <div style="display:flex;gap:6px;margin-top:10px">
+            <input class="input-field" style="flex:1;min-width:0;font-size:12px" x-model="newSource.handle"
+                   placeholder="@handle" @keydown.enter="addSource()">
+            <input class="input-field" style="width:90px;font-size:12px" x-model="newSource.niche"
+                   placeholder="Nische" list="tr-niches">
+            <select class="input-field" style="width:100px;font-size:12px" x-model="newSource.platform">
+              <option value="instagram">Instagram</option>
+              <option value="tiktok">TikTok</option>
+            </select>
+            <button class="btn btn-ghost" style="font-size:12px;padding:7px 12px" @click="addSource()">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:4px">
+            Scan-Intervall in Std. — News z.B. 3, Memes/TikTok seltener (z.B. 12) spart API-Calls.
           </div>
         </div>
         <div>
@@ -223,7 +280,7 @@ function trendRadar() {
     ],
     platformOrder: [
       {key: 'google',    label: 'Google Trends'},
-      {key: 'instagram', label: 'Instagram News'},
+      {key: 'instagram', label: 'Instagram'},
       {key: 'tiktok',    label: 'TikTok'},
       {key: 'tv',        label: 'TV'},
       {key: 'youtube',   label: 'YouTube'},
@@ -233,8 +290,14 @@ function trendRadar() {
     topics: [], loading: true, scanning: false, scanStep: '',
     signalCount: 0, lastScanRel: '',
     settingsOpen: false,
-    settings: {ig_accounts: '', youtube_api_key: '', auto: true},
+    settings: {youtube_api_key: '', auto: true},
+    sources: [],
+    newSource: {handle: '', niche: 'News', platform: 'instagram'},
     _pollTimer: null,
+
+    get nicheOptions() {
+      return [...new Set(this.sources.map(s => s.niche).filter(Boolean))];
+    },
 
     async init() {
       await this.load();
@@ -287,9 +350,9 @@ function trendRadar() {
 
     async openSettings() {
       const d = await fetch('/api/trend-radar/settings').then(r => r.json());
-      this.settings.ig_accounts = d.ig_accounts || '';
       this.settings.auto = !!d.auto;
       this.settings.youtube_api_key = '';
+      await this.loadSources();
       this.settingsOpen = true;
     },
 
@@ -300,6 +363,37 @@ function trendRadar() {
       });
       this.settingsOpen = false;
       showToast('Trend-Radar-Einstellungen gespeichert', 'success');
+    },
+
+    async loadSources() {
+      const d = await fetch('/api/trend-radar/sources').then(r => r.json());
+      this.sources = d.sources || [];
+    },
+
+    async addSource() {
+      const handle = (this.newSource.handle || '').trim();
+      if (!handle) return;
+      const r = await fetch('/api/trend-radar/sources', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(this.newSource),
+      });
+      const d = await r.json();
+      if (d.ok === false) { showToast(d.error || 'Quelle konnte nicht angelegt werden', 'error'); return; }
+      this.sources.push(d.source);
+      this.newSource = {handle: '', niche: this.newSource.niche, platform: this.newSource.platform};
+    },
+
+    async updateSource(s) {
+      await fetch('/api/trend-radar/sources/' + s.id, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({niche: s.niche, handle: s.handle, platform: s.platform,
+                              active: s.active, scan_interval_hours: s.scan_interval_hours}),
+      });
+    },
+
+    async removeSource(id) {
+      await fetch('/api/trend-radar/sources/' + id, {method: 'DELETE'});
+      this.sources = this.sources.filter(s => s.id !== id);
     },
   };
 }
