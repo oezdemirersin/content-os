@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}CityBot Team — Content OS{% endblock %}
+{% block page_title %}CITYBOT TEAM{% endblock %}
+
+{% block content %}
+<div style="max-width:1000px">
+
+  <p style="font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.6">
+    Mitarbeiter-Aktivität aus dem <strong style="color:var(--text)">CityBot</strong> (News-Bot) — damit du die
+    Kontrolle über alle Systeme an einer Stelle hast. Es werden nur Kennzahlen übertragen, keine Inhalte.
+  </p>
+
+  {% if error %}
+    <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:14px 18px;margin-bottom:18px;font-size:13px;color:#ef4444">
+      <i class="fa-solid fa-triangle-exclamation"></i> {{ error }}
+    </div>
+  {% endif %}
+
+  {% if data and data.workers %}
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 18px">
+        <div style="font-size:11px;color:var(--muted)">GEPOSTET ({{ data.days }} TAGE)</div>
+        <div style="font-size:24px;font-weight:800;color:var(--accent,#6366f1)">{{ data.total_posted }}</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 18px">
+        <div style="font-size:11px;color:var(--muted)">NEUE POSTS</div>
+        <div style="font-size:24px;font-weight:800">{{ data.total_new }}</div>
+      </div>
+      <form method="get" style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <select name="days" onchange="this.form.submit()" class="btn btn-ghost" style="font-size:12px;padding:7px 12px">
+          <option value="7"  {% if days==7 %}selected{% endif %}>Letzte 7 Tage</option>
+          <option value="14" {% if days==14 %}selected{% endif %}>Letzte 14 Tage</option>
+          <option value="30" {% if days==30 %}selected{% endif %}>Letzte 30 Tage</option>
+        </select>
+      </form>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px">
+      {% for w in data.workers %}
+      <div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid {{ '#22c55e' if w.active else 'var(--muted)' }};border-radius:10px;padding:14px 16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <span style="font-weight:700;font-size:14px">{{ '🟢' if w.active else '🔴' }} {{ w.username }}</span>
+          <span style="font-size:20px;font-weight:800;color:{{ '#22c55e' if w.active else 'var(--muted)' }}">{{ w.posted_count }}</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
+          {{ w.assigned_cities|join(', ') if w.assigned_cities else 'Alle Städte' }}
+        </div>
+        <div style="font-size:11px;display:flex;gap:10px;flex-wrap:wrap">
+          <span title="Median Reaktionszeit">⚡
+            {% if w.median_reaction_min is not none %}
+              {% if w.median_reaction_min < 90 %}{{ w.median_reaction_min }} Min{% else %}{{ (w.median_reaction_min/60)|round(1) }} h{% endif %}
+            {% else %}—{% endif %}
+          </span>
+          <span style="color:{{ '#f59e0b' if w.open_count else '#22c55e' }}">{{ '🔴 '+(w.open_count|string)+' offen' if w.open_count else '✓ nichts offen' }}</span>
+          {% if w.stale_count %}<span style="color:#ef4444" title="an Telegram gesendet, nicht gepostet">🕒 {{ w.stale_count }} liegen</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-top:14px">
+      Stand: {{ data.generated_at }} · Quelle: CityBot
+    </p>
+  {% elif not error %}
+    <p style="font-size:13px;color:var(--muted);margin-bottom:20px">Noch keine Daten — Verbindung unten konfigurieren.</p>
+  {% endif %}
+
+  <!-- Konfiguration -->
+  <details style="margin-top:26px" {% if not (base_url and api_key) %}open{% endif %}>
+    <summary style="cursor:pointer;font-weight:700;font-size:13px;color:var(--muted)">⚙️ CityBot-Verbindung konfigurieren</summary>
+    <form method="post" style="margin-top:12px;max-width:560px;display:grid;gap:10px">
+      <label style="font-size:12px;color:var(--muted)">CityBot Basis-URL (z.B. https://citybot.onrender.com)</label>
+      <input name="base_url" value="{{ base_url }}" placeholder="https://…" required
+             style="padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-family:monospace">
+      <label style="font-size:12px;color:var(--muted)">API-Key (im CityBot: Team-Tab → Key generieren)</label>
+      <input name="api_key" value="{{ api_key }}" placeholder="X-CityBot-Key" required
+             style="padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-family:monospace">
+      <button type="submit" class="btn btn-primary" style="justify-self:start;font-size:13px;padding:8px 18px">Speichern</button>
+    </form>
+  </details>
+</div>
+{% endblock %}
