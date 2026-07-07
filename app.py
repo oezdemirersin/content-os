@@ -27,7 +27,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf,
                     WatchlistSeite, WatchlistFollowerSnapshot, WatchlistCityMeta,
                     GrowthExperiment, GrowthVariant, GrowthParticipant, GrowthDataPoint, GrowthKnowledge,
-                    KnowledgeEntry, MissingChildCase, EmergencyNumber)
+                    KnowledgeEntry, MissingChildCase, EmergencyNumber,
+                    TrendTopic, TrendSignal)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -154,9 +155,11 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     # idle Connection stale schließt — das fängt pool_recycle=300 allein NICHT ab.
     'pool_pre_ping': True,
     'pool_recycle': 300,
-    'pool_size': 5,
-    'max_overflow': 10,
-    'connect_args': {'sslmode': 'require'} if _db_url.startswith('postgresql://') else {},
+    # pool_size/max_overflow nur für Postgres — SQLite (StaticPool, z.B. in-memory
+    # bei Tests) akzeptiert diese Argumente nicht
+    **({'pool_size': 5, 'max_overflow': 10,
+        'connect_args': {'sslmode': 'require'}}
+       if _db_url.startswith('postgresql://') else {}),
 }
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
@@ -3132,6 +3135,10 @@ def schedule_automations():
             # Smart-Refill alle 30 Minuten
             if tick % 30 == 0:
                 threading.Thread(target=_smart_refill_check, daemon=True).start()
+            # Trend Radar: alle 3 Stunden scannen (Start bei tick 3, nie tick 0 —
+            # get_setting existiert beim Thread-Start noch nicht, s. Webhook-Kommentar)
+            if tick >= 3 and (tick - 3) % 180 == 0:
+                threading.Thread(target=_tr_auto_scan, daemon=True).start()
             # Content-Serien stündlich planen
             if tick % 60 == 0:
                 threading.Thread(target=_process_series, daemon=True).start()
@@ -17372,6 +17379,590 @@ def mcf_dismiss_update(cid):
     c = MissingChildCase.query.get_or_404(cid)
     c.update_detected = False
     db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TREND RADAR — Welche Themen hat heute wahrscheinlich der größte Teil
+# Deutschlands mitbekommen? Rohsignale sammeln → KI-Clustering → Score.
+# Qualität vor Quantität: lieber 3 echte Großthemen als 100 News-Schnipsel.
+# ══════════════════════════════════════════════════════════════════════════════
+
+_TR_PLATFORM_LABELS = {
+    'google':    'Google Trends',
+    'instagram': 'Instagram News',
+    'tiktok':    'TikTok',
+    'tv':        'TV',
+    'youtube':   'YouTube',
+    'wikipedia': 'Wikipedia',
+    'reddit':    'Reddit',
+}
+_TR_DEFAULT_IG_ACCOUNTS = ('tagesschau,zdfheute,derspiegel,sportschau,'
+                           'br24,hessenschau,ndr,swr3online,wdraktuell')
+
+_tr_scan_status = {'running': False, 'error': None, 'started_at': None,
+                   'finished_at': None, 'signals': 0, 'topics': 0, 'step': ''}
+
+
+def _tr_add_signal(source, title, detail=None, url=None, metric=None):
+    """Signal speichern; Duplikate (gleiche Quelle+Titel innerhalb 20h) nur aktualisieren."""
+    title = (title or '').strip()
+    if not title:
+        return None
+    dedup = f'{source}:{title.lower()}'[:400]
+    cutoff = datetime.utcnow() - timedelta(hours=20)
+    existing = TrendSignal.query.filter(
+        TrendSignal.dedup_key == dedup,
+        TrendSignal.detected_at >= cutoff).first()
+    if existing:
+        if metric is not None:
+            existing.metric = metric
+        if detail:
+            existing.detail = detail
+        return None
+    sig = TrendSignal(source=source, title=title[:400], detail=detail, url=url,
+                      metric=metric, dedup_key=dedup)
+    db.session.add(sig)
+    return sig
+
+
+# ── Collector 1: Google Trends (Trending Searches DE, RSS) ────────────────────
+def _tr_fetch_google_trends():
+    import urllib.request
+    import xml.etree.ElementTree as ET
+    count = 0
+    req = urllib.request.Request('https://trends.google.com/trending/rss?geo=DE',
+                                 headers={'User-Agent': 'Mozilla/5.0 (ContentOS TrendRadar)'})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        root = ET.fromstring(resp.read())
+    for item in root.findall('.//item'):
+        title = (item.findtext('title') or '').strip()
+        if not title:
+            continue
+        traffic, news_title, news_url = None, None, None
+        for child in item:
+            tag = child.tag.split('}')[-1]
+            if tag == 'approx_traffic':
+                traffic = (child.text or '').strip()
+            elif tag == 'news_item' and news_title is None:
+                for sub in child:
+                    stag = sub.tag.split('}')[-1]
+                    if stag == 'news_item_title':
+                        news_title = (sub.text or '').strip()
+                    elif stag == 'news_item_url':
+                        news_url = (sub.text or '').strip()
+        detail = f'~{traffic} Suchanfragen' if traffic else 'Trending Search DE'
+        if news_title:
+            detail += f' · News: {news_title[:120]}'
+        # approx_traffic wie "500+" / "20.000+" → Zahl für metric
+        metric = None
+        if traffic:
+            try:
+                metric = float(traffic.replace('+', '').replace('.', '').replace(',', ''))
+            except Exception:
+                metric = None
+        if _tr_add_signal('google_trends', title, detail, news_url, metric):
+            count += 1
+    return count
+
+
+# ── Collector 2: Wikipedia Top-Pageviews (de) ────────────────────────────────
+def _tr_fetch_wikipedia():
+    import requests as req_lib
+    count = 0
+    # Gestern probieren; Wikimedia lädt die Daten teils erst spät → Fallback vorgestern
+    r = None
+    for days_back in (1, 2):
+        day = datetime.utcnow() - timedelta(days=days_back)
+        url = ('https://wikimedia.org/api/rest_v1/metrics/pageviews/top/'
+               f'de.wikipedia/all-access/{day.year}/{day.month:02d}/{day.day:02d}')
+        r = req_lib.get(url, headers={'User-Agent': 'ContentOS-TrendRadar/1.0'}, timeout=15)
+        if r.status_code == 200:
+            break
+    if r is None or r.status_code != 200:
+        return 0
+    articles = (r.json().get('items') or [{}])[0].get('articles') or []
+    skip_prefixes = ('Wikipedia:', 'Spezial:', 'Datei:', 'Hilfe:', 'Portal:',
+                     'Kategorie:', 'Vorlage:', 'Benutzer:', 'Wikipedia_')
+    taken = 0
+    for a in articles:
+        name = a.get('article') or ''
+        if (not name or name.startswith(skip_prefixes) or name == 'Hauptseite'
+                or name == 'wiki.phtml' or '.php' in name):
+            continue
+        views = int(a.get('views') or 0)
+        if views < 30000:      # unter ~30k Aufrufen/Tag kein Massenthema
+            continue
+        title = name.replace('_', ' ')
+        detail = f'{views:,} Aufrufe gestern (de.wikipedia)'.replace(',', '.')
+        wp_url = f'https://de.wikipedia.org/wiki/{name}'
+        if _tr_add_signal('wikipedia', title, detail, wp_url, float(views)):
+            count += 1
+        taken += 1
+        if taken >= 20:
+            break
+    return count
+
+
+# ── Collector 3: Reddit r/de (nur außergewöhnlich große Posts) ────────────────
+def _tr_fetch_reddit():
+    import requests as req_lib
+    count = 0
+    r = req_lib.get('https://www.reddit.com/r/de/top.json?t=day&limit=30',
+                    headers={'User-Agent': 'ContentOS-TrendRadar/1.0'}, timeout=15)
+    if r.status_code != 200:
+        return 0
+    for child in (r.json().get('data') or {}).get('children') or []:
+        d = child.get('data') or {}
+        ups = int(d.get('ups') or 0)
+        if ups < 1500:          # nur massiv aufgefallene Threads
+            continue
+        title = (d.get('title') or '').strip()
+        detail = f'{ups:,} Upvotes in r/de (24h)'.replace(',', '.')
+        url = 'https://www.reddit.com' + (d.get('permalink') or '')
+        if _tr_add_signal('reddit', title, detail, url, float(ups)):
+            count += 1
+    return count
+
+
+# ── Collector 4: YouTube Trending DE (optionaler API-Key) ────────────────────
+def _tr_fetch_youtube():
+    import requests as req_lib
+    key = get_setting('youtube_api_key')
+    if not key:
+        return 0
+    count = 0
+    r = req_lib.get('https://www.googleapis.com/youtube/v3/videos',
+                    params={'part': 'snippet,statistics', 'chart': 'mostPopular',
+                            'regionCode': 'DE', 'maxResults': 25, 'key': key},
+                    timeout=15)
+    if r.status_code != 200:
+        return 0
+    for v in r.json().get('items') or []:
+        stats = v.get('statistics') or {}
+        views = int(stats.get('viewCount') or 0)
+        if views < 200000:      # nur außergewöhnlich große Videos
+            continue
+        sn = v.get('snippet') or {}
+        title = (sn.get('title') or '').strip()
+        channel = sn.get('channelTitle') or ''
+        detail = f'{views:,} Views · YouTube-Trending DE ({channel})'.replace(',', '.')
+        url = f"https://www.youtube.com/watch?v={v.get('id')}"
+        if _tr_add_signal('youtube', title, detail, url, float(views)):
+            count += 1
+    return count
+
+
+# ── Collector 5: Instagram-News-Overperformance (RapidAPI) ───────────────────
+def _tr_fetch_ig_posts_page(username, rapidapi_key):
+    """Erste Posts-Seite eines Accounts — gleiche API-Kandidaten wie Inspirationen."""
+    import requests as req_lib
+    candidates = [
+        ('instagram-scraper21.p.rapidapi.com',
+         'https://instagram-scraper21.p.rapidapi.com/api/v1/posts',
+         {'username': username, 'limit': '30', 'include_captions': 'true'}),
+        ('instagram-scraper-api2.p.rapidapi.com',
+         'https://instagram-scraper-api2.p.rapidapi.com/v1/posts',
+         {'username_or_id_or_url': username}),
+        ('instagram-looter2.p.rapidapi.com',
+         'https://instagram-looter2.p.rapidapi.com/feed-by-username',
+         {'username': username, 'count': '30'}),
+    ]
+    for host, url, params in candidates:
+        try:
+            resp = req_lib.get(url, params=params, timeout=20,
+                               headers={'x-rapidapi-key': rapidapi_key,
+                                        'x-rapidapi-host': host})
+            if resp.status_code != 200:
+                continue
+            raw = resp.json()
+            data_block = raw.get('data') or {}
+            if isinstance(data_block, list) and data_block:
+                return data_block
+            items = (data_block.get('items') or data_block.get('posts')
+                     or raw.get('items') or raw.get('posts') or [])
+            if items:
+                return items
+        except Exception:
+            continue
+    return []
+
+
+def _tr_fetch_instagram_news():
+    """Nur Posts deutlich ÜBER der Durchschnitts-Performance des Accounts zählen."""
+    rapidapi_key = get_setting('rapidapi_key')
+    if not rapidapi_key:
+        return 0
+    accounts = [a.strip().lstrip('@') for a in
+                (get_setting('trend_ig_accounts') or _TR_DEFAULT_IG_ACCOUNTS).split(',')
+                if a.strip()]
+    count = 0
+    now_ts = datetime.utcnow().timestamp()
+    for username in accounts[:12]:
+        try:
+            items = _tr_fetch_ig_posts_page(username, rapidapi_key)
+            likes_list = []
+            parsed = []
+            for item in items:
+                raw_likes = (item.get('likeCount') or item.get('like_count') or
+                             item.get('likes') or
+                             (item.get('edge_media_to_like') or {}).get('count'))
+                raw_comments = (item.get('commentsCount') or item.get('comment_count') or
+                                (item.get('edge_media_to_comment') or {}).get('count'))
+                try:
+                    likes = int(raw_likes)
+                except Exception:
+                    continue
+                try:
+                    comments = int(raw_comments)
+                except Exception:
+                    comments = 0
+                ts = (item.get('taken_at') or item.get('taken_at_timestamp') or
+                      item.get('timestamp'))
+                try:
+                    ts = float(ts)
+                except Exception:
+                    ts = None
+                caption = item.get('caption') or ''
+                if isinstance(caption, dict):
+                    caption = caption.get('text') or ''
+                code = str(item.get('shortCode') or item.get('code') or
+                           item.get('shortcode') or item.get('id') or '')
+                likes_list.append(likes)
+                parsed.append((likes, comments, ts, caption.strip(), code))
+            if len(likes_list) < 6:
+                continue
+            sorted_likes = sorted(likes_list)
+            median = sorted_likes[len(sorted_likes) // 2]
+            if median <= 0:
+                continue
+            for likes, comments, ts, caption, code in parsed:
+                ratio = likes / median
+                # nur klar überdurchschnittliche UND frische Posts (max. 72h alt)
+                if ratio < 2.0 or likes < 3000:
+                    continue
+                if ts and (now_ts - ts) > 72 * 3600:
+                    continue
+                headline = caption.split('\n')[0][:200] if caption else f'Post {code}'
+                title = f'@{username}: {headline}'
+                detail = (f'{likes:,} Likes · {comments:,} Kommentare · '
+                          f'{ratio:.1f}× über Account-Schnitt').replace(',', '.')
+                url = f'https://www.instagram.com/p/{code}/' if code else None
+                if _tr_add_signal('instagram', title, detail, url, float(likes)):
+                    count += 1
+        except Exception as e:
+            app.logger.warning('Trend Radar IG @%s: %s', username, e)
+    return count
+
+
+def _tr_collect_signals():
+    """Alle Quellen abklappern; jede Quelle darf einzeln fehlschlagen."""
+    collectors = [
+        ('Google Trends', _tr_fetch_google_trends),
+        ('Wikipedia', _tr_fetch_wikipedia),
+        ('Reddit', _tr_fetch_reddit),
+        ('YouTube', _tr_fetch_youtube),
+        ('Instagram', _tr_fetch_instagram_news),
+    ]
+    total = 0
+    for name, fn in collectors:
+        _tr_scan_status['step'] = f'Sammle Signale: {name}…'
+        try:
+            total += fn()
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.warning('Trend Radar %s: %s', name, e)
+    return total
+
+
+# ── KI-Clustering: Rohsignale → wenige große Themen ──────────────────────────
+_TR_CLUSTER_SYSTEM = """Du bist der Trend-Radar von Content OS. Deine einzige Aufgabe:
+aus Rohsignalen abschätzen, welche Themen HEUTE wahrscheinlich der größte Teil
+Deutschlands mitbekommen hat. Das ist eine Relevanzübersicht, KEINE Nachrichtenübersicht.
+
+Harte Regeln:
+- Qualität vor Quantität. Gibt es nur 3 wirklich große Themen, liefere nur 3. Maximal 12.
+- Nur Themen mit breiter, deutschlandweiter Aufmerksamkeit (Score >= 55). Nischenthemen,
+  Lokalnachrichten, Evergreen-Wikipedia-Artikel (Feiertage, Serien-Dauerbrenner,
+  Promi-Biografien ohne aktuellen Anlass) konsequent weglassen.
+- Begriffe zum selben Ereignis IMMER zu EINEM Thema zusammenführen
+  (z.B. "Bahn", "DB", "Streik", "Zugausfall" → "Bahn-Streik"). Nie zwei Einträge
+  für dasselbe Ereignis.
+- Score 0-100 = geschätzter Anteil der Bevölkerung, der das Thema mitbekommen hat,
+  gestützt auf Stärke und ANZAHL unabhängiger Quellen. Mehrere Plattformen
+  gleichzeitig = stärkstes Indiz.
+- platforms nur nennen, wenn Signale es belegen. "tiktok" und "tv" darfst du
+  zusätzlich per Websuche prüfen (max. 2 Suchen, z.B. TV-Quoten gestern oder ob ein
+  Thema auf TikTok viral ist) — nur setzen, wenn du es wirklich bestätigen kannst.
+- Wenn ein existierendes Thema (existing_id) dasselbe Ereignis beschreibt, dieses
+  weiterführen statt ein neues anzulegen.
+
+Antworte NUR mit einem JSON-Array, keinerlei Text davor oder danach:
+[{"existing_id": null oder Zahl,
+  "title": "prägnanter Kurztitel, max 60 Zeichen",
+  "description": "1-2 Sätze: worum es geht und warum es gerade groß ist",
+  "score": 0-100,
+  "started_hours_ago": Zahl,
+  "platforms": ["google","instagram","tiktok","tv","youtube","wikipedia","reddit"],
+  "signal_ids": [ids der zugehörigen Signale],
+  "sources": [{"source": "Quellenname", "detail": "warum relevant", "url": "oder null"}]}]"""
+
+
+def _tr_claude(api_key, user_content, max_tokens=6000):
+    """Claude-Call fürs Clustering; behandelt pause_turn (Websuche-Tool)."""
+    import anthropic as _ant
+    client = _ant.Anthropic(api_key=api_key)
+    model = get_setting('analysis_model') or 'claude-sonnet-4-6'
+    messages = [{'role': 'user', 'content': user_content}]
+    resp = None
+    for _ in range(5):
+        resp = client.messages.create(
+            model=model, max_tokens=max_tokens, system=_TR_CLUSTER_SYSTEM,
+            tools=[{'type': 'web_search_20260209', 'name': 'web_search', 'max_uses': 2}],
+            messages=messages)
+        _log_ai('trend_radar', resp)
+        if resp.stop_reason == 'pause_turn':
+            messages.append({'role': 'assistant', 'content': resp.content})
+            continue
+        break
+    return ''.join(b.text for b in resp.content if getattr(b, 'type', '') == 'text')
+
+
+def _tr_cluster_and_save(api_key):
+    """Signale der letzten 24h clustern und als TrendTopics speichern."""
+    import re as _re
+    cutoff = datetime.utcnow() - timedelta(hours=24)
+    signals = TrendSignal.query.filter(TrendSignal.detected_at >= cutoff)\
+        .order_by(TrendSignal.source, TrendSignal.metric.desc().nullslast()).all()
+    if not signals:
+        return 0
+
+    sig_lines = []
+    for s in signals:
+        age_h = int((datetime.utcnow() - s.detected_at).total_seconds() // 3600)
+        sig_lines.append(f'[{s.id}] ({s.source}, vor {age_h}h) {s.title}'
+                         + (f' — {s.detail}' if s.detail else ''))
+
+    topic_cutoff = datetime.utcnow() - timedelta(days=7)
+    existing = TrendTopic.query.filter(TrendTopic.archived == False,
+                                       TrendTopic.last_seen_at >= topic_cutoff)\
+        .order_by(TrendTopic.score.desc()).all()
+    ex_lines = [f'[{t.id}] {t.title} (Score {t.score}): {(t.description or "")[:150]}'
+                for t in existing]
+
+    berlin_now = now_berlin().strftime('%A, %d.%m.%Y %H:%M')
+    uc = (f'Jetzt ist {berlin_now} (Deutschland).\n\n'
+          f'--- EXISTIERENDE THEMEN (letzte 7 Tage) ---\n'
+          + ('\n'.join(ex_lines) if ex_lines else '(keine)')
+          + f'\n\n--- ROHSIGNALE (letzte 24h, {len(signals)} Stück) ---\n'
+          + '\n'.join(sig_lines)[:24000])
+
+    text = _tr_claude(api_key, uc)
+    m = _re.search(r'\[[\s\S]*\]', text or '')
+    items = json.loads(m.group(0)) if m else []
+
+    by_id = {t.id: t for t in existing}
+    valid_platforms = set(_TR_PLATFORM_LABELS)
+    saved = 0
+    for it in items:
+        if not isinstance(it, dict) or not it.get('title'):
+            continue
+        try:
+            score = max(0, min(100, int(it.get('score', 0))))
+        except Exception:
+            continue
+        if score < 55:
+            continue
+        topic = by_id.get(it.get('existing_id'))
+        if topic is None:
+            topic = TrendTopic(title=str(it['title'])[:200])
+            db.session.add(topic)
+        topic.title = str(it['title'])[:200]
+        topic.description = it.get('description')
+        topic.score = score
+        topic.last_seen_at = datetime.utcnow()
+        try:
+            hours_ago = max(0, float(it.get('started_hours_ago') or 0))
+        except Exception:
+            hours_ago = 0
+        started = datetime.utcnow() - timedelta(hours=hours_ago)
+        if topic.started_at is None or started < topic.started_at:
+            topic.started_at = started
+        plats = {p for p in (it.get('platforms') or []) if p in valid_platforms}
+        topic.has_google    = 'google' in plats
+        topic.has_instagram = 'instagram' in plats
+        topic.has_tiktok    = 'tiktok' in plats
+        topic.has_tv        = 'tv' in plats
+        topic.has_youtube   = 'youtube' in plats
+        topic.has_wikipedia = 'wikipedia' in plats
+        topic.has_reddit    = 'reddit' in plats
+        topic.sources_json = json.dumps(
+            [s for s in (it.get('sources') or []) if isinstance(s, dict)][:20],
+            ensure_ascii=False)
+        db.session.flush()
+        sig_ids = {i for i in (it.get('signal_ids') or []) if isinstance(i, int)}
+        if sig_ids:
+            TrendSignal.query.filter(TrendSignal.id.in_(sig_ids))\
+                .update({'topic_id': topic.id}, synchronize_session=False)
+        saved += 1
+    db.session.commit()
+    return saved
+
+
+def _tr_run_scan():
+    """Kompletter Scan: Signale sammeln + clustern. Läuft in eigenem Thread."""
+    if _tr_scan_status['running']:
+        return
+    _tr_scan_status.update({'running': True, 'error': None, 'signals': 0,
+                            'topics': 0, 'started_at': datetime.utcnow().isoformat(),
+                            'finished_at': None, 'step': 'Starte…'})
+    try:
+        with app.app_context():
+            _tr_scan_status['signals'] = _tr_collect_signals()
+            api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
+            if api_key:
+                _tr_scan_status['step'] = 'KI führt Themen zusammen…'
+                _tr_scan_status['topics'] = _tr_cluster_and_save(api_key)
+            else:
+                _tr_scan_status['error'] = 'Kein Anthropic-API-Key — nur Signale gesammelt.'
+            set_setting('trend_last_scan', datetime.utcnow().isoformat())
+            # Rohsignale älter als 7 Tage aufräumen
+            TrendSignal.query.filter(
+                TrendSignal.detected_at < datetime.utcnow() - timedelta(days=7)).delete()
+            db.session.commit()
+    except Exception as e:
+        _tr_scan_status['error'] = str(e)
+        app.logger.error('Trend Radar Scan: %s', e)
+    finally:
+        _tr_scan_status['running'] = False
+        _tr_scan_status['step'] = ''
+        _tr_scan_status['finished_at'] = datetime.utcnow().isoformat()
+
+
+def _tr_auto_scan():
+    """Scheduler-Einstieg: nur wenn aktiviert und Key vorhanden."""
+    with app.app_context():
+        if get_setting('trend_radar_auto', '1') == '0':
+            return
+        if not (os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')):
+            return
+    _tr_run_scan()
+
+
+def _tr_rel_time(dt):
+    """UTC-Datetime → deutsche Relativzeit ("vor 3 Std.")."""
+    if not dt:
+        return ''
+    secs = (datetime.utcnow() - dt).total_seconds()
+    if secs < 3600:
+        return f'vor {max(1, int(secs // 60))} Min.'
+    if secs < 48 * 3600:
+        return f'vor {int(secs // 3600)} Std.'
+    return f'vor {int(secs // 86400)} Tagen'
+
+
+def _tr_topic_dict(t):
+    berlin = ZoneInfo('Europe/Berlin')
+    try:
+        sources = json.loads(t.sources_json or '[]')
+    except Exception:
+        sources = []
+    started_local = (t.started_at.replace(tzinfo=timezone.utc).astimezone(berlin)
+                     if t.started_at else None)
+    return {
+        'id': t.id, 'title': t.title, 'description': t.description or '',
+        'score': t.score,
+        'started_rel': _tr_rel_time(t.started_at),
+        'started_fmt': started_local.strftime('%d.%m. %H:%M') if started_local else '',
+        'last_seen_rel': _tr_rel_time(t.last_seen_at),
+        'platforms': {
+            'google': t.has_google, 'instagram': t.has_instagram,
+            'tiktok': t.has_tiktok, 'tv': t.has_tv, 'youtube': t.has_youtube,
+            'wikipedia': t.has_wikipedia, 'reddit': t.has_reddit,
+        },
+        'sources': sources,
+    }
+
+
+@app.route('/trend-radar')
+@login_required
+def trend_radar():
+    return render_template('trend_radar.html',
+        active_page='trend_radar',
+        platform_labels=_TR_PLATFORM_LABELS,
+        ai_ready=bool(os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')),
+        rapidapi_ready=bool(get_setting('rapidapi_key')),
+        youtube_ready=bool(get_setting('youtube_api_key')))
+
+
+@app.route('/api/trend-radar/topics')
+@login_required
+def trend_radar_topics():
+    try:
+        hours = int(request.args.get('hours', 24))
+    except Exception:
+        hours = 24
+    hours = max(1, min(hours, 24 * 7))
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    topics = TrendTopic.query.filter(TrendTopic.archived == False,
+                                     TrendTopic.last_seen_at >= cutoff)\
+        .order_by(TrendTopic.score.desc(), TrendTopic.last_seen_at.desc()).all()
+    sig_cutoff = datetime.utcnow() - timedelta(hours=24)
+    signal_count = TrendSignal.query.filter(TrendSignal.detected_at >= sig_cutoff).count()
+    last_scan = get_setting('trend_last_scan')
+    last_scan_rel = ''
+    if last_scan:
+        try:
+            last_scan_rel = _tr_rel_time(datetime.fromisoformat(last_scan))
+        except Exception:
+            pass
+    return jsonify({'topics': [_tr_topic_dict(t) for t in topics],
+                    'signal_count': signal_count,
+                    'last_scan_rel': last_scan_rel,
+                    'scan_running': _tr_scan_status['running']})
+
+
+@app.route('/api/trend-radar/scan', methods=['POST'])
+@login_required
+def trend_radar_scan():
+    if _tr_scan_status['running']:
+        return jsonify({'ok': False, 'error': 'Scan läuft bereits.'})
+    threading.Thread(target=_tr_run_scan, daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/trend-radar/status')
+@login_required
+def trend_radar_status():
+    return jsonify(_tr_scan_status)
+
+
+@app.route('/api/trend-radar/topic/<int:tid>', methods=['DELETE'])
+@login_required
+def trend_radar_topic_delete(tid):
+    t = TrendTopic.query.get_or_404(tid)
+    t.archived = True
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/trend-radar/settings', methods=['GET', 'POST'])
+@login_required
+def trend_radar_settings():
+    if request.method == 'GET':
+        return jsonify({
+            'ig_accounts': get_setting('trend_ig_accounts') or _TR_DEFAULT_IG_ACCOUNTS,
+            'youtube_key_set': bool(get_setting('youtube_api_key')),
+            'auto': get_setting('trend_radar_auto', '1') != '0',
+        })
+    d = request.get_json() or {}
+    if 'ig_accounts' in d:
+        set_setting('trend_ig_accounts', (d['ig_accounts'] or '').strip())
+    if 'youtube_api_key' in d and (d['youtube_api_key'] or '').strip():
+        set_setting('youtube_api_key', d['youtube_api_key'].strip())
+    if 'auto' in d:
+        set_setting('trend_radar_auto', '1' if d['auto'] else '0')
     return jsonify({'ok': True})
 
 

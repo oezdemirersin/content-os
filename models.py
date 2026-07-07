@@ -1152,6 +1152,45 @@ class MissingChildCase(db.Model):
         return n or 'Unbekannt'
 
 
+class TrendTopic(db.Model):
+    """Trend Radar — ein deutschlandweit wahrgenommenes Gesprächsthema.
+    Entsteht durch KI-Clustering der Rohsignale (TrendSignal). Qualität vor
+    Quantität: nur Themen mit breiter öffentlicher Aufmerksamkeit."""
+    __tablename__ = 'trend_topic'
+    id            = db.Column(db.Integer, primary_key=True)
+    title         = db.Column(db.String(200), nullable=False)
+    description   = db.Column(db.Text)
+    score         = db.Column(db.Integer, default=0, index=True)   # 0-100 geschätzte Bekanntheit in DE
+    started_at    = db.Column(db.DateTime)                          # UTC — geschätzter Themen-Beginn
+    last_seen_at  = db.Column(db.DateTime, index=True)              # UTC — letztes Signal
+    # Plattform-Flags: wo wurde das Thema erkannt?
+    has_google    = db.Column(db.Boolean, default=False)
+    has_instagram = db.Column(db.Boolean, default=False)
+    has_tiktok    = db.Column(db.Boolean, default=False)
+    has_tv        = db.Column(db.Boolean, default=False)
+    has_youtube   = db.Column(db.Boolean, default=False)
+    has_wikipedia = db.Column(db.Boolean, default=False)
+    has_reddit    = db.Column(db.Boolean, default=False)
+    sources_json  = db.Column(db.Text, default='[]')   # [{source, detail, url}]
+    archived      = db.Column(db.Boolean, default=False, index=True)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TrendSignal(db.Model):
+    """Trend Radar — ein Rohsignal einer Quelle (vor dem KI-Clustering)."""
+    __tablename__ = 'trend_signal'
+    id          = db.Column(db.Integer, primary_key=True)
+    source      = db.Column(db.String(40), index=True)  # google_trends/wikipedia/reddit/youtube/instagram
+    title       = db.Column(db.String(400), nullable=False)
+    detail      = db.Column(db.Text)                    # z.B. "~500K Suchanfragen" / "3,2× über Account-Schnitt"
+    url         = db.Column(db.Text)
+    metric      = db.Column(db.Float)                   # Rohstärke innerhalb der Quelle (Views/Likes/Upvotes)
+    topic_id    = db.Column(db.Integer, db.ForeignKey('trend_topic.id'), index=True)
+    dedup_key   = db.Column(db.String(400), index=True)
+    detected_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)  # UTC
+
+
 class EmergencyNumber(db.Model):
     """Örtliche Polizei-/Kontaktnummer pro Stadt (optional Stadtteil) für die
     Missing-Children-Factory. Wird über Zeit befüllt, NIE geraten. 110 kommt

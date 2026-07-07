@@ -38,9 +38,11 @@ def client(app):
 @pytest.fixture
 def auth_client(app, client):
     """Test client with session pre-set to bypass login_required."""
-    with client.session_transaction() as sess:
+    with app.app_context():
         user = User.query.filter_by(username='testuser').first()
-        sess['user_id'] = user.id if user else 1
+        user_id = user.id if user else 1
+    with client.session_transaction() as sess:
+        sess['user_id'] = user_id
         sess['user_role'] = 'admin'
         sess['user_name'] = 'testuser'
     return client

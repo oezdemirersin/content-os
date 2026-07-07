@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+{% block title %}Trend Radar — Content OS{% endblock %}
+{% block page_title %}TREND RADAR{% endblock %}
+
+{% block content %}
+<style>
+  .tr-wrap { max-width:1100px }
+  .tr-topic { background:var(--surface);border:1px solid var(--border);border-radius:14px;
+              padding:18px 20px;margin-bottom:12px;transition:border-color .15s }
+  .tr-topic:hover { border-color:rgba(59,130,246,.4) }
+  .tr-rank { font-family:var(--font-display);font-size:26px;color:var(--muted);
+             width:38px;flex-shrink:0;line-height:1;padding-top:2px }
+  .tr-score { font-family:var(--font-display);font-size:30px;line-height:1;flex-shrink:0;text-align:right }
+  .tr-score-label { font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:3px }
+  .tr-plat { display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;
+             font-size:11px;font-weight:700;white-space:nowrap }
+  .tr-plat.on  { background:rgba(34,197,94,.12);color:#22c55e }
+  .tr-plat.off { background:var(--surface2);color:var(--muted);opacity:.55 }
+  .tr-src { display:flex;align-items:flex-start;gap:8px;padding:7px 0;
+            border-bottom:1px solid var(--border);font-size:12px }
+  .tr-src:last-child { border-bottom:none }
+  .tr-meta { font-size:11px;color:var(--muted);display:inline-flex;align-items:center;gap:5px }
+  [x-cloak] { display:none !important }
+</style>
+
+<div class="tr-wrap" x-data="trendRadar()" x-init="init()">
+
+  <p style="color:var(--muted);font-size:13px;margin:-4px 0 18px;max-width:760px">
+    Keine Nachrichtenübersicht — eine <b style="color:var(--text)">Relevanzübersicht</b>:
+    Welche Themen hat aktuell wahrscheinlich der größte Teil Deutschlands mitbekommen?
+    Google Trends, Instagram-News-Performance, Wikipedia, YouTube &amp; Co. werden per KI zu
+    wenigen großen Themen zusammengeführt. Lieber 3 echte Großthemen als 100 kleine.
+  </p>
+
+  {% if not ai_ready %}
+  <div class="tr-topic" style="border-color:var(--warning);background:rgba(245,158,11,.06)">
+    <b style="color:var(--warning)">⚠️ Kein Anthropic API-Key</b> — das Zusammenführen der Signale
+    zu Themen braucht einen Key (Einstellungen → KI). Signale sammeln geht, Themen-Erkennung nicht.
+  </div>
+  {% endif %}
+
+  <!-- Kopfzeile: Zeitfilter + Aktionen -->
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+    <template x-for="f in filters" :key="f.h">
+      <button class="fchip" :class="hours===f.h ? 'active' : ''"
+              @click="hours=f.h; load()" x-text="f.label"></button>
+    </template>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span class="tr-meta" x-show="lastScanRel" x-cloak>
+        <i class="fa-solid fa-clock-rotate-left"></i>
+        Letzter Scan: <span x-text="lastScanRel"></span>
+      </span>
+      <span class="tr-meta" x-show="signalCount" x-cloak>
+        <i class="fa-solid fa-wave-square"></i>
+        <span x-text="signalCount"></span> Signale (24h)
+      </span>
+      <button class="btn btn-ghost" style="font-size:12px;padding:7px 12px" @click="openSettings()">
+        <i class="fa-solid fa-sliders"></i> Quellen
+      </button>
+      <button class="btn btn-primary" @click="startScan()" :disabled="scanning"
+              style="font-size:12px;padding:7px 14px">
+        <i class="fa-solid" :class="scanning ? 'fa-circle-notch fa-spin' : 'fa-radar'"
+           x-show="scanning" x-cloak></i>
+        <i class="fa-solid fa-satellite-dish" x-show="!scanning"></i>
+        <span x-text="scanning ? scanStep || 'Scanne…' : 'Jetzt scannen'"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Lade-Zustand -->
+  <div x-show="loading" x-cloak style="padding:40px;text-align:center;color:var(--muted);font-size:13px">
+    <i class="fa-solid fa-circle-notch fa-spin"></i> Lädt…
+  </div>
+
+  <!-- Leer-Zustand -->
+  <div x-show="!loading && !topics.length" x-cloak class="tr-topic" style="text-align:center;padding:44px 20px">
+    <div style="font-size:30px;margin-bottom:10px">📡</div>
+    <div style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">KEINE GROSSTHEMEN IM ZEITRAUM</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:6px;max-width:420px;margin-inline:auto">
+      Qualität vor Quantität: Es wird nur angezeigt, was wirklich deutschlandweit
+      angekommen ist. Starte einen Scan oder wähle einen größeren Zeitraum.
+    </div>
+  </div>
+
+  <!-- Themenliste -->
+  <template x-for="(t, idx) in topics" :key="t.id">
+    <div class="tr-topic">
+      <div style="display:flex;gap:14px">
+        <div class="tr-rank" x-text="idx+1"></div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:16px;font-weight:700;color:var(--text)" x-text="t.title"></div>
+              <div style="font-size:13px;color:var(--muted);margin-top:4px;line-height:1.55"
+                   x-text="t.description"></div>
+              <div style="display:flex;gap:14px;margin-top:8px;flex-wrap:wrap">
+                <span class="tr-meta" x-show="t.started_rel">
+                  <i class="fa-solid fa-flag"></i>
+                  Begonnen <span x-text="t.started_rel"></span>
+                  <span x-show="t.started_fmt" x-text="'(' + t.started_fmt + ')'"></span>
+                </span>
+                <span class="tr-meta" x-show="t.last_seen_rel">
+                  <i class="fa-solid fa-signal"></i>
+                  Letztes Signal <span x-text="t.last_seen_rel"></span>
+                </span>
+              </div>
+            </div>
+            <div style="flex-shrink:0;text-align:right">
+              <div class="tr-score"
+                   :style="'color:' + (t.score >= 80 ? 'var(--danger)' : t.score >= 65 ? 'var(--warning)' : 'var(--accent2)')"
+                   x-text="t.score"></div>
+              <div class="tr-score-label">Bekanntheit</div>
+            </div>
+          </div>
+
+          <!-- Plattform-Indikatoren -->
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+            <template x-for="p in platformOrder" :key="p.key">
+              <span class="tr-plat" :class="t.platforms[p.key] ? 'on' : 'off'">
+                <i class="fa-solid" :class="t.platforms[p.key] ? 'fa-check' : 'fa-minus'"
+                   style="font-size:9px"></i>
+                <span x-text="p.label"></span>
+              </span>
+            </template>
+          </div>
+
+          <!-- Quellen (aufklappbar) -->
+          <div x-data="{open:false}" style="margin-top:10px">
+            <button @click="open=!open"
+                    style="background:none;border:none;cursor:pointer;color:var(--accent2);
+                           font-size:12px;font-weight:600;padding:0;font-family:var(--font-body)">
+              <i class="fa-solid" :class="open ? 'fa-chevron-up' : 'fa-chevron-down'" style="font-size:10px"></i>
+              <span x-text="'Warum relevant? (' + t.sources.length + ' Quellen)'"></span>
+            </button>
+            <div x-show="open" x-transition x-cloak
+                 style="margin-top:8px;background:var(--surface2);border-radius:10px;padding:6px 14px">
+              <template x-for="(s, si) in t.sources" :key="si">
+                <div class="tr-src">
+                  <span class="badge badge-blue" style="font-size:10px;flex-shrink:0" x-text="s.source"></span>
+                  <span style="color:var(--text);flex:1" x-text="s.detail"></span>
+                  <a x-show="s.url" :href="s.url" target="_blank" rel="noopener"
+                     style="color:var(--accent2);flex-shrink:0" title="Quelle öffnen">
+                    <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px"></i>
+                  </a>
+                </div>
+              </template>
+              <div x-show="!t.sources.length" style="padding:8px 0;font-size:12px;color:var(--muted)">
+                Keine Quellen-Details gespeichert.
+              </div>
+            </div>
+          </div>
+        </div>
+        <button @click="removeTopic(t.id)" title="Thema ausblenden"
+                style="background:none;border:none;color:var(--muted);cursor:pointer;
+                       font-size:12px;padding:2px;height:fit-content">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+    </div>
+  </template>
+
+  <!-- Quellen-Einstellungen Modal -->
+  <div x-show="settingsOpen" x-cloak
+       style="position:fixed;inset:0;z-index:600;display:flex;align-items:center;justify-content:center;
+              background:rgba(0,0,0,.7);backdrop-filter:blur(6px)"
+       @click.self="settingsOpen=false">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+                width:100%;max-width:480px;margin:16px;box-shadow:0 24px 80px rgba(0,0,0,.6)">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);
+                  display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-family:var(--font-display);font-size:18px;letter-spacing:.5px">TREND-RADAR-QUELLEN</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Signal-Quellen konfigurieren</div>
+        </div>
+        <button @click="settingsOpen=false"
+                style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div style="padding:18px 22px;display:flex;flex-direction:column;gap:16px">
+        <div>
+          <label class="form-label">Instagram-News-Accounts (kommagetrennt)</label>
+          <textarea class="input-field" rows="3" x-model="settings.ig_accounts"
+                    placeholder="tagesschau, zdfheute, derspiegel, …"></textarea>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">
+            {% if rapidapi_ready %}Nur Posts deutlich über dem Account-Schnitt zählen als Signal.
+            {% else %}⚠️ Kein RapidAPI-Key hinterlegt — Instagram-Signale sind deaktiviert
+            (Einstellungen → Integrationen).{% endif %}
+          </div>
+        </div>
+        <div>
+          <label class="form-label">YouTube Data API-Key (optional)</label>
+          <input type="password" class="input-field" x-model="settings.youtube_api_key"
+                 placeholder="{% if youtube_ready %}•••••• (gesetzt — leer lassen zum Behalten){% else %}AIza…{% endif %}">
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">
+            Für YouTube-Trending Deutschland. Ohne Key wird YouTube übersprungen.
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px">
+          <input type="checkbox" x-model="settings.auto" style="accent-color:var(--accent);width:16px;height:16px">
+          Automatisch alle 3 Stunden scannen
+        </label>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px">
+        <button class="btn btn-ghost" @click="settingsOpen=false">Abbrechen</button>
+        <button class="btn btn-primary" @click="saveSettings()">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function trendRadar() {
+  return {
+    hours: 24,
+    filters: [
+      {h: 6,   label: '6 Std.'},
+      {h: 12,  label: '12 Std.'},
+      {h: 24,  label: '24 Std.'},
+      {h: 72,  label: '3 Tage'},
+      {h: 168, label: '7 Tage'},
+    ],
+    platformOrder: [
+      {key: 'google',    label: 'Google Trends'},
+      {key: 'instagram', label: 'Instagram News'},
+      {key: 'tiktok',    label: 'TikTok'},
+      {key: 'tv',        label: 'TV'},
+      {key: 'youtube',   label: 'YouTube'},
+      {key: 'wikipedia', label: 'Wikipedia'},
+      {key: 'reddit',    label: 'Reddit'},
+    ],
+    topics: [], loading: true, scanning: false, scanStep: '',
+    signalCount: 0, lastScanRel: '',
+    settingsOpen: false,
+    settings: {ig_accounts: '', youtube_api_key: '', auto: true},
+    _pollTimer: null,
+
+    async init() {
+      await this.load();
+    },
+
+    async load() {
+      this.loading = true;
+      try {
+        const r = await fetch('/api/trend-radar/topics?hours=' + this.hours);
+        const d = await r.json();
+        this.topics = d.topics || [];
+        this.signalCount = d.signal_count || 0;
+        this.lastScanRel = d.last_scan_rel || '';
+        if (d.scan_running && !this.scanning) { this.scanning = true; this.pollScan(); }
+      } catch (e) {}
+      this.loading = false;
+    },
+
+    async startScan() {
+      const r = await fetch('/api/trend-radar/scan', {method: 'POST'});
+      const d = await r.json();
+      if (d.ok === false) { showToast(d.error || 'Scan konnte nicht starten', 'error'); return; }
+      this.scanning = true;
+      showToast('Scan gestartet — Signale werden gesammelt…', 'info');
+      this.pollScan();
+    },
+
+    pollScan() {
+      clearInterval(this._pollTimer);
+      this._pollTimer = setInterval(async () => {
+        try {
+          const s = await fetch('/api/trend-radar/status').then(r => r.json());
+          this.scanStep = s.step || '';
+          if (!s.running) {
+            clearInterval(this._pollTimer);
+            this.scanning = false;
+            this.scanStep = '';
+            if (s.error) showToast('Scan: ' + s.error, 'error');
+            else showToast(`Scan fertig: ${s.signals} neue Signale, ${s.topics} Themen`, 'success');
+            this.load();
+          }
+        } catch (e) {}
+      }, 2500);
+    },
+
+    async removeTopic(id) {
+      await fetch('/api/trend-radar/topic/' + id, {method: 'DELETE'});
+      this.topics = this.topics.filter(t => t.id !== id);
+    },
+
+    async openSettings() {
+      const d = await fetch('/api/trend-radar/settings').then(r => r.json());
+      this.settings.ig_accounts = d.ig_accounts || '';
+      this.settings.auto = !!d.auto;
+      this.settings.youtube_api_key = '';
+      this.settingsOpen = true;
+    },
+
+    async saveSettings() {
+      await fetch('/api/trend-radar/settings', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(this.settings),
+      });
+      this.settingsOpen = false;
+      showToast('Trend-Radar-Einstellungen gespeichert', 'success');
+    },
+  };
+}
+</script>
+{% endblock %}
