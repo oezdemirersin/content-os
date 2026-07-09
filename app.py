@@ -3571,7 +3571,19 @@ def heute():
         AppTodo.deadline <= today_start.date(),
     ).order_by(AppTodo.deadline.asc()).all()
 
+    # ── 7. Trend Radar: die 3 größten Themen der letzten 24h ──────────────
+    trend_topics = []
+    try:
+        tt_cutoff = datetime.utcnow() - timedelta(hours=24)
+        trend_topics = [_tr_topic_dict(t) for t in TrendTopic.query.filter(
+            TrendTopic.archived == False,
+            TrendTopic.last_seen_at >= tt_cutoff
+        ).order_by(TrendTopic.score.desc(), TrendTopic.last_seen_at.desc()).limit(3).all()]
+    except Exception:
+        pass
+
     return render_template('heute.html',
+        trend_topics=trend_topics,
         tg_queue=tg_queue,
         no_stock=no_stock,
         critical_stock=critical_stock,
@@ -17982,6 +17994,10 @@ def _tr_cluster_and_save(api_key):
 
     by_id = {t.id: t for t in existing}
     valid_platforms = set(_TR_PLATFORM_LABELS)
+    try:
+        alert_threshold = int(get_setting('trend_alert_score') or 80)
+    except Exception:
+        alert_threshold = 80
     saved = 0
     for it in items:
         if not isinstance(it, dict) or not it.get('title'):
@@ -18023,9 +18039,41 @@ def _tr_cluster_and_save(api_key):
         if sig_ids:
             TrendSignal.query.filter(TrendSignal.id.in_(sig_ids))\
                 .update({'topic_id': topic.id}, synchronize_session=False)
+        # Alert bei großen Themen (einmalig pro Thema)
+        if not topic.alerted and score >= alert_threshold:
+            _tr_fire_topic_alert(topic)
+            topic.alerted = True
         saved += 1
     db.session.commit()
     return saved
+
+
+def _tr_fire_topic_alert(topic):
+    """Meldet ein großes Thema per Telegram-Alert + In-App-Notification.
+    Meme-Timing zählt — man soll nicht erst beim nächsten Reinschauen davon erfahren."""
+    stufe = 'KRITISCH RELEVANT' if topic.score >= 85 else 'SEHR RELEVANT'
+    plats = [lbl for key, lbl in [
+        ('google', 'Google'), ('instagram', 'Instagram'), ('tiktok', 'TikTok'),
+        ('tv', 'TV'), ('youtube', 'YouTube'), ('wikipedia', 'Wikipedia'),
+        ('reddit', 'Reddit')] if getattr(topic, 'has_' + key, False)]
+    plat_str = ', '.join(plats) if plats else '—'
+    try:
+        _send_central_alert(
+            f'📡 <b>Trend Radar: {stufe}</b>\n'
+            f'<b>{topic.title}</b> (Score {topic.score})\n'
+            f'{(topic.description or "")[:200]}\n'
+            f'Plattformen: {plat_str}')
+    except Exception:
+        pass
+    try:
+        # fester Pfad statt url_for: der Scan läuft im Hintergrund-Thread ohne
+        # Request-Kontext, dort würde url_for eine Exception werfen
+        _push_notification(
+            'info', f'📡 Großthema: {topic.title}',
+            f'{stufe} · Score {topic.score} · {plat_str}',
+            link='/trend-radar')
+    except Exception:
+        pass
 
 
 def _tr_run_scan():
@@ -18088,6 +18136,16 @@ def _tr_topic_dict(t):
         sources = []
     started_local = (t.started_at.replace(tzinfo=timezone.utc).astimezone(berlin)
                      if t.started_at else None)
+    # Echte Post-Links direkt aus den verknüpften Signalen ziehen (die KI-„sources"
+    # oben sind nur Text und lassen die tatsächliche URL oft weg). So bekommt man
+    # pro Thema die konkreten Instagram-/TikTok-/YouTube-Beiträge zum Anklicken.
+    links = []
+    linked = (TrendSignal.query
+              .filter(TrendSignal.topic_id == t.id, TrendSignal.url.isnot(None))
+              .order_by(TrendSignal.metric.desc().nullslast()).limit(12).all())
+    for s in linked:
+        links.append({'source': s.source, 'title': s.title[:140],
+                      'detail': s.detail or '', 'url': s.url})
     return {
         'id': t.id, 'title': t.title, 'description': t.description or '',
         'score': t.score,
@@ -18100,6 +18158,7 @@ def _tr_topic_dict(t):
             'wikipedia': t.has_wikipedia, 'reddit': t.has_reddit,
         },
         'sources': sources,
+        'post_links': links,
     }
 
 
@@ -18172,13 +18231,22 @@ def trend_radar_settings():
         return jsonify({
             'youtube_key_set': bool(get_setting('youtube_api_key')),
             'auto': get_setting('trend_radar_auto', '1') != '0',
+            'alert_score': int(get_setting('trend_alert_score') or 80),
+            'alert_configured': bool(get_setting('alert_telegram_token')
+                                     and get_setting('alert_central_chat_id')),
         })
     d = request.get_json() or {}
     if 'youtube_api_key' in d and (d['youtube_api_key'] or '').strip():
         set_setting('youtube_api_key', d['youtube_api_key'].strip())
     if 'auto' in d:
         set_setting('trend_radar_auto', '1' if d['auto'] else '0')
-    return jsonify({'ok': True})
+    if 'alert_score' in d:
+        try:
+            set_setting('trend_alert_score', str(max(55, min(100, int(d['alert_score'])))))
+        except Exception:
+            pass
+    db.session.commit()   # set_setting committet NICHT selbst — sonst verschwindet der Key
+    return jsonify({'ok': True, 'youtube_key_set': bool(get_setting('youtube_api_key'))})
 
 
 def _tr_source_dict(s):

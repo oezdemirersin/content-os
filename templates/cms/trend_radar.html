@@ -149,6 +149,35 @@
               </div>
             </div>
           </div>
+
+          <!-- Echte Post-Links (Instagram/TikTok/YouTube) direkt zum Öffnen -->
+          <div x-show="t.post_links && t.post_links.length" x-cloak style="margin-top:10px">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;
+                        letter-spacing:.5px;margin-bottom:6px">
+              <i class="fa-solid fa-link" style="font-size:10px"></i> Beiträge
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              <template x-for="(l, li) in t.post_links" :key="li">
+                <a :href="l.url" target="_blank" rel="noopener"
+                   style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;
+                          background:var(--surface2);color:var(--text);text-decoration:none;font-size:11px;
+                          max-width:100%;transition:background .12s"
+                   onmouseover="this.style.background='var(--surface)'"
+                   onmouseout="this.style.background='var(--surface2)'"
+                   :title="l.detail">
+                  <i class="fa-brands"
+                     :class="{'fa-instagram': l.source==='instagram', 'fa-tiktok': l.source==='tiktok',
+                              'fa-youtube': l.source==='youtube', 'fa-reddit': l.source==='reddit'}"
+                     style="font-size:12px;flex-shrink:0"
+                     x-show="['instagram','tiktok','youtube','reddit'].includes(l.source)"></i>
+                  <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px;flex-shrink:0"
+                     x-show="!['instagram','tiktok','youtube','reddit'].includes(l.source)"></i>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px"
+                        x-text="l.title"></span>
+                </a>
+              </template>
+            </div>
+          </div>
         </div>
         <button @click="removeTopic(t.id)" title="Thema ausblenden"
                 style="background:none;border:none;color:var(--muted);cursor:pointer;
@@ -200,10 +229,14 @@
                          x-model="s.niche" @change="updateSource(s)" placeholder="Nische" list="tr-niches">
                   <input class="input-field" style="flex:1;min-width:0;font-size:12px;padding:6px 8px"
                          x-model="s.handle" @change="updateSource(s)" placeholder="@handle">
-                  <input type="number" min="1" class="input-field"
-                         style="width:52px;flex-shrink:0;font-size:12px;padding:6px 4px"
-                         x-model.number="s.scan_interval_hours" @change="updateSource(s)"
-                         title="Scan-Intervall in Stunden">
+                  <div style="display:flex;align-items:center;gap:2px;flex-shrink:0"
+                       title="Scan-Intervall: alle X Stunden wird diese Quelle geprüft">
+                    <span style="font-size:10px;color:var(--muted)">alle</span>
+                    <input type="number" min="1" class="input-field"
+                           style="width:42px;font-size:12px;padding:6px 4px;text-align:center"
+                           x-model.number="s.scan_interval_hours" @change="updateSource(s)">
+                    <span style="font-size:10px;color:var(--muted)">Std.</span>
+                  </div>
                   <label style="display:flex;align-items:center;flex-shrink:0" title="Aktiv">
                     <input type="checkbox" x-model="s.active" @change="updateSource(s)"
                            style="accent-color:var(--accent);width:15px;height:15px">
@@ -246,9 +279,15 @@
           </div>
         </div>
         <div>
-          <label class="form-label">YouTube Data API-Key (optional)</label>
+          <label class="form-label">
+            YouTube Data API-Key (optional)
+            <span x-show="youtubeKeySet" x-cloak
+                  style="color:var(--success);font-weight:700;margin-left:6px">
+              <i class="fa-solid fa-circle-check"></i> gesetzt
+            </span>
+          </label>
           <input type="password" class="input-field" x-model="settings.youtube_api_key"
-                 placeholder="{% if youtube_ready %}•••••• (gesetzt — leer lassen zum Behalten){% else %}AIza…{% endif %}">
+                 :placeholder="youtubeKeySet ? '•••••• (gesetzt — leer lassen zum Behalten)' : 'AIza…'">
           <div style="font-size:11px;color:var(--muted);margin-top:4px">
             Für YouTube-Trending Deutschland. Ohne Key wird YouTube übersprungen.
           </div>
@@ -257,6 +296,20 @@
           <input type="checkbox" x-model="settings.auto" style="accent-color:var(--accent);width:16px;height:16px">
           Automatisch alle 3 Stunden scannen
         </label>
+        <div>
+          <label class="form-label">Alert-Schwelle (Score)</label>
+          <div style="display:flex;align-items:center;gap:10px">
+            <input type="number" min="55" max="100" class="input-field" style="width:80px"
+                   x-model.number="settings.alert_score">
+            <span style="font-size:11px;color:var(--muted)">
+              Ab diesem Score wird ein Thema per Telegram + Benachrichtigung gemeldet.
+            </span>
+          </div>
+          <div x-show="!alertConfigured" x-cloak style="font-size:11px;color:var(--warning);margin-top:4px">
+            ⚠️ Kein Alert-Telegram konfiguriert — In-App-Benachrichtigung funktioniert, Telegram nicht
+            (Einstellungen → Alerts).
+          </div>
+        </div>
       </div>
       <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px">
         <button class="btn btn-ghost" @click="settingsOpen=false">Abbrechen</button>
@@ -290,7 +343,9 @@ function trendRadar() {
     topics: [], loading: true, scanning: false, scanStep: '',
     signalCount: 0, lastScanRel: '',
     settingsOpen: false,
-    settings: {youtube_api_key: '', auto: true},
+    settings: {youtube_api_key: '', auto: true, alert_score: 80},
+    youtubeKeySet: {{ 'true' if youtube_ready else 'false' }},
+    alertConfigured: true,
     sources: [],
     newSource: {handle: '', niche: 'News', platform: 'instagram'},
     _pollTimer: null,
@@ -352,15 +407,21 @@ function trendRadar() {
       const d = await fetch('/api/trend-radar/settings').then(r => r.json());
       this.settings.auto = !!d.auto;
       this.settings.youtube_api_key = '';
+      this.settings.alert_score = d.alert_score || 80;
+      this.youtubeKeySet = !!d.youtube_key_set;
+      this.alertConfigured = !!d.alert_configured;
       await this.loadSources();
       this.settingsOpen = true;
     },
 
     async saveSettings() {
-      await fetch('/api/trend-radar/settings', {
+      const r = await fetch('/api/trend-radar/settings', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(this.settings),
       });
+      const d = await r.json();
+      if (d.youtube_key_set !== undefined) this.youtubeKeySet = d.youtube_key_set;
+      this.settings.youtube_api_key = '';
       this.settingsOpen = false;
       showToast('Trend-Radar-Einstellungen gespeichert', 'success');
     },

@@ -1173,6 +1173,7 @@ class TrendTopic(db.Model):
     has_reddit    = db.Column(db.Boolean, default=False)
     sources_json  = db.Column(db.Text, default='[]')   # [{source, detail, url}]
     archived      = db.Column(db.Boolean, default=False, index=True)
+    alerted       = db.Column(db.Boolean, default=False)  # schon per Alert gemeldet? (verhindert Doppel-Alerts)
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
