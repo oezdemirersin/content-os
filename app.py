@@ -28,7 +28,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     WatchlistSeite, WatchlistFollowerSnapshot, WatchlistCityMeta,
                     GrowthExperiment, GrowthVariant, GrowthParticipant, GrowthDataPoint, GrowthKnowledge,
                     KnowledgeEntry, MissingChildCase, EmergencyNumber,
-                    TrendTopic, TrendSignal, TrendSource)
+                    TrendTopic, TrendSignal, TrendSource, TrendScoreSnapshot)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -18014,8 +18014,15 @@ def _tr_cluster_and_save(api_key):
             db.session.add(topic)
         topic.title = str(it['title'])[:200]
         topic.description = it.get('description')
+        # Verlauf: alten Score als prev_score sichern (nur wenn schon mal bewertet),
+        # Peak nachziehen, Snapshot für die Sparkline schreiben
+        if topic.score:
+            topic.prev_score = topic.score
+        topic.peak_score = max(topic.peak_score or 0, score)
         topic.score = score
         topic.last_seen_at = datetime.utcnow()
+        db.session.flush()
+        db.session.add(TrendScoreSnapshot(topic_id=topic.id, score=score))
         try:
             hours_ago = max(0, float(it.get('started_hours_ago') or 0))
         except Exception:
@@ -18096,6 +18103,9 @@ def _tr_run_scan():
             # Rohsignale älter als 7 Tage aufräumen
             TrendSignal.query.filter(
                 TrendSignal.detected_at < datetime.utcnow() - timedelta(days=7)).delete()
+            # Score-Snapshots älter als 14 Tage aufräumen
+            TrendScoreSnapshot.query.filter(
+                TrendScoreSnapshot.recorded_at < datetime.utcnow() - timedelta(days=14)).delete()
             db.session.commit()
     except Exception as e:
         _tr_scan_status['error'] = str(e)
@@ -18146,9 +18156,43 @@ def _tr_topic_dict(t):
     for s in linked:
         links.append({'source': s.source, 'title': s.title[:140],
                       'detail': s.detail or '', 'url': s.url})
+
+    # ── Trend-Richtung + Verlauf ──────────────────────────────────────────
+    # Pfeil aus dem Vergleich zum letzten Scan; kleine Toleranz gegen Rauschen
+    if t.prev_score is None:
+        trend = 'new'
+    elif t.score >= t.prev_score + 3:
+        trend = 'up'
+    elif t.score <= t.prev_score - 3:
+        trend = 'down'
+    else:
+        trend = 'flat'
+    peak = t.peak_score or t.score
+    # „Peak vorbei": deutlich (>=8 Punkte) unter dem Höchststand und nicht mehr steigend
+    past_peak = bool(peak - t.score >= 8 and trend in ('down', 'flat'))
+
+    # Sparkline aus den letzten ~12 Snapshots (chronologisch)
+    snaps = (TrendScoreSnapshot.query.filter_by(topic_id=t.id)
+             .order_by(TrendScoreSnapshot.recorded_at.desc()).limit(12).all())
+    scores = [s.score for s in reversed(snaps)]
+    spark_points = ''
+    if len(scores) >= 2:
+        lo, hi = min(scores), max(scores)
+        span = (hi - lo) or 1
+        w, h, pad = 80.0, 22.0, 2.0
+        step = w / (len(scores) - 1)
+        pts = []
+        for i, sc in enumerate(scores):
+            x = i * step
+            y = h - pad - (sc - lo) / span * (h - 2 * pad)
+            pts.append(f'{x:.1f},{y:.1f}')
+        spark_points = ' '.join(pts)
+
     return {
         'id': t.id, 'title': t.title, 'description': t.description or '',
         'score': t.score,
+        'trend': trend, 'peak_score': peak, 'past_peak': past_peak,
+        'prev_score': t.prev_score, 'spark_points': spark_points,
         'started_rel': _tr_rel_time(t.started_at),
         'started_fmt': started_local.strftime('%d.%m. %H:%M') if started_local else '',
         'last_seen_rel': _tr_rel_time(t.last_seen_at),

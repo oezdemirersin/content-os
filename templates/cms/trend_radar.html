@@ -103,13 +103,34 @@
                   <i class="fa-solid fa-signal"></i>
                   Letztes Signal <span x-text="t.last_seen_rel"></span>
                 </span>
+                <!-- Peak-vorbei-Hinweis -->
+                <span class="tr-meta" x-show="t.past_peak" x-cloak
+                      style="color:var(--warning)" :title="'Höchststand war ' + t.peak_score">
+                  <i class="fa-solid fa-arrow-trend-down"></i>
+                  Peak vorbei (war <span x-text="t.peak_score"></span>)
+                </span>
               </div>
             </div>
             <div style="flex-shrink:0;text-align:right">
-              <div class="tr-score"
-                   :style="'color:' + (t.score >= 80 ? 'var(--danger)' : t.score >= 65 ? 'var(--warning)' : 'var(--accent2)')"
-                   x-text="t.score"></div>
-              <div class="tr-score-label">Bekanntheit</div>
+              <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
+                <!-- Sparkline (Verlauf der letzten Scans) -->
+                <svg x-show="t.spark_points" x-cloak width="80" height="22"
+                     viewBox="0 0 80 22" style="overflow:visible;opacity:.85">
+                  <polyline :points="t.spark_points" fill="none" stroke-width="1.6"
+                            stroke-linejoin="round" stroke-linecap="round"
+                            :stroke="t.trend==='up' ? 'var(--success)' : t.trend==='down' ? 'var(--danger)' : 'var(--muted)'"></polyline>
+                </svg>
+                <div class="tr-score"
+                     :style="'color:' + (t.score >= 80 ? 'var(--danger)' : t.score >= 65 ? 'var(--warning)' : 'var(--accent2)')"
+                     x-text="t.score"></div>
+                <!-- Trend-Pfeil -->
+                <span :title="trendTitle(t)" style="font-size:16px;flex-shrink:0"
+                      :style="'color:' + (t.trend==='up' ? 'var(--success)' : t.trend==='down' ? 'var(--danger)' : t.trend==='new' ? 'var(--accent2)' : 'var(--muted)')">
+                  <i class="fa-solid"
+                     :class="{'fa-arrow-up': t.trend==='up', 'fa-arrow-down': t.trend==='down', 'fa-arrow-right': t.trend==='flat', 'fa-sparkles': t.trend==='new'}"></i>
+                </span>
+              </div>
+              <div class="tr-score-label" style="margin-top:2px">Bekanntheit</div>
             </div>
           </div>
 
@@ -396,6 +417,14 @@ function trendRadar() {
           }
         } catch (e) {}
       }, 2500);
+    },
+
+    trendTitle(t) {
+      if (t.trend === 'new') return 'Neu erkannt';
+      if (t.prev_score == null) return '';
+      if (t.trend === 'up')   return `Steigend (vorher ${t.prev_score})`;
+      if (t.trend === 'down') return `Fallend (vorher ${t.prev_score})`;
+      return `Stabil (vorher ${t.prev_score})`;
     },
 
     async removeTopic(id) {

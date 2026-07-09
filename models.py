@@ -1174,8 +1174,20 @@ class TrendTopic(db.Model):
     sources_json  = db.Column(db.Text, default='[]')   # [{source, detail, url}]
     archived      = db.Column(db.Boolean, default=False, index=True)
     alerted       = db.Column(db.Boolean, default=False)  # schon per Alert gemeldet? (verhindert Doppel-Alerts)
+    peak_score    = db.Column(db.Integer, default=0)      # höchster je erreichter Score (für "Peak vorbei")
+    prev_score    = db.Column(db.Integer)                 # Score beim vorherigen Scan (für Trend-Pfeil)
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TrendScoreSnapshot(db.Model):
+    """Trend Radar — Score eines Themas zu einem Scan-Zeitpunkt. Ermöglicht
+    Trend-Richtung (steigend/fallend) und Verlaufs-Sparkline."""
+    __tablename__ = 'trend_score_snapshot'
+    id          = db.Column(db.Integer, primary_key=True)
+    topic_id    = db.Column(db.Integer, db.ForeignKey('trend_topic.id'), index=True)
+    score       = db.Column(db.Integer, default=0)
+    recorded_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)  # UTC
 
 
 class TrendSignal(db.Model):
