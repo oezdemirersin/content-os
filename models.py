@@ -1176,6 +1176,8 @@ class TrendTopic(db.Model):
     alerted       = db.Column(db.Boolean, default=False)  # schon per Alert gemeldet? (verhindert Doppel-Alerts)
     peak_score    = db.Column(db.Integer, default=0)      # höchster je erreichter Score (für "Peak vorbei")
     prev_score    = db.Column(db.Integer)                 # Score beim vorherigen Scan (für Trend-Pfeil)
+    feedback      = db.Column(db.Integer)                 # Nutzer-Feedback: +1 = war groß, -1 = war kein Großthema
+    feedback_at   = db.Column(db.DateTime)               # wann das Feedback gegeben wurde
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

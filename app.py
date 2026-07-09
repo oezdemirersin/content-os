@@ -17499,15 +17499,22 @@ def _tr_add_signal(source, title, detail=None, url=None, metric=None):
     return sig
 
 
-# ── Collector 1: Google Trends (Trending Searches DE, RSS) ────────────────────
+# ── Collector 1: Google Trends (Trending Now DE, RSS) ─────────────────────────
+# Hinweis: Googles frühere separate "Realtime Trends"-API ist tot (404). Der
+# /trending/rss-Feed IST inzwischen Googles Live-"Trending Now"-Feed und
+# aktualisiert sich untertägig. Wir werten zusätzlich das pubDate jedes Trends
+# aus (wie frisch ist der Spike?) — das ist der Realtime-Hebel: ganz junge
+# Ausschläge werden erkennbar und fließen genauer in started_at ein.
 def _tr_fetch_google_trends():
     import urllib.request
     import xml.etree.ElementTree as ET
+    from email.utils import parsedate_to_datetime
     count = 0
     req = urllib.request.Request('https://trends.google.com/trending/rss?geo=DE',
                                  headers={'User-Agent': 'Mozilla/5.0 (ContentOS TrendRadar)'})
     with urllib.request.urlopen(req, timeout=15) as resp:
         root = ET.fromstring(resp.read())
+    now = datetime.utcnow()
     for item in root.findall('.//item'):
         title = (item.findtext('title') or '').strip()
         if not title:
@@ -17524,7 +17531,21 @@ def _tr_fetch_google_trends():
                         news_title = (sub.text or '').strip()
                     elif stag == 'news_item_url':
                         news_url = (sub.text or '').strip()
+        # Frische aus pubDate (Realtime-Signal): wie viele Stunden läuft der Trend?
+        fresh_h = None
+        pub = item.findtext('pubDate')
+        if pub:
+            try:
+                dt = parsedate_to_datetime(pub)
+                if dt.tzinfo:
+                    dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+                fresh_h = max(0.0, (now - dt).total_seconds() / 3600)
+            except Exception:
+                fresh_h = None
         detail = f'~{traffic} Suchanfragen' if traffic else 'Trending Search DE'
+        if fresh_h is not None:
+            detail += (' · gerade frisch aufgekommen' if fresh_h < 3
+                       else f' · seit ~{fresh_h:.0f} Std. im Trend')
         if news_title:
             detail += f' · News: {news_title[:120]}'
         # approx_traffic wie "500+" / "20.000+" → Zahl für metric
@@ -17534,7 +17555,49 @@ def _tr_fetch_google_trends():
                 metric = float(traffic.replace('+', '').replace('.', '').replace(',', ''))
             except Exception:
                 metric = None
+        # Sehr frische Spikes zusätzlich gewichten (Realtime-Priorisierung)
+        if metric and fresh_h is not None and fresh_h < 3:
+            metric *= 1.5
         if _tr_add_signal('google_trends', title, detail, news_url, metric):
+            count += 1
+    return count
+
+
+# ── Collector: TV-Quoten (DWDL) ───────────────────────────────────────────────
+# Es gibt keinen offenen strukturierten Quoten-Feed mehr. DWDLs Haupt-RSS enthält
+# aber verlässlich die täglichen Quoten-Artikel ("XY siegt", "Sat.1 legt zu",
+# Zuschauerzahlen). Wir filtern per Stichwörtern und legen sie als echte TV-Signale
+# an — ergänzend zur KI-Websuche, die TV bisher allein bestätigen musste.
+def _tr_fetch_tv_quoten():
+    import urllib.request
+    import xml.etree.ElementTree as ET
+    import re as _re
+    count = 0
+    req = urllib.request.Request('https://www.dwdl.de/rss/allethemen.xml',
+                                 headers={'User-Agent': 'Mozilla/5.0 (ContentOS TrendRadar)'})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        root = ET.fromstring(resp.read())
+    kw = ('quote', 'zuschauer', 'marktanteil', 'million', 'einschalt', 'reichweite',
+          'primetime', 'sahen', 'quoten', 'tv-tag', 'einschaltquote')
+    for item in root.findall('.//item'):
+        title = (item.findtext('title') or '').strip()
+        desc = (item.findtext('description') or '').strip()
+        if not title:
+            continue
+        blob = (title + ' ' + desc).lower()
+        if not any(k in blob for k in kw):
+            continue
+        link = (item.findtext('link') or '').strip()
+        # Zuschauerzahl aus dem Text ("4,52 Millionen" / "1,3 Mio.") → metric
+        metric, detail = None, 'TV-Quoten (DWDL)'
+        m = _re.search(r'(\d+[.,]?\d*)\s*(?:Mio\.?|Millionen)', title + ' ' + desc, _re.I)
+        if m:
+            try:
+                metric = float(m.group(1).replace(',', '.')) * 1_000_000
+                detail = f'~{m.group(1)} Mio. Zuschauer (DWDL)'
+            except Exception:
+                metric = None
+        if _tr_add_signal('tv', title, detail, link, metric):
             count += 1
     return count
 
@@ -17876,6 +17939,7 @@ def _tr_collect_signals():
         ('YouTube', _tr_fetch_youtube),
         ('Instagram', _tr_fetch_instagram_news),
         ('TikTok', _tr_fetch_tiktok),
+        ('TV-Quoten', _tr_fetch_tv_quoten),
     ]
     total = 0
     for name, fn in collectors:
@@ -17921,10 +17985,11 @@ Harte Regeln:
   gestützt auf Stärke und ANZAHL unabhängiger Quellen. Mehrere Plattformen
   gleichzeitig = stärkstes Indiz.
 - platforms nur nennen, wenn Signale es belegen. Instagram/TikTok-Signale kommen
-  jetzt direkt aus echten Account-Overperformance-Daten (inkl. Meme-Nischen,
-  nicht nur News) — nutze sie wie jedes andere Signal. "tv" darfst du zusätzlich
-  per Websuche prüfen (max. 2 Suchen, z.B. TV-Quoten gestern) — nur setzen, wenn
-  du es wirklich bestätigen kannst.
+  direkt aus echten Account-Overperformance-Daten (inkl. Meme-Nischen, nicht nur
+  News). "tv"-Signale kommen jetzt ebenfalls direkt aus echten Quoten-Meldungen
+  (Quelle "tv", von DWDL) — setze has_tv, wenn ein solches Signal zum Thema passt.
+  Ergänzend darfst du TV per Websuche prüfen (max. 2 Suchen, z.B. genaue
+  Zuschauerzahl/Quote gestern), aber nur wenn es einen Mehrwert bringt.
 - Wenn ein existierendes Thema (existing_id) dasselbe Ereignis beschreibt, dieses
   weiterführen statt ein neues anzulegen.
 
@@ -17981,10 +18046,32 @@ def _tr_cluster_and_save(api_key):
     ex_lines = [f'[{t.id}] {t.title} (Score {t.score}): {(t.description or "")[:150]}'
                 for t in existing]
 
+    # ── Nutzer-Feedback der letzten 30 Tage als Kalibrierung ──────────────
+    fb_cutoff = datetime.utcnow() - timedelta(days=30)
+    fb_up = TrendTopic.query.filter(TrendTopic.feedback == 1,
+                                    TrendTopic.feedback_at >= fb_cutoff)\
+        .order_by(TrendTopic.feedback_at.desc()).limit(15).all()
+    fb_down = TrendTopic.query.filter(TrendTopic.feedback == -1,
+                                      TrendTopic.feedback_at >= fb_cutoff)\
+        .order_by(TrendTopic.feedback_at.desc()).limit(15).all()
+    fb_block = ''
+    if fb_up or fb_down:
+        fb_block = '\n\n--- NUTZER-FEEDBACK (zur Kalibrierung, aus echter Rückmeldung) ---\n'
+        if fb_up:
+            fb_block += ('Als WIRKLICH große Themen bestätigt: '
+                         + '; '.join(t.title for t in fb_up) + '\n')
+        if fb_down:
+            fb_block += ('Als ZU KLEIN / kein echtes Großthema markiert: '
+                         + '; '.join(t.title for t in fb_down) + '\n')
+        fb_block += ('Lerne daraus: Themen, die den "zu klein"-Beispielen ähneln, '
+                     'zurückhaltender bewerten oder weglassen; Themen wie die '
+                     'bestätigten ruhig aufnehmen.')
+
     berlin_now = now_berlin().strftime('%A, %d.%m.%Y %H:%M')
     uc = (f'Jetzt ist {berlin_now} (Deutschland).\n\n'
           f'--- EXISTIERENDE THEMEN (letzte 7 Tage) ---\n'
           + ('\n'.join(ex_lines) if ex_lines else '(keine)')
+          + fb_block
           + f'\n\n--- ROHSIGNALE (letzte 24h, {len(signals)} Stück) ---\n'
           + '\n'.join(sig_lines)[:24000])
 
@@ -18193,6 +18280,7 @@ def _tr_topic_dict(t):
         'score': t.score,
         'trend': trend, 'peak_score': peak, 'past_peak': past_peak,
         'prev_score': t.prev_score, 'spark_points': spark_points,
+        'feedback': t.feedback or 0,
         'started_rel': _tr_rel_time(t.started_at),
         'started_fmt': started_local.strftime('%d.%m. %H:%M') if started_local else '',
         'last_seen_rel': _tr_rel_time(t.last_seen_at),
@@ -18266,6 +18354,23 @@ def trend_radar_topic_delete(tid):
     t.archived = True
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/trend-radar/topic/<int:tid>/feedback', methods=['POST'])
+@login_required
+def trend_radar_feedback(tid):
+    """Nutzer bewertet ob ein Thema wirklich groß war (+1) oder nicht (-1).
+    Fließt beim nächsten Scan als Kalibrierung in den KI-Prompt ein."""
+    t = TrendTopic.query.get_or_404(tid)
+    d = request.get_json() or {}
+    try:
+        v = int(d.get('value', 0))
+    except Exception:
+        v = 0
+    t.feedback = v if v in (1, -1) else None
+    t.feedback_at = datetime.utcnow() if t.feedback else None
+    db.session.commit()
+    return jsonify({'ok': True, 'feedback': t.feedback or 0})
 
 
 @app.route('/api/trend-radar/settings', methods=['GET', 'POST'])

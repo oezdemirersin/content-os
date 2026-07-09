@@ -199,6 +199,19 @@
               </template>
             </div>
           </div>
+
+          <!-- Feedback: kalibriert die KI beim nächsten Scan -->
+          <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
+            <span style="font-size:11px;color:var(--muted)">War das wirklich ein Großthema?</span>
+            <button @click="setFeedback(t, 1)" title="Ja, war groß — bestätigen"
+                    :style="'display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;border:1px solid var(--border);transition:all .12s;' + (t.feedback===1 ? 'background:rgba(34,197,94,.15);color:#22c55e;border-color:rgba(34,197,94,.4)' : 'background:var(--surface2);color:var(--muted)')">
+              <i class="fa-solid fa-thumbs-up" style="font-size:11px"></i> Ja
+            </button>
+            <button @click="setFeedback(t, -1)" title="Nein, war kein echtes Großthema"
+                    :style="'display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;border:1px solid var(--border);transition:all .12s;' + (t.feedback===-1 ? 'background:rgba(239,68,68,.15);color:#ef4444;border-color:rgba(239,68,68,.4)' : 'background:var(--surface2);color:var(--muted)')">
+              <i class="fa-solid fa-thumbs-down" style="font-size:11px"></i> Nein
+            </button>
+          </div>
         </div>
         <button @click="removeTopic(t.id)" title="Thema ausblenden"
                 style="background:none;border:none;color:var(--muted);cursor:pointer;
@@ -425,6 +438,19 @@ function trendRadar() {
       if (t.trend === 'up')   return `Steigend (vorher ${t.prev_score})`;
       if (t.trend === 'down') return `Fallend (vorher ${t.prev_score})`;
       return `Stabil (vorher ${t.prev_score})`;
+    },
+
+    async setFeedback(t, v) {
+      const nv = (t.feedback === v) ? 0 : v;   // erneuter Klick = zurücknehmen
+      const r = await fetch(`/api/trend-radar/topic/${t.id}/feedback`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({value: nv}),
+      });
+      const d = await r.json();
+      t.feedback = d.feedback;
+      showToast(nv === 1 ? 'Als Großthema bestätigt — fließt in die KI-Bewertung ein'
+              : nv === -1 ? 'Als zu klein markiert — die KI lernt daraus'
+              : 'Feedback zurückgenommen', nv ? 'success' : 'info');
     },
 
     async removeTopic(id) {
