@@ -1011,7 +1011,13 @@ def init_db():
                             if isinstance(v, str):
                                 default_sql = f" DEFAULT '{v}'"
                             elif isinstance(v, bool):
-                                default_sql = f" DEFAULT {'1' if v else '0'}"
+                                # Postgres akzeptiert für BOOLEAN kein DEFAULT 0/1 —
+                                # das ließ boolsche Spalten (z.B. trend_topic.alerted)
+                                # still fehlschlagen. TRUE/FALSE auf PG, 0/1 auf SQLite.
+                                if is_postgres:
+                                    default_sql = f" DEFAULT {'TRUE' if v else 'FALSE'}"
+                                else:
+                                    default_sql = f" DEFAULT {'1' if v else '0'}"
                             elif v is not None:
                                 default_sql = f' DEFAULT {v}'
                         elif col.server_default is not None:
@@ -1360,6 +1366,14 @@ def init_db():
                 haben_seite BOOLEAN DEFAULT FALSE,
                 seite_geplant BOOLEAN DEFAULT FALSE,
                 updated_at TIMESTAMP DEFAULT NOW())''')
+            # ── trend_topic: später ergänzte Spalten (Alert/Verlauf/Feedback) ──
+            # Explizit hier, weil die Auto-Migration boolsche Defaults auf PG
+            # früher falsch (DEFAULT 0 statt FALSE) erzeugt hat.
+            safe_alter('ALTER TABLE trend_topic ADD COLUMN IF NOT EXISTS alerted BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE trend_topic ADD COLUMN IF NOT EXISTS peak_score INTEGER DEFAULT 0')
+            safe_alter('ALTER TABLE trend_topic ADD COLUMN IF NOT EXISTS prev_score INTEGER')
+            safe_alter('ALTER TABLE trend_topic ADD COLUMN IF NOT EXISTS feedback INTEGER')
+            safe_alter('ALTER TABLE trend_topic ADD COLUMN IF NOT EXISTS feedback_at TIMESTAMP')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
