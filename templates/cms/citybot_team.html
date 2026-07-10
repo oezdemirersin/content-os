@@ -1,8 +1,16 @@
 {% extends "base.html" %}
-{% block title %}CityBot Team — Content OS{% endblock %}
-{% block page_title %}CITYBOT TEAM{% endblock %}
+{% block title %}Team — Content OS{% endblock %}
+{% block page_title %}TEAM{% endblock %}
 
 {% block content %}
+<div style="display:flex;gap:4px;margin-bottom:22px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px;width:fit-content">
+  <a href="{{ url_for('mitarbeiter') }}" style="padding:8px 18px;border-radius:7px;font-size:13px;font-weight:600;text-decoration:none;{% if active_page == 'mitarbeiter' %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">
+    <i class="fa-solid fa-users" style="margin-right:6px"></i>Mein Team
+  </a>
+  <a href="{{ url_for('citybot_team') }}" style="padding:8px 18px;border-radius:7px;font-size:13px;font-weight:600;text-decoration:none;{% if active_page == 'citybot_team' %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">
+    <i class="fa-solid fa-newspaper" style="margin-right:6px"></i>CityBot Team
+  </a>
+</div>
 <div style="max-width:1000px">
 
   <p style="font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.6">

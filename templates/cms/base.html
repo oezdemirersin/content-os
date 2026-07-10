@@ -464,12 +464,9 @@
     </a>
 
     <div class="nav-section">System</div>
-    {# Team-Gruppe: CityBot Team eingerückt unter Mitarbeiter (spätere Tab-Seite „Team") #}
-    <a href="{{ url_for('mitarbeiter') }}" class="nav-item {% if active_page == 'mitarbeiter' %}active{% endif %}">
+    {# Team: eine Seite mit zwei Tabs (Mein Team + CityBot Team) #}
+    <a href="{{ url_for('mitarbeiter') }}" class="nav-item {% if active_page in ['mitarbeiter', 'citybot_team'] %}active{% endif %}">
       <i class="fa-solid fa-users"></i> Team
-    </a>
-    <a href="{{ url_for('citybot_team') }}" class="nav-sub {% if active_page == 'citybot_team' %}active{% endif %}">
-      <i class="fa-solid fa-newspaper"></i> CityBot Team
     </a>
     {# Status-Gruppe: Alerts eingerückt unter Systemstatus (spätere Tab-Seite „Status") #}
     <a href="{{ url_for('system_status_page') }}" class="nav-item {% if active_page == 'status' %}active{% endif %}">
