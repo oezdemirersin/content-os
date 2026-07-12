@@ -1349,5 +1349,10 @@ class ProductAlertSource(db.Model):
     name     = db.Column(db.String(200))
     url      = db.Column(db.Text, nullable=False)
     active   = db.Column(db.Boolean, default=True)
+    # True = dedizierter Rückruf-Feed (z.B. BAuA-Produktsicherheit) — jeder
+    # Eintrag ist bereits ein Rückruf, Titel enthalten oft keine "Rückruf"/
+    # "Warnung"-Wörter (nur Produktname+Hersteller). False = allgemeiner
+    # News-/Presse-Feed, wird per Keyword vorgefiltert (z.B. produktwarnung.eu).
+    dedicated_feed = db.Column(db.Boolean, default=False)
     last_scanned_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

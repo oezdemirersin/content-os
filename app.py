@@ -1383,6 +1383,7 @@ def init_db():
             safe_alter('ALTER TABLE product_alert ADD COLUMN IF NOT EXISTS feedback INTEGER')
             safe_alter('ALTER TABLE product_alert ADD COLUMN IF NOT EXISTS feedback_at TIMESTAMP')
             safe_alter('ALTER TABLE product_alert ADD COLUMN IF NOT EXISTS related_alert_id INTEGER')
+            safe_alter('ALTER TABLE product_alert_source ADD COLUMN IF NOT EXISTS dedicated_feed BOOLEAN DEFAULT FALSE')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -19543,7 +19544,11 @@ def _pwf_run_research():
     checked = created = 0
     for src in sources:
         try:
-            entries = fetch_rss_feed(src.url, keywords=KW) or []
+            # Dedizierte Rückruf-Feeds (z.B. BAuA) brauchen keinen Keyword-
+            # Filter — jeder Eintrag ist bereits ein Rückruf, die Titel
+            # enthalten oft keine "Rückruf"/"Warnung"-Wörter (nur Produkt-
+            # name+Hersteller). Allgemeine News-Feeds werden weiter gefiltert.
+            entries = fetch_rss_feed(src.url, keywords=None if src.dedicated_feed else KW) or []
         except Exception as e:
             app.logger.warning('PWF Feed %s: %s', src.url, e)
             continue
@@ -19628,23 +19633,36 @@ def pwf_sources():
     if request.method == 'GET':
         srcs = ProductAlertSource.query.order_by(ProductAlertSource.name).all()
         return jsonify({'sources': [{'id': s.id, 'name': s.name, 'url': s.url, 'active': s.active,
+                                     'dedicated_feed': bool(s.dedicated_feed),
                                      'last_scanned_rel': _tr_rel_time(s.last_scanned_at) if s.last_scanned_at else ''}
                                     for s in srcs]})
     d = request.get_json(silent=True) or {}
     url = (d.get('url') or '').strip()
     if not url:
         return jsonify({'ok': False, 'error': 'URL erforderlich'}), 400
-    s = ProductAlertSource(name=(d.get('name') or url).strip(), url=url, active=True)
+    s = ProductAlertSource(name=(d.get('name') or url).strip(), url=url, active=True,
+                           dedicated_feed=bool(d.get('dedicated_feed')))
     db.session.add(s)
     db.session.commit()
-    return jsonify({'ok': True, 'source': {'id': s.id, 'name': s.name, 'url': s.url, 'active': s.active}})
+    return jsonify({'ok': True, 'source': {'id': s.id, 'name': s.name, 'url': s.url, 'active': s.active,
+                                           'dedicated_feed': s.dedicated_feed}})
 
 
-@app.route('/api/pwf/sources/<int:sid>', methods=['DELETE'])
+@app.route('/api/pwf/sources/<int:sid>', methods=['PATCH', 'DELETE'])
 @login_required
-def pwf_source_delete(sid):
+def pwf_source_edit(sid):
     s = ProductAlertSource.query.get_or_404(sid)
-    db.session.delete(s)
+    if request.method == 'DELETE':
+        db.session.delete(s)
+        db.session.commit()
+        return jsonify({'ok': True})
+    d = request.get_json(silent=True) or {}
+    if 'dedicated_feed' in d:
+        s.dedicated_feed = bool(d['dedicated_feed'])
+    if 'active' in d:
+        s.active = bool(d['active'])
+    if 'name' in d and (d['name'] or '').strip():
+        s.name = d['name'].strip()
     db.session.commit()
     return jsonify({'ok': True})
 
@@ -19665,7 +19683,8 @@ def pwf_einstellungen():
     sources = ProductAlertSource.query.order_by(ProductAlertSource.name).all()
     accounts = Account.query.filter(Account.status.in_(['active', 'paused'])).order_by(Account.name).all()
     return render_template('pwf_einstellungen.html',
-        sources=[{'id': s.id, 'name': s.name, 'url': s.url, 'active': s.active} for s in sources],
+        sources=[{'id': s.id, 'name': s.name, 'url': s.url, 'active': s.active,
+                 'dedicated_feed': bool(s.dedicated_feed)} for s in sources],
         accounts=[{'id': a.id, 'name': a.name} for a in accounts],
         target_account_id=get_setting('pwf_target_account_id'),
         auto_on=(get_setting('pwf_auto_research') == '1'),
