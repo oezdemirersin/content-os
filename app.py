@@ -14241,6 +14241,24 @@ def telegram_bot_webhook():
             except Exception as e:
                 _tg_answer_callback(token, cb_id, f'Fehler: {e}', alert=True)
 
+        elif cb_data.startswith('pwfposted_'):
+            try:
+                alert_id = int(cb_data.split('_', 1)[1])
+                pa = ProductAlert.query.get(alert_id)
+                if pa and pa.status != 'veroeffentlicht':
+                    pa.status = 'veroeffentlicht'
+                    if not pa.published_at:
+                        pa.published_at = datetime.utcnow()
+                    db.session.commit()
+                    _tg_answer_callback(token, cb_id, '✅ Als veröffentlicht markiert!', alert=False)
+                    _tg_edit_message_text(token, cb_chat_id, cb_msg_id,
+                        f'✅ <b>Veröffentlicht von {cb_user}</b> um {datetime.utcnow().strftime("%H:%M")} UTC\n'
+                        f'Produktwarnung #{alert_id}')
+                else:
+                    _tg_answer_callback(token, cb_id, 'Bereits markiert.', alert=False)
+            except Exception as e:
+                _tg_answer_callback(token, cb_id, f'Fehler: {e}', alert=True)
+
         elif cb_data.startswith('morning_np_'):
             try:
                 d = datetime.strptime(cb_data[len('morning_np_'):], '%Y-%m-%d').date()
