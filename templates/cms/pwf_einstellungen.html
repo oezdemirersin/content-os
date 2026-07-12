@@ -3,10 +3,73 @@
 {% block page_title %}PRODUCT ALERT — EINSTELLUNGEN{% endblock %}
 
 {% block content %}
+<style>[x-cloak] { display: none !important }</style>
 <div style="max-width:900px">
   <a href="{{ url_for('product_alert_factory') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Zurück zur Factory</a>
 
-  <div class="card" style="padding:20px;margin:14px 0 20px">
+  <div class="card" style="padding:20px;margin:14px 0 20px" x-data="canvaSettings()" x-init="init()">
+    <div style="font-weight:700;margin-bottom:6px">🎨 Design-Rendering</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:14px">
+      Standardmäßig erzeugt Content OS die Instagram-Karte selbst (schnell, kein Extra-Konto nötig).
+      Alternativ kann ein selbst gestaltetes Canva-Brand-Template automatisch befüllt werden — dafür
+      musst du das Design <b>einmal in Canva selbst bauen</b>, hier verbinden und die Feldnamen zuordnen.
+    </p>
+
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button @click="renderType='pil'; saveConfig()"
+              :class="renderType==='pil' ? 'btn btn-primary' : 'btn btn-ghost'"
+              style="font-size:12px;padding:8px 14px">Lokal (automatisch)</button>
+      <button @click="renderType='canva'; saveConfig()"
+              :class="renderType==='canva' ? 'btn btn-primary' : 'btn btn-ghost'"
+              style="font-size:12px;padding:8px 14px">Canva-Template</button>
+    </div>
+
+    <div x-show="renderType==='canva'" x-cloak style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
+
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <span x-show="connected" x-cloak class="badge badge-green"><i class="fa-solid fa-check"></i> Verbunden</span>
+        <span x-show="!connected" x-cloak class="badge badge-gray">Nicht verbunden</span>
+        <a href="/canva/connect" class="btn btn-ghost" style="font-size:12px;padding:6px 12px" x-show="!connected">Mit Canva verbinden</a>
+        <button @click="disconnect()" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--danger)" x-show="connected">Trennen</button>
+        <span x-show="!clientIdSet" x-cloak style="font-size:11px;color:var(--warning)">⚠️ CANVA_CLIENT_ID/SECRET fehlen als Umgebungsvariable auf Render</span>
+      </div>
+
+      <details style="margin-bottom:14px">
+        <summary style="cursor:pointer;font-size:12px;color:var(--accent2)">Anleitung: Was du in Canva selbst tun musst</summary>
+        <ol style="font-size:12px;color:var(--muted);line-height:1.8;padding-left:18px;margin-top:8px">
+          <li>Auf <a href="https://www.canva.com/developers" target="_blank" rel="noopener" style="color:var(--accent2)">canva.com/developers</a> eine eigene Integration anlegen (nicht die von MemeOS mitbenutzen — eigene Client-ID nötig), Redirect-URI <code style="font-size:11px" x-text="redirectUri"></code> eintragen, Client-ID + Secret als <code>CANVA_CLIENT_ID</code>/<code>CANVA_CLIENT_SECRET</code> auf Render setzen.</li>
+          <li>Das Design in Canva bauen (Layout siehe Screenshot/Briefing — Rückruf-Header, Risiko-Badge, Produktfoto, Info-Karten, Handlungsempfehlung).</li>
+          <li>Jedes Text-/Bildelement, das später automatisch befüllt werden soll, in Canva als <b>„Feld"</b> markieren (Element auswählen → Seitenleiste → „Feld verbinden") und exakt so benennen wie in der Zuordnung unten rechts (z.B. <code>produktname</code>, <code>risiko</code>, <code>produktfoto</code> als Bild-Feld).</li>
+          <li>Als Brand-Template speichern, die Template-ID aus der URL kopieren (<code>canva.com/design/<b>DAAxxxxxxxx</b>/...</code>) und unten eintragen.</li>
+          <li>Oben „Mit Canva verbinden" klicken, dann unten „Testen".</li>
+        </ol>
+      </details>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>
+          <label class="form-label">Brand-Template-ID</label>
+          <input x-model="templateId" @change="saveConfig()" class="input-field" placeholder="z.B. DAFxxxxxxxxxxx">
+          <label class="form-label" style="margin-top:12px">Feld-Zuordnung (JSON: unser Feld → Canva-Feldname)</label>
+          <textarea x-model="fieldMap" @change="saveConfig()" rows="12" class="input-field" style="font-family:monospace;font-size:11px"></textarea>
+        </div>
+        <div>
+          <label class="form-label">Vorschau-Test</label>
+          <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Füllt das Template mit Beispieldaten — ohne echten Fall anzulegen.</p>
+          <button @click="testAutofill()" class="btn btn-ghost" style="font-size:12px;padding:8px 14px" :disabled="testing">
+            <span x-text="testing ? 'Teste…' : 'Testen'"></span>
+          </button>
+          <div x-show="testMsg" x-cloak style="font-size:12px;margin-top:8px" :style="'color:' + (testOk ? 'var(--success)' : 'var(--danger)')" x-text="testMsg"></div>
+          <img x-show="previewSrc" x-cloak :src="previewSrc" style="width:100%;margin-top:10px;border-radius:8px;border:1px solid var(--border)">
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:12px">
+        Schlägt der Canva-Autofill bei einem echten Fall fehl (falsche Feldnamen, Verbindung abgelaufen o.ä.),
+        springt Content OS automatisch auf das lokale Rendering zurück — es entsteht nie ein Post ohne Bild.
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:20px;margin-bottom:20px">
     <div style="font-weight:700;margin-bottom:6px">🔎 Automatische Recherche</div>
     <p style="font-size:12px;color:var(--muted);margin-bottom:14px">
       Durchsucht die Quellen nach Produktwarnungen/Rückrufen und legt automatisch Entwürfe an (mit
@@ -66,6 +129,52 @@
 {% block scripts %}
 <script>
 function _t(m,t){ if(typeof showToast==='function') showToast(m,t||'success'); }
+
+function canvaSettings(){
+  return {
+    renderType: 'pil', connected: false, clientIdSet: false,
+    templateId: '', fieldMap: '', redirectUri: location.origin + '/canva/callback',
+    testing: false, testMsg: '', testOk: false, previewSrc: '',
+
+    async init(){
+      const r = await fetch('/api/pwf/canva-config').then(r=>r.json()).catch(()=>null);
+      if(r){
+        this.renderType = r.render_type || 'pil';
+        this.connected = !!r.connected;
+        this.clientIdSet = !!r.client_id_set;
+        this.templateId = r.template_id || '';
+        this.fieldMap = r.field_map || '';
+      }
+      const params = new URLSearchParams(location.search);
+      if(params.get('canva') === 'connected'){ _t('Mit Canva verbunden ✓'); this.connected = true; }
+      else if(params.get('canva') === 'error'){ _t('Canva-Verbindung fehlgeschlagen', 'error'); }
+    },
+
+    async saveConfig(){
+      const r = await fetch('/api/pwf/canva-config', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({render_type: this.renderType, template_id: this.templateId, field_map: this.fieldMap}),
+      }).then(r=>r.json()).catch(()=>({ok:false}));
+      if(r.ok) _t('Gespeichert'); else _t(r.error || 'Fehler beim Speichern', 'error');
+    },
+
+    async disconnect(){
+      if(typeof customConfirm==='function'){ if(!await customConfirm('Canva trennen','Verbindung zu Canva wirklich trennen?','Trennen')) return; }
+      await fetch('/canva/disconnect', {method: 'POST'});
+      this.connected = false;
+      _t('Canva-Verbindung getrennt');
+    },
+
+    async testAutofill(){
+      this.testing = true; this.testMsg = ''; this.previewSrc = '';
+      const r = await fetch('/api/pwf/canva-test', {method: 'POST'}).then(r=>r.json()).catch(()=>({ok:false,error:'Netzwerkfehler'}));
+      this.testing = false;
+      this.testOk = !!r.ok;
+      this.testMsg = r.ok ? '✓ Autofill erfolgreich' : ('✗ ' + (r.error || 'Fehler'));
+      if(r.ok) this.previewSrc = r.preview;
+    },
+  };
+}
 async function runResearch(btn){
   const o=btn.textContent,msg=document.getElementById('resMsg'); btn.disabled=true; btn.textContent='Recherchiere…'; msg.textContent='';
   const r=await fetch('/api/pwf/research/run',{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false,error:'Netzwerkfehler'}));

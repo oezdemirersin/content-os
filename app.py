@@ -335,7 +335,9 @@ def login_required(f):
 # sonst werden alle eingehenden Bot-Kommandos (/heute, /vorrat …) mit 401 abgewiesen.
 # api_memeos_receive: MemeOS hat keine Session hier → eigene Auth via X-MemeOS-Key (siehe Route).
 PUBLIC_ENDPOINTS = {'login', 'logout', 'static', 'cron_sync_followers',
-                    'cron_morning_report', 'telegram_bot_webhook', 'api_memeos_receive'}
+                    'cron_morning_report', 'telegram_bot_webhook', 'api_memeos_receive',
+                    'canva_callback'}  # Redirect von Canva — Token-Austausch scheitert ohne
+                    # gültigen, session-gebundenen code_verifier ohnehin sauber ab
 
 @app.before_request
 def global_auth_guard():
@@ -19153,7 +19155,7 @@ def pwf_create_alert():
     if media_ids:
         a.foto_media_id = media_ids[0]
 
-    a.generated_image_path = _render_product_alert_image(a)
+    a.generated_image_path = _pwf_render_card(a)
     if not a.caption:
         a.caption = _pwf_generate_caption(a)
     db.session.commit()
@@ -19197,7 +19199,7 @@ def pwf_set_status(aid):
 @login_required
 def pwf_regen_image(aid):
     a = ProductAlert.query.get_or_404(aid)
-    a.generated_image_path = _render_product_alert_image(a)
+    a.generated_image_path = _pwf_render_card(a)
     db.session.commit()
     return jsonify({'ok': True, 'image': f'/media/file/{a.generated_image_path}'})
 
@@ -19223,7 +19225,7 @@ def pwf_send_telegram(aid):
     if not chat_id or chat_id in ('None', 'null'):
         return jsonify({'ok': False, 'error': 'Ziel-Seite hat keinen Telegram-Channel. Bitte Seite wählen und Channel eintragen.'}), 400
     if not a.generated_image_path or not os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], a.generated_image_path)):
-        a.generated_image_path = _render_product_alert_image(a)
+        a.generated_image_path = _pwf_render_card(a)
     img_path = os.path.join(app.config['UPLOAD_FOLDER'], a.generated_image_path)
     try:
         with open(img_path, 'rb') as f:
@@ -19304,7 +19306,7 @@ def _pwf_run_research():
                 if pid:
                     a.foto_media_id = pid
             try:
-                a.generated_image_path = _render_product_alert_image(a)
+                a.generated_image_path = _pwf_render_card(a)
                 if not a.caption:
                     a.caption = _pwf_generate_caption(a)
             except Exception as ex:
@@ -19392,6 +19394,414 @@ def pwf_einstellungen():
         target_account_id=get_setting('pwf_target_account_id'),
         auto_on=(get_setting('pwf_auto_research') == '1'),
         active_page='studio')
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CANVA-AUTOFILL für die Product Alert Factory — optionale Alternative zum
+# lokalen PIL-Renderer. Baut auf demselben OAuth-PKCE + Autofill-Muster wie die
+# MemeOS-Canva-Anbindung auf (eigene Client-ID nötig — eigenständige
+# Codebase/DB, auch wenn dasselbe Canva-Konto verbunden wird), ergänzt um
+# Bild-Feld-Autofill (Produktfoto) über die Canva Asset-Upload-API, die
+# MemeOS bisher nicht nutzt (dort nur Text-Felder).
+#
+# WICHTIG — das kann kein Code allein: der Mensch baut das Canva-Brand-
+# Template EINMAL selbst (Layout, Farben, Icons — siehe Designbriefing),
+# benennt die Platzhalter-Felder in Canva exakt wie unten in
+# PWF_CANVA_DEFAULT_FIELD_MAP vorgeschlagen (oder passt die Zuordnung in den
+# Einstellungen an) und trägt die Brand-Template-ID ein. Ohne echten
+# Canva-Account/-Template konnte dieser Teil hier nur bis zur API-Grenze
+# getestet werden (siehe Commit-Notiz) — der erste echte Autofill-Lauf muss
+# vom Menschen beobachtet werden.
+# ══════════════════════════════════════════════════════════════════════════════
+
+CANVA_CLIENT_ID     = os.environ.get('CANVA_CLIENT_ID', '')
+CANVA_CLIENT_SECRET = os.environ.get('CANVA_CLIENT_SECRET', '')
+CANVA_SCOPES = 'asset:read asset:write design:content:read design:content:write brand_template:read'
+
+# Vorschlag für die Feldnamen, die in Canva als "Feld" markiert werden müssen
+# (Elemente auswählen → rechte Seitenleiste → "Feld verbinden"). Der Nutzer
+# kann die rechte Seite in den Einstellungen frei anpassen, falls er in Canva
+# andere Namen vergeben hat.
+PWF_CANVA_DEFAULT_FIELD_MAP = {
+    'kategorie_banner': 'kategorie_banner', 'kategorie': 'kategorie', 'risiko': 'risiko',
+    'titel': 'titel', 'beschreibung': 'beschreibung',
+    'produktname': 'produktname', 'marke': 'marke', 'hersteller': 'hersteller',
+    'charge': 'charge', 'losnummer': 'losnummer', 'mhd': 'mhd', 'ean': 'ean',
+    'verpackungsgroesse': 'verpackungsgroesse', 'verkaufsstellen': 'verkaufsstellen',
+    'betroffene_regionen': 'betroffene_regionen',
+    'rueckrufgrund': 'rueckrufgrund', 'handlungsempfehlung': 'handlungsempfehlung',
+    'originalquelle': 'originalquelle', 'quelle_datum': 'quelle_datum',
+    'produktfoto': 'produktfoto',   # Bild-Feld — einziges Feld vom Typ "image"
+}
+PWF_CANVA_IMAGE_KEYS = {'produktfoto'}
+
+
+def _canva_redirect_uri():
+    base = (get_setting('app_base_url') or os.environ.get('RENDER_EXTERNAL_URL')
+            or request.host_url.rstrip('/'))
+    return base.rstrip('/') + '/canva/callback'
+
+
+def _canva_load_tokens():
+    try:
+        return json.loads(get_setting('canva_tokens') or '{}')
+    except Exception:
+        return {}
+
+
+def _canva_save_tokens(tokens):
+    set_setting('canva_tokens', json.dumps(tokens))
+    db.session.commit()
+
+
+def _canva_get_token():
+    if not CANVA_CLIENT_ID or not CANVA_CLIENT_SECRET:
+        return None
+    tokens = _canva_load_tokens()
+    access_token = tokens.get('access_token')
+    expires_at = tokens.get('expires_at', '')
+    try:
+        if access_token and expires_at:
+            if datetime.fromisoformat(expires_at) > datetime.utcnow() + timedelta(minutes=5):
+                return access_token
+    except Exception:
+        pass
+    refresh_token = tokens.get('refresh_token') or get_setting('canva_refresh_token_backup')
+    if not refresh_token:
+        return None
+    try:
+        r = _requests.post('https://api.canva.com/rest/v1/oauth/token', data={
+            'grant_type': 'refresh_token', 'refresh_token': refresh_token,
+            'client_id': CANVA_CLIENT_ID, 'client_secret': CANVA_CLIENT_SECRET,
+        }, timeout=15)
+        if r.ok:
+            data = r.json()
+            new_tokens = {
+                'access_token': data.get('access_token'),
+                'refresh_token': data.get('refresh_token', refresh_token),
+                'expires_at': (datetime.utcnow() + timedelta(seconds=data.get('expires_in', 3600))).isoformat(),
+            }
+            _canva_save_tokens(new_tokens)
+            return new_tokens['access_token']
+    except Exception as ex:
+        app.logger.warning('Canva Token-Refresh: %s', ex)
+    return None
+
+
+def _canva_is_connected():
+    if not CANVA_CLIENT_ID or not CANVA_CLIENT_SECRET:
+        return False
+    if get_setting('canva_explicitly_disconnected') == '1':
+        return False
+    tokens = _canva_load_tokens()
+    access_token = tokens.get('access_token')
+    expires_at = tokens.get('expires_at', '')
+    try:
+        if access_token and expires_at:
+            if datetime.fromisoformat(expires_at) > datetime.utcnow() + timedelta(minutes=5):
+                return True
+    except Exception:
+        pass
+    return bool(tokens.get('refresh_token') or get_setting('canva_refresh_token_backup'))
+
+
+@app.route('/canva/connect')
+@login_required
+def canva_connect():
+    if not CANVA_CLIENT_ID:
+        flash('CANVA_CLIENT_ID ist nicht gesetzt (Umgebungsvariable auf Render).', 'error')
+        return redirect(url_for('pwf_einstellungen'))
+    import hashlib as _hashlib, base64 as _b64, urllib.parse as _uparse
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = _b64.urlsafe_b64encode(
+        _hashlib.sha256(code_verifier.encode()).digest()).rstrip(b'=').decode()
+    session['canva_code_verifier'] = code_verifier
+    params = {
+        'client_id': CANVA_CLIENT_ID, 'redirect_uri': _canva_redirect_uri(),
+        'response_type': 'code', 'scope': CANVA_SCOPES,
+        'code_challenge': code_challenge, 'code_challenge_method': 'S256',
+        'state': 'contentos_pwf_canva_auth',
+    }
+    return redirect('https://www.canva.com/api/oauth/authorize?' + _uparse.urlencode(params))
+
+
+@app.route('/canva/callback')
+def canva_callback():
+    code = request.args.get('code')
+    if request.args.get('error') or not code:
+        return redirect(url_for('pwf_einstellungen') + '?canva=error')
+    code_verifier = session.pop('canva_code_verifier', '')
+    try:
+        token_data = {
+            'grant_type': 'authorization_code', 'code': code,
+            'redirect_uri': _canva_redirect_uri(), 'client_id': CANVA_CLIENT_ID,
+            'code_verifier': code_verifier,
+        }
+        if CANVA_CLIENT_SECRET:
+            token_data['client_secret'] = CANVA_CLIENT_SECRET
+        r = _requests.post('https://api.canva.com/rest/v1/oauth/token', data=token_data, timeout=15)
+        if r.ok:
+            data = r.json()
+            tokens = {
+                'access_token': data.get('access_token'),
+                'refresh_token': data.get('refresh_token'),
+                'expires_at': (datetime.utcnow() + timedelta(seconds=data.get('expires_in', 3600))).isoformat(),
+            }
+            _canva_save_tokens(tokens)
+            if data.get('refresh_token'):
+                set_setting('canva_refresh_token_backup', data['refresh_token'])
+            set_setting('canva_explicitly_disconnected', '0')
+            db.session.commit()
+            return redirect(url_for('pwf_einstellungen') + '?canva=connected')
+    except Exception as ex:
+        app.logger.error('Canva Callback: %s', ex)
+    return redirect(url_for('pwf_einstellungen') + '?canva=error')
+
+
+@app.route('/canva/disconnect', methods=['POST'])
+@login_required
+def canva_disconnect():
+    _canva_save_tokens({})
+    set_setting('canva_explicitly_disconnected', '1')
+    db.session.commit()
+    return redirect(url_for('pwf_einstellungen'))
+
+
+@app.route('/api/canva/status')
+@login_required
+def api_canva_status():
+    return jsonify({'connected': _canva_is_connected(), 'client_id_set': bool(CANVA_CLIENT_ID)})
+
+
+def _canva_upload_asset(image_bytes, file_name):
+    """Lädt ein Bild als Canva-Asset hoch (nötig für Bild-Autofill-Felder wie
+    das Produktfoto). Async Job wie Autofill/Export — pollt bis fertig."""
+    token = _canva_get_token()
+    if not token or not image_bytes:
+        return None
+    import base64 as _b64, time as _time
+    metadata = json.dumps({'name_base64': _b64.b64encode(file_name.encode()).decode()})
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/octet-stream',
+              'Asset-Upload-Metadata': metadata}
+    try:
+        r = _requests.post('https://api.canva.com/rest/v1/asset-uploads',
+                           headers=headers, data=image_bytes, timeout=30)
+        if not r.ok:
+            app.logger.warning('Canva Asset-Upload: %s %s', r.status_code, r.text[:150])
+            return None
+        job_id = r.json().get('job', {}).get('id')
+        if not job_id:
+            return None
+    except Exception as ex:
+        app.logger.warning('Canva Asset-Upload Request: %s', ex)
+        return None
+    for _ in range(15):
+        _time.sleep(1.5)
+        try:
+            sr = _requests.get(f'https://api.canva.com/rest/v1/asset-uploads/{job_id}',
+                               headers={'Authorization': f'Bearer {token}'}, timeout=10)
+            if sr.ok:
+                jd = sr.json().get('job', {})
+                if jd.get('status') == 'success':
+                    return jd.get('asset', {}).get('id')
+                if jd.get('status') == 'failed':
+                    return None
+        except Exception:
+            pass
+    return None
+
+
+def _pwf_canva_field_values(alert):
+    """Baut die Text-/Bild-Werte für den Canva-Autofill aus einem ProductAlert
+    (oder einem gleich aufgebauten dict, für den Einstellungs-Testlauf)."""
+    def g(key, default=None):
+        return (alert.get(key) if isinstance(alert, dict) else getattr(alert, key, None)) or default
+
+    actions_lbl = {'h_nicht_verwenden': 'Nicht verwenden', 'h_nicht_essen': 'Nicht essen',
+                   'h_nicht_trinken': 'Nicht trinken', 'h_nicht_einnehmen': 'Nicht einnehmen',
+                   'h_zurueckgeben': 'Zurückgeben', 'h_entsorgen': 'Entsorgen',
+                   'h_erstattung': 'Erstattung möglich', 'h_kassenbon_erforderlich': 'Kassenbon nötig'}
+    actions = [lbl for key, lbl in actions_lbl.items() if g(key)]
+
+    values = {
+        'kategorie_banner': _PWF_CATEGORY_BANNER.get(g('kategorie'), 'PRODUKTWARNUNG'),
+        'kategorie': g('kategorie', ''), 'risiko': g('risiko', ''),
+        'titel': g('titel') or g('produktname', ''), 'beschreibung': g('rueckrufgrund', '')[:180],
+        'produktname': g('produktname', ''), 'marke': g('marke', ''), 'hersteller': g('hersteller', ''),
+        'charge': g('charge', ''), 'losnummer': g('losnummer', ''), 'mhd': g('mhd', ''),
+        'ean': g('ean', ''), 'verpackungsgroesse': g('verpackungsgroesse', ''),
+        'verkaufsstellen': g('verkaufsstellen', ''), 'betroffene_regionen': g('betroffene_regionen', ''),
+        'rueckrufgrund': g('rueckrufgrund', ''), 'handlungsempfehlung': ' • '.join(actions),
+        'originalquelle': g('originalquelle', ''),
+        'quelle_datum': str(g('quelle_datum') or ''),
+    }
+    return {k: v for k, v in values.items() if v not in (None, '')}
+
+
+def _pwf_canva_autofill(alert, photo_bytes=None):
+    """Füllt das konfigurierte Canva-Brand-Template mit den Alert-Daten und
+    exportiert es als PNG. Gibt PNG-Bytes|None (None = kein harter Fehler,
+    Aufrufer fällt auf den lokalen PIL-Renderer zurück)."""
+    template_id = get_setting('pwf_canva_template_id')
+    token = _canva_get_token()
+    if not template_id or not token:
+        return None
+    try:
+        field_map = json.loads(get_setting('pwf_canva_field_map') or '{}') or PWF_CANVA_DEFAULT_FIELD_MAP
+    except Exception:
+        field_map = PWF_CANVA_DEFAULT_FIELD_MAP
+
+    values = _pwf_canva_field_values(alert)
+    data = {}
+    for our_key, value in values.items():
+        canva_field = field_map.get(our_key)
+        if canva_field:
+            data[canva_field] = {'type': 'text', 'text': str(value)[:500]}
+
+    img_field = field_map.get('produktfoto')
+    if img_field and photo_bytes:
+        asset_id = _canva_upload_asset(photo_bytes, 'produktfoto.jpg')
+        if asset_id:
+            data[img_field] = {'type': 'image', 'asset_id': asset_id}
+
+    if not data:
+        return None
+    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+    import time as _time
+    try:
+        r = _requests.post('https://api.canva.com/rest/v1/autofills', headers=headers,
+                           json={'brand_template_id': template_id, 'data': data}, timeout=20)
+        if not r.ok:
+            app.logger.warning('Canva Autofill: %s %s', r.status_code, r.text[:200])
+            return None
+        job_id = r.json().get('job', {}).get('id')
+        if not job_id:
+            return None
+    except Exception as ex:
+        app.logger.warning('Canva Autofill Request: %s', ex)
+        return None
+
+    design_id = None
+    for _ in range(20):
+        _time.sleep(2)
+        try:
+            sr = _requests.get(f'https://api.canva.com/rest/v1/autofills/{job_id}',
+                               headers=headers, timeout=10)
+            if sr.ok:
+                jd = sr.json().get('job', {})
+                if jd.get('status') == 'success':
+                    design_id = jd.get('result', {}).get('design', {}).get('id')
+                    break
+                if jd.get('status') == 'failed':
+                    app.logger.warning('Canva Autofill failed: %s', jd.get('error'))
+                    return None
+        except Exception:
+            pass
+    if not design_id:
+        return None
+
+    try:
+        er = _requests.post('https://api.canva.com/rest/v1/exports', headers=headers,
+                            json={'design_id': design_id, 'format': {'type': 'png', 'lossless': True}},
+                            timeout=20)
+        if not er.ok:
+            return None
+        export_job_id = er.json().get('job', {}).get('id')
+        if not export_job_id:
+            return None
+    except Exception:
+        return None
+
+    for _ in range(20):
+        _time.sleep(2)
+        try:
+            pr = _requests.get(f'https://api.canva.com/rest/v1/exports/{export_job_id}',
+                               headers=headers, timeout=10)
+            if pr.ok:
+                ej = pr.json().get('job', {})
+                if ej.get('status') == 'success':
+                    urls = ej.get('result', {}).get('urls', [])
+                    if urls:
+                        img_r = _requests.get(urls[0], timeout=30)
+                        if img_r.ok:
+                            return img_r.content
+                    break
+                if ej.get('status') == 'failed':
+                    return None
+        except Exception:
+            pass
+    return None
+
+
+def _pwf_save_canva_png(alert, png_bytes):
+    import uuid as _uuid
+    fname = f'pwfcanva_{alert.id}_{_uuid.uuid4().hex[:8]}.png'
+    with open(os.path.join(app.config['UPLOAD_FOLDER'], fname), 'wb') as f:
+        f.write(png_bytes)
+    return fname
+
+
+def _pwf_render_card(alert):
+    """Wählt den Render-Weg: Canva-Autofill (falls konfiguriert & verbunden),
+    sonst der lokale PIL-Renderer. Fällt bei jedem Canva-Fehler automatisch
+    auf PIL zurück — es entsteht NIE ein Post ohne Bild."""
+    if get_setting('pwf_render_type') == 'canva' and _canva_is_connected() and get_setting('pwf_canva_template_id'):
+        media = MediaItem.query.get(alert.foto_media_id) if alert.foto_media_id else None
+        photo_bytes = _mcf_load_image_bytes(media) if media else None
+        png_bytes = _pwf_canva_autofill(alert, photo_bytes)
+        if png_bytes:
+            return _pwf_save_canva_png(alert, png_bytes)
+        app.logger.warning('PWF Canva-Autofill fehlgeschlagen — Fallback auf PIL-Renderer (Alert %s)', alert.id)
+    return _render_product_alert_image(alert)
+
+
+@app.route('/api/pwf/canva-config', methods=['GET', 'POST'])
+@login_required
+def pwf_canva_config():
+    if request.method == 'GET':
+        return jsonify({
+            'connected': _canva_is_connected(), 'client_id_set': bool(CANVA_CLIENT_ID),
+            'template_id': get_setting('pwf_canva_template_id') or '',
+            'field_map': get_setting('pwf_canva_field_map') or json.dumps(PWF_CANVA_DEFAULT_FIELD_MAP, ensure_ascii=False, indent=2),
+            'render_type': get_setting('pwf_render_type') or 'pil',
+        })
+    d = request.get_json(silent=True) or {}
+    if 'template_id' in d:
+        set_setting('pwf_canva_template_id', (d.get('template_id') or '').strip())
+    if 'field_map' in d:
+        try:
+            json.loads(d.get('field_map') or '{}')   # nur validieren
+            set_setting('pwf_canva_field_map', d.get('field_map'))
+        except Exception:
+            return jsonify({'ok': False, 'error': 'Feld-Zuordnung ist kein gültiges JSON.'}), 400
+    if 'render_type' in d and d.get('render_type') in ('pil', 'canva'):
+        set_setting('pwf_render_type', d.get('render_type'))
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/pwf/canva-test', methods=['POST'])
+@login_required
+def pwf_canva_test():
+    """Testet den Autofill mit Beispieldaten (kein echter Fall nötig) —
+    für den 'Testen'-Button in den Einstellungen, direkt nach dem Einrichten."""
+    if not get_setting('pwf_canva_template_id'):
+        return jsonify({'ok': False, 'error': 'Bitte zuerst eine Brand-Template-ID eintragen.'}), 400
+    if not _canva_is_connected():
+        return jsonify({'ok': False, 'error': 'Nicht mit Canva verbunden.'}), 400
+    demo = {
+        'kategorie': 'Produktrückruf', 'risiko': 'HOCH', 'titel': 'Test: Rückruf Beispielprodukt',
+        'produktname': 'Beispiel-Schokolade 100g', 'marke': 'Testmarke', 'hersteller': 'Test GmbH',
+        'charge': 'L-TEST01', 'mhd': '01.01.2027', 'rueckrufgrund': 'Dies ist ein Testlauf — keine echte Warnung.',
+        'betroffene_regionen': 'Bundesweit', 'originalquelle': 'Content OS Testlauf',
+        'h_nicht_essen': True, 'h_zurueckgeben': True, 'h_erstattung': True,
+    }
+    png_bytes = _pwf_canva_autofill(demo, photo_bytes=None)
+    if not png_bytes:
+        return jsonify({'ok': False, 'error': 'Autofill fehlgeschlagen — Logs prüfen (falsche Template-ID, '
+                        'Feldnamen stimmen nicht mit dem Canva-Template überein, oder API-Fehler).'}), 400
+    import base64 as _b64
+    return jsonify({'ok': True, 'preview': 'data:image/png;base64,' + _b64.standard_b64encode(png_bytes).decode()})
 
 
 if __name__ == '__main__':
