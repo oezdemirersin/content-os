@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Product Alert Factory — Content OS{% endblock %}
+{% block page_title %}PRODUCT ALERT FACTORY{% endblock %}
+
+{% block content %}
+<div style="max-width:1120px">
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+    Rückrufe &amp; Produktwarnungen schnell &amp; seriös für Instagram aufbereiten. Genauigkeit vor
+    Geschwindigkeit — es werden ausschließlich bekannte Angaben verwendet, fehlende Felder bleiben leer.
+  </p>
+
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;flex-wrap:wrap">
+    {% for key,lab in [('','Alle'),('entwurf','Entwurf'),('veroeffentlicht','Veröffentlicht'),('archiviert','Archiviert')] %}
+    <a href="?status={{ key }}"
+       style="padding:6px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;font-weight:700;text-decoration:none;
+              {% if status_f==key %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">
+      {{ lab }}{% if key %} ({{ counts.get(key,0) }}){% else %} ({{ alerts|length }}){% endif %}
+    </a>
+    {% endfor %}
+    <a href="{{ url_for('pwf_einstellungen') }}" style="margin-left:auto;font-size:12px;color:var(--muted);text-decoration:none;padding:7px 10px" title="Quellen &amp; Auto-Recherche">
+      <i class="fa-solid fa-gear"></i> Quellen &amp; Einstellungen</a>
+    <button onclick="var f=document.getElementById('pwfForm');f.style.display=f.style.display==='none'?'block':'none'"
+            class="btn btn-primary" style="font-size:13px;padding:8px 16px">＋ Neue Warnung</button>
+  </div>
+
+  <div id="pwfForm" class="card" style="padding:20px;margin-bottom:22px;display:none">
+    <div style="font-weight:700;margin-bottom:14px">Neue Produktwarnung erfassen <span style="font-weight:400;color:var(--muted);font-size:12px">— nur ausfüllen, was bekannt ist</span></div>
+
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px"><i class="fa-solid fa-align-left"></i> Meldungstext einfügen <span style="font-weight:400;color:var(--muted)">— Pressemitteilung, Rückruf-Text o.ä.</span></div>
+      <textarea id="pwfPasteText" rows="4" class="input-field" style="font-size:12px" placeholder="Text der Rückruf-/Warnmeldung hier einfügen…"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <button type="button" onclick="extractFromText()" id="extractTextBtn" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">Daten übernehmen</button>
+        <span id="extractTextMsg" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px"><i class="fa-solid fa-link"></i> Link zur Meldung</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input type="url" id="pwfUrl" placeholder="https://…" class="input-field" style="flex:1;min-width:160px;font-size:12px">
+          <button type="button" onclick="extractFromUrl()" id="extractUrlBtn" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">Übernehmen</button>
+        </div>
+        <div id="extractUrlMsg" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px"><i class="fa-solid fa-camera"></i> Foto/Scan (Etikett, Aushang)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input type="file" id="pwfImgUpload" accept="image/*" class="input-field" style="flex:1;min-width:160px;padding:6px;font-size:12px">
+          <button type="button" onclick="extractFromImage()" id="extractImgBtn" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">Übernehmen</button>
+        </div>
+        <div id="extractImgMsg" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div id="pwfPhotoBox" style="display:none;align-items:center;gap:10px;margin-bottom:16px">
+      <img id="pwfPhotoImg" style="width:70px;height:70px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">
+      <span style="font-size:11px;color:var(--success)">Produktfoto übernommen ✓</span>
+    </div>
+
+    <form id="pwfCreateForm" onsubmit="return submitPwf(event)">
+      <input type="hidden" name="extracted_photo_media_id" id="extractedPhotoMediaId">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div><label class="form-label">Kategorie</label>
+          <select name="kategorie" class="select-field">
+            <option value="">— wählen —</option>
+            {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+          </select>
+        </div>
+        <div><label class="form-label">Risikostufe</label>
+          <select name="risiko" class="select-field">
+            <option value="">— wählen —</option>
+            {% for r in risk_levels %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+          </select>
+        </div>
+        <div><label class="form-label">Ziel-Seite</label>
+          <select name="account_id" class="select-field"><option value="">— automatisch —</option>
+          {% for a in accounts %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
+        <div style="grid-column:span 3"><label class="form-label">Titel</label><input name="titel" class="input-field"></div>
+        <div><label class="form-label">Produktname</label><input name="produktname" class="input-field"></div>
+        <div><label class="form-label">Marke</label><input name="marke" class="input-field"></div>
+        <div><label class="form-label">Hersteller</label><input name="hersteller" class="input-field"></div>
+        <div><label class="form-label">Charge/Losnummer</label><input name="charge" class="input-field"></div>
+        <div><label class="form-label">MHD</label><input name="mhd" class="input-field" placeholder="z.B. 12.08.2026"></div>
+        <div><label class="form-label">EAN</label><input name="ean" class="input-field"></div>
+        <div style="grid-column:span 3"><label class="form-label">Rückrufgrund</label><textarea name="rueckrufgrund" rows="2" class="input-field"></textarea></div>
+        <div style="grid-column:span 2"><label class="form-label">Betroffene Regionen</label><input name="betroffene_regionen" class="input-field"></div>
+        <div><label class="form-label">Originalquelle</label><input name="originalquelle" class="input-field"></div>
+        <div style="grid-column:span 3"><label class="form-label">Produktfoto</label><input name="fotos" type="file" accept="image/*" class="input-field" style="padding:6px;font-size:12px"></div>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:16px;align-items:center">
+        <button type="submit" id="pwfSubmit" class="btn btn-primary" style="font-size:13px;padding:9px 20px">Anlegen &amp; Instagram-Karte erzeugen</button>
+        <span id="pwfMsg" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+    </form>
+  </div>
+
+  {% if not alerts %}
+  <div class="card" style="padding:40px;text-align:center;color:var(--muted)">Noch keine Produktwarnungen — lege oben eine an.</div>
+  {% endif %}
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">
+    {% for a in alerts %}
+    {% set risk_colors = {'GERING':'badge-gray','MITTEL':'badge-yellow','HOCH':'badge-red','KRITISCH':'badge-red'} %}
+    <a href="{{ url_for('product_alert_detail', alert_id=a.id) }}" class="card" style="text-decoration:none;color:inherit;overflow:hidden;display:block">
+      {% if a.image %}<img src="{{ a.image }}" style="width:100%;aspect-ratio:4/5;object-fit:cover;display:block" loading="lazy">{% endif %}
+      <div style="padding:12px 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <span style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.name }}</span>
+          <span style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+          {% if a.risiko %}<span class="badge {{ risk_colors.get(a.risiko,'badge-gray') }}">{{ a.risiko }}</span>{% endif %}
+          {% if a.status=='veroeffentlicht' %}<span class="badge badge-green">Veröff.</span>
+          {% elif a.status=='archiviert' %}<span class="badge" style="background:rgba(99,102,241,.15);color:var(--accent2)">Archiv</span>
+          {% else %}<span class="badge badge-gray">Entwurf</span>{% endif %}
+          </span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">
+          {{ a.kategorie or '—' }}{% if a.account %} · {{ a.account }}{% endif %}{% if a.telegram_sent %} · <i class="fa-brands fa-telegram" style="color:var(--accent2)"></i>{% endif %}
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function fillForm(fields){
+  const form=document.getElementById('pwfCreateForm');
+  Object.entries(fields||{}).forEach(([k,v])=>{
+    const el=form.querySelector(`[name="${k}"]`);
+    if(el && v!==null && v!==undefined && v!=='') el.value=v;
+  });
+}
+function showPhoto(r){
+  if(r.photo_extracted && r.photo_media_id){
+    document.getElementById('extractedPhotoMediaId').value=r.photo_media_id;
+    const box=document.getElementById('pwfPhotoBox'), img=document.getElementById('pwfPhotoImg');
+    img.src=r.photo_url; box.style.display='flex';
+  }
+}
+async function extractFromText(){
+  const text=document.getElementById('pwfPasteText').value.trim();
+  const msg=document.getElementById('extractTextMsg'), btn=document.getElementById('extractTextBtn');
+  if(!text){ msg.textContent='Bitte zuerst Text einfügen.'; msg.style.color='var(--warning)'; return; }
+  btn.disabled=true; const o=btn.textContent; btn.textContent='Lese aus…'; msg.textContent='';
+  try{
+    const r=await fetch('/api/pwf/extract-from-text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}).then(r=>r.json());
+    if(!r.ok){ msg.textContent=r.error||'Fehler beim Auslesen.'; msg.style.color='var(--danger)'; }
+    else{ fillForm(r.fields); showPhoto(r); msg.textContent='Angaben übernommen — bitte prüfen.'; msg.style.color='var(--success)'; }
+  }catch(err){ msg.textContent='Netzwerkfehler.'; msg.style.color='var(--danger)'; }
+  btn.disabled=false; btn.textContent=o;
+}
+async function extractFromUrl(){
+  const url=document.getElementById('pwfUrl').value.trim();
+  const msg=document.getElementById('extractUrlMsg'), btn=document.getElementById('extractUrlBtn');
+  if(!url){ msg.textContent='Bitte zuerst einen Link einfügen.'; msg.style.color='var(--warning)'; return; }
+  btn.disabled=true; const o=btn.textContent; btn.textContent='Lese aus…'; msg.textContent='';
+  try{
+    const r=await fetch('/api/pwf/extract-from-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})}).then(r=>r.json());
+    if(!r.ok){ msg.textContent=r.error||'Fehler beim Auslesen.'; msg.style.color='var(--danger)'; }
+    else{ fillForm(r.fields); showPhoto(r); msg.textContent='Angaben übernommen — bitte prüfen.'; msg.style.color='var(--success)'; }
+  }catch(err){ msg.textContent='Netzwerkfehler.'; msg.style.color='var(--danger)'; }
+  btn.disabled=false; btn.textContent=o;
+}
+async function extractFromImage(){
+  const inp=document.getElementById('pwfImgUpload');
+  const msg=document.getElementById('extractImgMsg'), btn=document.getElementById('extractImgBtn');
+  if(!inp.files[0]){ msg.textContent='Bitte zuerst ein Bild auswählen.'; msg.style.color='var(--warning)'; return; }
+  btn.disabled=true; const o=btn.textContent; btn.textContent='Lese aus…'; msg.textContent='';
+  try{
+    const fd=new FormData(); fd.append('source_image', inp.files[0]);
+    const r=await fetch('/api/pwf/extract-from-image',{method:'POST',body:fd}).then(r=>r.json());
+    if(!r.ok){ msg.textContent=r.error||'Fehler beim Auslesen.'; msg.style.color='var(--danger)'; }
+    else{ fillForm(r.fields); showPhoto(r); msg.textContent='Angaben übernommen — bitte prüfen.'; msg.style.color='var(--success)'; }
+  }catch(err){ msg.textContent='Netzwerkfehler.'; msg.style.color='var(--danger)'; }
+  btn.disabled=false; btn.textContent=o;
+}
+async function submitPwf(e){
+  e.preventDefault();
+  const btn=document.getElementById('pwfSubmit'), msg=document.getElementById('pwfMsg');
+  btn.disabled=true; btn.textContent='Erzeuge Karte…'; msg.textContent='';
+  try{
+    const r=await fetch('/api/pwf/alert',{method:'POST',body:new FormData(document.getElementById('pwfCreateForm'))}).then(r=>r.json());
+    if(r.ok && r.duplicate){ msg.textContent=r.msg; msg.style.color='var(--warning)'; }
+    else if(r.ok){ window.location='/content-studio/produktwarnungen/'+r.alert_id; return false; }
+    else { msg.textContent=r.error||'Fehler'; msg.style.color='var(--danger)'; }
+  }catch(err){ msg.textContent='Netzwerkfehler'; msg.style.color='var(--danger)'; }
+  btn.disabled=false; btn.textContent='Anlegen & Instagram-Karte erzeugen';
+  return false;
+}
+</script>
+{% endblock %}

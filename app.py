@@ -28,7 +28,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     WatchlistSeite, WatchlistFollowerSnapshot, WatchlistCityMeta,
                     GrowthExperiment, GrowthVariant, GrowthParticipant, GrowthDataPoint, GrowthKnowledge,
                     KnowledgeEntry, MissingChildCase, EmergencyNumber,
-                    TrendTopic, TrendSignal, TrendSource, TrendScoreSnapshot)
+                    TrendTopic, TrendSignal, TrendSource, TrendScoreSnapshot,
+                    ProductAlert, ProductAlertSource)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -3172,6 +3173,10 @@ def schedule_automations():
             # get_setting existiert beim Thread-Start noch nicht, s. Webhook-Kommentar)
             if tick >= 3 and (tick - 3) % 180 == 0:
                 threading.Thread(target=_tr_auto_scan, daemon=True).start()
+            # Product Alert Factory: alle 30 Minuten scannen (nie tick 0, s.o.)
+            if tick >= 2 and get_setting('pwf_auto_research') == '1':
+                if (tick - 2) % 30 == 0:
+                    threading.Thread(target=_pwf_auto_scan, daemon=True).start()
             # Content-Serien stündlich planen
             if tick % 60 == 0:
                 threading.Thread(target=_process_series, daemon=True).start()
@@ -18472,6 +18477,921 @@ def trend_radar_source_edit(sid):
             pass
     db.session.commit()
     return jsonify({'ok': True, 'source': _tr_source_dict(src)})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PRODUCT ALERT FACTORY (Content Studio) — Rückrufe & Produktwarnungen
+# Genauigkeit vor Geschwindigkeit: nichts wird erfunden, fehlende Angaben
+# bleiben NULL. Struktur/Konventionen bewusst eng an der Missing-Children-
+# Factory (mcf_*) angelehnt — gleiche SSRF-Absicherung, gleicher Dedup-/
+# Status-/Telegram-Workflow.
+# ══════════════════════════════════════════════════════════════════════════════
+
+PWF_CATEGORIES = ['Produktrückruf', 'Produktwarnung', 'Gesundheitswarnung',
+                  'Testbericht', 'Verkaufsstopp', 'Entwarnung']
+PWF_RISK_LEVELS = ['GERING', 'MITTEL', 'HOCH', 'KRITISCH']
+
+_PWF_CATEGORY_BANNER = {
+    'Produktrückruf': 'RÜCKRUF', 'Produktwarnung': 'WARNUNG',
+    'Gesundheitswarnung': 'GESUNDHEITSWARNUNG', 'Testbericht': 'TESTBERICHT',
+    'Verkaufsstopp': 'VERKAUFSSTOPP', 'Entwarnung': 'ENTWARNUNG',
+}
+_PWF_RISK_COLOR = {
+    'GERING': (100, 116, 139), 'MITTEL': (217, 119, 6),
+    'HOCH': (220, 38, 38), 'KRITISCH': (127, 29, 29),
+}
+_PWF_RISK_COLOR_DEFAULT = (71, 85, 105)
+_PWF_ENTWARNUNG_COLOR = (21, 128, 61)
+
+_PWF_JSON_SCHEMA = (
+    '{"is_case": bool (handelt es sich wirklich um eine Produktwarnung/einen Rückruf/'
+    'einen Testbericht o.ä.? false bei irrelevantem Text), '
+    '"kategorie": "Produktrückruf"|"Produktwarnung"|"Gesundheitswarnung"|"Testbericht"|'
+    '"Verkaufsstopp"|"Entwarnung"|null, '
+    '"titel": str|null, "kurztitel": str|null (max 60 Zeichen), '
+    '"produktname": str|null, "marke": str|null, "hersteller": str|null, "produktgruppe": str|null, '
+    '"produktbild_vorhanden": bool, "produktbild_url": str|null, '
+    '"charge": str|null, "losnummer": str|null, "ean": str|null, '
+    '"mhd": str|null, "verbrauchsdatum": str|null, "verpackungsgroesse": str|null, '
+    '"verkaufsstellen": str|null, "online_shop": str|null, "filiale": str|null, '
+    '"betroffene_regionen": str|null, "betroffene_laender": str|null, "verkaufszeitraum": str|null, '
+    '"rueckrufgrund": str|null, "gefahrstoff": str|null, '
+    '"risiko": "GERING"|"MITTEL"|"HOCH"|"KRITISCH"|null, "gefaehrdete_gruppen": str|null, '
+    '"h_nicht_verwenden": bool, "h_nicht_essen": bool, "h_nicht_trinken": bool, '
+    '"h_nicht_einnehmen": bool, "h_zurueckgeben": bool, "h_entsorgen": bool, '
+    '"h_erstattung": bool, "h_kassenbon_erforderlich": bool, '
+    '"relevanz": int|null (0-100, wie stark betrifft es die breite Öffentlichkeit), '
+    '"dringlichkeit": int|null (0-100, wie zeitkritisch), '
+    '"de_relevant": bool, "eu_relevant": bool, "weltweit_relevant": bool, '
+    '"grosse_marke": bool, "lebensmittel": bool, "kinderprodukt": bool, '
+    '"originalquelle": str|null, "quelle_datum": "YYYY-MM-DD"|null, '
+    '"ig_titel": str|null, "ig_untertitel": str|null, "ig_kurzbeschreibung": str|null, '
+    '"caption": str|null, "ig_alt_text": str|null, "story_text": str|null}'
+)
+
+_PWF_EXTRACT_SYSTEM = (
+    'Du bist die zentrale KI einer automatisierten Product Alert Factory.\n\n'
+    'Deine wichtigste Regel lautet: Genauigkeit vor Geschwindigkeit.\n'
+    '- Veröffentliche niemals Informationen, die nicht eindeutig im Text stehen.\n'
+    '- Erfinde niemals Daten, auch keine plausible Vermutung.\n'
+    '- Fehlt eine Information, setze den Wert auf null — niemals raten oder mit Platzhalter füllen.\n'
+    '- Bevorzuge die Originalquelle, falls im Text erkennbar (z.B. Behörde, Hersteller-Statement).\n'
+    '- Vergleiche keine mehreren Quellen (das übernimmt eine andere Instanz) — arbeite nur mit dem '
+    'gegebenen Text.\n\n'
+    'Bestimme Kategorie und Risikostufe aus dem Text. Relevanz (0-100) = wie stark betrifft es die '
+    'breite Öffentlichkeit (Reichweite/Bekanntheit der Marke, Anzahl Verkaufsstellen). Dringlichkeit '
+    '(0-100) = wie zeitkritisch (Gesundheitsrisiko, knappes Ablaufdatum).\n\n'
+    'Erstelle zusätzlich fertige Instagram-Texte (ig_titel, ig_untertitel, ig_kurzbeschreibung, '
+    'caption, ig_alt_text, story_text). Die Caption enthält: kurze Zusammenfassung, warum gewarnt '
+    'wird, welche Produkte betroffen sind, was Verbraucher tun sollen, Quelle. Sachlich und neutral, '
+    'keine Übertreibung, keine Panikmache, kein Clickbait — NUR aus den extrahierten Fakten, nichts '
+    'ergänzen.\n\n'
+    'Antworte NUR mit einem JSON-Objekt, keine Erklärung davor oder danach, exakt in diesem Schema:\n'
+    + _PWF_JSON_SCHEMA
+)
+
+
+def _pwf_dedup_key(produktname, marke, charge, titel):
+    parts = [(produktname or '').strip().lower(), (marke or '').strip().lower(),
+             (charge or '').strip().lower()]
+    key = '|'.join(p for p in parts if p)
+    if not key:
+        key = (titel or '').strip().lower()
+    return key[:400] or None
+
+
+def _pwf_find_duplicate(dedup_key, exclude_id=None):
+    if not dedup_key:
+        return None
+    q = ProductAlert.query.filter_by(dedup_key=dedup_key)
+    if exclude_id:
+        q = q.filter(ProductAlert.id != exclude_id)
+    return q.first()
+
+
+def _pwf_extract_from_text(text, api_key):
+    """Extrahiert Produktwarnungs-Felder NUR aus dem gegebenen Text (erfindet
+    nichts). Gibt dict|None."""
+    if not api_key or not (text or '').strip():
+        return None
+    try:
+        import anthropic
+        import re as _re
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('analysis_model') or 'claude-sonnet-4-6'
+        resp = client.messages.create(
+            model=model, max_tokens=1800, system=_PWF_EXTRACT_SYSTEM,
+            messages=[{'role': 'user', 'content': str(text)[:8000]}])
+        _log_ai('pwf_extract_text', resp)
+        raw = resp.content[0].text.strip()
+        m = _re.search(r'\{.*\}', raw, _re.S)
+        return json.loads(m.group(0)) if m else None
+    except Exception as e:
+        app.logger.warning('PWF Extract-Text: %s', e)
+        return None
+
+
+def _pwf_extract_from_image_bytes(img_bytes, mime, api_key):
+    """Vision-Extraktion aus einem fotografierten/gescannten Rückruf-Hinweis,
+    Etikett oder Presseausschnitt — gleiche NULL-bei-Unklarheit-Disziplin."""
+    if not api_key or not img_bytes:
+        return None
+    try:
+        import anthropic
+        import base64 as _b64
+        import re as _re
+        img_b64 = _b64.standard_b64encode(img_bytes).decode()
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('vision_model') or 'claude-sonnet-4-6'
+        resp = client.messages.create(
+            model=model, max_tokens=1800,
+            system=_PWF_EXTRACT_SYSTEM + '\n\nDas Material ist ein FOTO/SCAN, kein Fließtext — '
+                   'lies alles Erkennbare (Etikett, Aushang, Screenshot einer Meldung) sorgfältig aus.',
+            messages=[{'role': 'user', 'content': [
+                {'type': 'image', 'source': {'type': 'base64', 'media_type': mime, 'data': img_b64}},
+                {'type': 'text', 'text': 'Lies dieses Material aus und antworte nur mit dem JSON-Objekt.'}
+            ]}])
+        _log_ai('pwf_extract_image', resp)
+        raw = resp.content[0].text.strip()
+        m = _re.search(r'\{.*\}', raw, _re.S)
+        return json.loads(m.group(0)) if m else None
+    except Exception as e:
+        app.logger.warning('PWF Extract-Image: %s', e)
+        return None
+
+
+def _pwf_save_photo(fobj):
+    """Speichert ein hochgeladenes Produktfoto lokal + legt MediaItem an."""
+    try:
+        import uuid as _uuid
+        ext = os.path.splitext(fobj.filename)[1].lower() or '.jpg'
+        name = f'pwfphoto_{_uuid.uuid4().hex}{ext}'
+        fobj.save(os.path.join(app.config['UPLOAD_FOLDER'], name))
+        w = h = None
+        try:
+            from PIL import Image as _I
+            w, h = _I.open(os.path.join(app.config['UPLOAD_FOLDER'], name)).size
+        except Exception:
+            pass
+        m = MediaItem(filename=name, original_filename=fobj.filename, url=f'/media/file/{name}',
+                      file_type='image', storage_source='local', width=w, height=h)
+        db.session.add(m)
+        db.session.flush()
+        return m.id
+    except Exception as e:
+        app.logger.warning('PWF Foto-Upload: %s', e)
+        return None
+
+
+def _pwf_save_photo_bytes(raw_bytes, ext='.jpg', orig_filename=None):
+    try:
+        import uuid as _uuid
+        name = f'pwfphoto_{_uuid.uuid4().hex}{ext}'
+        path = os.path.join(app.config['UPLOAD_FOLDER'], name)
+        with open(path, 'wb') as fh:
+            fh.write(raw_bytes)
+        w = h = None
+        try:
+            from PIL import Image as _I
+            w, h = _I.open(path).size
+        except Exception:
+            pass
+        m = MediaItem(filename=name, original_filename=orig_filename or name, url=f'/media/file/{name}',
+                      file_type='image', storage_source='local', width=w, height=h)
+        db.session.add(m)
+        db.session.commit()
+        return m.id
+    except Exception as e:
+        app.logger.warning('PWF Foto-Bytes-Upload: %s', e)
+        return None
+
+
+def _pwf_maybe_fetch_photo(url, orig_filename=None):
+    """Best-effort: eine per KI/og:image gefundene Produktbild-URL laden und als
+    MediaItem speichern. SSRF-geprüft, still fehlschlagend — kein Foto ist kein
+    Fehler, es bleibt einfach None."""
+    if not url or not _mcf_is_safe_url(url):
+        return None
+    try:
+        r = _requests.get(url, timeout=8, headers={'User-Agent': 'ContentOS/1.0'}, stream=True)
+        r.raise_for_status()
+        if not _mcf_is_safe_url(r.url):
+            return None
+        ctype = (r.headers.get('Content-Type') or '').lower()
+        if not ctype.startswith('image/'):
+            return None
+        img_bytes = r.raw.read(15 * 1024 * 1024, decode_content=True)
+        ext = {'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif'}.get(ctype, '.jpg')
+        return _pwf_save_photo_bytes(img_bytes, ext, orig_filename or os.path.basename(url))
+    except Exception as e:
+        app.logger.warning('PWF Bild-Fetch: %s', e)
+        return None
+
+
+def _pwf_draw_placeholder(bw, bh):
+    """Heller Platzhalter-Kasten mit Hinweistext, wenn (noch) kein Produktfoto vorliegt."""
+    from PIL import Image as _Image, ImageDraw as _ImageDraw
+    bw, bh = int(bw), int(bh)
+    box = _Image.new('RGB', (bw, bh), (238, 240, 244))
+    d = _ImageDraw.Draw(box)
+    f = _mcf_font(24, bold=False)
+    txt = 'Kein Produktbild verfügbar'
+    tw = d.textlength(txt, font=f)
+    d.text(((bw - tw) / 2, bh / 2 - 12), txt, font=f, fill=(150, 156, 168))
+    return box
+
+
+def _render_product_alert_image(alert):
+    """1080×1350 Instagram-Karte: farbiger Risiko-Banner oben, Produktfoto,
+    Titel + Fakten, Handlungsempfehlung-Leiste unten. Rendert nur vorhandene
+    Felder. Speichert flach im Upload-Ordner, gibt Dateinamen zurück."""
+    from PIL import Image, ImageDraw, ImageOps
+    W, H = 1080, 1350
+    WHITE = (255, 255, 255); INK = (30, 30, 32); GRAY = (110, 110, 110)
+    img = Image.new('RGB', (W, H), WHITE)
+    d = ImageDraw.Draw(img)
+
+    # ── Banner ──────────────────────────────────────────────────
+    is_entwarnung = alert.kategorie == 'Entwarnung'
+    banner_color = (_PWF_ENTWARNUNG_COLOR if is_entwarnung
+                    else _PWF_RISK_COLOR.get(alert.risiko, _PWF_RISK_COLOR_DEFAULT))
+    BANNER_H = 190
+    d.rectangle([0, 0, W, BANNER_H], fill=banner_color)
+    if alert.kategorie:
+        f_cat = _mcf_font(22, bold=True)
+        cat = alert.kategorie.upper()
+        cw = d.textlength(cat, font=f_cat)
+        d.text(((W - cw) / 2, 32), cat, font=f_cat, fill=(255, 255, 255))
+    f_big = _mcf_font(64, bold=True)
+    big = _PWF_CATEGORY_BANNER.get(alert.kategorie, 'PRODUKTWARNUNG')
+    bw_ = d.textlength(big, font=f_big)
+    d.text(((W - bw_) / 2, 78), big, font=f_big, fill=WHITE)
+    if alert.risiko and not is_entwarnung:
+        f_pill = _mcf_font(20, bold=True)
+        pill_txt = f'RISIKO: {alert.risiko}'
+        pw = d.textlength(pill_txt, font=f_pill) + 28
+        px, py, ph = (W - pw) / 2, 152, 30
+        d.rounded_rectangle([px, py, px + pw, py + ph], radius=ph / 2, fill=WHITE)
+        tw2 = d.textlength(pill_txt, font=f_pill)
+        d.text((px + (pw - tw2) / 2, py + 5), pill_txt, font=f_pill, fill=banner_color)
+
+    # ── Produktfoto ─────────────────────────────────────────────
+    PH_SIZE = 620
+    px0 = (W - PH_SIZE) // 2
+    py0 = BANNER_H + 40
+    media = MediaItem.query.get(alert.foto_media_id) if alert.foto_media_id else None
+    photo_bytes = _mcf_load_image_bytes(media) if media else None
+    if photo_bytes:
+        try:
+            import io as _io
+            photo = ImageOps.exif_transpose(Image.open(_io.BytesIO(photo_bytes)).convert('RGB'))
+            photo = ImageOps.fit(photo, (PH_SIZE, PH_SIZE), method=Image.LANCZOS)
+        except Exception:
+            photo = _pwf_draw_placeholder(PH_SIZE, PH_SIZE)
+    else:
+        photo = _pwf_draw_placeholder(PH_SIZE, PH_SIZE)
+    img.paste(photo, (px0, py0))
+    d.rectangle([px0, py0, px0 + PH_SIZE, py0 + PH_SIZE], outline=(210, 210, 214), width=2)
+
+    y = py0 + PH_SIZE + 34
+
+    # ── Titel / Produktname ─────────────────────────────────────
+    headline = alert.produktname or alert.titel or alert.kurztitel or ''
+    if headline:
+        f_h = _mcf_font(40, bold=True)
+        for line in _mcf_wrap(d, headline, f_h, W - 120)[:2]:
+            lw = d.textlength(line, font=f_h)
+            d.text(((W - lw) / 2, y), line, font=f_h, fill=INK)
+            y += 48
+
+    sub_parts = [p for p in (alert.marke, alert.hersteller) if p]
+    if sub_parts:
+        f_sub = _mcf_font(24, bold=False)
+        sub = ' · '.join(sub_parts)
+        sw = d.textlength(sub, font=f_sub)
+        d.text(((W - sw) / 2, y + 4), sub, font=f_sub, fill=GRAY)
+        y += 40
+
+    y += 14
+    d.line([(80, y), (W - 80, y)], fill=(226, 228, 232), width=2)
+    y += 22
+
+    # ── Fakten-Zeilen (nur vorhandene, max. bis Platz reicht) ───
+    facts = []
+    if alert.rueckrufgrund:
+        facts.append(('Grund', alert.rueckrufgrund))
+    if alert.charge or alert.losnummer:
+        facts.append(('Charge/Los', ' · '.join(p for p in (alert.charge, alert.losnummer) if p)))
+    if alert.mhd:
+        facts.append(('MHD', alert.mhd))
+    if alert.betroffene_regionen:
+        facts.append(('Regionen', alert.betroffene_regionen))
+    if alert.verkaufszeitraum:
+        facts.append(('Zeitraum', alert.verkaufszeitraum))
+
+    f_lbl = _mcf_font(22, bold=True)
+    f_val = _mcf_font(22, bold=False)
+    max_y = H - 150
+    for label, value in facts:
+        if y > max_y - 30:
+            break
+        d.text((80, y), f'{label}:', font=f_lbl, fill=INK)
+        lbl_w = d.textlength(f'{label}: ', font=f_lbl)
+        val_lines = _mcf_wrap(d, value, f_val, W - 160 - lbl_w)
+        d.text((80 + lbl_w, y), val_lines[0], font=f_val, fill=(70, 70, 74))
+        y += 32
+        for extra in val_lines[1:2]:
+            if y > max_y:
+                break
+            d.text((80, y), extra, font=f_val, fill=(70, 70, 74))
+            y += 32
+
+    # ── Handlungsempfehlung-Leiste ───────────────────────────────
+    actions = []
+    if alert.h_nicht_verwenden: actions.append('NICHT VERWENDEN')
+    if alert.h_nicht_essen: actions.append('NICHT ESSEN')
+    if alert.h_nicht_trinken: actions.append('NICHT TRINKEN')
+    if alert.h_nicht_einnehmen: actions.append('NICHT EINNEHMEN')
+    if alert.h_zurueckgeben: actions.append('ZURÜCKGEBEN')
+    if alert.h_entsorgen: actions.append('ENTSORGEN')
+    if alert.h_erstattung: actions.append('ERSTATTUNG MÖGLICH')
+    if alert.h_kassenbon_erforderlich: actions.append('KASSENBON NÖTIG')
+
+    STRIP_H = 96
+    d.rectangle([0, H - STRIP_H, W, H], fill=(245, 246, 248))
+    if actions:
+        f_act = _mcf_font(24, bold=True)
+        act_txt = '  •  '.join(actions)
+        lines = _mcf_wrap(d, act_txt, f_act, W - 100)[:2]
+        ay = H - STRIP_H + (14 if len(lines) > 1 else 32)
+        for line in lines:
+            lw = d.textlength(line, font=f_act)
+            d.text(((W - lw) / 2, ay), line, font=f_act, fill=INK)
+            ay += 30
+    if alert.originalquelle:
+        f_src = _mcf_font(17, bold=False)
+        src = f'Quelle: {alert.originalquelle}'
+        sw = d.textlength(src, font=f_src)
+        d.text(((W - sw) / 2, H - 24), src, font=f_src, fill=GRAY)
+
+    import uuid as _uuid
+    fname = f'pwfcard_{alert.id}_{_uuid.uuid4().hex[:8]}.jpg'
+    img.save(os.path.join(app.config['UPLOAD_FOLDER'], fname), 'JPEG', quality=92)
+    return fname
+
+
+def _pwf_generate_caption(alert):
+    """Caption NUR aus den aktuellen (ggf. vom Menschen editierten) Feldern —
+    erfindet nichts. KI optional, mit faktentreuem Fallback ohne KI."""
+    facts = []
+    if alert.kategorie:
+        facts.append(f'Kategorie: {alert.kategorie}')
+    if alert.produktname:
+        facts.append(f'Produkt: {alert.produktname}')
+    if alert.marke:
+        facts.append(f'Marke: {alert.marke}')
+    if alert.hersteller:
+        facts.append(f'Hersteller: {alert.hersteller}')
+    if alert.charge or alert.losnummer:
+        facts.append('Charge/Los: ' + ' · '.join(p for p in (alert.charge, alert.losnummer) if p))
+    if alert.mhd:
+        facts.append(f'MHD: {alert.mhd}')
+    if alert.verkaufsstellen:
+        facts.append(f'Verkaufsstellen: {alert.verkaufsstellen}')
+    if alert.betroffene_regionen:
+        facts.append(f'Betroffene Regionen: {alert.betroffene_regionen}')
+    if alert.rueckrufgrund:
+        facts.append(f'Grund: {alert.rueckrufgrund}')
+    if alert.gefahrstoff:
+        facts.append(f'Gefahrstoff: {alert.gefahrstoff}')
+    if alert.risiko:
+        facts.append(f'Risikostufe: {alert.risiko}')
+    if alert.gefaehrdete_gruppen:
+        facts.append(f'Besonders gefährdet: {alert.gefaehrdete_gruppen}')
+    actions = []
+    if alert.h_nicht_verwenden: actions.append('nicht verwenden')
+    if alert.h_nicht_essen: actions.append('nicht essen')
+    if alert.h_nicht_trinken: actions.append('nicht trinken')
+    if alert.h_nicht_einnehmen: actions.append('nicht einnehmen')
+    if alert.h_zurueckgeben: actions.append('zurückgeben')
+    if alert.h_entsorgen: actions.append('entsorgen')
+    if alert.h_erstattung: actions.append('Erstattung möglich')
+    if alert.h_kassenbon_erforderlich: actions.append('Kassenbon erforderlich')
+    if actions:
+        facts.append('Handlungsempfehlung: ' + ', '.join(actions))
+    src = []
+    if alert.originalquelle:
+        src.append(f'Quelle: {alert.originalquelle}')
+    if alert.quelle_url:
+        src.append(alert.quelle_url)
+
+    def _fallback():
+        head = _PWF_CATEGORY_BANNER.get(alert.kategorie, 'PRODUKTWARNUNG')
+        return '\n'.join([f'⚠️ {head}', ''] + facts + ([''] + src if src else []))
+
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key or not facts:
+        return _fallback()
+    system = (
+        'Du erstellst Instagram-Captions für Produktwarnungen/Rückrufe. ABSOLUT ZWINGEND: '
+        'Verwende AUSSCHLIESSLICH die angegebenen Fakten. Erfinde, ergänze oder vermute NIEMALS '
+        'etwas. Fehlende Angaben lässt du komplett weg. Ton: sachlich, neutral, klar strukturiert. '
+        'Baue die Quelle unverändert ein. Keine Übertreibung, keine Panikmache, kein Clickbait.'
+    )
+    user = f"Bekannte Fakten (NUR diese verwenden):\n{chr(10).join(facts)}"
+    if src:
+        user += f"\n\nQuelle (unverändert einbauen):\n{chr(10).join(src)}"
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('caption_model') or 'claude-haiku-4-5'
+        resp = client.messages.create(model=model, max_tokens=700, system=system,
+                                       messages=[{'role': 'user', 'content': user}])
+        _log_ai('pwf_caption', resp)
+        return resp.content[0].text.strip()
+    except Exception as e:
+        app.logger.warning('PWF Caption-Fehler: %s', e)
+        return _fallback()
+
+
+def _pwf_target_account():
+    acc_id = get_setting('pwf_target_account_id')
+    if not acc_id:
+        return None
+    return Account.query.get(int(acc_id))
+
+
+def _pwf_alert_dict(a):
+    acc = Account.query.get(a.account_id) if a.account_id else None
+    media = MediaItem.query.get(a.foto_media_id) if a.foto_media_id else None
+    return {
+        'id': a.id, 'name': a.display_name(),
+        'kategorie': a.kategorie, 'titel': a.titel, 'kurztitel': a.kurztitel,
+        'produktname': a.produktname, 'marke': a.marke, 'hersteller': a.hersteller,
+        'produktgruppe': a.produktgruppe, 'produktbild_url': a.produktbild_url,
+        'charge': a.charge, 'losnummer': a.losnummer, 'ean': a.ean,
+        'mhd': a.mhd, 'verbrauchsdatum': a.verbrauchsdatum, 'verpackungsgroesse': a.verpackungsgroesse,
+        'verkaufsstellen': a.verkaufsstellen, 'online_shop': a.online_shop, 'filiale': a.filiale,
+        'betroffene_regionen': a.betroffene_regionen, 'betroffene_laender': a.betroffene_laender,
+        'verkaufszeitraum': a.verkaufszeitraum,
+        'rueckrufgrund': a.rueckrufgrund, 'gefahrstoff': a.gefahrstoff,
+        'risiko': a.risiko, 'gefaehrdete_gruppen': a.gefaehrdete_gruppen,
+        'h_nicht_verwenden': a.h_nicht_verwenden, 'h_nicht_essen': a.h_nicht_essen,
+        'h_nicht_trinken': a.h_nicht_trinken, 'h_nicht_einnehmen': a.h_nicht_einnehmen,
+        'h_zurueckgeben': a.h_zurueckgeben, 'h_entsorgen': a.h_entsorgen,
+        'h_erstattung': a.h_erstattung, 'h_kassenbon_erforderlich': a.h_kassenbon_erforderlich,
+        'relevanz': a.relevanz, 'dringlichkeit': a.dringlichkeit,
+        'de_relevant': a.de_relevant, 'eu_relevant': a.eu_relevant, 'weltweit_relevant': a.weltweit_relevant,
+        'grosse_marke': a.grosse_marke, 'lebensmittel': a.lebensmittel, 'kinderprodukt': a.kinderprodukt,
+        'ig_titel': a.ig_titel, 'ig_untertitel': a.ig_untertitel,
+        'ig_kurzbeschreibung': a.ig_kurzbeschreibung, 'caption': a.caption,
+        'ig_alt_text': a.ig_alt_text, 'story_text': a.story_text,
+        'image': f'/media/file/{a.generated_image_path}' if a.generated_image_path else None,
+        'photo_url': media.url if media else None,
+        'originalquelle': a.originalquelle, 'quelle_url': a.quelle_url,
+        'quelle_datum': a.quelle_datum.isoformat() if a.quelle_datum else None,
+        'account': acc.name if acc else None, 'account_id': a.account_id,
+        'status': a.status, 'origin': a.origin,
+        'telegram_sent': bool(a.telegram_sent_at),
+        'published_at': a.published_at.strftime('%d.%m.%Y %H:%M') if a.published_at else None,
+        'ig_post_ref': a.ig_post_ref,
+        'created_at': a.created_at.strftime('%d.%m.%Y') if a.created_at else None,
+    }
+
+
+def _pwf_apply_fields(alert, d, prefix_new=False):
+    """Setzt alle bekannten Felder aus dict d auf alert — gemeinsame Logik für
+    Create (aus KI-Extraktion/Formular) und Update (Bearbeiten-Formular)."""
+    str_fields = ('kategorie', 'titel', 'kurztitel', 'produktname', 'marke', 'hersteller',
+                 'produktgruppe', 'produktbild_url', 'charge', 'losnummer', 'ean', 'mhd',
+                 'verbrauchsdatum', 'verpackungsgroesse', 'verkaufsstellen', 'online_shop',
+                 'filiale', 'betroffene_regionen', 'betroffene_laender', 'verkaufszeitraum',
+                 'rueckrufgrund', 'gefahrstoff', 'risiko', 'gefaehrdete_gruppen',
+                 'ig_titel', 'ig_untertitel', 'ig_kurzbeschreibung', 'caption',
+                 'ig_alt_text', 'story_text', 'originalquelle', 'quelle_url')
+    bool_fields = ('h_nicht_verwenden', 'h_nicht_essen', 'h_nicht_trinken', 'h_nicht_einnehmen',
+                  'h_zurueckgeben', 'h_entsorgen', 'h_erstattung', 'h_kassenbon_erforderlich',
+                  'de_relevant', 'eu_relevant', 'weltweit_relevant',
+                  'grosse_marke', 'lebensmittel', 'kinderprodukt')
+    for f in str_fields:
+        if f in d:
+            v = d.get(f)
+            setattr(alert, f, (str(v).strip() or None) if v not in (None, '') else None)
+    if 'kategorie' in d and alert.kategorie not in PWF_CATEGORIES:
+        alert.kategorie = None
+    if 'risiko' in d and alert.risiko not in PWF_RISK_LEVELS:
+        alert.risiko = None
+    for f in bool_fields:
+        if f in d:
+            v = d.get(f)
+            setattr(alert, f, bool(v) if not isinstance(v, str) else v.lower() in ('1', 'true', 'on', 'yes'))
+    for f in ('relevanz', 'dringlichkeit'):
+        if f in d:
+            try:
+                setattr(alert, f, max(0, min(100, int(d.get(f)))))
+            except Exception:
+                pass
+    if 'quelle_datum' in d:
+        try:
+            alert.quelle_datum = datetime.strptime(str(d['quelle_datum'])[:10], '%Y-%m-%d').date()
+        except Exception:
+            alert.quelle_datum = None
+
+
+@app.route('/content-studio/produktwarnungen')
+@login_required
+def product_alert_factory():
+    status_f = request.args.get('status', '')
+    q = ProductAlert.query
+    if status_f:
+        q = q.filter_by(status=status_f)
+    alerts = q.order_by((ProductAlert.status == 'archiviert'), ProductAlert.created_at.desc()).all()
+    accounts = Account.query.filter(Account.status.in_(['active', 'paused'])).order_by(Account.name).all()
+    from collections import Counter
+    counts = Counter(a.status for a in ProductAlert.query.all())
+    return render_template('produktwarnungen.html',
+        alerts=[_pwf_alert_dict(a) for a in alerts],
+        accounts=[{'id': a.id, 'name': a.name} for a in accounts],
+        counts=dict(counts), status_f=status_f,
+        categories=PWF_CATEGORIES, risk_levels=PWF_RISK_LEVELS, active_page='studio')
+
+
+@app.route('/content-studio/produktwarnungen/<int:alert_id>')
+@login_required
+def product_alert_detail(alert_id):
+    a = ProductAlert.query.get_or_404(alert_id)
+    accounts = Account.query.filter(Account.status.in_(['active', 'paused'])).order_by(Account.name).all()
+    return render_template('produktwarnung_detail.html', alert=_pwf_alert_dict(a),
+        accounts=[{'id': x.id, 'name': x.name} for x in accounts],
+        categories=PWF_CATEGORIES, risk_levels=PWF_RISK_LEVELS, active_page='studio')
+
+
+@app.route('/api/pwf/extract-from-text', methods=['POST'])
+@login_required
+def pwf_extract_from_text():
+    d = request.get_json(silent=True) or request.form
+    text = (d.get('text') or '').strip()
+    if not text:
+        return jsonify({'ok': False, 'error': 'Bitte Text einfügen.'}), 400
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert (Einstellungen → KI).'}), 400
+    data = _pwf_extract_from_text(text, api_key) or {}
+    if not data.get('is_case'):
+        return jsonify({'ok': False, 'error': 'Im Text wurde keine Produktwarnung/kein Rückruf erkannt.'}), 400
+    photo_media_id = None
+    if data.get('produktbild_vorhanden') and data.get('produktbild_url'):
+        photo_media_id = _pwf_maybe_fetch_photo(data.get('produktbild_url'))
+    resp = {'ok': True, 'fields': data, 'photo_extracted': bool(photo_media_id)}
+    if photo_media_id:
+        mi = MediaItem.query.get(photo_media_id)
+        resp['photo_media_id'] = photo_media_id
+        resp['photo_url'] = mi.url if mi else None
+    return jsonify(resp)
+
+
+@app.route('/api/pwf/extract-from-url', methods=['POST'])
+@login_required
+def pwf_extract_from_url():
+    from urllib.parse import urlparse as _urlparse
+    d = request.get_json(silent=True) or request.form
+    url = (d.get('url') or '').strip()
+    if not url:
+        return jsonify({'ok': False, 'error': 'Bitte einen Link angeben.'}), 400
+    if not _mcf_is_safe_url(url):
+        return jsonify({'ok': False, 'error': 'Diese URL ist nicht erlaubt.'}), 400
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert (Einstellungen → KI).'}), 400
+    try:
+        text, og_image = _mcf_fetch_url_content(url)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Seite konnte nicht geladen werden: {e}'}), 400
+    if not text.strip():
+        return jsonify({'ok': False, 'error': 'Auf der Seite wurde kein lesbarer Text gefunden.'}), 400
+    data = _pwf_extract_from_text(text, api_key) or {}
+    if not data.get('is_case'):
+        return jsonify({'ok': False, 'error': 'Auf der Seite wurde keine Produktwarnung/kein Rückruf erkannt.'}), 400
+    if not data.get('originalquelle'):
+        data['originalquelle'] = _urlparse(url).hostname or url
+    photo_url = data.get('produktbild_url') or og_image
+    photo_media_id = _pwf_maybe_fetch_photo(photo_url) if photo_url else None
+    resp = {'ok': True, 'fields': data, 'photo_extracted': bool(photo_media_id),
+           'quelle_url': url}
+    if photo_media_id:
+        mi = MediaItem.query.get(photo_media_id)
+        resp['photo_media_id'] = photo_media_id
+        resp['photo_url'] = mi.url if mi else None
+    return jsonify(resp)
+
+
+@app.route('/api/pwf/extract-from-image', methods=['POST'])
+@login_required
+def pwf_extract_from_image():
+    f = request.files.get('source_image')
+    if not f or not f.filename:
+        return jsonify({'ok': False, 'error': 'Kein Bild hochgeladen.'}), 400
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert (Einstellungen → KI).'}), 400
+    img_bytes = f.read()
+    if not img_bytes:
+        return jsonify({'ok': False, 'error': 'Bild ist leer.'}), 400
+    if len(img_bytes) > 15 * 1024 * 1024:
+        return jsonify({'ok': False, 'error': 'Bild zu groß (max. 15 MB).'}), 400
+    ext = (os.path.splitext(f.filename)[1] or '.jpg').lower()
+    mime = {'.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif'}.get(ext, 'image/jpeg')
+    data = _pwf_extract_from_image_bytes(img_bytes, mime, api_key) or {}
+    if not data.get('is_case'):
+        return jsonify({'ok': False, 'error': 'Auf dem Bild wurde keine Produktwarnung/kein Rückruf erkannt.'}), 400
+    # Das hochgeladene Bild selbst als Produktfoto-Kandidat übernehmen
+    photo_media_id = _pwf_save_photo_bytes(img_bytes, ext, f.filename)
+    resp = {'ok': True, 'fields': data, 'photo_extracted': bool(photo_media_id)}
+    if photo_media_id:
+        mi = MediaItem.query.get(photo_media_id)
+        resp['photo_media_id'] = photo_media_id
+        resp['photo_url'] = mi.url if mi else None
+    return jsonify(resp)
+
+
+@app.route('/api/pwf/alert', methods=['POST'])
+@login_required
+def pwf_create_alert():
+    d = request.form
+    files = [f for f in request.files.getlist('fotos') if f and f.filename]
+    try:
+        extracted_photo_id = int(d.get('extracted_photo_media_id')) if (d.get('extracted_photo_media_id') or '').strip() else None
+    except Exception:
+        extracted_photo_id = None
+    if not any((d.get('titel'), d.get('produktname'), d.get('kurztitel'), files, extracted_photo_id)):
+        return jsonify({'ok': False, 'error': 'Bitte mindestens Titel/Produktname oder ein Bild angeben.'}), 400
+    dk = _pwf_dedup_key(d.get('produktname'), d.get('marke'), d.get('charge'), d.get('titel'))
+    dup = _pwf_find_duplicate(dk)
+    if dup:
+        return jsonify({'ok': True, 'duplicate': True, 'alert_id': dup.id,
+                        'msg': 'Diese Warnung existiert bereits — es wurde kein Duplikat angelegt.'})
+    acc_id = None
+    try:
+        acc_id = int(d.get('account_id')) if (d.get('account_id') or '').strip() else None
+    except Exception:
+        acc_id = None
+    account = Account.query.get(acc_id) if acc_id else _pwf_target_account()
+
+    a = ProductAlert(origin='manuell', status='entwurf', dedup_key=dk,
+                     account_id=account.id if account else None)
+    _pwf_apply_fields(a, d.to_dict())
+    db.session.add(a)
+    db.session.flush()
+
+    media_ids = []
+    for f in files:
+        mid = _pwf_save_photo(f)
+        if mid:
+            media_ids.append(mid)
+    if extracted_photo_id and extracted_photo_id not in media_ids:
+        media_ids.append(extracted_photo_id)
+    if media_ids:
+        a.foto_media_id = media_ids[0]
+
+    a.generated_image_path = _render_product_alert_image(a)
+    if not a.caption:
+        a.caption = _pwf_generate_caption(a)
+    db.session.commit()
+    return jsonify({'ok': True, 'alert_id': a.id, 'alert': _pwf_alert_dict(a)})
+
+
+@app.route('/api/pwf/alert/<int:aid>/update', methods=['POST'])
+@login_required
+def pwf_update_alert(aid):
+    a = ProductAlert.query.get_or_404(aid)
+    d = request.get_json(silent=True) or request.form
+    _pwf_apply_fields(a, d if isinstance(d, dict) else d.to_dict())
+    if 'account_id' in d:
+        try:
+            a.account_id = int(d.get('account_id')) or None
+        except Exception:
+            a.account_id = None
+    a.dedup_key = _pwf_dedup_key(a.produktname, a.marke, a.charge, a.titel)
+    db.session.commit()
+    return jsonify({'ok': True, 'alert': _pwf_alert_dict(a)})
+
+
+@app.route('/api/pwf/alert/<int:aid>/status', methods=['POST'])
+@login_required
+def pwf_set_status(aid):
+    a = ProductAlert.query.get_or_404(aid)
+    d = request.get_json(silent=True) or {}
+    st = d.get('status')
+    if st not in ('entwurf', 'veroeffentlicht', 'archiviert'):
+        return jsonify({'ok': False, 'error': 'ungültiger Status'}), 400
+    a.status = st
+    if st == 'veroeffentlicht' and not a.published_at:
+        a.published_at = datetime.utcnow()
+        if (d.get('ig_post_ref') or '').strip():
+            a.ig_post_ref = d.get('ig_post_ref').strip()
+    db.session.commit()
+    return jsonify({'ok': True, 'alert': _pwf_alert_dict(a)})
+
+
+@app.route('/api/pwf/alert/<int:aid>/regenerate-image', methods=['POST'])
+@login_required
+def pwf_regen_image(aid):
+    a = ProductAlert.query.get_or_404(aid)
+    a.generated_image_path = _render_product_alert_image(a)
+    db.session.commit()
+    return jsonify({'ok': True, 'image': f'/media/file/{a.generated_image_path}'})
+
+
+@app.route('/api/pwf/alert/<int:aid>/regenerate-caption', methods=['POST'])
+@login_required
+def pwf_regen_caption(aid):
+    a = ProductAlert.query.get_or_404(aid)
+    a.caption = _pwf_generate_caption(a)
+    db.session.commit()
+    return jsonify({'ok': True, 'caption': a.caption})
+
+
+@app.route('/api/pwf/alert/<int:aid>/telegram', methods=['POST'])
+@login_required
+def pwf_send_telegram(aid):
+    a = ProductAlert.query.get_or_404(aid)
+    token = get_setting('telegram_bot_token')
+    if not token:
+        return jsonify({'ok': False, 'error': 'Kein Telegram-Bot-Token konfiguriert.'}), 400
+    acc = Account.query.get(a.account_id) if a.account_id else None
+    chat_id = ((acc.telegram_chat_id or '').strip() if acc else '')
+    if not chat_id or chat_id in ('None', 'null'):
+        return jsonify({'ok': False, 'error': 'Ziel-Seite hat keinen Telegram-Channel. Bitte Seite wählen und Channel eintragen.'}), 400
+    if not a.generated_image_path or not os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], a.generated_image_path)):
+        a.generated_image_path = _render_product_alert_image(a)
+    img_path = os.path.join(app.config['UPLOAD_FOLDER'], a.generated_image_path)
+    try:
+        with open(img_path, 'rb') as f:
+            _tg_call(token, 'sendPhoto', data={'chat_id': chat_id}, files={'photo': f})
+        parts = [a.caption or '']
+        src = []
+        if a.originalquelle:
+            src.append(f'Quelle: {a.originalquelle}')
+        if a.quelle_url:
+            src.append(a.quelle_url)
+        if src:
+            parts.append('\n'.join(src))
+        text = '\n\n'.join(p for p in parts if p).strip()[:4000]
+        if text:
+            _tg_call(token, 'sendMessage', json={'chat_id': chat_id, 'text': text})
+        _tg_call(token, 'sendMessage', json={
+            'chat_id': chat_id,
+            'text': 'Nach dem Posten auf Instagram bitte bestätigen:',
+            'reply_markup': {'inline_keyboard': [[
+                {'text': '✅ Auf Instagram veröffentlicht', 'callback_data': f'pwfposted_{a.id}'}]]}})
+    except Exception as e:
+        app.logger.warning('PWF Telegram-Versand: %s', e)
+        return jsonify({'ok': False, 'error': f'Versand fehlgeschlagen: {e}'}), 500
+    a.telegram_sent_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/pwf/alert/<int:aid>/delete', methods=['POST'])
+@login_required
+def pwf_delete_alert(aid):
+    a = ProductAlert.query.get_or_404(aid)
+    db.session.delete(a)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ─── Quellen-Verwaltung + Auto-Recherche ──────────────────────────────────
+def _pwf_run_research():
+    """Scannt konfigurierte RSS-Quellen nach Produktwarnungen/Rückrufen und
+    legt Auto-Entwürfe an (mit Dedup + Auto-Bild/Caption). Gibt (created, checked)."""
+    sources = ProductAlertSource.query.filter_by(active=True).all()
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key or not sources:
+        return 0, 0
+    KW = ['rückruf', 'rueckruf', 'warnung', 'warnhinweis', 'gesundheitsgefahr',
+         'verkaufsstopp', 'kontamination', 'fremdkörper', 'allergen']
+    checked = created = 0
+    for src in sources:
+        try:
+            entries = fetch_rss_feed(src.url, keywords=KW) or []
+        except Exception as e:
+            app.logger.warning('PWF Feed %s: %s', src.url, e)
+            continue
+        src.last_scanned_at = datetime.utcnow()
+        for e in entries:
+            checked += 1
+            link = (e.get('url') or '').strip()
+            if link and ProductAlert.query.filter_by(quelle_url=link).first():
+                continue
+            data = _pwf_extract_from_text(f"{e.get('title', '')}\n\n{e.get('description', '')}", api_key)
+            if not data or not data.get('is_case'):
+                continue
+            dk = _pwf_dedup_key(data.get('produktname'), data.get('marke'),
+                                data.get('charge'), data.get('titel'))
+            if _pwf_find_duplicate(dk):
+                continue
+            acc = _pwf_target_account()
+            a = ProductAlert(origin='auto', status='entwurf', dedup_key=dk,
+                             account_id=acc.id if acc else None,
+                             quelle_url=link or None,
+                             originalquelle=data.get('originalquelle') or src.name)
+            _pwf_apply_fields(a, data)
+            db.session.add(a)
+            db.session.flush()
+            if data.get('produktbild_vorhanden') and data.get('produktbild_url'):
+                pid = _pwf_maybe_fetch_photo(data.get('produktbild_url'))
+                if pid:
+                    a.foto_media_id = pid
+            try:
+                a.generated_image_path = _render_product_alert_image(a)
+                if not a.caption:
+                    a.caption = _pwf_generate_caption(a)
+            except Exception as ex:
+                app.logger.warning('PWF Auto-Gen: %s', ex)
+            created += 1
+        db.session.commit()
+    return created, checked
+
+
+def _pwf_auto_scan():
+    with app.app_context():
+        if get_setting('pwf_auto_research') != '1':
+            return
+        if not (os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')):
+            return
+        _pwf_run_research()
+
+
+@app.route('/api/pwf/research/run', methods=['POST'])
+@login_required
+def pwf_research_run():
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Auto-Recherche braucht einen Anthropic-API-Key (Einstellungen → KI).'}), 400
+    if not ProductAlertSource.query.filter_by(active=True).first():
+        return jsonify({'ok': False, 'error': 'Noch keine Quellen hinterlegt.'}), 400
+    created, checked = _pwf_run_research()
+    return jsonify({'ok': True, 'created': created, 'checked': checked})
+
+
+@app.route('/api/pwf/research/toggle', methods=['POST'])
+@login_required
+def pwf_research_toggle():
+    d = request.get_json(silent=True) or {}
+    set_setting('pwf_auto_research', '1' if d.get('on') else '0')
+    db.session.commit()
+    return jsonify({'ok': True, 'on': bool(d.get('on'))})
+
+
+@app.route('/api/pwf/sources', methods=['GET', 'POST'])
+@login_required
+def pwf_sources():
+    if request.method == 'GET':
+        srcs = ProductAlertSource.query.order_by(ProductAlertSource.name).all()
+        return jsonify({'sources': [{'id': s.id, 'name': s.name, 'url': s.url, 'active': s.active,
+                                     'last_scanned_rel': _tr_rel_time(s.last_scanned_at) if s.last_scanned_at else ''}
+                                    for s in srcs]})
+    d = request.get_json(silent=True) or {}
+    url = (d.get('url') or '').strip()
+    if not url:
+        return jsonify({'ok': False, 'error': 'URL erforderlich'}), 400
+    s = ProductAlertSource(name=(d.get('name') or url).strip(), url=url, active=True)
+    db.session.add(s)
+    db.session.commit()
+    return jsonify({'ok': True, 'source': {'id': s.id, 'name': s.name, 'url': s.url, 'active': s.active}})
+
+
+@app.route('/api/pwf/sources/<int:sid>', methods=['DELETE'])
+@login_required
+def pwf_source_delete(sid):
+    s = ProductAlertSource.query.get_or_404(sid)
+    db.session.delete(s)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/pwf/target-account', methods=['POST'])
+@login_required
+def pwf_target_account_save():
+    d = request.get_json(silent=True) or {}
+    acc_id = (str(d.get('account_id')) or '').strip()
+    set_setting('pwf_target_account_id', acc_id or '')
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/content-studio/produktwarnungen/einstellungen')
+@login_required
+def pwf_einstellungen():
+    sources = ProductAlertSource.query.order_by(ProductAlertSource.name).all()
+    accounts = Account.query.filter(Account.status.in_(['active', 'paused'])).order_by(Account.name).all()
+    return render_template('pwf_einstellungen.html',
+        sources=[{'id': s.id, 'name': s.name, 'url': s.url, 'active': s.active} for s in sources],
+        accounts=[{'id': a.id, 'name': a.name} for a in accounts],
+        target_account_id=get_setting('pwf_target_account_id'),
+        auto_on=(get_setting('pwf_auto_research') == '1'),
+        active_page='studio')
 
 
 if __name__ == '__main__':

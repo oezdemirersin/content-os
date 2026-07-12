@@ -1238,3 +1238,109 @@ class EmergencyNumber(db.Model):
     verified   = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ProductAlert(db.Model):
+    """Product Alert Factory (Content Studio): eine Produktwarnung/ein Rückruf,
+    aufbereitet für Instagram + Datenbank. Genauigkeit vor Geschwindigkeit —
+    fehlende Angaben bleiben NULL, es wird NIE etwas erfunden (siehe
+    _pwf_extract_from_text in app.py für die Extraktions-Regeln)."""
+    __tablename__ = 'product_alert'
+    id = db.Column(db.Integer, primary_key=True)
+
+    # ── Einordnung ──────────────────────────────────────────────
+    kategorie = db.Column(db.String(30), index=True)  # Produktrückruf/Produktwarnung/Gesundheitswarnung/Testbericht/Verkaufsstopp/Entwarnung
+    titel        = db.Column(db.String(300))
+    kurztitel    = db.Column(db.String(120))
+
+    # ── Produkt ──────────────────────────────────────────────────
+    produktname     = db.Column(db.String(300))
+    marke           = db.Column(db.String(200))
+    hersteller      = db.Column(db.String(200))
+    produktgruppe   = db.Column(db.String(150))
+    produktbild_url = db.Column(db.Text)              # Quell-URL des Produktbilds (Referenz, nicht der lokale Media-Upload)
+    charge          = db.Column(db.String(200))
+    losnummer       = db.Column(db.String(200))
+    ean             = db.Column(db.String(60))
+    mhd             = db.Column(db.String(60))         # Text statt Date — Quellen geben oft nur ungefähre/mehrere Daten an
+    verbrauchsdatum = db.Column(db.String(60))
+    verpackungsgroesse = db.Column(db.String(120))
+
+    # ── Verkauf ──────────────────────────────────────────────────
+    verkaufsstellen   = db.Column(db.Text)
+    online_shop       = db.Column(db.Text)
+    filiale           = db.Column(db.Text)
+    betroffene_regionen = db.Column(db.Text)
+    betroffene_laender  = db.Column(db.Text)
+    verkaufszeitraum    = db.Column(db.String(200))
+
+    # ── Grund & Risiko ───────────────────────────────────────────
+    rueckrufgrund       = db.Column(db.Text)
+    gefahrstoff         = db.Column(db.String(300))
+    risiko              = db.Column(db.String(20), index=True)  # GERING/MITTEL/HOCH/KRITISCH
+    gefaehrdete_gruppen = db.Column(db.Text)
+
+    # ── Handlungsempfehlung ────────────────────────────────────────
+    h_nicht_verwenden   = db.Column(db.Boolean, default=False)
+    h_nicht_essen        = db.Column(db.Boolean, default=False)
+    h_nicht_trinken       = db.Column(db.Boolean, default=False)
+    h_nicht_einnehmen     = db.Column(db.Boolean, default=False)
+    h_zurueckgeben        = db.Column(db.Boolean, default=False)
+    h_entsorgen           = db.Column(db.Boolean, default=False)
+    h_erstattung          = db.Column(db.Boolean, default=False)
+    h_kassenbon_erforderlich = db.Column(db.Boolean, default=False)
+
+    # ── Relevanzbewertung ────────────────────────────────────────
+    relevanz      = db.Column(db.Integer)   # 0-100
+    dringlichkeit = db.Column(db.Integer)   # 0-100
+    de_relevant       = db.Column(db.Boolean, default=False)
+    eu_relevant       = db.Column(db.Boolean, default=False)
+    weltweit_relevant = db.Column(db.Boolean, default=False)
+    grosse_marke      = db.Column(db.Boolean, default=False)
+    lebensmittel      = db.Column(db.Boolean, default=False)
+    kinderprodukt     = db.Column(db.Boolean, default=False)
+
+    # ── Instagram ────────────────────────────────────────────────
+    ig_titel           = db.Column(db.String(300))
+    ig_untertitel       = db.Column(db.String(300))
+    ig_kurzbeschreibung = db.Column(db.Text)
+    caption             = db.Column(db.Text)
+    ig_alt_text          = db.Column(db.Text)
+    story_text            = db.Column(db.Text)
+    foto_media_id       = db.Column(db.Integer, db.ForeignKey('media_item.id'))
+    generated_image_path = db.Column(db.String(600))
+
+    # ── Quelle ───────────────────────────────────────────────────
+    originalquelle    = db.Column(db.String(300))   # Name der Quelle (z.B. "BVL Lebensmittelwarnung")
+    quelle_url         = db.Column(db.Text)
+    quelle_datum        = db.Column(db.Date)           # Veröffentlichungsdatum DER MELDUNG (nicht unserer)
+
+    # ── Produktion / Workflow ──────────────────────────────────────
+    account_id     = db.Column(db.Integer, db.ForeignKey('account.id'))   # Ziel-Seite
+    status         = db.Column(db.String(20), default='entwurf', index=True)  # entwurf/veroeffentlicht/archiviert
+    telegram_sent_at = db.Column(db.DateTime)
+    published_at    = db.Column(db.DateTime)
+    ig_post_ref      = db.Column(db.String(600))
+
+    # ── Herkunft + Dedup ─────────────────────────────────────────
+    origin     = db.Column(db.String(20), default='manuell')  # manuell / auto
+    dedup_key  = db.Column(db.String(400), index=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def display_name(self):
+        return self.kurztitel or self.titel or self.produktname or 'Unbenannt'
+
+
+class ProductAlertSource(db.Model):
+    """Product Alert Factory: RSS-/Feed-Quelle für die Auto-Recherche
+    (analog TrendSource / MCF mcf_sources — hier als eigene Tabelle, weil pro
+    Quelle zusätzlich das letzte Scan-Ergebnis gespeichert wird)."""
+    __tablename__ = 'product_alert_source'
+    id       = db.Column(db.Integer, primary_key=True)
+    name     = db.Column(db.String(200))
+    url      = db.Column(db.Text, nullable=False)
+    active   = db.Column(db.Boolean, default=True)
+    last_scanned_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
