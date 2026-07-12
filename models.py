@@ -1326,6 +1326,13 @@ class ProductAlert(db.Model):
     origin     = db.Column(db.String(20), default='manuell')  # manuell / auto
     dedup_key  = db.Column(db.String(400), index=True)
 
+    # ── Qualität / Automatisierung ────────────────────────────────
+    image_match_score = db.Column(db.Integer)    # 0-100, KI-Bewertung Produktfoto vs. Meldung
+    alerted           = db.Column(db.Boolean, default=False)   # Dringlichkeits-Alert schon verschickt?
+    feedback          = db.Column(db.Integer)     # Nutzer-Feedback: +1 = Einschätzung korrekt, -1 = falsch
+    feedback_at       = db.Column(db.DateTime)
+    related_alert_id  = db.Column(db.Integer, db.ForeignKey('product_alert.id'))  # z.B. Entwarnung -> ursprünglicher Rückruf
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

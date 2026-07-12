@@ -18,6 +18,22 @@
         <button onclick="regen('image',this)" class="btn btn-ghost" style="flex:1;font-size:12px;padding:8px">Karte neu erzeugen</button>
         {% if alert.image %}<a href="{{ alert.image }}" download class="btn btn-ghost" style="font-size:12px;padding:8px 12px" title="Herunterladen">⬇</a>{% endif %}
       </div>
+
+      {% if alert.photo_url %}
+      <div class="card" style="padding:10px 14px;margin-top:10px;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-weight:700">Bild-Match:</span>
+        {% if alert.image_match_score is not none %}
+        {% set s = alert.image_match_score %}
+        <span class="badge {% if s>=81 %}badge-green{% elif s>=51 %}badge-blue{% elif s>=21 %}badge-yellow{% else %}badge-red{% endif %}">{{ s }}/100</span>
+        <span style="color:var(--muted)">
+          {% if s>=81 %}exaktes Produkt{% elif s>=51 %}thematisch passend{% elif s>=21 %}generisches Symbolbild{% else %}wirkt falsch — bitte prüfen{% endif %}
+        </span>
+        {% else %}
+        <span style="color:var(--muted)">noch nicht geprüft</span>
+        {% endif %}
+        <button onclick="checkImageMatch(this)" class="btn btn-ghost" style="font-size:11px;padding:5px 10px;margin-left:auto">Prüfen</button>
+      </div>
+      {% endif %}
     </div>
 
     <!-- Rechts -->
@@ -43,6 +59,20 @@
       </div>
       {% endif %}
 
+      {% if alert.related_alert %}
+      <div class="card" style="padding:12px 14px;margin-bottom:16px;font-size:13px;border-color:var(--accent2)">
+        <i class="fa-solid fa-link" style="color:var(--accent2)"></i> Verknüpfter ursprünglicher Rückruf:
+        <a href="{{ url_for('product_alert_detail', alert_id=alert.related_alert.id) }}" style="color:var(--accent2)">{{ alert.related_alert.name }}</a>
+      </div>
+      {% endif %}
+      {% if alert.linked_entwarnung %}
+      <div class="card" style="padding:12px 14px;margin-bottom:16px;font-size:13px;border:1px solid var(--warning);background:rgba(245,158,11,.08)">
+        <b style="color:var(--warning)">⚠️ Entwarnung gefunden</b> — möglicherweise nicht mehr relevant.
+        <a href="{{ url_for('product_alert_detail', alert_id=alert.linked_entwarnung.id) }}" style="color:var(--accent2)">{{ alert.linked_entwarnung.name }}</a> ansehen
+        und bei Bedarf selbst archivieren — nichts wurde automatisch geändert.
+      </div>
+      {% endif %}
+
       <div style="font-weight:700;font-size:13px;margin-bottom:6px">Caption</div>
       <textarea id="pwfCaption" rows="9" class="input-field" style="font-size:13px;font-family:inherit">{{ alert.caption or '' }}</textarea>
       <div style="display:flex;gap:8px;margin-top:8px">
@@ -57,6 +87,11 @@
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
           <button onclick="setStatus('veroeffentlicht',this)" class="btn btn-ghost" style="font-size:12px;padding:8px 14px;color:var(--success)">Als veröffentlicht markieren</button>
           <button onclick="setStatus('archiviert',this)" class="btn btn-ghost" style="font-size:12px;padding:8px 14px;color:var(--accent2)">Archivieren (nicht mehr relevant)</button>
+        </div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:var(--muted)">War die KI-Einschätzung (Kategorie/Risiko/Relevanz) zutreffend?</span>
+          <button onclick="setFeedback(1,this)" data-active="{{ 'true' if alert.feedback==1 else 'false' }}" id="fbUp" class="btn btn-ghost" style="font-size:11px;padding:5px 10px;{% if alert.feedback==1 %}color:var(--success);border-color:var(--success){% endif %}"><i class="fa-solid fa-thumbs-up"></i></button>
+          <button onclick="setFeedback(-1,this)" data-active="{{ 'true' if alert.feedback==-1 else 'false' }}" id="fbDown" class="btn btn-ghost" style="font-size:11px;padding:5px 10px;{% if alert.feedback==-1 %}color:var(--danger);border-color:var(--danger){% endif %}"><i class="fa-solid fa-thumbs-down"></i></button>
         </div>
       </div>
 
@@ -164,6 +199,18 @@ async function regen(kind,btn){
   else if(r.ok && kind==='caption'){ document.getElementById('pwfCaption').value=r.caption; _toast('Caption neu erzeugt'); }
   else _toast('Fehler','error');
   btn.disabled=false; btn.textContent=o;
+}
+async function checkImageMatch(btn){
+  const o=btn.textContent; btn.disabled=true; btn.textContent='Prüfe…';
+  const r=await fetch(`/api/pwf/alert/${AID}/check-image-match`,{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false,error:'Netzwerkfehler'}));
+  if(r.ok){ _toast('Bild-Match: '+r.image_match_score+'/100'); setTimeout(()=>location.reload(),700); }
+  else { _toast(r.error||'Fehler','error'); btn.disabled=false; btn.textContent=o; }
+}
+async function setFeedback(v,btn){
+  const val = btn.dataset.active==='true' ? 0 : v;
+  const r=await fetch(`/api/pwf/alert/${AID}/feedback`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:val})}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){ _toast(val ? 'Feedback gespeichert — fließt in künftige Einschätzungen ein' : 'Feedback zurückgenommen'); setTimeout(()=>location.reload(),500); }
+  else _toast('Fehler','error');
 }
 async function saveCaption(btn){
   const o=btn.textContent; btn.disabled=true;

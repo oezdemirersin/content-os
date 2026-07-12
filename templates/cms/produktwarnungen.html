@@ -114,8 +114,15 @@
           {% else %}<span class="badge badge-gray">Entwurf</span>{% endif %}
           </span>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">
-          {{ a.kategorie or '—' }}{% if a.account %} · {{ a.account }}{% endif %}{% if a.telegram_sent %} · <i class="fa-brands fa-telegram" style="color:var(--accent2)"></i>{% endif %}
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span>{{ a.kategorie or '—' }}{% if a.account %} · {{ a.account }}{% endif %}</span>
+          {% if a.telegram_sent %}<i class="fa-brands fa-telegram" style="color:var(--accent2)"></i>{% endif %}
+          {% if a.image_match_score is not none and a.image_match_score < 51 %}
+          <span title="Bild passt laut KI-Check evtl. nicht zum Produkt (Score {{ a.image_match_score }}/100)" style="color:var(--warning)"><i class="fa-solid fa-triangle-exclamation"></i></span>
+          {% endif %}
+          {% if a.linked_entwarnung %}
+          <span title="Entwarnung vorhanden — bitte prüfen" style="color:var(--accent2)"><i class="fa-solid fa-circle-check"></i></span>
+          {% endif %}
         </div>
       </div>
     </a>

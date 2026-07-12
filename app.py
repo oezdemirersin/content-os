@@ -1377,6 +1377,12 @@ def init_db():
             safe_alter('ALTER TABLE trend_topic ADD COLUMN IF NOT EXISTS prev_score INTEGER')
             safe_alter('ALTER TABLE trend_topic ADD COLUMN IF NOT EXISTS feedback INTEGER')
             safe_alter('ALTER TABLE trend_topic ADD COLUMN IF NOT EXISTS feedback_at TIMESTAMP')
+            # ── product_alert: später ergänzte Spalten (Bild-Score/Alert/Feedback/Verknüpfung) ──
+            safe_alter('ALTER TABLE product_alert ADD COLUMN IF NOT EXISTS image_match_score INTEGER')
+            safe_alter('ALTER TABLE product_alert ADD COLUMN IF NOT EXISTS alerted BOOLEAN DEFAULT FALSE')
+            safe_alter('ALTER TABLE product_alert ADD COLUMN IF NOT EXISTS feedback INTEGER')
+            safe_alter('ALTER TABLE product_alert ADD COLUMN IF NOT EXISTS feedback_at TIMESTAMP')
+            safe_alter('ALTER TABLE product_alert ADD COLUMN IF NOT EXISTS related_alert_id INTEGER')
 
         else:
             # SQLite: kein IF NOT EXISTS → mit inspect prüfen
@@ -3179,6 +3185,10 @@ def schedule_automations():
             if tick >= 2 and get_setting('pwf_auto_research') == '1':
                 if (tick - 2) % 30 == 0:
                     threading.Thread(target=_pwf_auto_scan, daemon=True).start()
+            # Product Alert Factory: einmal täglich vergessene Entwürfe mit
+            # längst abgelaufenem MHD automatisch archivieren
+            if tick >= 5 and (tick - 5) % 1440 == 0:
+                threading.Thread(target=_pwf_auto_archive_scheduled, daemon=True).start()
             # Content-Serien stündlich planen
             if tick % 60 == 0:
                 threading.Thread(target=_process_series, daemon=True).start()
@@ -18589,6 +18599,98 @@ def _pwf_find_duplicate(dedup_key, exclude_id=None):
     return q.first()
 
 
+def _pwf_find_related_recall(produktname, marke, exclude_id=None):
+    """Sucht zu einer neuen Entwarnung den passenden ursprünglichen Rückruf
+    (gleiches Produkt/gleiche Marke, nicht selbst schon eine Entwarnung).
+    Nur für die Verknüpfung — ändert NIE automatisch den Status des Fundes
+    (gleiches Vorsicht-Prinzip wie update_detected bei der Missing-Children-
+    Factory: der Mensch entscheidet, ob wirklich derselbe Fall gemeint ist)."""
+    pn = (produktname or '').strip().lower()
+    mk = (marke or '').strip().lower()
+    if not pn and not mk:
+        return None
+    # WICHTIG: "!= 'Entwarnung'" allein würde in SQL Zeilen mit kategorie IS NULL
+    # per Drei-Werte-Logik stillschweigend ausschließen (NULL != x ist NULL,
+    # nicht TRUE) — deshalb explizit is_(None) mit einschließen.
+    q = ProductAlert.query.filter(
+        db.or_(ProductAlert.status != 'archiviert', ProductAlert.status.is_(None)),
+        db.or_(ProductAlert.kategorie != 'Entwarnung', ProductAlert.kategorie.is_(None)))
+    if exclude_id:
+        q = q.filter(ProductAlert.id != exclude_id)
+    for c in q.all():
+        c_pn = (c.produktname or '').strip().lower()
+        c_mk = (c.marke or '').strip().lower()
+        if pn and c_pn and c_pn == pn:
+            return c
+        if mk and pn and c_mk == mk and c_pn[:15] == pn[:15]:
+            return c
+    return None
+
+
+def _pwf_latest_date_in_text(text):
+    """Findet alle dd.mm.yyyy/dd.mm.yy-Daten in einem Freitext (z.B. MHD-Feld
+    'MHD 20.05.26 – 27.05.26') und gibt das späteste zurück. None wenn nichts
+    sicher parsebar ist — es wird NIE geraten."""
+    if not text:
+        return None
+    import re as _re
+    dates = []
+    for d, m, y in _re.findall(r'(\d{1,2})\.(\d{1,2})\.(\d{2,4})', text):
+        try:
+            year = int(y) if len(y) == 4 else 2000 + int(y)
+            dates.append(datetime(year, int(m), int(d)).date())
+        except Exception:
+            continue
+    return max(dates) if dates else None
+
+
+def _pwf_auto_archive_scheduled():
+    """Scheduler-Einstieg: eigener app_context für den Hintergrund-Thread."""
+    with app.app_context():
+        _pwf_auto_archive_expired()
+
+
+def _pwf_auto_archive_expired():
+    """Archiviert vergessene Entwürfe automatisch, deren MHD seit >30 Tagen
+    abgelaufen ist — nur Entwürfe (nie veröffentlichte/schon archivierte
+    Posts), nur wenn ein Datum sicher aus dem MHD-Freitext lesbar ist."""
+    cutoff = datetime.utcnow().date() - timedelta(days=30)
+    archived = 0
+    for a in ProductAlert.query.filter_by(status='entwurf').all():
+        latest = _pwf_latest_date_in_text(a.mhd)
+        if latest and latest < cutoff:
+            a.status = 'archiviert'
+            archived += 1
+    if archived:
+        db.session.commit()
+    return archived
+
+
+def _pwf_calibration_block():
+    """Kurzer Kalibrierungs-Hinweis aus dem Nutzer-Feedback der letzten 60 Tage
+    — analog zur Trend-Radar-Feedback-Schleife, hier pro Extraktion statt pro
+    Batch-Scan eingespeist, da PWF jede Meldung einzeln extrahiert."""
+    cutoff = datetime.utcnow() - timedelta(days=60)
+    good = ProductAlert.query.filter(ProductAlert.feedback == 1, ProductAlert.feedback_at >= cutoff)\
+        .order_by(ProductAlert.feedback_at.desc()).limit(8).all()
+    bad = ProductAlert.query.filter(ProductAlert.feedback == -1, ProductAlert.feedback_at >= cutoff)\
+        .order_by(ProductAlert.feedback_at.desc()).limit(8).all()
+    if not good and not bad:
+        return ''
+    lines = ['\n\n--- NUTZER-FEEDBACK ZUR KALIBRIERUNG (aus echter Rückmeldung, letzte 60 Tage) ---']
+    if good:
+        lines.append('Als korrekt eingeschätzt bestätigt (Kategorie/Risiko/Relevanz passten):')
+        for a in good:
+            lines.append(f'- "{a.display_name()}": Kategorie={a.kategorie}, Risiko={a.risiko}, Relevanz={a.relevanz}')
+    if bad:
+        lines.append('Als FALSCH eingeschätzt markiert (Kategorie/Risiko/Relevanz stimmten nicht):')
+        for a in bad:
+            lines.append(f'- "{a.display_name()}": eingeschätzt als Kategorie={a.kategorie}, Risiko={a.risiko}, Relevanz={a.relevanz}')
+    lines.append('Berücksichtige dieses Muster bei neuen Einschätzungen — ändert NICHTS an der Grundregel: '
+                 'nur aus dem gegebenen Text ableiten, nie erfinden.')
+    return '\n'.join(lines)
+
+
 def _pwf_extract_from_text(text, api_key):
     """Extrahiert Produktwarnungs-Felder NUR aus dem gegebenen Text (erfindet
     nichts). Gibt dict|None."""
@@ -18600,7 +18702,7 @@ def _pwf_extract_from_text(text, api_key):
         client = anthropic.Anthropic(api_key=api_key)
         model = get_setting('analysis_model') or 'claude-sonnet-4-6'
         resp = client.messages.create(
-            model=model, max_tokens=1800, system=_PWF_EXTRACT_SYSTEM,
+            model=model, max_tokens=1800, system=_PWF_EXTRACT_SYSTEM + _pwf_calibration_block(),
             messages=[{'role': 'user', 'content': str(text)[:8000]}])
         _log_ai('pwf_extract_text', resp)
         raw = resp.content[0].text.strip()
@@ -18626,7 +18728,8 @@ def _pwf_extract_from_image_bytes(img_bytes, mime, api_key):
         resp = client.messages.create(
             model=model, max_tokens=1800,
             system=_PWF_EXTRACT_SYSTEM + '\n\nDas Material ist ein FOTO/SCAN, kein Fließtext — '
-                   'lies alles Erkennbare (Etikett, Aushang, Screenshot einer Meldung) sorgfältig aus.',
+                   'lies alles Erkennbare (Etikett, Aushang, Screenshot einer Meldung) sorgfältig aus.'
+                   + _pwf_calibration_block(),
             messages=[{'role': 'user', 'content': [
                 {'type': 'image', 'source': {'type': 'base64', 'media_type': mime, 'data': img_b64}},
                 {'type': 'text', 'text': 'Lies dieses Material aus und antworte nur mit dem JSON-Objekt.'}
@@ -18706,6 +18809,61 @@ def _pwf_maybe_fetch_photo(url, orig_filename=None):
     except Exception as e:
         app.logger.warning('PWF Bild-Fetch: %s', e)
         return None
+
+
+def _pwf_score_image_match(headline, image_bytes, mime='image/jpeg'):
+    """Bewertet per Haiku-Vision, wie gut ein Produktfoto inhaltlich zur Meldung
+    passt (0-100) — Muster von CityBots Bild-Match-Score übernommen.
+    0-20 komplett falsches Motiv, 21-50 generisches Symbolbild ohne Bezug,
+    51-80 thematisch passend aber nicht exakt das Produkt, 81-100 exaktes Produkt.
+    BULLETPROOF: fehlender Key/Bild/Headline oder JEDER Fehler → None, blockiert
+    nie den Post-Flow."""
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key or not image_bytes or not headline:
+        return None
+    try:
+        import anthropic, base64 as _b64, re as _re
+        img_b64 = _b64.standard_b64encode(image_bytes).decode()
+        client = anthropic.Anthropic(api_key=api_key)
+        content = [
+            {'type': 'image', 'source': {'type': 'base64', 'media_type': mime, 'data': img_b64}},
+            {'type': 'text', 'text': (
+                f'Produkt/Meldung: "{headline}"\n\n'
+                'Wie gut passt dieses Bild inhaltlich (Produkt, Verpackung, Motiv)? '
+                'Bewerte auf einer Skala von 0-100:\n'
+                '0-20 = komplett falsches Motiv (anderes Produkt/Thema)\n'
+                '21-50 = generisches Symbolbild ohne konkreten Bezug\n'
+                '51-80 = thematisch passend, aber nicht exakt das beschriebene Produkt\n'
+                '81-100 = exakt das beschriebene Produkt erkennbar\n'
+                'Antworte NUR mit der Zahl, sonst nichts.'
+            )},
+        ]
+        resp = client.messages.create(model='claude-haiku-4-5', max_tokens=6,
+                                      messages=[{'role': 'user', 'content': content}])
+        _log_ai('pwf_image_match', resp)
+        m = _re.search(r'\d+', resp.content[0].text)
+        return max(0, min(100, int(m.group()))) if m else None
+    except Exception as e:
+        app.logger.debug('PWF Bild-Match-Score: %s', e)
+        return None
+
+
+def _pwf_score_image_match_async(alert_id):
+    """Läuft im Hintergrund-Thread, blockiert nie den aufrufenden Flow (Create/
+    Extraktion/Auto-Recherche warten nicht auf das Vision-Ergebnis)."""
+    def _run():
+        with app.app_context():
+            a = ProductAlert.query.get(alert_id)
+            if not a or not a.foto_media_id:
+                return
+            media = MediaItem.query.get(a.foto_media_id)
+            photo_bytes = _mcf_load_image_bytes(media) if media else None
+            headline = a.produktname or a.titel or a.kurztitel
+            score = _pwf_score_image_match(headline, photo_bytes)
+            if score is not None:
+                a.image_match_score = score
+                db.session.commit()
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _pwf_draw_placeholder(bw, bh):
@@ -18941,6 +19099,33 @@ def _pwf_target_account():
     return Account.query.get(int(acc_id))
 
 
+def _pwf_maybe_fire_urgent_alert(a):
+    """Sofortiger Telegram-Alert bei KRITISCH-Risiko oder sehr hoher Dringlichkeit
+    — hier zählen Minuten, im Gegensatz zu normalen Entwürfen. Einmalig pro
+    Alert (alerted-Flag), analog zum Trend-Radar-Alert."""
+    if a.alerted:
+        return
+    urgent = (a.risiko == 'KRITISCH') or (a.dringlichkeit is not None and a.dringlichkeit >= 85)
+    if not urgent:
+        return
+    try:
+        _send_central_alert(
+            f'🚨 <b>Product Alert Factory: {a.risiko or "SEHR DRINGEND"}</b>\n'
+            f'<b>{a.display_name()}</b>\n'
+            f'{(a.rueckrufgrund or "")[:200]}\n'
+            f'→ /content-studio/produktwarnungen/{a.id}')
+    except Exception:
+        pass
+    try:
+        _push_notification(
+            'info', f'🚨 {a.risiko or "Dringend"}: {a.display_name()}',
+            (a.rueckrufgrund or '')[:150],
+            link=f'/content-studio/produktwarnungen/{a.id}')
+    except Exception:
+        pass
+    a.alerted = True
+
+
 def _pwf_alert_dict(a):
     acc = Account.query.get(a.account_id) if a.account_id else None
     media = MediaItem.query.get(a.foto_media_id) if a.foto_media_id else None
@@ -18976,7 +19161,24 @@ def _pwf_alert_dict(a):
         'published_at': a.published_at.strftime('%d.%m.%Y %H:%M') if a.published_at else None,
         'ig_post_ref': a.ig_post_ref,
         'created_at': a.created_at.strftime('%d.%m.%Y') if a.created_at else None,
+        'image_match_score': a.image_match_score,
+        'feedback': a.feedback or 0,
+        'related_alert': _pwf_related_dict(a.related_alert_id) if a.related_alert_id else None,
+        'linked_entwarnung': _pwf_linked_entwarnung_dict(a.id),
     }
+
+
+def _pwf_related_dict(related_id):
+    r = ProductAlert.query.get(related_id) if related_id else None
+    return {'id': r.id, 'name': r.display_name()} if r else None
+
+
+def _pwf_linked_entwarnung_dict(alert_id):
+    """Reverse-Lookup: gibt es eine Entwarnung, die auf DIESEN Alert verweist?
+    Nur informativ — ändert nie automatisch den Status (Vorsicht-Prinzip wie
+    bei der Missing-Children-Factory: der Mensch entscheidet)."""
+    e = ProductAlert.query.filter_by(related_alert_id=alert_id).first()
+    return {'id': e.id, 'name': e.display_name()} if e else None
 
 
 def _pwf_apply_fields(alert, d, prefix_new=False):
@@ -19146,10 +19348,14 @@ def pwf_create_alert():
     if not any((d.get('titel'), d.get('produktname'), d.get('kurztitel'), files, extracted_photo_id)):
         return jsonify({'ok': False, 'error': 'Bitte mindestens Titel/Produktname oder ein Bild angeben.'}), 400
     dk = _pwf_dedup_key(d.get('produktname'), d.get('marke'), d.get('charge'), d.get('titel'))
-    dup = _pwf_find_duplicate(dk)
-    if dup:
-        return jsonify({'ok': True, 'duplicate': True, 'alert_id': dup.id,
-                        'msg': 'Diese Warnung existiert bereits — es wurde kein Duplikat angelegt.'})
+    # Eine Entwarnung zum selben Produkt ist KEIN Duplikat, sondern ein eigenes,
+    # späteres Ereignis — sonst würde sie hier fälschlich blockiert, weil sie
+    # denselben Dedup-Key (Produktname/Marke/Charge) wie der Original-Rückruf hat.
+    if d.get('kategorie') != 'Entwarnung':
+        dup = _pwf_find_duplicate(dk)
+        if dup:
+            return jsonify({'ok': True, 'duplicate': True, 'alert_id': dup.id,
+                            'msg': 'Diese Warnung existiert bereits — es wurde kein Duplikat angelegt.'})
     acc_id = None
     try:
         acc_id = int(d.get('account_id')) if (d.get('account_id') or '').strip() else None
@@ -19162,6 +19368,11 @@ def pwf_create_alert():
     _pwf_apply_fields(a, d.to_dict())
     db.session.add(a)
     db.session.flush()
+    _pwf_maybe_fire_urgent_alert(a)
+    if a.kategorie == 'Entwarnung':
+        related = _pwf_find_related_recall(a.produktname, a.marke, exclude_id=a.id)
+        if related:
+            a.related_alert_id = related.id
 
     media_ids = []
     for f in files:
@@ -19177,6 +19388,8 @@ def pwf_create_alert():
     if not a.caption:
         a.caption = _pwf_generate_caption(a)
     db.session.commit()
+    if a.foto_media_id:
+        _pwf_score_image_match_async(a.id)
     return jsonify({'ok': True, 'alert_id': a.id, 'alert': _pwf_alert_dict(a)})
 
 
@@ -19229,6 +19442,42 @@ def pwf_regen_caption(aid):
     a.caption = _pwf_generate_caption(a)
     db.session.commit()
     return jsonify({'ok': True, 'caption': a.caption})
+
+
+@app.route('/api/pwf/alert/<int:aid>/feedback', methods=['POST'])
+@login_required
+def pwf_feedback(aid):
+    """Nutzer bewertet ob Kategorie/Risiko/Relevanz der KI-Einschätzung
+    zutrafen. Fließt über _pwf_calibration_block in künftige Extraktionen ein."""
+    a = ProductAlert.query.get_or_404(aid)
+    d = request.get_json(silent=True) or {}
+    try:
+        v = int(d.get('value', 0))
+    except Exception:
+        v = 0
+    a.feedback = v if v in (1, -1) else None
+    a.feedback_at = datetime.utcnow() if a.feedback else None
+    db.session.commit()
+    return jsonify({'ok': True, 'feedback': a.feedback or 0})
+
+
+@app.route('/api/pwf/alert/<int:aid>/check-image-match', methods=['POST'])
+@login_required
+def pwf_check_image_match(aid):
+    """Manueller Re-Check des Bild-Match-Scores (z.B. nach Fotowechsel) —
+    synchron, damit der 'Prüfen'-Button ein sofortiges Ergebnis zeigt."""
+    a = ProductAlert.query.get_or_404(aid)
+    if not a.foto_media_id:
+        return jsonify({'ok': False, 'error': 'Kein Produktfoto hinterlegt.'}), 400
+    media = MediaItem.query.get(a.foto_media_id)
+    photo_bytes = _mcf_load_image_bytes(media) if media else None
+    headline = a.produktname or a.titel or a.kurztitel
+    score = _pwf_score_image_match(headline, photo_bytes)
+    if score is None:
+        return jsonify({'ok': False, 'error': 'Bewertung fehlgeschlagen (kein API-Key oder Fehler).'}), 400
+    a.image_match_score = score
+    db.session.commit()
+    return jsonify({'ok': True, 'image_match_score': score})
 
 
 @app.route('/api/pwf/alert/<int:aid>/telegram', methods=['POST'])
@@ -19309,7 +19558,8 @@ def _pwf_run_research():
                 continue
             dk = _pwf_dedup_key(data.get('produktname'), data.get('marke'),
                                 data.get('charge'), data.get('titel'))
-            if _pwf_find_duplicate(dk):
+            # Entwarnung zum selben Produkt ist kein Duplikat, s. pwf_create_alert
+            if data.get('kategorie') != 'Entwarnung' and _pwf_find_duplicate(dk):
                 continue
             acc = _pwf_target_account()
             a = ProductAlert(origin='auto', status='entwurf', dedup_key=dk,
@@ -19319,6 +19569,11 @@ def _pwf_run_research():
             _pwf_apply_fields(a, data)
             db.session.add(a)
             db.session.flush()
+            _pwf_maybe_fire_urgent_alert(a)
+            if a.kategorie == 'Entwarnung':
+                related = _pwf_find_related_recall(a.produktname, a.marke, exclude_id=a.id)
+                if related:
+                    a.related_alert_id = related.id
             if data.get('produktbild_vorhanden') and data.get('produktbild_url'):
                 pid = _pwf_maybe_fetch_photo(data.get('produktbild_url'))
                 if pid:
@@ -19329,6 +19584,9 @@ def _pwf_run_research():
                     a.caption = _pwf_generate_caption(a)
             except Exception as ex:
                 app.logger.warning('PWF Auto-Gen: %s', ex)
+            db.session.commit()
+            if a.foto_media_id:
+                _pwf_score_image_match_async(a.id)
             created += 1
         db.session.commit()
     return created, checked
