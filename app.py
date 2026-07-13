@@ -18080,6 +18080,66 @@ Antworte NUR mit einem JSON-Array, keinerlei Text davor oder danach:
   "sources": [{"source": "Quellenname", "detail": "warum relevant", "url": "oder null"}]}]"""
 
 
+def _balanced_span_from(text, start, open_char, close_char):
+    """Liefert den klammern-balancierten Teilstring ab Position `start` (die
+    auf open_char zeigen muss), oder None wenn die Klammern nie schließen
+    (z.B. bei einer durch max_tokens abgeschnittenen Antwort). Ignoriert
+    Klammern innerhalb von JSON-Strings (inkl. Escapes), damit z.B. ein "["
+    in einem Beschreibungstext die Tiefenzählung nicht verfälscht."""
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == open_char:
+            depth += 1
+        elif ch == close_char:
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
+def _extract_balanced_json(text, open_char='[', close_char=']'):
+    """Findet ein JSON-Array/-Objekt im Text — robuster als eine gierige Regex
+    (z.B. \\[[\\s\\S]*\\]), die vom ERSTEN bis zum LETZTEN Klammer-Zeichen im
+    GESAMTEN Text matcht und dabei über unzusammenhängende Klammer-Paare
+    hinwegreißt (bricht z.B. bei aktivierter Websuche, wenn die Antwort
+    mehrteilig ist, oder wenn irgendwo im Fließtext Zitier-Klammern wie "[1]"
+    auftauchen — beides erzeugt "Expecting ',' delimiter"/"Extra data").
+    Probiert stattdessen JEDES Klammer-Vorkommen als möglichen Start und
+    nimmt das erste vollständige Segment, das tatsächlich als Liste von
+    Objekten (bzw. bei '{' als Objekt) parsebar ist — eine einzelne Fußnote
+    wie "[1]" ist zwar auch balanciert, aber kein Objekt/keine Objektliste
+    und wird deshalb übersprungen."""
+    pos = 0
+    while True:
+        start = text.find(open_char, pos)
+        if start == -1:
+            return None
+        span = _balanced_span_from(text, start, open_char, close_char)
+        if span:
+            try:
+                parsed = json.loads(span)
+                if open_char == '[' and (not parsed or isinstance(parsed[0], dict)):
+                    return span
+                if open_char == '{' and isinstance(parsed, dict):
+                    return span
+            except Exception:
+                pass
+        pos = start + 1
+
+
 def _tr_claude(api_key, user_content, max_tokens=6000):
     """Claude-Call fürs Clustering; behandelt pause_turn (Websuche-Tool)."""
     import anthropic as _ant
@@ -18151,9 +18211,18 @@ def _tr_cluster_and_save(api_key):
           + f'\n\n--- ROHSIGNALE (letzte 24h, {len(signals)} Stück) ---\n'
           + '\n'.join(sig_lines)[:24000])
 
-    text = _tr_claude(api_key, uc)
-    m = _re.search(r'\[[\s\S]*\]', text or '')
-    items = json.loads(m.group(0)) if m else []
+    # max_tokens hochgesetzt: 12 Themen mit je Quellen-Array/Signal-IDs können
+    # das alte Limit von 6000 überschreiten und die JSON-Antwort mitten im
+    # Objekt abschneiden (unschließbare Klammer -> _extract_balanced_json
+    # liefert dann sauber None statt eines kaputten Teilstrings, aber besser
+    # ist, das Abschneiden gar nicht erst zu riskieren).
+    text = _tr_claude(api_key, uc, max_tokens=8000)
+    raw_json = _extract_balanced_json(text or '', '[', ']')
+    try:
+        items = json.loads(raw_json) if raw_json else []
+    except (json.JSONDecodeError, TypeError) as e:
+        app.logger.error('Trend Radar JSON-Parse fehlgeschlagen: %s | raw: %s', e, (raw_json or '')[:500])
+        items = []
 
     by_id = {t.id: t for t in existing}
     valid_platforms = set(_TR_PLATFORM_LABELS)
