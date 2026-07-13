@@ -18662,6 +18662,12 @@ _PWF_JSON_SCHEMA = (
     '"dringlichkeit": int|null (0-100, wie zeitkritisch), '
     '"de_relevant": bool, "eu_relevant": bool, "weltweit_relevant": bool, '
     '"grosse_marke": bool, "lebensmittel": bool, "kinderprodukt": bool, '
+    '"supermarkt_sortiment": bool (true NUR wenn das Produkt ein Lebensmittel ist ODER ein '
+    'Non-Food-Artikel, der typischerweise im Sortiment deutscher Supermärkte/Drogerien geführt wird '
+    '— z.B. REWE, Edeka, Aldi, Lidl, Kaufland, Netto, Penny, dm, Rossmann, Müller. false bei Technik, '
+    'Werkzeug, Fahrzeugteilen/-zubehör, Sport-/Outdoor-/Tauchausrüstung, Baumarkt- oder '
+    'Fachhandelsware, sowie bei Produkten, die laut Text nur über Onlinemarktplätze wie Etsy/eBay, '
+    'Fachgeschäfte oder Spezialversender verkauft werden), '
     '"originalquelle": str|null, "quelle_datum": "YYYY-MM-DD"|null, '
     '"ig_titel": str|null, "ig_untertitel": str|null, "ig_kurzbeschreibung": str|null, '
     '"caption": str|null, "ig_alt_text": str|null, "story_text": str|null}'
@@ -19667,6 +19673,12 @@ def _pwf_run_research():
                 continue
             data = _pwf_extract_from_text(f"{e.get('title', '')}\n\n{e.get('description', '')}", api_key)
             if not data or not data.get('is_case'):
+                continue
+            # Auto-Scan: nur Produkte/Lebensmittel aus deutschen Supermärkten/
+            # Drogerien — keine Technik, Werkzeuge, Sport-/Fachhandelsware o.ä.
+            # (User-Vorgabe). Gilt NUR fürs automatische Scannen, nicht für die
+            # manuelle Erfassung (Text/URL/Bild-Upload bleibt uneingeschränkt).
+            if not data.get('supermarkt_sortiment'):
                 continue
             dk = _pwf_dedup_key(data.get('produktname'), data.get('marke'),
                                 data.get('charge'), data.get('titel'))
