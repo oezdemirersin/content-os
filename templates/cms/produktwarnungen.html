@@ -104,7 +104,8 @@
     {% set risk_colors = {'GERING':'badge-gray','MITTEL':'badge-yellow','HOCH':'badge-red','KRITISCH':'badge-red'} %}
     <div class="card" style="position:relative;overflow:hidden;padding:0">
       <button onclick="delPwfCard(event,{{ a.id }})" title="Entwurf löschen"
-              style="position:absolute;top:8px;right:8px;z-index:2;width:26px;height:26px;border-radius:50%;border:none;background:rgba(0,0,0,.55);color:#fff;cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center">
+              onmouseover="this.style.background='rgba(220,38,38,.9)'" onmouseout="this.style.background='rgba(0,0,0,.6)'"
+              style="position:absolute;top:6px;right:6px;z-index:5;width:34px;height:34px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s ease">
         <i class="fa-solid fa-xmark"></i>
       </button>
       <a href="{{ url_for('product_alert_detail', alert_id=a.id) }}" style="text-decoration:none;color:inherit;display:block">
@@ -141,11 +142,18 @@
 <script>
 async function delPwfCard(ev,aid){
   ev.preventDefault(); ev.stopPropagation();
+  const btn=ev.currentTarget, card=btn.closest('.card');
   if(typeof customConfirm==='function'){ if(!await customConfirm('Warnung löschen','Diese Produktwarnung unwiderruflich löschen?','Löschen')) return; }
   else if(!confirm('Diese Produktwarnung unwiderruflich löschen?')) return;
+  btn.disabled=true; btn.style.opacity='0.5'; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
   const r=await fetch(`/api/pwf/alert/${aid}/delete`,{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
-  if(r.ok){ ev.currentTarget.closest('.card').remove(); }
-  else alert('Löschen fehlgeschlagen.');
+  if(r.ok){
+    card.style.transition='opacity .2s ease'; card.style.opacity='0';
+    setTimeout(()=>card.remove(),200);
+  } else {
+    btn.disabled=false; btn.style.opacity=''; btn.innerHTML='<i class="fa-solid fa-xmark"></i>';
+    alert('Löschen fehlgeschlagen.');
+  }
 }
 function fillForm(fields){
   const form=document.getElementById('pwfCreateForm');
