@@ -3187,42 +3187,48 @@ def schedule_automations():
                     for rule in due_rules:
                         threading.Thread(target=run_automation_rule, args=(rule.id,), daemon=True).start()
 
-            tick += 1
-            # Alerts alle 5 Min. refreshen (statt bei jedem Dashboard-Load)
-            if tick % 5 == 0:
-                generate_alerts()
-            # Housekeeping every 60 ticks (~1 hour)
-            if tick % 60 == 0:
-                auto_archive_old_content()
-            # Wetter-Check 4× täglich (alle 360 Ticks = 6 Stunden)
-            if tick % 360 == 0:
-                threading.Thread(target=_check_all_weather, daemon=True).start()
-                threading.Thread(target=_check_koop_reminders, daemon=True).start()
-            # KI-Auto-Klassifizierung alle 10 Minuten
-            if tick % 10 == 0:
-                threading.Thread(target=_auto_classify_batch, daemon=True).start()
-            # Smart-Refill alle 30 Minuten
-            if tick % 30 == 0:
-                threading.Thread(target=_smart_refill_check, daemon=True).start()
-            # Trend Radar: alle 3 Stunden scannen (Start bei tick 3, nie tick 0 —
-            # get_setting existiert beim Thread-Start noch nicht, s. Webhook-Kommentar)
-            if tick >= 3 and (tick - 3) % 180 == 0:
-                threading.Thread(target=_tr_auto_scan, daemon=True).start()
-            # Product Alert Factory: alle 30 Minuten scannen (nie tick 0, s.o.)
-            if tick >= 2 and get_setting('pwf_auto_research') == '1':
-                if (tick - 2) % 30 == 0:
+                # ── Ab hier ebenfalls im app_context: get_setting()/DB-Zugriffe ──
+                # Früher lag dieser Teil AUSSERHALB von with app.app_context().
+                # generate_alerts() und get_setting() werfen dort "Working outside
+                # of application context" — vom bare except unten lautlos
+                # verschluckt, was JEDE weitere Automation in der Liste für den
+                # betroffenen Tick abgewürgt hat (u.a. PWF-Auto-Scan lief dadurch
+                # nie, siehe [[project_product_alert_factory]]).
+                tick += 1
+                # Alerts alle 5 Min. refreshen (statt bei jedem Dashboard-Load)
+                if tick % 5 == 0:
+                    generate_alerts()
+                # Housekeeping every 60 ticks (~1 hour)
+                if tick % 60 == 0:
+                    auto_archive_old_content()
+                # Wetter-Check 4× täglich (alle 360 Ticks = 6 Stunden)
+                if tick % 360 == 0:
+                    threading.Thread(target=_check_all_weather, daemon=True).start()
+                    threading.Thread(target=_check_koop_reminders, daemon=True).start()
+                # KI-Auto-Klassifizierung alle 10 Minuten
+                if tick % 10 == 0:
+                    threading.Thread(target=_auto_classify_batch, daemon=True).start()
+                # Smart-Refill alle 30 Minuten
+                if tick % 30 == 0:
+                    threading.Thread(target=_smart_refill_check, daemon=True).start()
+                # Trend Radar: alle 3 Stunden scannen (Start bei tick 3, nie tick 0 —
+                # get_setting existiert beim Thread-Start noch nicht, s. Webhook-Kommentar)
+                if tick >= 3 and (tick - 3) % 180 == 0:
+                    threading.Thread(target=_tr_auto_scan, daemon=True).start()
+                # Product Alert Factory: alle 30 Minuten scannen (nie tick 0, s.o.)
+                if tick >= 2 and (tick - 2) % 30 == 0:
                     threading.Thread(target=_pwf_auto_scan, daemon=True).start()
-            # Product Alert Factory: einmal täglich vergessene Entwürfe mit
-            # längst abgelaufenem MHD automatisch archivieren
-            if tick >= 5 and (tick - 5) % 1440 == 0:
-                threading.Thread(target=_pwf_auto_archive_scheduled, daemon=True).start()
-            # Content-Serien stündlich planen
-            if tick % 60 == 0:
-                threading.Thread(target=_process_series, daemon=True).start()
-            # Schicht 4: Stündliches DB-Backup (lokal + iCloud)
-            if tick % 60 == 0:
-                threading.Thread(
-                    target=lambda: _do_backup('hourly'), daemon=True).start()
+                # Product Alert Factory: einmal täglich vergessene Entwürfe mit
+                # längst abgelaufenem MHD automatisch archivieren
+                if tick >= 5 and (tick - 5) % 1440 == 0:
+                    threading.Thread(target=_pwf_auto_archive_scheduled, daemon=True).start()
+                # Content-Serien stündlich planen
+                if tick % 60 == 0:
+                    threading.Thread(target=_process_series, daemon=True).start()
+                # Schicht 4: Stündliches DB-Backup (lokal + iCloud)
+                if tick % 60 == 0:
+                    threading.Thread(
+                        target=lambda: _do_backup('hourly'), daemon=True).start()
 
         except Exception:
             pass
