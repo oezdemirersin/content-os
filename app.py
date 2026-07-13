@@ -19642,6 +19642,21 @@ def pwf_delete_alert(aid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/pwf/alert/bulk-delete', methods=['POST'])
+@login_required
+def pwf_bulk_delete_alerts():
+    d = request.get_json(silent=True) or {}
+    ids = [int(i) for i in d.get('ids', []) if str(i).isdigit()]
+    if not ids:
+        return jsonify({'ok': False, 'error': 'Keine IDs übergeben'}), 400
+    alerts = ProductAlert.query.filter(ProductAlert.id.in_(ids)).all()
+    count = len(alerts)
+    for a in alerts:
+        db.session.delete(a)
+    db.session.commit()
+    return jsonify({'ok': True, 'deleted': count})
+
+
 # ─── Quellen-Verwaltung + Auto-Recherche ──────────────────────────────────
 def _pwf_run_research():
     """Scannt konfigurierte RSS-Quellen nach Produktwarnungen/Rückrufen und

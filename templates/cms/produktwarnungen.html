@@ -99,10 +99,30 @@
   {% if not alerts %}
   <div class="card" style="padding:40px;text-align:center;color:var(--muted)">Noch keine Produktwarnungen — lege oben eine an.</div>
   {% endif %}
+
+  {% if alerts %}
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <button onclick="selectAllPwf()" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Alle auswählen</button>
+  </div>
+  <div id="pwfBulkBar" style="display:none;align-items:center;gap:12px;padding:12px 20px;
+       background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);
+       border-radius:10px;margin-bottom:16px">
+    <span id="pwfBulkCount" style="font-size:13px;font-weight:600;color:var(--accent2)"></span>
+    <button onclick="bulkDeletePwf()" class="btn btn-danger" style="font-size:12px;padding:6px 14px">
+      <i class="fa-solid fa-trash"></i> Ausgewählte löschen
+    </button>
+    <button onclick="deselectAllPwf()" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;margin-left:auto">Aufheben</button>
+  </div>
+  {% endif %}
+
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">
     {% for a in alerts %}
     {% set risk_colors = {'GERING':'badge-gray','MITTEL':'badge-yellow','HOCH':'badge-red','KRITISCH':'badge-red'} %}
     <div class="card" style="position:relative;overflow:hidden;padding:0">
+      <div style="position:absolute;top:6px;left:6px;z-index:5;width:24px;height:24px;border-radius:6px;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center">
+        <input type="checkbox" class="pwf-checkbox" data-id="{{ a.id }}" onclick="event.stopPropagation()" onchange="updatePwfBulkBar();togglePwfCardSelected(this)"
+               style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
+      </div>
       <button onclick="delPwfCard(event,{{ a.id }})" title="Entwurf löschen"
               onmouseover="this.style.background='rgba(220,38,38,.9)'" onmouseout="this.style.background='rgba(0,0,0,.6)'"
               style="position:absolute;top:6px;right:6px;z-index:5;width:34px;height:34px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s ease">
@@ -152,6 +172,56 @@ async function delPwfCard(ev,aid){
     setTimeout(()=>card.remove(),200);
   } else {
     btn.disabled=false; btn.style.opacity=''; btn.innerHTML='<i class="fa-solid fa-xmark"></i>';
+    alert('Löschen fehlgeschlagen.');
+  }
+}
+function getSelectedPwfIds(){
+  return Array.from(document.querySelectorAll('.pwf-checkbox:checked')).map(c=>parseInt(c.dataset.id));
+}
+function updatePwfBulkBar(){
+  const ids=getSelectedPwfIds(), bar=document.getElementById('pwfBulkBar');
+  if(!bar) return;
+  document.getElementById('pwfBulkCount').textContent=ids.length+' ausgewählt';
+  bar.style.display=ids.length?'flex':'none';
+}
+function togglePwfCardSelected(cb){
+  const card=cb.closest('.card');
+  if(!card) return;
+  if(cb.checked){ card.style.boxShadow='0 0 0 2px var(--accent)'; }
+  else{ card.style.boxShadow=''; }
+}
+function selectAllPwf(){
+  document.querySelectorAll('.pwf-checkbox').forEach(cb=>{ cb.checked=true; togglePwfCardSelected(cb); });
+  updatePwfBulkBar();
+}
+function deselectAllPwf(){
+  document.querySelectorAll('.pwf-checkbox').forEach(cb=>{ cb.checked=false; togglePwfCardSelected(cb); });
+  updatePwfBulkBar();
+}
+async function bulkDeletePwf(){
+  const ids=getSelectedPwfIds();
+  if(!ids.length) return;
+  const msg=`${ids.length} Produktwarnung(en) unwiderruflich löschen?`;
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Ausgewählte löschen',msg,'Löschen')) return; }
+  else if(!confirm(msg)) return;
+  const bar=document.getElementById('pwfBulkBar');
+  const btn=bar.querySelector('.btn-danger');
+  const origHtml=btn.innerHTML;
+  btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Lösche…';
+  const r=await fetch('/api/pwf/alert/bulk-delete',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ids})
+  }).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){
+    ids.forEach(id=>{
+      const cb=document.querySelector(`.pwf-checkbox[data-id="${id}"]`);
+      const card=cb && cb.closest('.card');
+      if(card){ card.style.transition='opacity .2s ease'; card.style.opacity='0'; setTimeout(()=>card.remove(),200); }
+    });
+    updatePwfBulkBar();
+    if(typeof showToast==='function') showToast(`${r.deleted} gelöscht.`);
+  } else {
+    btn.disabled=false; btn.innerHTML=origHtml;
     alert('Löschen fehlgeschlagen.');
   }
 }
