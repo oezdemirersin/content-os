@@ -15788,10 +15788,16 @@ def _iic_claude(api_key, user_content, tools=None, model=None, max_tokens=4000, 
 
 
 def _iic_parse_and_save(text):
-    """Extrahiert das JSON-Array und legt KnowledgeEntries an. Gibt die Liste zurück."""
-    import re as _re, json as _json
-    m = _re.search(r'\[[\s\S]*\]', text or '')
-    items = _json.loads(m.group(0)) if m else []
+    """Extrahiert das JSON-Array und legt KnowledgeEntries an. Gibt die Liste zurück.
+    Nutzt _extract_balanced_json statt einer gierigen Regex — die Recherche-/
+    URL-Modi laufen mit web_search/web_fetch-Tools, deren mehrteilige Antworten
+    (Zitier-Klammern wie "[1]" etc.) eine gierige \\[[\\s\\S]*\\]-Regex genau wie
+    beim Trend-Radar-Bug zerreißen können (s. project_trend_radar-Memory)."""
+    try:
+        items = json.loads(_extract_balanced_json(text or '', '[', ']') or '[]')
+    except Exception as e:
+        app.logger.error('IIC JSON-Parse fehlgeschlagen: %s', e)
+        items = []
     created = []
     for it in items:
         if not isinstance(it, dict) or not it.get('title') or not it.get('summary'):
@@ -15814,7 +15820,7 @@ def _iic_parse_and_save(text):
             source_name=(str(it.get('source_name') or '')[:200] or None),
             source_url=(it.get('source_url') or None),
             source_date=sd, summary=it.get('summary'),
-            key_points=_json.dumps(it.get('key_points', []), ensure_ascii=False),
+            key_points=json.dumps(it.get('key_points', []), ensure_ascii=False),
             practical_impact=it.get('practical_impact'),
             confidence=conf, status=st, last_verified=now_berlin().date())
         db.session.add(e)
