@@ -977,6 +977,31 @@ WATCHLIST_SEED = [
 ]
 
 
+def _pwf_seed_default_sources():
+    """Einmalige Erstbefüllung: zwei live geprüfte Rückruf-Quellen + Auto-
+    Recherche standardmäßig an — damit die Product Alert Factory ohne
+    manuelle Einrichtung von selbst scannt. Läuft nur EIN EINZIGES MAL (Marker
+    in AppSettings), damit ein späteres bewusstes Löschen der Quellen durch
+    den Nutzer nicht bei jedem Neustart rückgängig gemacht wird. Nutzt
+    AppSettings direkt statt get_setting/set_setting, da diese erst später im
+    Modul definiert werden (init_db läuft synchron beim Modul-Laden)."""
+    marker = AppSettings.query.filter_by(key='pwf_sources_seeded').first()
+    if marker:
+        return
+    if not ProductAlertSource.query.first():
+        db.session.add(ProductAlertSource(
+            name='BAuA Produktrückrufe',
+            url='https://www.baua.de/DE/Themen/Monitoring-Evaluation/Marktueberwachung-Produktsicherheit/RSS/Produktrueckrufe-RSS-Feed.xml',
+            active=True, dedicated_feed=True))
+        db.session.add(ProductAlertSource(
+            name='produktwarnung.eu', url='https://www.produktwarnung.eu/feed/',
+            active=True, dedicated_feed=False))
+    if not AppSettings.query.filter_by(key='pwf_auto_research').first():
+        db.session.add(AppSettings(key='pwf_auto_research', value='1'))
+    db.session.add(AppSettings(key='pwf_sources_seeded', value='1'))
+    db.session.commit()
+
+
 def init_db():
     with app.app_context():
         db.create_all()
@@ -1809,6 +1834,7 @@ def init_db():
                 safe_alter(stmt)
 
         seed_data()
+        _pwf_seed_default_sources()
 
         # ── Auto-Wetter-Stadt aus Account-Namen befüllen ─────────────
         # Alle deutschen Städte die im CityBot-Netzwerk vorkommen
