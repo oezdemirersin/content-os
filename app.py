@@ -18806,16 +18806,15 @@ def _pwf_extract_from_text(text, api_key):
         return None
     try:
         import anthropic
-        import re as _re
         client = anthropic.Anthropic(api_key=api_key)
         model = get_setting('analysis_model') or 'claude-sonnet-4-6'
         resp = client.messages.create(
-            model=model, max_tokens=1800, system=_PWF_EXTRACT_SYSTEM + _pwf_calibration_block(),
+            model=model, max_tokens=3000, system=_PWF_EXTRACT_SYSTEM + _pwf_calibration_block(),
             messages=[{'role': 'user', 'content': str(text)[:8000]}])
         _log_ai('pwf_extract_text', resp)
         raw = resp.content[0].text.strip()
-        m = _re.search(r'\{.*\}', raw, _re.S)
-        return json.loads(m.group(0)) if m else None
+        span = _extract_balanced_json(raw, '{', '}')
+        return json.loads(span) if span else None
     except Exception as e:
         app.logger.warning('PWF Extract-Text: %s', e)
         return None
@@ -18829,12 +18828,11 @@ def _pwf_extract_from_image_bytes(img_bytes, mime, api_key):
     try:
         import anthropic
         import base64 as _b64
-        import re as _re
         img_b64 = _b64.standard_b64encode(img_bytes).decode()
         client = anthropic.Anthropic(api_key=api_key)
         model = get_setting('vision_model') or 'claude-sonnet-4-6'
         resp = client.messages.create(
-            model=model, max_tokens=1800,
+            model=model, max_tokens=3000,
             system=_PWF_EXTRACT_SYSTEM + '\n\nDas Material ist ein FOTO/SCAN, kein Fließtext — '
                    'lies alles Erkennbare (Etikett, Aushang, Screenshot einer Meldung) sorgfältig aus.'
                    + _pwf_calibration_block(),
@@ -18844,8 +18842,8 @@ def _pwf_extract_from_image_bytes(img_bytes, mime, api_key):
             ]}])
         _log_ai('pwf_extract_image', resp)
         raw = resp.content[0].text.strip()
-        m = _re.search(r'\{.*\}', raw, _re.S)
-        return json.loads(m.group(0)) if m else None
+        span = _extract_balanced_json(raw, '{', '}')
+        return json.loads(span) if span else None
     except Exception as e:
         app.logger.warning('PWF Extract-Image: %s', e)
         return None
