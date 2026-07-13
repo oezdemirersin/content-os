@@ -102,30 +102,36 @@
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px">
     {% for a in alerts %}
     {% set risk_colors = {'GERING':'badge-gray','MITTEL':'badge-yellow','HOCH':'badge-red','KRITISCH':'badge-red'} %}
-    <a href="{{ url_for('product_alert_detail', alert_id=a.id) }}" class="card" style="text-decoration:none;color:inherit;overflow:hidden;display:block">
-      {% if a.image %}<img src="{{ a.image }}" style="width:100%;aspect-ratio:4/5;object-fit:cover;display:block" loading="lazy">{% endif %}
-      <div style="padding:12px 14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <span style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.name }}</span>
-          <span style="display:flex;gap:4px;align-items:center;flex-shrink:0">
-          {% if a.risiko %}<span class="badge {{ risk_colors.get(a.risiko,'badge-gray') }}">{{ a.risiko }}</span>{% endif %}
-          {% if a.status=='veroeffentlicht' %}<span class="badge badge-green">Veröff.</span>
-          {% elif a.status=='archiviert' %}<span class="badge" style="background:rgba(99,102,241,.15);color:var(--accent2)">Archiv</span>
-          {% else %}<span class="badge badge-gray">Entwurf</span>{% endif %}
-          </span>
+    <div class="card" style="position:relative;overflow:hidden;padding:0">
+      <button onclick="delPwfCard(event,{{ a.id }})" title="Entwurf löschen"
+              style="position:absolute;top:8px;right:8px;z-index:2;width:26px;height:26px;border-radius:50%;border:none;background:rgba(0,0,0,.55);color:#fff;cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+      <a href="{{ url_for('product_alert_detail', alert_id=a.id) }}" style="text-decoration:none;color:inherit;display:block">
+        {% if a.image %}<img src="{{ a.image }}" style="width:100%;aspect-ratio:4/5;object-fit:cover;display:block" loading="lazy">{% endif %}
+        <div style="padding:12px 14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.name }}</span>
+            <span style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+            {% if a.risiko %}<span class="badge {{ risk_colors.get(a.risiko,'badge-gray') }}">{{ a.risiko }}</span>{% endif %}
+            {% if a.status=='veroeffentlicht' %}<span class="badge badge-green">Veröff.</span>
+            {% elif a.status=='archiviert' %}<span class="badge" style="background:rgba(99,102,241,.15);color:var(--accent2)">Archiv</span>
+            {% else %}<span class="badge badge-gray">Entwurf</span>{% endif %}
+            </span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span>{{ a.kategorie or '—' }}{% if a.account %} · {{ a.account }}{% endif %}</span>
+            {% if a.telegram_sent %}<i class="fa-brands fa-telegram" style="color:var(--accent2)"></i>{% endif %}
+            {% if a.image_match_score is not none and a.image_match_score < 51 %}
+            <span title="Bild passt laut KI-Check evtl. nicht zum Produkt (Score {{ a.image_match_score }}/100)" style="color:var(--warning)"><i class="fa-solid fa-triangle-exclamation"></i></span>
+            {% endif %}
+            {% if a.linked_entwarnung %}
+            <span title="Entwarnung vorhanden — bitte prüfen" style="color:var(--accent2)"><i class="fa-solid fa-circle-check"></i></span>
+            {% endif %}
+          </div>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <span>{{ a.kategorie or '—' }}{% if a.account %} · {{ a.account }}{% endif %}</span>
-          {% if a.telegram_sent %}<i class="fa-brands fa-telegram" style="color:var(--accent2)"></i>{% endif %}
-          {% if a.image_match_score is not none and a.image_match_score < 51 %}
-          <span title="Bild passt laut KI-Check evtl. nicht zum Produkt (Score {{ a.image_match_score }}/100)" style="color:var(--warning)"><i class="fa-solid fa-triangle-exclamation"></i></span>
-          {% endif %}
-          {% if a.linked_entwarnung %}
-          <span title="Entwarnung vorhanden — bitte prüfen" style="color:var(--accent2)"><i class="fa-solid fa-circle-check"></i></span>
-          {% endif %}
-        </div>
-      </div>
-    </a>
+      </a>
+    </div>
     {% endfor %}
   </div>
 </div>
@@ -133,6 +139,14 @@
 
 {% block scripts %}
 <script>
+async function delPwfCard(ev,aid){
+  ev.preventDefault(); ev.stopPropagation();
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Warnung löschen','Diese Produktwarnung unwiderruflich löschen?','Löschen')) return; }
+  else if(!confirm('Diese Produktwarnung unwiderruflich löschen?')) return;
+  const r=await fetch(`/api/pwf/alert/${aid}/delete`,{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){ ev.currentTarget.closest('.card').remove(); }
+  else alert('Löschen fehlgeschlagen.');
+}
 function fillForm(fields){
   const form=document.getElementById('pwfCreateForm');
   Object.entries(fields||{}).forEach(([k,v])=>{
