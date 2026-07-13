@@ -19639,6 +19639,8 @@ def _pwf_run_research():
     sources = ProductAlertSource.query.filter_by(active=True).all()
     api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
     if not api_key or not sources:
+        app.logger.info('PWF Auto-Recherche übersprungen: %s',
+                        'kein API-Key' if not api_key else 'keine aktiven Quellen')
         return 0, 0
     KW = ['rückruf', 'rueckruf', 'warnung', 'warnhinweis', 'gesundheitsgefahr',
          'verkaufsstopp', 'kontamination', 'fremdkörper', 'allergen']
@@ -19695,14 +19697,18 @@ def _pwf_run_research():
                 _pwf_score_image_match_async(a.id)
             created += 1
         db.session.commit()
+    app.logger.info('PWF Auto-Recherche abgeschlossen: %d neue Entwürfe, %d geprüft (Quellen: %s)',
+                    created, checked, ', '.join(s.name for s in sources))
     return created, checked
 
 
 def _pwf_auto_scan():
     with app.app_context():
         if get_setting('pwf_auto_research') != '1':
+            app.logger.info('PWF Auto-Scan übersprungen: pwf_auto_research ist aus.')
             return
         if not (os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')):
+            app.logger.info('PWF Auto-Scan übersprungen: kein Anthropic-API-Key konfiguriert.')
             return
         _pwf_run_research()
 
