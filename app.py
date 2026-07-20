@@ -19686,7 +19686,20 @@ def _pwf_run_research():
             link = (e.get('url') or '').strip()
             if link and ProductAlert.query.filter_by(quelle_url=link).first():
                 continue
-            data = _pwf_extract_from_text(f"{e.get('title', '')}\n\n{e.get('description', '')}", api_key)
+            # RSS-Titel+Description sind oft nur ein Teaser (Charge, MHD, betroffene
+            # Verkaufsstellen etc. fehlen darin meist) — wie beim manuellen "Aus Link"-Pfad
+            # (pwf_extract_from_url) den vollen Artikeltext laden und der Extraktion geben.
+            # Fällt der Abruf aus, bleibt der Teaser als Fallback (Feature bleibt additiv).
+            og_image = None
+            source_text = f"{e.get('title', '')}\n\n{e.get('description', '')}"
+            if link and _mcf_is_safe_url(link):
+                try:
+                    full_text, og_image = _mcf_fetch_url_content(link)
+                    if full_text.strip():
+                        source_text = full_text
+                except Exception as ex:
+                    app.logger.info('PWF Vollartikel-Abruf fehlgeschlagen (%s), nutze Teaser: %s', link, ex)
+            data = _pwf_extract_from_text(source_text, api_key)
             if not data or not data.get('is_case'):
                 continue
             # Auto-Scan: nur Produkte/Lebensmittel aus deutschen Supermärkten/
@@ -19713,8 +19726,11 @@ def _pwf_run_research():
                 related = _pwf_find_related_recall(a.produktname, a.marke, exclude_id=a.id)
                 if related:
                     a.related_alert_id = related.id
-            if data.get('produktbild_vorhanden') and data.get('produktbild_url'):
-                pid = _pwf_maybe_fetch_photo(data.get('produktbild_url'))
+            # Wie im manuellen "Aus Link"-Pfad: og:image der Artikelseite als Fallback,
+            # falls die KI im Text selbst keine Bild-URL fand.
+            photo_url = data.get('produktbild_url') or og_image
+            if photo_url:
+                pid = _pwf_maybe_fetch_photo(photo_url)
                 if pid:
                     a.foto_media_id = pid
             try:
