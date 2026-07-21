@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}{{ story.display_name() }} — Tageslichtblick{% endblock %}
+{% block page_title %}TAGESLICHTBLICK{% endblock %}
+
+{% block content %}
+<div style="max-width:1000px">
+  <a href="{{ url_for('tageslichtblick') }}" style="font-size:12px;color:var(--muted);text-decoration:none">&larr; Zurück zur Übersicht</a>
+
+  <div style="display:flex;align-items:flex-start;gap:16px;margin:14px 0 20px;flex-wrap:wrap">
+    <div style="flex:1;min-width:260px">
+      <h2 style="margin:0 0 6px;font-size:20px">{{ story.display_name() }}</h2>
+      <div style="font-size:12px;color:var(--muted)">
+        {{ story.quelle_name or '—' }}
+        {% if story.quelle_datum %} · {{ story.quelle_datum.strftime('%d.%m.%Y') }}{% endif %}
+        {% if story.themenfeld %} · {{ story.themenfeld }}{% endif %}
+        {% if story.prioritaet %} · Priorität {{ story.prioritaet }}{% endif %}
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:30px;font-weight:800">{{ story.gesamtscore or '—' }}</div>
+      <div style="font-size:10px;color:var(--muted)">GESAMTSCORE</div>
+    </div>
+  </div>
+
+  <!-- ── Filterkette: zeigt, WARUM etwas durchkam oder nicht ── -->
+  <div class="card" style="padding:16px;margin-bottom:16px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:10px">Mehrstufiger Filter</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      {% for nr,label,wert in story.filter_stufen() %}
+      <div style="flex:1;min-width:104px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);
+                  {% if wert is none %}opacity:.45{% elif not wert %}border-color:var(--danger){% endif %}">
+        <div style="font-size:10px;color:var(--muted)">STUFE {{ nr }}</div>
+        <div style="font-size:11px;font-weight:600">{{ label }}</div>
+        <div style="font-size:13px;margin-top:2px;
+                    color:{% if wert %}var(--success){% elif wert is none %}var(--muted){% else %}var(--danger){% endif %}">
+          {% if wert %}&#10003;{% elif wert is none %}—{% else %}&#10007;{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% if story.filter_begruendung %}
+    <div style="font-size:12px;color:var(--muted);margin-top:10px">{{ story.filter_begruendung }}</div>
+    {% endif %}
+    {% if dublette %}
+    <div style="font-size:12px;color:var(--warning);margin-top:8px">
+      Dublette zu <a href="{{ url_for('tageslichtblick_story', story_id=dublette.id) }}">#{{ dublette.id }} {{ dublette.display_name() }}</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── WOW-Filter ── -->
+  <div class="card" style="padding:16px;margin-bottom:16px;
+       border-left:3px solid {% if story.wow_bestanden %}var(--success){% else %}var(--border){% endif %}">
+    <div style="font-weight:700;font-size:13px;margin-bottom:4px">
+      WOW-Filter — {% if story.wow_bestanden %}bestanden{% elif story.wow_bestanden is none %}noch nicht geprüft{% else %}nicht bestanden{% endif %}
+    </div>
+    <div style="font-size:12px;color:var(--muted);font-style:italic;margin-bottom:6px">
+      „Würde diese Nachricht die meisten Menschen positiv überraschen und ihnen das Gefühl geben, dass
+      sie wichtig genug ist, um sie Freunden oder der Familie zu zeigen?“
+    </div>
+    {% if story.wow_begruendung %}<div style="font-size:12px">{{ story.wow_begruendung }}</div>{% endif %}
+  </div>
+
+  <!-- ── Scoring ── -->
+  <div class="card" style="padding:16px;margin-bottom:16px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:10px">Bewertung
+      <span style="font-weight:400;color:var(--muted);font-size:11px">— Gewichtung in Klammern</span></div>
+    {% for feld,label in [('s_gesellschaft','Gesellschaftlicher Nutzen'),('s_hoffnung','Hoffnungsfaktor'),
+                          ('s_langfristig','Langfristige Bedeutung'),('s_international','Internationales Interesse'),
+                          ('s_originalitaet','Originalität'),('s_verlaesslichkeit','Verlässlichkeit'),
+                          ('s_emotion','Emotionaler Wert'),('s_wissenschaft','Wissenschaftlicher Nutzen')] %}
+    {% set wert = story[feld] %}
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div style="width:190px;font-size:12px">{{ label }}
+        <span style="color:var(--muted);font-size:10px">({{ weights.get(feld) }}×)</span></div>
+      <div style="flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:{{ wert or 0 }}%;background:var(--accent)"></div></div>
+      <div style="width:34px;text-align:right;font-size:12px;font-weight:700">{{ wert if wert is not none else '—' }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ── Redaktioneller Output ── -->
+  {% if story.titel or story.caption %}
+  <div class="card" style="padding:16px;margin-bottom:16px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:12px">Redaktionelles Paket
+      <span style="font-weight:400;color:var(--muted);font-size:11px">— das Design bleibt unverändert</span></div>
+    {% for label,wert in [('Titel',story.titel),('Untertitel',story.untertitel),('Text',story.text)] %}
+      {% if wert %}
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.4px">{{ label|upper }}</div>
+        <div style="font-size:13px;white-space:pre-wrap">{{ wert }}</div>
+      </div>
+      {% endif %}
+    {% endfor %}
+
+    {% if story.get_fakten() %}
+    <div style="margin-bottom:12px">
+      <div style="font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.4px">FAKTEN</div>
+      <ul style="margin:4px 0 0 18px;font-size:13px">
+        {% for f in story.get_fakten() %}<li>{{ f }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
+    {% if story.slide2_was_passiert %}
+    <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+      <div style="font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.4px;margin-bottom:6px">SLIDE 2</div>
+      {% for label,wert in [('Was ist passiert?',story.slide2_was_passiert),
+                            ('Warum ist das wichtig?',story.slide2_warum_wichtig),
+                            ('Welche Auswirkungen hat das?',story.slide2_auswirkungen)] %}
+        {% if wert %}<div style="margin-bottom:8px"><div style="font-size:12px;font-weight:600">{{ label }}</div>
+        <div style="font-size:13px">{{ wert }}</div></div>{% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if story.slide3_inhalt %}
+    <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+      <div style="font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.4px;margin-bottom:6px">
+        SLIDE 3 — {{ story.slide3_typ or 'Zusatz' }}</div>
+      <div style="font-size:13px;white-space:pre-wrap">{{ story.slide3_inhalt }}</div>
+    </div>
+    {% endif %}
+
+    {% if story.caption %}
+    <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.4px">CAPTION
+          ({{ story.caption|length }} Zeichen)</div>
+        <button onclick="kopieren(this,'capText')" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">Kopieren</button>
+      </div>
+      <div id="capText" style="font-size:13px;white-space:pre-wrap">{{ story.caption }}</div>
+    </div>
+    {% endif %}
+
+    {% if story.hashtags %}
+    <div style="margin-top:10px;font-size:12px;color:var(--accent)">{{ story.hashtags }}</div>
+    {% endif %}
+    {% if story.alt_text %}
+    <div style="margin-top:10px;font-size:11px;color:var(--muted)">Alt-Text: {{ story.alt_text }}</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- ── Bildvorschläge ── -->
+  {% if story.get_bildvorschlaege() %}
+  <div class="card" style="padding:16px;margin-bottom:16px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:8px">Bildvorschläge</div>
+    {% for b in story.get_bildvorschlaege() %}
+    <div style="font-size:12px;margin-bottom:6px">
+      {{ b.get('beschreibung') }}
+      {% if b.get('quelle_vorschlag') %}<span style="color:var(--muted)"> — {{ b.get('quelle_vorschlag') }}</span>{% endif %}
+    </div>
+    {% endfor %}
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">
+      Vorschläge, keine geprüften Bildrechte. Priorität: Originalbilder, Behörden, Universitäten,
+      NASA/ESA, Forschungsinstitute, lizenzierte Pressebilder, eigene Bilddatenbank, Symbolbilder.
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Quellen ── -->
+  <div class="card" style="padding:16px;margin-bottom:16px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:8px">Quellen</div>
+    {% if story.quelle_url %}
+    <div style="font-size:12px;margin-bottom:5px">
+      <a href="{{ story.quelle_url }}" target="_blank" rel="noopener noreferrer">{{ story.quelle_url }}</a></div>
+    {% endif %}
+    {% if story.originalquelle_url %}
+    <div style="font-size:12px;margin-bottom:5px">Originalquelle:
+      <a href="{{ story.originalquelle_url }}" target="_blank" rel="noopener noreferrer">{{ story.originalquelle_url }}</a></div>
+    {% endif %}
+    {% for z in story.get_zweitquellen() %}
+    <div style="font-size:12px"><a href="{{ z }}" target="_blank" rel="noopener noreferrer">{{ z }}</a></div>
+    {% endfor %}
+    {% if story.ist_inspiration %}
+    <div style="font-size:12px;color:var(--warning);margin-top:8px">
+      Discovery-Fund — nur als Inspiration zulässig. Ohne recherchierte Originalquelle bleibt Filter 5
+      offen und die Geschichte kann nicht veröffentlicht werden.
+    </div>
+    {% endif %}
+    {% if story.roh_text %}
+    <details style="margin-top:10px">
+      <summary style="font-size:12px;color:var(--muted);cursor:pointer">Originaltext der Meldung</summary>
+      <div style="font-size:12px;white-space:pre-wrap;margin-top:8px;color:var(--muted)">{{ story.roh_text }}</div>
+    </details>
+    {% endif %}
+  </div>
+
+  <!-- ── Aktionen ── -->
+  <div class="card" style="padding:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    {% if story.status == 'entwurf' %}
+    <button onclick="aktion(this,'/api/tlb/story/{{ story.id }}/freigeben')" class="btn btn-primary"
+            style="font-size:13px;padding:8px 16px">Freigeben &amp; veröffentlichen</button>
+    {% endif %}
+    {% if not story.titel and story.status in ['bewertet','archiviert'] %}
+    <button onclick="aktion(this,'/api/tlb/story/{{ story.id }}/aufbereiten')" class="btn btn-primary"
+            style="font-size:13px;padding:8px 16px">Aufbereiten</button>
+    {% endif %}
+    <button onclick="status_setzen(this,'abgelehnt')" class="btn btn-ghost" style="font-size:13px;padding:8px 16px">Aussortieren</button>
+    <button onclick="status_setzen(this,'archiviert')" class="btn btn-ghost" style="font-size:13px;padding:8px 16px">Archivieren</button>
+
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">KI-Einschätzung war:</span>
+    <button onclick="feedback(this,true)" class="btn btn-ghost" style="font-size:12px;padding:6px 12px"
+            {% if story.feedback == 1 %}disabled{% endif %}>richtig</button>
+    <button onclick="feedback(this,false)" class="btn btn-ghost" style="font-size:12px;padding:6px 12px"
+            {% if story.feedback == -1 %}disabled{% endif %}>daneben</button>
+  </div>
+  <div id="aktionMsg" style="font-size:12px;color:var(--muted);margin-top:10px"></div>
+
+  <div style="font-size:11px;color:var(--muted);margin-top:14px">
+    Status: {{ story.status }}
+    {% if story.tagessieger_am %} · Tagessieger am {{ story.tagessieger_am.strftime('%d.%m.%Y') }}{% endif %}
+    {% if story.ki_kosten_cent %} · KI-Kosten {{ '%.3f'|format(story.ki_kosten_cent) }} ct{% endif %}
+    {% if story.modul %} · gefunden über Modul {{ story.modul }}{% endif %}
+  </div>
+</div>
+
+<script>
+function kopieren(btn, id){
+  navigator.clipboard.writeText(document.getElementById(id).innerText);
+  const alt = btn.textContent; btn.textContent = 'Kopiert';
+  setTimeout(()=>btn.textContent = alt, 1400);
+}
+async function post(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+                             body: JSON.stringify(body||{})});
+  return r.json();
+}
+async function aktion(btn, url){
+  // currentTarget nach dem await ist null — Referenz vorher sichern
+  const el = btn, msg = document.getElementById('aktionMsg');
+  el.disabled = true;
+  const d = await post(url);
+  if(d.ok){ location.reload(); }
+  else { msg.textContent = 'Fehler: ' + (d.error||'unbekannt'); el.disabled = false; }
+}
+async function status_setzen(btn, status){
+  const el = btn, msg = document.getElementById('aktionMsg');
+  el.disabled = true;
+  const d = await post('/api/tlb/story/{{ story.id }}/status', {status: status});
+  if(d.ok){ location.reload(); }
+  else { msg.textContent = 'Fehler: ' + (d.error||'unbekannt'); el.disabled = false; }
+}
+async function feedback(btn, gut){
+  const el = btn, msg = document.getElementById('aktionMsg');
+  el.disabled = true;
+  const d = await post('/api/tlb/story/{{ story.id }}/feedback', {gut: gut});
+  msg.textContent = d.ok ? 'Rückmeldung gespeichert.' : ('Fehler: ' + (d.error||'unbekannt'));
+}
+</script>
+{% endblock %}

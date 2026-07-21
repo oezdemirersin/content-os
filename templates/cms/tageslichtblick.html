@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Tageslichtblick — Content OS{% endblock %}
+{% block page_title %}TAGESLICHTBLICK{% endblock %}
+
+{% block content %}
+<div style="max-width:1120px">
+  <p style="font-size:13px;color:var(--muted);margin-bottom:18px">
+    Außergewöhnlich positive Entwicklungen aus Deutschland und der Welt. Nicht jede gute Nachricht ist
+    ein Beitrag — lieber mehrere Tage nichts veröffentlichen als durchschnittlichen Content.
+  </p>
+
+  <!-- ── Tagesstatus: „heute nichts" ist ein gültiges Ergebnis, kein Fehler ── -->
+  {% if sieger_heute %}
+  <div class="card" style="padding:18px;margin-bottom:20px;border-left:3px solid var(--success)">
+    <div style="font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.5px;margin-bottom:6px">TAGESSIEGER HEUTE</div>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <a href="{{ url_for('tageslichtblick_story', story_id=sieger_heute.id) }}"
+         style="font-size:16px;font-weight:700;text-decoration:none;color:var(--text);flex:1;min-width:240px">
+        {{ sieger_heute.display_name() }}</a>
+      <span style="font-size:22px;font-weight:800;color:var(--success)">{{ sieger_heute.gesamtscore or '—' }}</span>
+      <span style="font-size:11px;padding:4px 10px;border-radius:12px;background:var(--surface2);color:var(--muted)">
+        {{ sieger_heute.status }}</span>
+    </div>
+  </div>
+  {% else %}
+  <div class="card" style="padding:18px;margin-bottom:20px;border-left:3px solid var(--border)">
+    <div style="font-weight:700;margin-bottom:4px">Heute noch kein Beitrag</div>
+    <div style="font-size:12px;color:var(--muted)">
+      Es hat bisher keine Geschichte den Mindestscore von {{ min_score }} erreicht. Das ist der
+      Normalfall und kein Fehler — die Veröffentlichungsregel liegt bei 0–1 Beitrag pro Tag.
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Kennzahlen ── -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+    {% for lab,val,hint in [
+        ('Kandidaten', stats.kandidaten, 'noch nicht bewertet'),
+        ('Bewertet', stats.bewertet, 'Filter bestanden'),
+        ('Entwürfe', stats.entwuerfe, 'warten auf Freigabe'),
+        ('Aussortiert', stats.abgelehnt, 'gesamt'),
+        ('Diese Woche', stats.diese_woche, 'veröffentlicht — Ziel 2–4'),
+        ('KI-Kosten', '%.2f €'|format(stats.kosten_monat), 'letzte 30 Tage')] %}
+    <div class="card" style="padding:14px">
+      <div style="font-size:21px;font-weight:800">{{ val }}</div>
+      <div style="font-size:12px;font-weight:600">{{ lab }}</div>
+      <div style="font-size:10px;color:var(--muted)">{{ hint }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ── Steuerung ── -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;flex-wrap:wrap">
+    {% for key,lab in [('aktuell','Aktuell'),('entwurf','Entwürfe'),('veroeffentlicht','Veröffentlicht'),
+                        ('abgelehnt','Aussortiert'),('archiviert','Archiv'),('alle','Alle')] %}
+    <a href="?status={{ key }}"
+       style="padding:6px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;font-weight:700;text-decoration:none;
+              {% if status_filter==key %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">{{ lab }}</a>
+    {% endfor %}
+    <span style="margin-left:auto;font-size:11px;color:var(--muted)">
+      Modus: <strong>{{ modes.get(mode,'').split('—')[0].strip() }}</strong>
+      {% if auto_scan %}· Auto-Scan an{% else %}· Auto-Scan aus{% endif %}
+    </span>
+    <a href="{{ url_for('tageslichtblick_settings') }}" style="font-size:12px;color:var(--muted);text-decoration:none;padding:7px 10px">
+      <i class="fa-solid fa-gear"></i> Quellen &amp; Module</a>
+    <button onclick="scanJetzt(this)" class="btn btn-primary" style="font-size:13px;padding:8px 16px">Jetzt scannen</button>
+  </div>
+  <div id="scanMsg" style="font-size:12px;color:var(--muted);margin-bottom:14px"></div>
+
+  <!-- ── Rangliste ── -->
+  {% if not stories %}
+  <div class="card" style="padding:28px;text-align:center;color:var(--muted);font-size:13px">
+    Noch keine Geschichten. Starte einen Scan oder prüfe unter „Quellen &amp; Module“, ob mindestens
+    ein Quellenmodul aktiv ist.
+  </div>
+  {% endif %}
+
+  {% for s in stories %}
+  <div class="card" style="padding:14px 16px;margin-bottom:10px;display:flex;gap:14px;align-items:flex-start">
+    <div style="min-width:52px;text-align:center">
+      <div style="font-size:19px;font-weight:800;
+                  color:{% if s.gesamtscore and s.gesamtscore >= min_score %}var(--success){% elif s.gesamtscore %}var(--muted){% else %}var(--border){% endif %}">
+        {{ s.gesamtscore|round|int if s.gesamtscore else '—' }}</div>
+      <div style="font-size:9px;color:var(--muted)">SCORE</div>
+    </div>
+    <div style="flex:1;min-width:0">
+      <a href="{{ url_for('tageslichtblick_story', story_id=s.id) }}"
+         style="font-weight:700;font-size:14px;text-decoration:none;color:var(--text)">{{ s.display_name() }}</a>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">
+        {{ s.quelle_name or '—' }}
+        {% if s.themenfeld %} · {{ s.themenfeld }}{% endif %}
+        {% if s.unterthema %} · {{ s.unterthema }}{% endif %}
+        {% if s.modul %} · Modul {{ s.modul }}{% endif %}
+        {% if s.ist_inspiration %} · <span style="color:var(--warning)">nur Inspiration</span>{% endif %}
+      </div>
+      {% if s.status == 'abgelehnt' and s.abgelehnt_grund %}
+      <div style="font-size:11px;color:var(--muted);margin-top:5px;font-style:italic">{{ s.abgelehnt_grund }}</div>
+      {% elif s.wow_begruendung and s.status != 'abgelehnt' %}
+      <div style="font-size:11px;color:var(--muted);margin-top:5px;font-style:italic">{{ s.wow_begruendung }}</div>
+      {% endif %}
+    </div>
+    <div style="text-align:right">
+      <span style="font-size:10px;padding:3px 9px;border-radius:11px;background:var(--surface2);color:var(--muted);white-space:nowrap">
+        {{ s.status }}</span>
+      {% if s.filter_gescheitert_an %}
+      <div style="font-size:10px;color:var(--muted);margin-top:5px">Stufe {{ s.filter_gescheitert_an }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+async function scanJetzt(btn){
+  const msg = document.getElementById('scanMsg');
+  btn.disabled = true; btn.textContent = 'Scannt…';
+  msg.textContent = 'Quellen werden abgerufen und bewertet — das kann eine Minute dauern.';
+  try{
+    const r = await fetch('/api/tlb/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+    const d = await r.json();
+    if(!d.ok){ msg.textContent = 'Fehler: ' + (d.error||'unbekannt'); }
+    else{
+      const b = d.bericht;
+      let t = `${b.quellen} Quelle(n) · ${b.neu} neu · ${b.bewertet} durchgekommen · ${b.abgelehnt} aussortiert`;
+      t += b.sieger ? ` · Tagessieger: ${b.sieger.titel} (${b.sieger.score})` : ' · kein Beitrag heute';
+      if(b.fehler && b.fehler.length) t += ` · ${b.fehler.length} Quellenfehler`;
+      msg.textContent = t;
+      setTimeout(()=>location.reload(), 1800);
+    }
+  }catch(e){ msg.textContent = 'Fehler: ' + e; }
+  btn.disabled = false; btn.textContent = 'Jetzt scannen';
+}
+</script>
+{% endblock %}

@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Tageslichtblick Einstellungen — Content OS{% endblock %}
+{% block page_title %}TAGESLICHTBLICK — QUELLEN &amp; MODULE{% endblock %}
+
+{% block content %}
+<div style="max-width:1000px">
+  <a href="{{ url_for('tageslichtblick') }}" style="font-size:12px;color:var(--muted);text-decoration:none">&larr; Zurück zur Übersicht</a>
+
+  <form method="POST" style="margin-top:16px">
+
+    <!-- ── Automatikgrad ── -->
+    <div class="card" style="padding:18px;margin-bottom:16px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:4px">Automatikgrad</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        Bestimmt, wie weit die Factory ohne dich geht. Jederzeit umschaltbar.
+      </div>
+      {% for key,beschreibung in modes.items() %}
+      <label style="display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:8px;cursor:pointer;
+                    border:1px solid {% if mode==key %}var(--accent){% else %}var(--border){% endif %};margin-bottom:8px">
+        <input type="radio" name="mode" value="{{ key }}" {% if mode==key %}checked{% endif %} style="margin-top:3px">
+        <div>
+          <div style="font-weight:600;font-size:13px">{{ beschreibung.split('—')[0].strip() }}</div>
+          <div style="font-size:12px;color:var(--muted)">{{ beschreibung.split('—')[1].strip() if '—' in beschreibung else '' }}</div>
+          {% if key == 'voll' %}
+          <div style="font-size:11px;color:var(--warning);margin-top:3px">
+            Achtung: veröffentlicht ohne Sichtprüfung. Eine Fehleinschätzung wäre sofort öffentlich.
+          </div>
+          {% endif %}
+        </div>
+      </label>
+      {% endfor %}
+
+      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+        <label style="display:flex;gap:8px;align-items:center;font-size:13px">
+          <input type="checkbox" name="auto_scan" {% if auto_scan %}checked{% endif %}>
+          Auto-Scan (stündlich, je Quelle nach eigenem Intervall)
+        </label>
+        <label style="font-size:13px">Mindestscore
+          <input type="number" name="min_score" value="{{ min_score }}" min="0" max="100"
+                 class="input-field" style="width:70px;font-size:12px;margin-left:6px">
+          <span style="color:var(--muted);font-size:11px">— darunter wird nichts veröffentlicht</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- ── Quellenmodule ── -->
+    <div class="card" style="padding:18px;margin-bottom:16px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:4px">Quellenmodule</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        Ein deaktiviertes Modul löst garantiert keine API-Calls aus.
+      </div>
+      {% for key,info in module.items() %}
+      <label style="display:flex;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
+        <input type="checkbox" name="modul_{{ key }}" {% if modul_an[key] %}checked{% endif %}>
+        <div style="flex:1">
+          <span style="font-weight:600;font-size:13px">Modul {{ key }} — {{ info.name }}</span>
+          <span style="font-size:11px;color:var(--muted)"> · {{ info.kosten }}</span>
+        </div>
+        {% if key in ['A','E','F','G'] %}
+        <span style="font-size:10px;color:var(--warning);white-space:nowrap">noch nicht gebaut</span>
+        {% endif %}
+      </label>
+      {% endfor %}
+      <div style="font-size:11px;color:var(--muted);margin-top:10px">
+        Module A/E/F/G sind vorbereitet, aber noch ohne Collector — sie lassen sich einschalten,
+        liefern aber noch nichts und verursachen keine Kosten.
+      </div>
+    </div>
+
+    <!-- ── Verarbeitungsmodule ── -->
+    <div class="card" style="padding:18px;margin-bottom:16px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:4px">Verarbeitung</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        Abgeschaltete Teile werden gar nicht erst angefordert — das spart direkt Tokens.
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:4px">
+        {% for key,info in features.items() %}
+        <label style="display:flex;gap:8px;align-items:center;font-size:13px;padding:6px 0">
+          <input type="checkbox" name="feature_{{ key }}" {% if feature_an[key] %}checked{% endif %}>
+          {{ info.name }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- ── KI-Modelle ── -->
+    <div class="card" style="padding:18px;margin-bottom:16px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:4px">KI-Modelle</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        Zweistufig aus Kostengründen: die Triage bewertet viele Kandidaten, die Aufbereitung läuft nur
+        für den Tagessieger — also etwa einmal pro Tag statt einmal pro Fund.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <label style="font-size:13px">Triage (jede Kandidatin)
+          <input type="text" name="triage_model" value="{{ triage_model }}" class="input-field" style="font-size:12px;margin-top:4px">
+        </label>
+        <label style="font-size:13px">Aufbereitung (nur Tagessieger)
+          <input type="text" name="produce_model" value="{{ produce_model }}" class="input-field" style="font-size:12px;margin-top:4px">
+        </label>
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 20px">Speichern</button>
+  </form>
+
+  <!-- ── Quellen ── -->
+  <div class="card" style="padding:18px;margin:20px 0">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+      <div style="font-weight:700;font-size:14px;flex:1">Quellen ({{ quellen|length }})</div>
+      <button onclick="var f=document.getElementById('quelleForm');f.style.display=f.style.display==='none'?'block':'none'"
+              class="btn btn-ghost" style="font-size:12px;padding:7px 14px">＋ Quelle</button>
+    </div>
+
+    <div id="quelleForm" style="display:none;background:var(--surface2);border:1px solid var(--border);
+                                border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <input type="text" id="qName" placeholder="Name, z.B. Charité Presse" class="input-field" style="font-size:12px">
+        <input type="url" id="qUrl" placeholder="RSS-URL https://…" class="input-field" style="font-size:12px">
+        <select id="qModul" class="input-field" style="font-size:12px">
+          {% for key,info in module.items() %}<option value="{{ key }}">Modul {{ key }} — {{ info.name }}</option>{% endfor %}
+        </select>
+        <select id="qStufe" class="input-field" style="font-size:12px">
+          <option value="1">Vertrauensstufe 1 — Primärquelle</option>
+          <option value="2" selected>Stufe 2 — seriöse Redaktion</option>
+          <option value="3">Stufe 3 — allgemein</option>
+          <option value="4">Stufe 4 — nur Inspiration</option>
+        </select>
+      </div>
+      <button onclick="quelleAnlegen(this)" class="btn btn-primary" style="font-size:12px;padding:7px 14px">Anlegen</button>
+      <span id="qMsg" style="font-size:12px;color:var(--muted);margin-left:10px"></span>
+    </div>
+
+    {% for q in quellen %}
+    <div style="display:flex;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
+      <input type="checkbox" {% if q.active %}checked{% endif %} onchange="quelleToggle({{ q.id }}, this.checked)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">{{ q.name }}
+          <span style="font-size:10px;color:var(--muted);font-weight:400">Modul {{ q.modul }} · Stufe {{ q.vertrauensstufe }} · {{ q.sprache }} · alle {{ q.scan_interval_hours }}h</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ q.url }}</div>
+        {% if q.last_result %}
+        <div style="font-size:11px;color:{% if 'Fehler' in q.last_result %}var(--danger){% else %}var(--muted){% endif %}">
+          {{ q.last_result }}{% if q.last_scanned_at %} · {{ q.last_scanned_at.strftime('%d.%m. %H:%M') }}{% endif %}</div>
+        {% endif %}
+      </div>
+      <div style="text-align:right;font-size:11px;color:var(--muted);white-space:nowrap">
+        {{ q.funde_gesamt or 0 }} Funde<br>{{ q.veroeffentlicht_gesamt or 0 }} veröffentlicht
+      </div>
+      <button onclick="quelleLoeschen({{ q.id }}, this)" class="btn btn-ghost" style="font-size:11px;padding:5px 10px">Entfernen</button>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+async function quelleAnlegen(btn){
+  const el = btn, msg = document.getElementById('qMsg');
+  el.disabled = true;
+  const r = await fetch('/api/tlb/quelle', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name: qName.value, url: qUrl.value, modul: qModul.value,
+                          vertrauensstufe: qStufe.value})});
+  const d = await r.json();
+  if(d.ok){ location.reload(); } else { msg.textContent = d.error || 'Fehler'; el.disabled = false; }
+}
+async function quelleToggle(id, aktiv){
+  await fetch('/api/tlb/quelle/' + id, {method:'POST', headers:{'Content-Type':'application/json'},
+                                         body: JSON.stringify({active: aktiv})});
+}
+async function quelleLoeschen(id, btn){
+  if(!confirm('Diese Quelle entfernen?')) return;
+  const el = btn; el.disabled = true;
+  const r = await fetch('/api/tlb/quelle/' + id, {method:'DELETE'});
+  const d = await r.json();
+  if(d.ok){ location.reload(); } else { el.disabled = false; }
+}
+</script>
+{% endblock %}

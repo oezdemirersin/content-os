@@ -1493,3 +1493,192 @@ class KnowledgeFactSource(db.Model):
     url_used = db.Column(db.Text)      # tatsächlich verwendete URL (kann von source.url abweichen, z.B. bei RSS)
     snippet = db.Column(db.Text)       # relevanter Auszug aus der Quelle
     retrieved_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TAGESLICHTBLICK FACTORY (Content Studio) — außergewöhnlich positive
+# Entwicklungen aus aller Welt.
+#
+# Bewusst ANDERS aufgebaut als die anderen Factories: bei Missing Children und
+# Product Alert ist jeder Fund grundsätzlich publikationswürdig, dort geht es um
+# vollständige Extraktion. Hier ist der Fund die billige Hälfte — der Wert
+# entsteht durch AUSSORTIEREN. Darum liegt das Gewicht auf Bewertung/Ranking,
+# und "heute nichts veröffentlichen" ist ein reguläres, gewolltes Ergebnis
+# (kein Fehlerfall). Deshalb:
+#   • jede Kandidatin behält ihre Filter- UND Score-Historie (nachvollziehbar,
+#     warum etwas NICHT gepostet wurde — sonst ist die Kuratierung eine Blackbox)
+#   • Tagessieger wird pro Tag festgehalten (tagessieger_am), damit die
+#     0-1-Beitrag-Regel prüfbar ist statt nur behauptet
+#   • Quellen sind Zeilen, keine Konstanten — neue Module (Websuche, IG, YT,
+#     Reddit) hängen sich später ohne Umbau an dieselbe Tabelle
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TlbStory(db.Model):
+    """Eine Kandidatin für Tageslichtblick. Die meisten Zeilen hier werden NIE
+    veröffentlicht — das ist der Normalfall und kein Mangel."""
+    __tablename__ = 'tlb_story'
+    id = db.Column(db.Integer, primary_key=True)
+
+    # ── Fund ─────────────────────────────────────────────────────
+    roh_titel   = db.Column(db.String(500))     # Titel wie ihn die Quelle liefert
+    roh_text    = db.Column(db.Text)            # Auszug/Zusammenfassung der Quelle
+    quelle_url  = db.Column(db.Text)
+    quelle_name = db.Column(db.String(200))     # z.B. "NASA", "Nature"
+    quelle_datum = db.Column(db.Date)           # Datum DER MELDUNG, nicht unseres
+    sprache     = db.Column(db.String(10))      # ISO, z.B. 'en' — für Übersetzungsmodul
+    source_id   = db.Column(db.Integer, db.ForeignKey('tlb_source.id'), index=True)
+    modul       = db.Column(db.String(20), index=True)  # A/B/C/D/E/F/G — welches Modul hat sie gefunden
+
+    # Bei Discovery-Modulen (E/F/G) ist der Fund NUR Inspiration: die eigentliche
+    # Originalquelle muss erst recherchiert werden. Solange das nicht passiert
+    # ist, darf die Story nie veröffentlicht werden (siehe Filter 5).
+    ist_inspiration      = db.Column(db.Boolean, default=False)
+    inspiration_quelle   = db.Column(db.Text)   # wo der Hinweis herkam (IG-Post etc.)
+    originalquelle_url   = db.Column(db.Text)   # nachrecherchierte echte Quelle
+    zweitquellen         = db.Column(db.Text, default='[]')  # JSON-Liste weiterer belegender URLs
+
+    # ── Themenzuordnung ──────────────────────────────────────────
+    # Medizin/Wissenschaft/Umwelt/Technologie/Gesellschaft/Menschen/Sonstiges
+    themenfeld  = db.Column(db.String(40), index=True)
+    unterthema  = db.Column(db.String(80))       # z.B. "Krebsforschung", "Artenschutz"
+    prioritaet  = db.Column(db.String(10), index=True)  # hoch / niedrig — laut Themenliste
+
+    # ── Mehrstufiger Filter (1-8) ────────────────────────────────
+    # NULL = noch nicht geprüft, True/False = Ergebnis. Bewusst einzeln
+    # gespeichert statt als ein Gesamt-Flag: so ist im Dashboard sichtbar, an
+    # WELCHER Stufe eine Story gescheitert ist.
+    f1_positiv        = db.Column(db.Boolean)
+    f2_aussergewoehnlich = db.Column(db.Boolean)
+    f3_viele_betroffen   = db.Column(db.Boolean)
+    f4_langfristig       = db.Column(db.Boolean)
+    f5_originalquelle    = db.Column(db.Boolean)
+    f6_fakten_bestaetigt = db.Column(db.Boolean)
+    f7_keine_dublette    = db.Column(db.Boolean)
+    f8_beste_des_tages   = db.Column(db.Boolean)
+    filter_gescheitert_an = db.Column(db.Integer)   # 1-8, an welcher Stufe raus
+    filter_begruendung    = db.Column(db.Text)      # KI-Begründung, warum raus/durch
+
+    # ── WOW-Filter ───────────────────────────────────────────────
+    wow_bestanden   = db.Column(db.Boolean)
+    wow_begruendung = db.Column(db.Text)
+
+    # ── Scoring (je 0-100) ───────────────────────────────────────
+    s_gesellschaft   = db.Column(db.Integer)
+    s_hoffnung       = db.Column(db.Integer)
+    s_langfristig    = db.Column(db.Integer)
+    s_international  = db.Column(db.Integer)
+    s_originalitaet  = db.Column(db.Integer)
+    s_verlaesslichkeit = db.Column(db.Integer)
+    s_emotion        = db.Column(db.Integer)
+    s_wissenschaft   = db.Column(db.Integer)
+    gesamtscore      = db.Column(db.Float, index=True)   # gewichteter Mittelwert
+
+    # ── Redaktioneller Output (Design bleibt unangetastet) ───────
+    titel        = db.Column(db.String(300))
+    untertitel   = db.Column(db.String(300))
+    text         = db.Column(db.Text)
+    fakten       = db.Column(db.Text, default='[]')   # JSON-Liste belegter Einzelfakten
+    bildvorschlaege = db.Column(db.Text, default='[]') # JSON-Liste {url, quelle, lizenz}
+    caption      = db.Column(db.Text)
+    hashtags     = db.Column(db.Text)
+    alt_text     = db.Column(db.Text)
+    story_text   = db.Column(db.Text)
+
+    # ── Carousel ─────────────────────────────────────────────────
+    slide2_was_passiert   = db.Column(db.Text)
+    slide2_warum_wichtig  = db.Column(db.Text)
+    slide2_auswirkungen   = db.Column(db.Text)
+    slide3_typ    = db.Column(db.String(30))   # timeline/statistik/infografik/originalbild/karte/hintergrund
+    slide3_inhalt = db.Column(db.Text)
+
+    # ── Bild ─────────────────────────────────────────────────────
+    foto_media_id        = db.Column(db.Integer, db.ForeignKey('media_item.id'))
+    bild_quelle_stufe    = db.Column(db.String(30))  # original/behoerde/uni/nasa/esa/presse/bibliothek/symbol
+    bild_lizenz          = db.Column(db.Text)
+    generated_image_path = db.Column(db.String(600))
+
+    # ── Workflow ─────────────────────────────────────────────────
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'))
+    # kandidat  = gefunden, noch nicht bewertet
+    # bewertet  = Filter+Scoring durch, wartet auf Tagesranking
+    # abgelehnt = an einem Filter oder am WOW-Filter gescheitert
+    # entwurf   = Tagessieger, aufbereitet, wartet auf Freigabe
+    # veroeffentlicht / archiviert
+    status = db.Column(db.String(20), default='kandidat', index=True)
+    abgelehnt_grund = db.Column(db.Text)
+    tagessieger_am  = db.Column(db.Date, index=True)   # an welchem Tag gewonnen
+    freigegeben_von_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    freigegeben_at  = db.Column(db.DateTime)
+    published_at    = db.Column(db.DateTime)
+    telegram_sent_at = db.Column(db.DateTime)
+    ig_post_ref     = db.Column(db.String(600))
+
+    # ── Dedup ────────────────────────────────────────────────────
+    dedup_key = db.Column(db.String(400), index=True)
+    # Themen werden dauerhaft gemerkt, damit dieselbe Entwicklung nicht Monate
+    # später erneut als "neu" durchrutscht (Modul Themenspeicherung).
+    themen_fingerprint = db.Column(db.String(200), index=True)
+    dublette_von_id = db.Column(db.Integer, db.ForeignKey('tlb_story.id'))
+
+    # ── Qualität / Lernen ────────────────────────────────────────
+    feedback    = db.Column(db.Integer)      # +1 = Einschätzung korrekt, -1 = falsch
+    feedback_at = db.Column(db.DateTime)
+    ki_kosten_cent = db.Column(db.Float)     # Kostenkontrolle je Story
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    source = db.relationship('TlbSource', backref='stories')
+
+    def get_fakten(self):
+        return json.loads(self.fakten or '[]')
+
+    def get_bildvorschlaege(self):
+        return json.loads(self.bildvorschlaege or '[]')
+
+    def get_zweitquellen(self):
+        return json.loads(self.zweitquellen or '[]')
+
+    def display_name(self):
+        return self.titel or self.roh_titel or 'Unbenannt'
+
+    def filter_stufen(self):
+        """(Nummer, Label, Ergebnis) für die Filterkette — fürs Dashboard."""
+        return [
+            (1, 'Positiv',              self.f1_positiv),
+            (2, 'Außergewöhnlich',      self.f2_aussergewoehnlich),
+            (3, 'Viele betroffen',      self.f3_viele_betroffen),
+            (4, 'Langfristig relevant', self.f4_langfristig),
+            (5, 'Originalquelle',       self.f5_originalquelle),
+            (6, 'Fakten bestätigt',     self.f6_fakten_bestaetigt),
+            (7, 'Keine Dublette',       self.f7_keine_dublette),
+            (8, 'Beste des Tages',      self.f8_beste_des_tages),
+        ]
+
+
+class TlbSource(db.Model):
+    """Quelle für die Tageslichtblick-Recherche. Eine Zeile pro Quelle statt
+    hart codierter Liste, damit neue Quellen/Module ohne Codeänderung
+    dazukommen — inklusive der noch nicht gebauten Module A/D/E/F/G."""
+    __tablename__ = 'tlb_source'
+    id     = db.Column(db.Integer, primary_key=True)
+    name   = db.Column(db.String(200), nullable=False)
+    url    = db.Column(db.Text)
+    modul  = db.Column(db.String(20), index=True, default='B')
+    # A=Websuche B=RSS C=Offiziell D=Intl. Portale E=Instagram F=YouTube G=Reddit
+    active = db.Column(db.Boolean, default=True)
+
+    # Verlässlichkeitsstufe der Quelle (fließt in s_verlaesslichkeit ein und
+    # entscheidet, ob ein Fund allein schon als belegt gilt).
+    # 1 = Primärquelle (NASA, Nature, WHO) … 4 = nur Inspiration (Social)
+    vertrauensstufe = db.Column(db.Integer, default=2)
+    sprache = db.Column(db.String(10), default='de')
+    themenfeld = db.Column(db.String(40))    # Schwerpunkt, optional
+
+    scan_interval_hours = db.Column(db.Integer, default=6)
+    last_scanned_at = db.Column(db.DateTime)
+    last_result     = db.Column(db.Text)     # letzte Scan-Meldung (Fehler sichtbar machen)
+    funde_gesamt    = db.Column(db.Integer, default=0)
+    veroeffentlicht_gesamt = db.Column(db.Integer, default=0)  # Trefferquote je Quelle
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

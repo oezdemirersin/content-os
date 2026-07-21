@@ -31,7 +31,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     TrendTopic, TrendSignal, TrendSource, TrendScoreSnapshot,
                     ProductAlert, ProductAlertSource,
                     KnowledgeNicheConfig, KnowledgeCategory, KnowledgeSource,
-                    KnowledgeFact, KnowledgeFactSource)
+                    KnowledgeFact, KnowledgeFactSource,
+                    TlbStory, TlbSource)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -3224,6 +3225,13 @@ def schedule_automations():
                 # längst abgelaufenem MHD automatisch archivieren
                 if tick >= 5 and (tick - 5) % 1440 == 0:
                     threading.Thread(target=_pwf_auto_archive_scheduled, daemon=True).start()
+                # Tageslichtblick: stündlich scannen. Nie tick 0 (get_setting
+                # existiert beim Thread-Start noch nicht, s. Webhook-Kommentar).
+                # Der Lauf prüft selbst, ob die Automatik überhaupt an ist, und
+                # respektiert das Scan-Intervall JE QUELLE — es entstehen also
+                # keine API-Calls für Quellen, die noch nicht fällig sind.
+                if tick >= 4 and (tick - 4) % 60 == 0:
+                    threading.Thread(target=_tlb_auto_scan, daemon=True).start()
                 # Content-Serien stündlich planen
                 if tick % 60 == 0:
                     threading.Thread(target=_process_series, daemon=True).start()
@@ -20878,6 +20886,950 @@ def knowledge_factory_settings():
               .order_by(Account.name).all())
     return render_template('wissensfabrik_einstellungen.html', niches=niches,
         analysis_model=get_setting('analysis_model') or 'claude-sonnet-4-6', active_page='studio')
+
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAGESLICHTBLICK FACTORY (Content Studio) — außergewöhnlich positive Entwicklungen
+#
+# Leitsatz: Das Ziel ist NICHT Quantität. Lieber mehrere Tage nichts posten als
+# durchschnittlichen Content. "Heute kein Beitrag" ist ein gültiges Ergebnis und
+# wird nirgends als Fehler behandelt.
+#
+# Zwei-Stufen-KI aus Kostengründen (Modul Kostenoptimierung): Die Triage bewertet
+# viele Kandidaten mit dem günstigen Modell, die teure Aufbereitung läuft NUR für
+# den Tagessieger — also ca. 1× pro Tag statt 1× pro Fund.
+# ══════════════════════════════════════════════════════════════════════════════
+
+TLB_ACCOUNT_HANDLE = '@tageslichtblick'
+
+# Quellenmodule. Ein Modul ohne Collector ist vorgesehen, aber noch nicht gebaut —
+# es taucht im Dashboard auf, verursacht aber garantiert keine API-Calls.
+TLB_MODULES = {
+    'A': {'name': 'Eigene Websuche',       'default': False, 'kosten': 'API-Budget je Lauf'},
+    'B': {'name': 'RSS',                   'default': True,  'kosten': 'kostenlos'},
+    'C': {'name': 'Offizielle Quellen',    'default': True,  'kosten': 'kostenlos'},
+    'D': {'name': 'Internationale Portale','default': False, 'kosten': 'kostenlos'},
+    'E': {'name': 'Instagram Discovery',   'default': False, 'kosten': 'RapidAPI/Apify'},
+    'F': {'name': 'YouTube Discovery',     'default': False, 'kosten': 'YouTube API'},
+    'G': {'name': 'Reddit Discovery',      'default': False, 'kosten': 'Reddit API'},
+}
+
+# Optionale Verarbeitungsmodule (jedes einzeln abschaltbar, jedes ohne API-Call
+# wenn aus). Die Aus-Stellung MUSS den zugehörigen Aufruf komplett überspringen,
+# nicht nur das Ergebnis verwerfen — sonst kostet ein deaktiviertes Modul Geld.
+TLB_FEATURES = {
+    'dedup':          {'name': 'Duplikatsprüfung',        'default': True},
+    'originalquelle': {'name': 'Originalquellen-Prüfung', 'default': True},
+    'uebersetzung':   {'name': 'Automatische Übersetzung','default': True},
+    'bildsuche':      {'name': 'Bildsuche',               'default': True},
+    'slide2':         {'name': 'Slide 2',                 'default': True},
+    'slide3':         {'name': 'Slide 3',                 'default': False},
+    'caption':        {'name': 'Caption-Erstellung',      'default': True},
+    'hashtags':       {'name': 'Hashtags',                'default': True},
+    'alt_text':       {'name': 'Alt-Text',                'default': True},
+    'story':          {'name': 'Story-Version',           'default': False},
+    'benachrichtigung': {'name': 'Benachrichtigungen',    'default': True},
+    'themenspeicher': {'name': 'Themenspeicherung',       'default': True},
+}
+
+TLB_THEMENFELDER = ['Medizin', 'Wissenschaft', 'Umwelt', 'Technologie',
+                    'Gesellschaft', 'Menschen', 'Sonstiges']
+
+# Gewichtung der 8 Score-Dimensionen. Verlässlichkeit wiegt am schwersten:
+# eine unsichere Meldung darf nie über einen hohen Emotionswert nach oben rutschen.
+TLB_SCORE_WEIGHTS = {
+    's_verlaesslichkeit': 1.5,
+    's_gesellschaft':     1.3,
+    's_langfristig':      1.2,
+    's_hoffnung':         1.0,
+    's_originalitaet':    1.0,
+    's_wissenschaft':     0.9,
+    's_international':    0.8,
+    's_emotion':          0.8,
+}
+
+# Ab welchem Gesamtscore darf überhaupt veröffentlicht werden. Bewusst hoch:
+# lieber kein Beitrag als ein durchschnittlicher.
+TLB_MIN_SCORE_DEFAULT = 72
+
+# Automatikgrad — im Dashboard umschaltbar.
+TLB_MODES = {
+    'liste':   'Nur Vorschlagsliste — Factory sammelt und rankt, erstellt nichts',
+    'entwurf': 'Bis Entwurf automatisch — Tagessieger wird aufbereitet, du gibst frei',
+    'voll':    'Voll automatisch — inkl. Veröffentlichung ab Mindestscore',
+}
+TLB_MODE_DEFAULT = 'entwurf'
+
+
+def _tlb_module_on(modul):
+    """True, wenn Quellenmodul aktiv. Ohne gesetzten Wert gilt der Default."""
+    v = get_setting(f'tlb_modul_{modul}')
+    if v is None:
+        return TLB_MODULES.get(modul, {}).get('default', False)
+    return v == '1'
+
+
+def _tlb_feature_on(key):
+    v = get_setting(f'tlb_feature_{key}')
+    if v is None:
+        return TLB_FEATURES.get(key, {}).get('default', False)
+    return v == '1'
+
+
+def _tlb_mode():
+    return get_setting('tlb_mode') or TLB_MODE_DEFAULT
+
+
+def _tlb_min_score():
+    try:
+        return int(get_setting('tlb_min_score') or TLB_MIN_SCORE_DEFAULT)
+    except Exception:
+        return TLB_MIN_SCORE_DEFAULT
+
+
+def _tlb_account():
+    return Account.query.filter_by(handle=TLB_ACCOUNT_HANDLE).first()
+
+
+def _tlb_gesamtscore(story):
+    """Gewichteter Mittelwert der gesetzten Dimensionen. Fehlende Dimensionen
+    werden übersprungen statt als 0 gewertet — sonst bestraft eine nicht
+    anwendbare Dimension (z.B. Wissenschaft bei einer Rettungsgeschichte) die
+    Story doppelt."""
+    total = weight_sum = 0.0
+    for feld, gewicht in TLB_SCORE_WEIGHTS.items():
+        wert = getattr(story, feld, None)
+        if wert is None:
+            continue
+        total += float(wert) * gewicht
+        weight_sum += gewicht
+    if not weight_sum:
+        return None
+    return round(total / weight_sum, 1)
+
+
+def _tlb_dedup_key(titel, url):
+    """Exakte Dublette: gleiche URL oder sehr ähnlicher Titel."""
+    import hashlib as _hl
+    import re as _re
+    basis = (url or '').strip().lower().split('?')[0]
+    if not basis:
+        basis = _re.sub(r'[^a-zäöüß0-9]+', '', (titel or '').lower())
+    return _hl.sha1(basis.encode('utf-8')).hexdigest()[:40] if basis else None
+
+
+def _tlb_fingerprint(titel, text):
+    """Themen-Fingerprint für die Langzeit-Dublettenprüfung: dieselbe Entwicklung
+    kann Wochen später von einer anderen Quelle in anderen Worten gemeldet werden.
+
+    Bewusst KEIN Hash: ein Hash ist nur bei exakt gleicher Wortliste gleich, und
+    schon "Forscher entwickeln" vs. "Forschern entwickelt" ergäbe einen völlig
+    anderen Wert — also genau der Fall, den die Prüfung fangen soll. Stattdessen
+    eine vergleichbare Wortmenge, die in _tlb_ist_dublette über die Überlappung
+    verglichen wird. Die Kürzung auf 6 Zeichen fängt deutsche Beugung grob ab
+    (kein echtes Stemming, aber ohne Zusatzabhängigkeit)."""
+    import re as _re
+    stop = {'und', 'der', 'die', 'das', 'ein', 'eine', 'von', 'mit', 'für', 'auf',
+            'ist', 'sind', 'wird', 'werden', 'nach', 'bei', 'dem', 'den', 'des',
+            'the', 'and', 'for', 'with', 'from', 'that', 'this', 'has', 'have',
+            'sich', 'auch', 'aber', 'durch', 'einer', 'einem', 'eines', 'their'}
+    worte = [w[:6] for w in _re.findall(r'[a-zA-ZäöüÄÖÜß]{5,}', f'{titel} {text or ""}'.lower())
+             if w not in stop]
+    if not worte:
+        return None
+    from collections import Counter
+    top = sorted({w for w, _ in Counter(worte).most_common(12)})
+    return ' '.join(top)[:200]
+
+
+def _tlb_themen_ueberlappung(a, b):
+    """Jaccard-Ähnlichkeit zweier Fingerprints (0.0-1.0)."""
+    if not a or not b:
+        return 0.0
+    ma, mb = set(a.split()), set(b.split())
+    if not ma or not mb:
+        return 0.0
+    return len(ma & mb) / len(ma | mb)
+
+
+# ───────────────────────── COLLECTOR-LAYER ─────────────────────────
+# Jeder Collector bekommt eine TlbSource und gibt eine Liste roher Funde zurück:
+#   {'titel', 'text', 'url', 'quelle_name', 'datum', 'sprache', 'ist_inspiration'}
+# Ein neues Modul ergänzt genau eine Funktion + einen Registry-Eintrag — kein
+# bestehender Code wird dafür angefasst.
+
+def _tlb_local(tag):
+    """Tag-Name ohne Namespace. Nötig, weil die drei Feed-Dialekte
+    unterschiedlich namespacen: RSS 2.0 gar nicht, Atom über einen
+    Default-Namespace, RSS 1.0 über RDF. Ein Lookup nach 'item' findet sonst
+    z.B. bei Nature (RSS 1.0) nichts."""
+    return tag.rsplit('}', 1)[-1] if '}' in tag else tag
+
+
+def _tlb_collect_rss(source, limit=25):
+    """Modul B/C/D: RSS 2.0, RSS 1.0/RDF und Atom. Deckt auch die offiziellen
+    Quellen ab (NASA, ESA, WHO, Nature liefern alle Feeds) — daher kein
+    eigener Collector."""
+    import xml.etree.ElementTree as _ET
+    from email.utils import parsedate_to_datetime as _pdt
+
+    if not _mcf_is_safe_url(source.url):
+        raise ValueError('URL nicht erlaubt')
+    resp = _requests.get(source.url, timeout=15,
+                         headers={'User-Agent': 'ContentOS-Tageslichtblick/1.0'})
+    resp.raise_for_status()
+    root = _ET.fromstring(resp.content)
+
+    eintraege = [el for el in root.iter() if _tlb_local(el.tag) in ('item', 'entry')]
+
+    funde = []
+    for e in eintraege[:limit]:
+        kinder = {}
+        for kind in e:
+            kinder.setdefault(_tlb_local(kind.tag), kind)
+
+        def _t(*namen):
+            for n in namen:
+                el = kinder.get(n)
+                if el is not None:
+                    if el.text and el.text.strip():
+                        return el.text.strip()
+                    if el.get('href'):      # Atom verlinkt per Attribut
+                        return el.get('href').strip()
+            return None
+
+        titel = _t('title')
+        if not titel:
+            continue
+        link = _t('link')
+        beschreibung = _t('description', 'summary', 'content', 'encoded') or ''
+        # HTML aus der Beschreibung entfernen
+        parser = _MCFTextExtractor()
+        try:
+            parser.feed(beschreibung)
+            beschreibung = parser.text()
+        except Exception:
+            pass
+
+        datum = None
+        rohdatum = _t('pubDate', 'published', 'updated', 'date')
+        if rohdatum:
+            try:
+                datum = _pdt(rohdatum).date()
+            except Exception:
+                try:
+                    datum = datetime.fromisoformat(rohdatum.replace('Z', '+00:00')).date()
+                except Exception:
+                    datum = None
+
+        funde.append({
+            'titel': titel[:500],
+            'text': (beschreibung or '')[:4000],
+            'url': link,
+            'quelle_name': source.name,
+            'datum': datum,
+            'sprache': source.sprache or 'de',
+            'ist_inspiration': False,
+        })
+    return funde
+
+
+# Registry: Modul → Collector. None = vorgesehen, noch nicht gebaut.
+# Ein deaktiviertes oder nicht gebautes Modul löst NIE einen Netzwerk-/API-Call aus.
+_TLB_COLLECTORS = {
+    'A': None,                 # Websuche — folgt
+    'B': _tlb_collect_rss,
+    'C': _tlb_collect_rss,     # offizielle Quellen liefern ebenfalls Feeds
+    'D': _tlb_collect_rss,
+    'E': None,                 # Instagram Discovery — folgt
+    'F': None,                 # YouTube Discovery — folgt
+    'G': None,                 # Reddit Discovery — folgt
+}
+
+
+# ───────────────────────── KI: TRIAGE ─────────────────────────
+
+_TLB_TRIAGE_SCHEMA = (
+    '{"relevant": bool (false bei Werbung, PR, Gerüchten, Spekulation, unbestätigten '
+    'Meldungen, Parteipolitik, Promi-/Influencer-News, Clickbait — dann reicht der Rest), '
+    '"themenfeld": "Medizin"|"Wissenschaft"|"Umwelt"|"Technologie"|"Gesellschaft"|"Menschen"|"Sonstiges", '
+    '"unterthema": str|null, "prioritaet": "hoch"|"niedrig", '
+    '"f1_positiv": bool, "f2_aussergewoehnlich": bool, "f3_viele_betroffen": bool, '
+    '"f4_langfristig": bool, "f5_originalquelle": bool, "f6_fakten_bestaetigt": bool, '
+    '"filter_gescheitert_an": int|null (Nummer der ERSTEN nicht bestandenen Stufe 1-6, sonst null), '
+    '"filter_begruendung": str (ein Satz, warum durchgefallen oder durchgekommen), '
+    '"wow_bestanden": bool, "wow_begruendung": str, '
+    '"s_gesellschaft": int, "s_hoffnung": int, "s_langfristig": int, "s_international": int, '
+    '"s_originalitaet": int, "s_verlaesslichkeit": int, "s_emotion": int, "s_wissenschaft": int}'
+)
+
+_TLB_TRIAGE_SYSTEM = (
+    'Du bist die kuratierende KI hinter "Tageslichtblick" — einer Sammlung der '
+    'wichtigsten positiven Entwicklungen unserer Zeit.\n\n'
+    'Tageslichtblick ist KEINE Good-News-Seite. Nicht jede gute Nachricht ist ein '
+    'Beitrag. Nur Nachrichten mit außergewöhnlicher gesellschaftlicher, '
+    'wissenschaftlicher, medizinischer oder menschlicher Bedeutung kommen infrage.\n\n'
+    'Deine Aufgabe ist AUSSORTIEREN, nicht Finden. Sei streng. Es ist völlig in '
+    'Ordnung — und der Normalfall — wenn eine Meldung durchfällt. Eine zu milde '
+    'Bewertung schadet der Seite mehr als eine zu strenge.\n\n'
+    'HOHE Priorität: neue Medikamente/Therapien, Krebs- und Genforschung, '
+    'Kinderheilkunde, seltene Krankheiten, Impfstoffe, Organspende, Weltraum, '
+    'Astronomie, Physik, Biologie, Archäologie, Artenschutz, neue Nationalparks, '
+    'Wiederaufforstung, Renaturierung, sauberes Wasser, bahnbrechende Innovationen, '
+    'Batterien, erneuerbare Energien, KI mit gesellschaftlichem Nutzen, internationale '
+    'Zusammenarbeit, humanitäre Hilfe, Inklusion, große Bildungsprojekte, '
+    'Armutsbekämpfung, außergewöhnliche Rettungen, historische Leistungen.\n\n'
+    'NIEDRIGE Priorität: lokale Vereinsgeschichten, normale Ehrungen, kleine '
+    'Spendenaktionen, Tierrettungen ohne größere Bedeutung, kuriose Geschichten, '
+    'Promi-News, Influencer.\n\n'
+    'AUSGESCHLOSSEN (relevant=false): Werbung, PR, Gerüchte, Spekulation, '
+    'unbestätigte Meldungen, parteipolitische Inhalte, Clickbait, künstliche '
+    'Emotionalisierung.\n\n'
+    'Filterstufen — beantworte jede einzeln und ehrlich:\n'
+    '1 Positiv? 2 Außergewöhnlich? 3 Viele Menschen betroffen? 4 Langfristig relevant? '
+    '5 Originalquelle erkennbar? 6 Fakten im Text bestätigt (keine Ankündigung, '
+    'keine Vorabmeldung, keine reine Absichtserklärung)?\n\n'
+    'WOW-Filter: "Würde diese Nachricht die meisten Menschen positiv überraschen und '
+    'ihnen das Gefühl geben, dass sie wichtig genug ist, um sie Freunden oder der '
+    'Familie zu zeigen?" Bei Nein: wow_bestanden=false.\n\n'
+    'Scoring je 0-100. Bewerte NUR auf Basis des gegebenen Textes, ergänze nichts aus '
+    'eigenem Wissen. Ist eine Dimension auf die Meldung nicht anwendbar, vergib einen '
+    'niedrigen Wert statt zu raten.\n\n'
+    'Antworte NUR mit einem JSON-Objekt, keine Erklärung davor oder danach, exakt in '
+    'diesem Schema:\n' + _TLB_TRIAGE_SCHEMA
+)
+
+
+def _tlb_ai_call(system, user_text, model, max_tokens=1500):
+    """Gekapselter KI-Aufruf. Alle Tageslichtblick-KI-Schritte laufen hierüber,
+    damit ein zusätzlicher Agent oder ein Modellwechsel an genau einer Stelle
+    passiert. Gibt (dict, kosten_cent) zurück oder (None, 0)."""
+    import json as _json
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        raise ValueError('Kein Anthropic API-Key konfiguriert (Einstellungen → KI).')
+    import anthropic as _anthropic
+    client = _anthropic.Anthropic(api_key=api_key)
+    resp = client.messages.create(
+        model=model, max_tokens=max_tokens, system=system,
+        messages=[{'role': 'user', 'content': user_text}])
+    roh = resp.content[0].text.strip()
+    if roh.startswith('```'):
+        roh = roh.split('```')[1]
+        if roh.startswith('json'):
+            roh = roh[4:]
+        roh = roh.strip()
+    try:
+        daten = _json.loads(roh)
+    except Exception:
+        start, ende = roh.find('{'), roh.rfind('}')
+        if start < 0 or ende < 0:
+            return None, 0
+        daten = _json.loads(roh[start:ende + 1])
+
+    # Grobe Kostenschätzung je Story (Modul Kostenoptimierung)
+    kosten = 0.0
+    try:
+        raten = {'haiku': (0.1, 0.5), 'sonnet': (0.3, 1.5), 'opus': (1.5, 7.5)}
+        for name, (rein, raus) in raten.items():
+            if name in model:
+                kosten = (resp.usage.input_tokens / 1000 * rein
+                          + resp.usage.output_tokens / 1000 * raus)
+                break
+    except Exception:
+        pass
+    return daten, round(kosten, 4)
+
+
+def _tlb_triage_model():
+    return get_setting('tlb_triage_model') or 'claude-haiku-4-5'
+
+
+def _tlb_produce_model():
+    return get_setting('tlb_produce_model') or 'claude-opus-4-8'
+
+
+def _tlb_triage(story):
+    """Stufe 1: bewertet eine Kandidatin (Filter 1-6, WOW, 8 Scores) mit dem
+    günstigen Modell. Setzt Status auf 'bewertet' oder 'abgelehnt'."""
+    text = (f'QUELLE: {story.quelle_name or "unbekannt"}\n'
+            f'DATUM: {story.quelle_datum or "unbekannt"}\n'
+            f'TITEL: {story.roh_titel}\n\n{(story.roh_text or "")[:5000]}')
+
+    daten, kosten = _tlb_ai_call(_TLB_TRIAGE_SYSTEM, text, _tlb_triage_model(), max_tokens=1200)
+    if not daten:
+        story.abgelehnt_grund = 'KI-Antwort nicht lesbar'
+        story.status = 'abgelehnt'
+        return story
+
+    story.ki_kosten_cent = (story.ki_kosten_cent or 0) + kosten
+    story.themenfeld = daten.get('themenfeld')
+    story.unterthema = daten.get('unterthema')
+    story.prioritaet = daten.get('prioritaet')
+    for f in ('f1_positiv', 'f2_aussergewoehnlich', 'f3_viele_betroffen',
+              'f4_langfristig', 'f5_originalquelle', 'f6_fakten_bestaetigt'):
+        setattr(story, f, bool(daten.get(f)))
+    story.filter_gescheitert_an = daten.get('filter_gescheitert_an')
+    story.filter_begruendung = daten.get('filter_begruendung')
+    story.wow_bestanden = bool(daten.get('wow_bestanden'))
+    story.wow_begruendung = daten.get('wow_begruendung')
+    for s in ('s_gesellschaft', 's_hoffnung', 's_langfristig', 's_international',
+              's_originalitaet', 's_verlaesslichkeit', 's_emotion', 's_wissenschaft'):
+        wert = daten.get(s)
+        if isinstance(wert, (int, float)):
+            setattr(story, s, max(0, min(100, int(wert))))
+    story.gesamtscore = _tlb_gesamtscore(story)
+
+    # Discovery-Funde (Modul E/F/G) sind laut Konzept nur Inspiration — ohne
+    # nachrecherchierte Originalquelle gilt Filter 5 als NICHT bestanden,
+    # egal was die KI zum Text sagt.
+    if story.ist_inspiration and not story.originalquelle_url:
+        story.f5_originalquelle = False
+        if not story.filter_gescheitert_an:
+            story.filter_gescheitert_an = 5
+
+    if not daten.get('relevant'):
+        story.status = 'abgelehnt'
+        story.abgelehnt_grund = 'Ausschlusskriterium (Werbung/PR/Spekulation/Politik/Clickbait)'
+    elif story.filter_gescheitert_an:
+        story.status = 'abgelehnt'
+        story.abgelehnt_grund = f'Filterstufe {story.filter_gescheitert_an}: {story.filter_begruendung or ""}'.strip()
+    elif not story.wow_bestanden:
+        story.status = 'abgelehnt'
+        story.abgelehnt_grund = f'WOW-Filter nicht bestanden: {story.wow_begruendung or ""}'.strip()
+    else:
+        story.status = 'bewertet'
+    return story
+
+
+# ───────────────────────── KI: AUFBEREITUNG ─────────────────────────
+
+def _tlb_produce_schema():
+    """Schema wird aus den aktiven Modulen gebaut — ein abgeschaltetes Modul
+    wird gar nicht erst angefordert (spart Ausgabe-Tokens statt nur das
+    Ergebnis wegzuwerfen)."""
+    teile = ['"titel": str (max 90 Zeichen, erklärt die Kernaussage vollständig, '
+             'kein Teaser, kein Clickbait, keine künstliche Emotionalisierung)',
+             '"untertitel": str (max 120 Zeichen, ergänzt den Titel, wiederholt ihn nicht)',
+             '"text": str (3-5 Sätze, sachlich, nur belegte Fakten)',
+             '"fakten": [str] (3-6 einzeln belegte Kernfakten aus dem Text)']
+    if _tlb_feature_on('slide2'):
+        teile += ['"slide2_was_passiert": str', '"slide2_warum_wichtig": str',
+                  '"slide2_auswirkungen": str']
+    if _tlb_feature_on('slide3'):
+        teile += ['"slide3_typ": "timeline"|"statistik"|"infografik"|"karte"|"hintergrund"',
+                  '"slide3_inhalt": str']
+    if _tlb_feature_on('caption'):
+        teile.append('"caption": str (mindestens 500 Zeichen: was ist passiert, warum ist es '
+                     'bedeutend, welche Auswirkungen, Quelle am Ende. Sachlich, keine Übertreibung)')
+    if _tlb_feature_on('hashtags'):
+        teile.append('"hashtags": str (8-15 Hashtags, durch Leerzeichen getrennt, thematisch)')
+    if _tlb_feature_on('alt_text'):
+        teile.append('"alt_text": str (Bildbeschreibung für Screenreader)')
+    if _tlb_feature_on('story'):
+        teile.append('"story_text": str (kurze Story-Fassung, max 200 Zeichen)')
+    if _tlb_feature_on('bildsuche'):
+        teile.append('"bildvorschlaege": [{"beschreibung": str, "quelle_vorschlag": str}] '
+                     '(welche Bilder passen — Originalbilder/Behörden/NASA/ESA bevorzugt)')
+    return '{' + ', '.join(teile) + '}'
+
+
+_TLB_PRODUCE_SYSTEM_BASIS = (
+    'Du bist die redaktionelle KI hinter "Tageslichtblick". Du bereitest die '
+    'bestbewertete positive Entwicklung des Tages für Instagram auf.\n\n'
+    'Regeln:\n'
+    '- Verwende AUSSCHLIESSLICH Informationen aus dem gegebenen Text. Ergänze nichts '
+    'aus eigenem Wissen, auch keine plausible Vermutung.\n'
+    '- Fehlt eine Information, lass sie weg — erfinde niemals Zahlen, Namen oder Daten.\n'
+    '- Kein Clickbait, keine künstliche Emotionalisierung, keine Übertreibung.\n'
+    '- Der Titel erklärt die Kernaussage vollständig und ist kein Teaser.\n'
+    '- Sachlich und ruhig im Ton. Die Nachricht selbst trägt die Wirkung, sie muss '
+    'nicht aufgeladen werden.\n\n'
+    'Antworte NUR mit einem JSON-Objekt, keine Erklärung davor oder danach, exakt in '
+    'diesem Schema:\n'
+)
+
+
+def _tlb_produce(story):
+    """Stufe 2: erstellt das redaktionelle Paket. Läuft NUR für den Tagessieger
+    (Kostenoptimierung) und nur, wenn der Automatikgrad Entwürfe erlaubt."""
+    system = _TLB_PRODUCE_SYSTEM_BASIS + _tlb_produce_schema()
+    hinweis = ''
+    if _tlb_feature_on('uebersetzung') and (story.sprache or 'de') != 'de':
+        hinweis = ('\n\nHINWEIS: Der Quelltext ist nicht deutsch. Erstelle alle Ausgaben '
+                   'auf Deutsch, ohne den Sinn zu verändern.')
+    text = (f'QUELLE: {story.quelle_name or "unbekannt"}\n'
+            f'URL: {story.originalquelle_url or story.quelle_url or ""}\n'
+            f'DATUM: {story.quelle_datum or "unbekannt"}\n'
+            f'TITEL: {story.roh_titel}\n\n{(story.roh_text or "")[:8000]}{hinweis}')
+
+    daten, kosten = _tlb_ai_call(system, text, _tlb_produce_model(), max_tokens=3000)
+    if not daten:
+        return story
+    import json as _json
+    story.ki_kosten_cent = (story.ki_kosten_cent or 0) + kosten
+    for feld in ('titel', 'untertitel', 'text', 'caption', 'hashtags', 'alt_text',
+                 'story_text', 'slide2_was_passiert', 'slide2_warum_wichtig',
+                 'slide2_auswirkungen', 'slide3_typ', 'slide3_inhalt'):
+        if daten.get(feld):
+            setattr(story, feld, daten[feld])
+    if daten.get('fakten'):
+        story.fakten = _json.dumps(daten['fakten'], ensure_ascii=False)
+    if daten.get('bildvorschlaege'):
+        story.bildvorschlaege = _json.dumps(daten['bildvorschlaege'], ensure_ascii=False)
+    return story
+
+
+# ───────────────────────── DUBLETTEN ─────────────────────────
+
+def _tlb_ist_dublette(story):
+    """Filter 7. Prüft exakte Dublette (URL) und Themen-Dublette (Fingerprint).
+    Der Themenspeicher greift über die gesamte Historie, nicht nur über den Tag."""
+    if not _tlb_feature_on('dedup'):
+        return None
+    if story.dedup_key:
+        treffer = TlbStory.query.filter(TlbStory.dedup_key == story.dedup_key,
+                                        TlbStory.id != story.id).first()
+        if treffer:
+            return treffer
+    if _tlb_feature_on('themenspeicher') and story.themen_fingerprint:
+        # Nur gegen relevante Stories der letzten 90 Tage vergleichen — sonst
+        # wächst die Prüfung mit der Historie und wird mit der Zeit langsam.
+        grenze = datetime.utcnow() - timedelta(days=90)
+        kandidaten = (TlbStory.query
+                      .filter(TlbStory.id != story.id,
+                              TlbStory.themen_fingerprint != None,
+                              TlbStory.created_at >= grenze,
+                              TlbStory.status.in_(['veroeffentlicht', 'entwurf', 'bewertet']))
+                      .limit(500).all())
+        schwelle = 0.55
+        bester, beste_quote = None, 0.0
+        for k in kandidaten:
+            quote = _tlb_themen_ueberlappung(story.themen_fingerprint, k.themen_fingerprint)
+            if quote > beste_quote:
+                bester, beste_quote = k, quote
+        if bester and beste_quote >= schwelle:
+            return bester
+    return None
+
+
+# ───────────────────────── SCAN ─────────────────────────
+
+def _tlb_scan_quelle(source):
+    """Scannt eine Quelle, legt neue Kandidatinnen an. Gibt (neu, uebersprungen)
+    zurück. Bewertet noch nicht — das passiert gebündelt in der Triage."""
+    import json as _json
+    collector = _TLB_COLLECTORS.get(source.modul)
+    if collector is None:
+        source.last_result = f'Modul {source.modul} noch nicht gebaut — übersprungen'
+        return 0, 0
+
+    funde = collector(source)
+    neu = uebersprungen = 0
+    for f in funde:
+        dedup = _tlb_dedup_key(f['titel'], f.get('url'))
+        if dedup and TlbStory.query.filter_by(dedup_key=dedup).first():
+            uebersprungen += 1
+            continue
+        story = TlbStory(
+            roh_titel=f['titel'], roh_text=f.get('text'), quelle_url=f.get('url'),
+            quelle_name=f.get('quelle_name') or source.name, quelle_datum=f.get('datum'),
+            sprache=f.get('sprache') or source.sprache, source_id=source.id,
+            modul=source.modul, ist_inspiration=bool(f.get('ist_inspiration')),
+            inspiration_quelle=f.get('inspiration_quelle'),
+            dedup_key=dedup,
+            themen_fingerprint=_tlb_fingerprint(f['titel'], f.get('text')),
+            status='kandidat')
+        db.session.add(story)
+        neu += 1
+
+    source.last_scanned_at = datetime.utcnow()
+    source.funde_gesamt = (source.funde_gesamt or 0) + neu
+    source.last_result = f'{neu} neu, {uebersprungen} Dublette(n)'
+    return neu, uebersprungen
+
+
+def _tlb_run_scan(force=False):
+    """Vollständiger Lauf: sammeln → triagieren → ranken. Gibt einen Bericht
+    zurück. 'Kein Beitrag heute' ist ein gültiges Ergebnis."""
+    bericht = {'quellen': 0, 'neu': 0, 'bewertet': 0, 'abgelehnt': 0,
+               'sieger': None, 'fehler': [], 'kosten_cent': 0.0}
+    now = datetime.utcnow()
+
+    quellen = TlbSource.query.filter_by(active=True).all()
+    for src in quellen:
+        if not _tlb_module_on(src.modul):
+            continue
+        if not force and src.last_scanned_at:
+            faellig = (now - src.last_scanned_at).total_seconds() >= (src.scan_interval_hours or 6) * 3600
+            if not faellig:
+                continue
+        try:
+            neu, _ = _tlb_scan_quelle(src)
+            bericht['neu'] += neu
+            bericht['quellen'] += 1
+        except Exception as e:
+            src.last_result = f'Fehler: {e}'
+            bericht['fehler'].append(f'{src.name}: {e}')
+        db.session.commit()
+
+    # Triage aller offenen Kandidatinnen
+    offen = TlbStory.query.filter_by(status='kandidat').order_by(TlbStory.created_at).limit(60).all()
+    for story in offen:
+        try:
+            dublette = _tlb_ist_dublette(story)
+            if dublette:
+                story.f7_keine_dublette = False
+                story.dublette_von_id = dublette.id
+                story.status = 'abgelehnt'
+                story.abgelehnt_grund = f'Dublette zu #{dublette.id}'
+                story.filter_gescheitert_an = 7
+                bericht['abgelehnt'] += 1
+                continue
+            story.f7_keine_dublette = True
+            _tlb_triage(story)
+            bericht['kosten_cent'] += story.ki_kosten_cent or 0
+            if story.status == 'abgelehnt':
+                bericht['abgelehnt'] += 1
+            else:
+                bericht['bewertet'] += 1
+        except Exception as e:
+            bericht['fehler'].append(f'Triage #{story.id}: {e}')
+        db.session.commit()
+
+    sieger = _tlb_rank_today()
+    if sieger:
+        bericht['sieger'] = {'id': sieger.id, 'titel': sieger.display_name(),
+                             'score': sieger.gesamtscore}
+    return bericht
+
+
+def _tlb_rank_today():
+    """Filter 8 + Ranking. Wählt die bestbewertete Story — aber nur, wenn sie den
+    Mindestscore erreicht. Sonst wird bewusst NICHTS veröffentlicht.
+    Gibt den Tagessieger zurück oder None."""
+    heute = datetime.utcnow().date()
+
+    # Regel: 0-1 Beitrag pro Tag. Gibt es heute schon einen Sieger, ist Schluss.
+    bereits = TlbStory.query.filter(TlbStory.tagessieger_am == heute).first()
+    if bereits:
+        return bereits
+
+    kandidaten = (TlbStory.query
+                  .filter(TlbStory.status == 'bewertet',
+                          TlbStory.gesamtscore != None)
+                  .order_by(TlbStory.gesamtscore.desc())
+                  .all())
+    if not kandidaten:
+        return None
+
+    sieger = kandidaten[0]
+    if (sieger.gesamtscore or 0) < _tlb_min_score():
+        # Nichts ist gut genug — heute kein Beitrag. Kandidatinnen bleiben
+        # 'bewertet' und dürfen morgen erneut antreten.
+        return None
+
+    sieger.f8_beste_des_tages = True
+    sieger.tagessieger_am = heute
+
+    modus = _tlb_mode()
+    if modus == 'liste':
+        # Nur ranken, nichts erzeugen — teure Aufbereitung bleibt aus.
+        db.session.commit()
+        return sieger
+
+    try:
+        _tlb_produce(sieger)
+    except Exception as e:
+        app.logger.error('TLB Aufbereitung: %s', e)
+
+    sieger.status = 'entwurf'
+    acct = _tlb_account()
+    if acct:
+        sieger.account_id = acct.id
+
+    # Alle übrigen bewerteten Stories des Tages werden archiviert (Konzept:
+    # "Alle übrigen Geschichten werden archiviert") — sie bleiben aber lesbar.
+    for k in kandidaten[1:]:
+        k.f8_beste_des_tages = False
+        k.status = 'archiviert'
+
+    if modus == 'voll':
+        _tlb_publish(sieger, auto=True)
+
+    db.session.commit()
+
+    if _tlb_feature_on('benachrichtigung'):
+        try:
+            _push_notification(
+                'info', 'Tageslichtblick: Tagessieger steht fest',
+                f'{sieger.display_name()} (Score {sieger.gesamtscore})',
+                link=f'/content-studio/tageslichtblick/{sieger.id}')
+        except Exception:
+            pass
+    return sieger
+
+
+def _tlb_publish(story, auto=False, user_id=None):
+    """Veröffentlichen = als Post einplanen. Bei auto=True aus dem Vollautomatik-
+    Modus heraus, sonst durch Freigabe im Dashboard."""
+    story.status = 'veroeffentlicht'
+    story.published_at = datetime.utcnow()
+    if user_id:
+        story.freigegeben_von_id = user_id
+        story.freigegeben_at = datetime.utcnow()
+    if story.source_id:
+        src = TlbSource.query.get(story.source_id)
+        if src:
+            src.veroeffentlicht_gesamt = (src.veroeffentlicht_gesamt or 0) + 1
+    db.session.commit()
+    return story
+
+
+def _tlb_auto_scan():
+    """Scheduler-Einstieg. Läuft nur, wenn die Automatik aktiviert ist."""
+    if get_setting('tlb_auto_scan') != '1':
+        return
+    try:
+        with app.app_context():
+            _tlb_run_scan()
+    except Exception as e:
+        app.logger.error('TLB Auto-Scan: %s', e)
+
+
+# ───────────────────────── SEED: SERIÖSE QUELLEN ─────────────────────────
+# Bewusst nur Primär-/Institutionsquellen für den Start (Modul C) plus wenige
+# kuratierte Wissenschaftsredaktionen (Modul B). Keine Good-News-Aggregatoren:
+# die liefern genau den durchschnittlichen Content, den Tageslichtblick nicht will.
+_TLB_SEED_QUELLEN = [
+    # (name, url, modul, vertrauensstufe, sprache, themenfeld, intervall_h)
+    ('NASA Breaking News',       'https://www.nasa.gov/rss/dyn/breaking_news.rss', 'C', 1, 'en', 'Wissenschaft', 6),
+    ('ESA Space Science',        'https://www.esa.int/rssfeed/science',            'C', 1, 'en', 'Wissenschaft', 12),
+    ('WHO News',                 'https://www.who.int/rss-feeds/news-english.xml', 'C', 1, 'en', 'Medizin', 12),
+    ('UN News',                  'https://news.un.org/feed/subscribe/en/news/all/rss.xml', 'C', 1, 'en', 'Gesellschaft', 12),
+    ('Nature',                   'https://www.nature.com/nature.rss',              'C', 1, 'en', 'Wissenschaft', 12),
+    ('EMBL',                     'https://www.embl.org/news/feed/',                'C', 1, 'en', 'Medizin', 24),
+    ('ScienceDaily Top',         'https://www.sciencedaily.com/rss/top/science.xml','B', 2, 'en', 'Wissenschaft', 6),
+    ('ScienceDaily Gesundheit',  'https://www.sciencedaily.com/rss/health_medicine.xml', 'B', 2, 'en', 'Medizin', 6),
+    ('phys.org',                 'https://phys.org/rss-feed/breaking/',            'B', 2, 'en', 'Wissenschaft', 6),
+    ('wissenschaft.de',          'https://www.wissenschaft.de/feed/',              'B', 2, 'de', 'Wissenschaft', 6),
+    ('Spektrum der Wissenschaft','https://www.spektrum.de/alias/rss/spektrum-de-rss-feed/996406', 'B', 2, 'de', 'Wissenschaft', 6),
+]
+# Bewusst NICHT im Seed: MPG, Fraunhofer, Helmholtz, idw und DKFZ. Deren
+# Feed-URLs waren beim Bau nicht auffindbar bzw. lieferten nur Jahresarchive
+# (Fraunhofer). Lieber keine Quelle als eine tote — tote Quellen erzeugen
+# stündlich Fehler und verdecken echte Probleme. Nachtragbar über die Oberfläche.
+
+
+def _tlb_seed_sources():
+    """Legt die Startquellen an, falls noch keine existieren. Idempotent —
+    bereits vorhandene URLs werden nie überschrieben (der Nutzer soll Quellen
+    abschalten oder anpassen können, ohne dass ein Neustart das zurücksetzt)."""
+    angelegt = 0
+    for name, url, modul, stufe, sprache, feld, iv in _TLB_SEED_QUELLEN:
+        if TlbSource.query.filter_by(url=url).first():
+            continue
+        db.session.add(TlbSource(name=name, url=url, modul=modul, vertrauensstufe=stufe,
+                                 sprache=sprache, themenfeld=feld, scan_interval_hours=iv,
+                                 active=True))
+        angelegt += 1
+    if angelegt:
+        db.session.commit()
+    return angelegt
+
+
+# ───────────────────────── ROUTEN ─────────────────────────
+
+@app.route('/content-studio/tageslichtblick')
+@login_required
+def tageslichtblick():
+    """Übersicht. Zeigt bewusst auch die abgelehnten Stories — die Kuratierung
+    ist der eigentliche Wert der Factory und darf keine Blackbox sein."""
+    heute = datetime.utcnow().date()
+    status_filter = request.args.get('status') or 'aktuell'
+
+    q = TlbStory.query
+    if status_filter == 'aktuell':
+        q = q.filter(TlbStory.status.in_(['bewertet', 'entwurf', 'kandidat']))
+    elif status_filter != 'alle':
+        q = q.filter(TlbStory.status == status_filter)
+
+    stories = q.order_by(TlbStory.gesamtscore.desc().nullslast(),
+                         TlbStory.created_at.desc()).limit(120).all()
+
+    sieger_heute = TlbStory.query.filter_by(tagessieger_am=heute).first()
+    diese_woche = TlbStory.query.filter(
+        TlbStory.status == 'veroeffentlicht',
+        TlbStory.published_at >= datetime.utcnow() - timedelta(days=7)).count()
+
+    stats = {
+        'kandidaten':  TlbStory.query.filter_by(status='kandidat').count(),
+        'bewertet':    TlbStory.query.filter_by(status='bewertet').count(),
+        'entwuerfe':   TlbStory.query.filter_by(status='entwurf').count(),
+        'abgelehnt':   TlbStory.query.filter_by(status='abgelehnt').count(),
+        'diese_woche': diese_woche,
+        'kosten_monat': round((db.session.query(func.sum(TlbStory.ki_kosten_cent))
+                               .filter(TlbStory.created_at >= datetime.utcnow() - timedelta(days=30))
+                               .scalar() or 0) / 100, 2),
+    }
+    return render_template('tageslichtblick.html',
+        stories=stories, stats=stats, sieger_heute=sieger_heute,
+        status_filter=status_filter, mode=_tlb_mode(), modes=TLB_MODES,
+        min_score=_tlb_min_score(), auto_scan=get_setting('tlb_auto_scan') == '1',
+        active_page='studio')
+
+
+@app.route('/content-studio/tageslichtblick/<int:story_id>')
+@login_required
+def tageslichtblick_story(story_id):
+    story = TlbStory.query.get_or_404(story_id)
+    dublette = TlbStory.query.get(story.dublette_von_id) if story.dublette_von_id else None
+    return render_template('tageslichtblick_story.html', story=story, dublette=dublette,
+                           weights=TLB_SCORE_WEIGHTS, active_page='studio')
+
+
+@app.route('/content-studio/tageslichtblick/einstellungen', methods=['GET', 'POST'])
+@login_required
+def tageslichtblick_settings():
+    if request.method == 'POST':
+        for mod in TLB_MODULES:
+            set_setting(f'tlb_modul_{mod}', '1' if request.form.get(f'modul_{mod}') else '0')
+        for key in TLB_FEATURES:
+            set_setting(f'tlb_feature_{key}', '1' if request.form.get(f'feature_{key}') else '0')
+        modus = request.form.get('mode')
+        if modus in TLB_MODES:
+            set_setting('tlb_mode', modus)
+        set_setting('tlb_auto_scan', '1' if request.form.get('auto_scan') else '0')
+        try:
+            set_setting('tlb_min_score', str(max(0, min(100, int(request.form.get('min_score') or TLB_MIN_SCORE_DEFAULT)))))
+        except Exception:
+            pass
+        set_setting('tlb_triage_model', request.form.get('triage_model', '').strip() or 'claude-haiku-4-5')
+        set_setting('tlb_produce_model', request.form.get('produce_model', '').strip() or 'claude-opus-4-8')
+        flash('Einstellungen gespeichert.', 'success')
+        return redirect(url_for('tageslichtblick_settings'))
+
+    _tlb_seed_sources()
+    quellen = TlbSource.query.order_by(TlbSource.modul, TlbSource.name).all()
+    return render_template('tageslichtblick_einstellungen.html',
+        quellen=quellen, module=TLB_MODULES, features=TLB_FEATURES,
+        modul_an={m: _tlb_module_on(m) for m in TLB_MODULES},
+        feature_an={f: _tlb_feature_on(f) for f in TLB_FEATURES},
+        mode=_tlb_mode(), modes=TLB_MODES, min_score=_tlb_min_score(),
+        auto_scan=get_setting('tlb_auto_scan') == '1',
+        triage_model=_tlb_triage_model(), produce_model=_tlb_produce_model(),
+        active_page='studio')
+
+
+@app.route('/api/tlb/scan', methods=['POST'])
+@login_required
+def tlb_scan_now():
+    """Manueller Scan. Läuft synchron, damit das Ergebnis direkt sichtbar ist —
+    ein Lauf über die Startquellen dauert typischerweise unter einer Minute."""
+    try:
+        bericht = _tlb_run_scan(force=bool((request.get_json(silent=True) or {}).get('force')))
+        return jsonify({'ok': True, 'bericht': bericht})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/tlb/story/<int:story_id>/freigeben', methods=['POST'])
+@login_required
+def tlb_freigeben(story_id):
+    story = TlbStory.query.get_or_404(story_id)
+    if story.status != 'entwurf':
+        return jsonify({'ok': False, 'error': 'Nur Entwürfe können freigegeben werden.'}), 400
+    _u = current_user()
+    _tlb_publish(story, user_id=_u.id if _u else None)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/tlb/story/<int:story_id>/aufbereiten', methods=['POST'])
+@login_required
+def tlb_aufbereiten(story_id):
+    """Aufbereitung manuell auslösen — nötig im Modus 'Nur Vorschlagsliste',
+    wo die Factory absichtlich nichts von selbst erzeugt."""
+    story = TlbStory.query.get_or_404(story_id)
+    try:
+        _tlb_produce(story)
+        if story.status in ('bewertet', 'archiviert'):
+            story.status = 'entwurf'
+            acct = _tlb_account()
+            if acct:
+                story.account_id = acct.id
+        db.session.commit()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/tlb/story/<int:story_id>/status', methods=['POST'])
+@login_required
+def tlb_set_status(story_id):
+    story = TlbStory.query.get_or_404(story_id)
+    d = request.get_json(silent=True) or {}
+    neu = d.get('status')
+    if neu not in ('kandidat', 'bewertet', 'entwurf', 'abgelehnt', 'archiviert', 'veroeffentlicht'):
+        return jsonify({'ok': False, 'error': 'Unbekannter Status.'}), 400
+    story.status = neu
+    if neu == 'abgelehnt':
+        story.abgelehnt_grund = d.get('grund') or 'manuell abgelehnt'
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/tlb/story/<int:story_id>/feedback', methods=['POST'])
+@login_required
+def tlb_feedback(story_id):
+    """Rückmeldung, ob die KI-Einschätzung getaugt hat. Wird noch nicht ins
+    Prompting zurückgespielt — erst sammeln, dann auswerten."""
+    story = TlbStory.query.get_or_404(story_id)
+    d = request.get_json(silent=True) or {}
+    story.feedback = 1 if d.get('gut') else -1
+    story.feedback_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/tlb/quelle', methods=['POST'])
+@login_required
+def tlb_quelle_add():
+    d = request.get_json(silent=True) or request.form
+    url = (d.get('url') or '').strip()
+    name = (d.get('name') or '').strip()
+    if not url or not name:
+        return jsonify({'ok': False, 'error': 'Name und URL sind nötig.'}), 400
+    if not _mcf_is_safe_url(url):
+        return jsonify({'ok': False, 'error': 'Diese URL ist nicht erlaubt.'}), 400
+    if TlbSource.query.filter_by(url=url).first():
+        return jsonify({'ok': False, 'error': 'Diese Quelle gibt es schon.'}), 400
+    src = TlbSource(name=name, url=url, modul=(d.get('modul') or 'B'),
+                    vertrauensstufe=int(d.get('vertrauensstufe') or 2),
+                    sprache=(d.get('sprache') or 'de'),
+                    scan_interval_hours=int(d.get('scan_interval_hours') or 6),
+                    active=True)
+    db.session.add(src)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': src.id})
+
+
+@app.route('/api/tlb/quelle/<int:source_id>', methods=['POST', 'DELETE'])
+@login_required
+def tlb_quelle_update(source_id):
+    src = TlbSource.query.get_or_404(source_id)
+    if request.method == 'DELETE':
+        db.session.delete(src)
+        db.session.commit()
+        return jsonify({'ok': True})
+    d = request.get_json(silent=True) or {}
+    if 'active' in d:
+        src.active = bool(d['active'])
+    if d.get('scan_interval_hours'):
+        src.scan_interval_hours = max(1, int(d['scan_interval_hours']))
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 if __name__ == '__main__':
