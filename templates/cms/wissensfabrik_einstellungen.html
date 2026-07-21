@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Einstellungen — Wissensfabrik{% endblock %}
+{% block page_title %}WISSENSFABRIK{% endblock %}
+
+{% block content %}
+<div style="max-width:760px">
+  <a href="{{ url_for('knowledge_factory_list') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Zurück zur Übersicht</a>
+
+  <div class="card" style="padding:20px;margin-top:14px;margin-bottom:20px">
+    <div style="font-weight:700;margin-bottom:12px">KI-Modell für Fakt-Extraktion</div>
+    <form method="POST" style="display:flex;gap:10px;align-items:center">
+      <input name="analysis_model" value="{{ analysis_model }}" class="input-field" style="flex:1" placeholder="claude-sonnet-4-6">
+      <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 18px">Speichern</button>
+    </form>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">Gilt für alle Wissens-Nischen. Nutzt denselben Anthropic-Key wie der Rest von Content OS.</div>
+  </div>
+
+  <div class="card" style="padding:20px">
+    <div style="font-weight:700;margin-bottom:12px">Nischen ({{ niches|length }})</div>
+    {% if not niches %}
+    <div style="font-size:13px;color:var(--muted)">Noch keine Nische angelegt.</div>
+    {% endif %}
+    <div style="display:flex;flex-direction:column;gap:6px">
+      {% for account, cfg in niches %}
+      <a href="{{ url_for('knowledge_factory_niche', account_id=account.id) }}" style="font-size:13px;color:var(--text);text-decoration:none;padding:8px 0;border-bottom:1px solid var(--border)">
+        {{ account.name }} <span style="color:var(--muted);font-size:11px">— {{ cfg.language }}/{{ cfg.country }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

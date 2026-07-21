@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Wissensfabrik — Content OS{% endblock %}
+{% block page_title %}WISSENSFABRIK{% endblock %}
+
+{% block content %}
+<div style="max-width:1120px">
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px">
+    Universelle Fakten-Fabrik für beliebige Wissens-Nischen — eine Nische ist keine eigene Factory,
+    nur eine Konfiguration. Genauigkeit vor Geschwindigkeit: es wird nichts erfunden, fehlende
+    Angaben bleiben leer.
+  </p>
+
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;flex-wrap:wrap">
+    <a href="{{ url_for('knowledge_factory_settings') }}" style="margin-left:auto;font-size:12px;color:var(--muted);text-decoration:none;padding:7px 10px">
+      <i class="fa-solid fa-gear"></i> Einstellungen</a>
+    <button onclick="var f=document.getElementById('kfNewForm');f.style.display=f.style.display==='none'?'block':'none'"
+            class="btn btn-primary" style="font-size:13px;padding:8px 16px">＋ Neue Nische</button>
+  </div>
+
+  <form id="kfNewForm" method="POST" action="{{ url_for('knowledge_factory_new_niche') }}"
+        class="card" style="padding:20px;margin-bottom:22px;display:none">
+    <div style="font-weight:700;margin-bottom:14px">Neue Wissens-Nische anlegen</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div><label class="form-label">Name der Seite</label><input name="name" required class="input-field" placeholder="z.B. Hunde"></div>
+      <div><label class="form-label">Plattform</label>
+        <select name="platform_id" required class="select-field">
+          <option value="">— wählen —</option>
+          {% for p in platforms %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div><label class="form-label">Kategorie (optional)</label>
+        <select name="category_id" class="select-field">
+          <option value="">— keine —</option>
+          {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div><label class="form-label">Sprache</label><input name="language" value="de" class="input-field"></div>
+      <div><label class="form-label">Land</label><input name="country" value="DE" class="input-field"></div>
+      <div style="grid-column:span 2"><label class="form-label">Zielgruppe</label><input name="target_audience" class="input-field" placeholder="z.B. Hundebesitzer und Tierliebhaber in Deutschland"></div>
+      <div style="grid-column:span 2"><label class="form-label">Bildstil</label><input name="image_style" class="input-field" placeholder="z.B. warme Naturaufnahmen, keine Studiofotos"></div>
+      <div style="grid-column:span 2"><label class="form-label">Design-Stil</label><input name="design_style" class="input-field" placeholder="z.B. freundlich, abgerundet, warme Farben"></div>
+      <div style="grid-column:span 2"><label class="form-label">Content-Regeln</label><textarea name="content_rules" rows="2" class="input-field" placeholder="z.B. keine Fakten über Qualzucht, keine Werbung für bestimmte Marken"></textarea></div>
+    </div>
+    <div style="margin-top:16px"><button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 20px">Nische anlegen</button></div>
+  </form>
+
+  {% if not niches %}
+  <div class="card" style="padding:40px;text-align:center;color:var(--muted)">Noch keine Wissens-Nische — lege oben eine an.</div>
+  {% endif %}
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px">
+    {% for account, cfg in niches %}
+    {% set c = counts_by_account.get(account.id, {}) %}
+    <a href="{{ url_for('knowledge_factory_niche', account_id=account.id) }}" class="card" style="padding:16px;text-decoration:none;color:inherit;display:block">
+      <div style="font-weight:700;font-size:15px;margin-bottom:4px">{{ account.name }}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">{{ account.platform.name if account.platform else '—' }} · {{ cfg.language }}/{{ cfg.country }}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <span class="badge badge-gray">{{ c.get('entwurf', 0) }} Entwurf</span>
+        <span class="badge badge-green">{{ c.get('veroeffentlicht', 0) }} Veröffentlicht</span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

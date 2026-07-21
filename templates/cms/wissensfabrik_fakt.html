@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{{ fact.title }} — Wissensfabrik{% endblock %}
+{% block page_title %}FAKT{% endblock %}
+
+{% block content %}
+<div style="max-width:1040px">
+  <a href="{{ url_for('knowledge_factory_niche', account_id=account.id) }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Zurück zu {{ account.name }}</a>
+
+  <div style="display:grid;grid-template-columns:400px 1fr;gap:26px;margin-top:14px">
+    <!-- Karte -->
+    <div>
+      {% if fact.generated_image_path %}
+      <img src="{{ fact.generated_image_path }}" style="width:100%;border-radius:12px;border:1px solid var(--border);display:block">
+      {% else %}
+      <div class="card" style="aspect-ratio:4/5;display:flex;align-items:center;justify-content:center;color:var(--muted)">Noch kein Bild gerendert</div>
+      {% endif %}
+      <form method="POST" action="{{ url_for('knowledge_factory_render', account_id=account.id, fact_id=fact.id) }}" style="margin-top:10px">
+        <button type="submit" class="btn btn-ghost" style="width:100%;font-size:12px;padding:8px">{{ 'Karte neu erzeugen' if fact.generated_image_path else 'Karte erzeugen' }}</button>
+      </form>
+
+      <div class="card" style="padding:14px;margin-top:14px">
+        <div style="font-weight:700;font-size:12px;margin-bottom:8px">Bild</div>
+        {% if photo %}<img src="{{ photo.url }}" style="width:100%;border-radius:8px;margin-bottom:8px">{% endif %}
+        <form method="POST" action="{{ url_for('knowledge_factory_upload_photo', account_id=account.id, fact_id=fact.id) }}" enctype="multipart/form-data" style="display:flex;gap:8px">
+          <input type="file" name="photo" accept="image/*" class="input-field" style="flex:1;font-size:11px;padding:6px">
+          <button type="submit" class="btn btn-ghost" style="font-size:11px;padding:6px 10px">Hochladen</button>
+        </form>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">Ohne eigenes Bild wird ein Nischen-Farbplatzhalter verwendet.</div>
+      </div>
+    </div>
+
+    <!-- Rechts -->
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
+        <span style="font-size:20px;font-weight:800">{{ fact.title }}</span>
+        {% if fact.status=='veroeffentlicht' %}<span class="badge badge-green">Veröffentlicht</span>
+        {% elif fact.status=='geprueft' %}<span class="badge badge-blue">Geprüft</span>
+        {% elif fact.status=='bereit' %}<span class="badge badge-blue">Bereit</span>
+        {% elif fact.status=='abgelehnt' %}<span class="badge badge-red">Abgelehnt</span>
+        {% elif fact.status=='archiviert' %}<span class="badge" style="background:rgba(99,102,241,.15);color:var(--accent2)">Archiviert</span>
+        {% else %}<span class="badge badge-gray">Entwurf</span>{% endif %}
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px">
+        {{ fact.category.name if fact.category else 'Keine Kategorie' }} · angelegt {{ fact.created_at }}
+        {% if fact.evergreen %} · zeitlos{% endif %}{% if fact.time_critical %} · zeitkritisch{% endif %}
+      </div>
+
+      {% if fact.short_version %}
+      <div class="card" style="padding:12px 14px;margin-bottom:14px;font-size:13px">{{ fact.short_version }}</div>
+      {% endif %}
+      {% if fact.full_text %}
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Vollständiger Fakt</div>
+      <div style="font-size:13px;margin-bottom:16px;white-space:pre-wrap">{{ fact.full_text }}</div>
+      {% endif %}
+
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px">Quellen ({{ fact_sources|length }})</div>
+      {% if fact_sources %}
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+        {% for fs in fact_sources %}
+        <div style="font-size:12px;padding:8px 10px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+          {% if fs.source %}<b>{{ fs.source.name }}</b> · {% endif %}
+          {% if fs.url_used %}<a href="{{ fs.url_used }}" target="_blank" rel="noopener" style="color:var(--accent2)">{{ fs.url_used }}</a>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="card" style="padding:10px 14px;margin-bottom:16px;font-size:12px;border:1px solid var(--warning);background:rgba(245,158,11,.08)">
+        Kein Quellennachweis hinterlegt — ein Fakt ohne Quelle kann nicht veröffentlicht werden.
+      </div>
+      {% endif %}
+
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px">Caption</div>
+      <form method="POST" action="{{ url_for('knowledge_factory_publish', account_id=account.id, fact_id=fact.id) }}">
+        <textarea name="caption" rows="6" class="input-field" style="font-size:13px;font-family:inherit;margin-bottom:12px">{{ fact.caption or fact.short_version or '' }}</textarea>
+        <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 20px" {% if fact.status=='veroeffentlicht' %}disabled{% endif %}>
+          {{ 'Bereits veröffentlicht' if fact.status=='veroeffentlicht' else 'Veröffentlichen (als Post einplanen)' }}
+        </button>
+      </form>
+
+      <div style="border-top:1px solid var(--border);margin-top:18px;padding-top:14px">
+        <form method="POST" action="{{ url_for('knowledge_factory_delete_fact', account_id=account.id, fact_id=fact.id) }}"
+              onsubmit="return confirm('Diesen Fakt unwiderruflich löschen?')">
+          <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:7px 12px;color:var(--danger)">Fakt löschen</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}{{ account.name }} — Wissensfabrik{% endblock %}
+{% block page_title %}WISSENSFABRIK{% endblock %}
+
+{% block content %}
+<div style="max-width:1120px">
+  <a href="{{ url_for('knowledge_factory_list') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Zurück zur Übersicht</a>
+  <div style="font-size:20px;font-weight:800;margin-top:10px;margin-bottom:4px">{{ account.name }}</div>
+  <div style="font-size:12px;color:var(--muted);margin-bottom:18px">{{ account.platform.name if account.platform else '—' }}</div>
+
+  <!-- Quellen -->
+  <div class="card" style="padding:16px;margin-bottom:20px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:10px">Quellen ({{ sources|length }})</div>
+    {% if sources %}
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+      {% for s in sources %}
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:6px 0;border-bottom:1px solid var(--border)">
+        <span style="font-weight:600">{{ s.name }}</span>
+        <span class="badge badge-gray">{{ s.source_type }}</span>
+        <span style="color:var(--muted)">Vertrauen {{ s.trust_score }}/100</span>
+        {% if s.url %}<a href="{{ s.url }}" target="_blank" rel="noopener" style="color:var(--accent2);margin-left:auto;font-size:11px">Öffnen ↗</a>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <details>
+      <summary style="cursor:pointer;font-size:12px;color:var(--muted)">＋ Quelle hinzufügen</summary>
+      <form method="POST" action="{{ url_for('knowledge_factory_add_source', account_id=account.id) }}" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:8px;margin-top:10px;align-items:end">
+        <div><label class="form-label">Name</label><input name="name" required class="input-field" style="font-size:12px"></div>
+        <div><label class="form-label">Typ</label>
+          <select name="source_type" class="select-field" style="font-size:12px">
+            {% for t in ['rss','wikipedia','behoerde','uni','verband','museum','hersteller','fachportal','buch','studie','eigene_db','manuell','api','pdf','csv','webseite','youtube','podcast'] %}
+            <option value="{{ t }}">{{ t }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div><label class="form-label">URL</label><input name="url" type="url" class="input-field" style="font-size:12px" placeholder="optional"></div>
+        <div><label class="form-label">Vertrauen</label><input name="trust_score" type="number" min="0" max="100" value="50" class="input-field" style="font-size:12px"></div>
+        <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">Hinzufügen</button>
+      </form>
+    </details>
+  </div>
+
+  <!-- Fakt hinzufügen -->
+  <div class="card" style="padding:16px;margin-bottom:22px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:10px">Neuen Fakt erfassen</div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px"><i class="fa-solid fa-link"></i> Aus Link oder Text extrahieren</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <input type="url" id="kfUrl" placeholder="https://…" class="input-field" style="flex:1;min-width:160px;font-size:12px">
+        <button type="button" onclick="kfExtract('url')" id="kfExtractUrlBtn" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">Aus Link übernehmen</button>
+      </div>
+      <textarea id="kfText" rows="4" class="input-field" style="font-size:12px" placeholder="…oder Text hier einfügen"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <button type="button" onclick="kfExtract('text')" id="kfExtractTextBtn" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">Aus Text übernehmen</button>
+        <span id="kfExtractMsg" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+    </div>
+
+    <form id="kfFactForm" method="POST" action="{{ url_for('knowledge_factory_save_fact', account_id=account.id) }}">
+      <input type="hidden" name="source_url" id="kfSourceUrl">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="grid-column:span 2"><label class="form-label">Titel</label><input name="title" id="kfTitle" required class="input-field"></div>
+        <div style="grid-column:span 2"><label class="form-label">Kurzfassung (1-2 Sätze)</label><textarea name="short_version" id="kfShort" rows="2" class="input-field"></textarea></div>
+        <div style="grid-column:span 2"><label class="form-label">Vollständiger Fakt</label><textarea name="full_text" id="kfFull" rows="4" class="input-field"></textarea></div>
+        <div><label class="form-label">Kategorie</label><input name="category_suggestion" id="kfCategory" class="input-field" list="kfCategoryList"></div>
+        <datalist id="kfCategoryList">{% for c in categories %}<option value="{{ c.name }}">{% endfor %}</datalist>
+        <div><label class="form-label">Tags (Komma-getrennt)</label><input name="tags" id="kfTags" class="input-field"></div>
+        <div><label class="form-label">Quellenname</label><input name="source_name" id="kfSourceName" class="input-field" placeholder="optional, wenn nicht per Link"></div>
+        <div style="display:flex;gap:16px;align-items:center;padding-top:20px">
+          <label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" name="evergreen" id="kfEvergreen" value="true" checked> Zeitlos gültig</label>
+          <label style="font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" name="time_critical" id="kfTimeCritical" value="true"> Zeitkritisch</label>
+        </div>
+      </div>
+      <div style="margin-top:14px"><button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 20px">Fakt speichern</button></div>
+    </form>
+  </div>
+
+  <!-- Fakten-Liste -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    {% for key,lab in [('','Alle'),('entwurf','Entwurf'),('geprueft','Geprüft'),('bereit','Bereit'),('veroeffentlicht','Veröffentlicht'),('archiviert','Archiviert'),('abgelehnt','Abgelehnt')] %}
+    <a href="?status={{ key }}"
+       style="padding:6px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;font-weight:700;text-decoration:none;
+              {% if status_f==key %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">
+      {{ lab }}{% if key %} ({{ counts.get(key,0) }}){% else %} ({{ facts|length }}){% endif %}
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if not facts %}
+  <div class="card" style="padding:40px;text-align:center;color:var(--muted)">Noch keine Fakten — oben einen erfassen.</div>
+  {% endif %}
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px">
+    {% for f in facts %}
+    <a href="{{ url_for('knowledge_factory_fact_detail', account_id=account.id, fact_id=f.id) }}" class="card" style="padding:0;overflow:hidden;text-decoration:none;color:inherit;display:block">
+      {% if f.generated_image_path %}<img src="{{ f.generated_image_path }}" style="width:100%;aspect-ratio:4/5;object-fit:cover;display:block" loading="lazy">{% endif %}
+      <div style="padding:12px 14px">
+        <div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ f.title }}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:6px;align-items:center">
+          {% if f.status=='veroeffentlicht' %}<span class="badge badge-green">Veröff.</span>
+          {% elif f.status=='geprueft' %}<span class="badge badge-blue">Geprüft</span>
+          {% elif f.status=='bereit' %}<span class="badge badge-blue">Bereit</span>
+          {% elif f.status=='abgelehnt' %}<span class="badge badge-red">Abgelehnt</span>
+          {% elif f.status=='archiviert' %}<span class="badge" style="background:rgba(99,102,241,.15);color:var(--accent2)">Archiv</span>
+          {% else %}<span class="badge badge-gray">Entwurf</span>{% endif %}
+          {% if f.category %}<span>{{ f.category.name }}</span>{% endif %}
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function kfFillForm(fields){
+  if(!fields) return;
+  if(fields.title) document.getElementById('kfTitle').value = fields.title;
+  if(fields.short_version) document.getElementById('kfShort').value = fields.short_version;
+  if(fields.full_text) document.getElementById('kfFull').value = fields.full_text;
+  if(fields.category_suggestion) document.getElementById('kfCategory').value = fields.category_suggestion;
+  if(fields.tags) document.getElementById('kfTags').value = (fields.tags||[]).join(', ');
+  document.getElementById('kfEvergreen').checked = fields.evergreen !== false;
+  document.getElementById('kfTimeCritical').checked = fields.time_critical === true;
+}
+async function kfExtract(mode){
+  const msg = document.getElementById('kfExtractMsg');
+  const btn = document.getElementById(mode==='url' ? 'kfExtractUrlBtn' : 'kfExtractTextBtn');
+  const body = mode==='url'
+    ? {url: document.getElementById('kfUrl').value.trim()}
+    : {text: document.getElementById('kfText').value.trim()};
+  if(!body.url && !body.text){ msg.textContent='Bitte zuerst etwas eintragen.'; msg.style.color='var(--warning)'; return; }
+  btn.disabled=true; const o=btn.textContent; btn.textContent='Lese aus…'; msg.textContent='';
+  try{
+    const r = await fetch('{{ url_for("knowledge_factory_extract", account_id=account.id) }}', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    }).then(r=>r.json());
+    if(!r.ok){ msg.textContent=r.error||'Fehler beim Auslesen.'; msg.style.color='var(--danger)'; }
+    else{
+      kfFillForm(r.fields);
+      if(r.source_url) document.getElementById('kfSourceUrl').value = r.source_url;
+      msg.textContent='Angaben übernommen — bitte prüfen, bevor du speicherst.'; msg.style.color='var(--success)';
+    }
+  }catch(err){ msg.textContent='Netzwerkfehler.'; msg.style.color='var(--danger)'; }
+  btn.disabled=false; btn.textContent=o;
+}
+</script>
+{% endblock %}

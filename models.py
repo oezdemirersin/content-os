@@ -1356,3 +1356,131 @@ class ProductAlertSource(db.Model):
     dedicated_feed = db.Column(db.Boolean, default=False)
     last_scanned_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Knowledge Factory (Content Studio) — Phase 1
+# Universelle Fakten-Fabrik für beliebige Wissens-Nischen (Hunde, Astrophysik, ...).
+# "Eine Nische ist keine eigene Factory, nur eine Konfiguration" — eine Nische ist
+# ein bestehender Account + KnowledgeNicheConfig, kein Parallel-Modell zu Account.
+# Publish-reife Fakten erzeugen ContentItem/ScheduledPost (bestehende Planungs-/
+# Freigabe-/Performance-Pipeline), statt wie MCF/PWF eine eigene Silo-Pipeline zu
+# bauen — siehe Architekturentscheidung 1 im Knowledge-Factory-Plan.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class KnowledgeNicheConfig(db.Model):
+    """1:1-Ergänzung zu Account für Knowledge-Factory-Nischen. Ein Account MIT
+    dieser Zeile ist eine Wissens-Nische — kein zusätzliches Flag auf Account nötig."""
+    __tablename__ = 'knowledge_niche_config'
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False, unique=True)
+    account = db.relationship('Account', backref=db.backref('knowledge_niche_config', uselist=False))
+
+    language = db.Column(db.String(10), default='de')
+    country = db.Column(db.String(10), default='DE')
+    target_audience = db.Column(db.Text)
+    image_style = db.Column(db.Text)
+    design_style = db.Column(db.Text)
+    content_rules = db.Column(db.Text)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class KnowledgeCategory(db.Model):
+    """Kategorie/Unterkategorie für Fakten einer Nische. Self-referential
+    (parent_id) für Kategorie→Unterkategorie, pro Account/Nische eigenständig."""
+    __tablename__ = 'knowledge_category'
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False, index=True)
+    parent_id = db.Column(db.Integer, db.ForeignKey('knowledge_category.id'), nullable=True)
+    parent = db.relationship('KnowledgeCategory', remote_side=[id], backref='subcategories')
+
+    name = db.Column(db.String(150), nullable=False)
+    description = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class KnowledgeSource(db.Model):
+    """Quelle für Fakten einer Nische (RSS/Wikipedia/Behörde/Uni/Verband/Museum/
+    Hersteller/Fachportal/Buch/Studie/eigene DB/manuell/API/PDF/CSV/Webseite/
+    YouTube/Podcast — s. source_type). Echte Spalten statt JSON-Blob, weil
+    Vertrauensscore/Priorität im Dashboard filter-/sortierbar sein sollen."""
+    __tablename__ = 'knowledge_source'
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False, index=True)
+
+    name = db.Column(db.String(200), nullable=False)
+    source_type = db.Column(db.String(30), default='manuell', index=True)
+    url = db.Column(db.Text)  # leer bei manuell/eigene_db
+
+    trust_score = db.Column(db.Integer, default=50)  # 0-100
+    freshness_days_expected = db.Column(db.Integer)  # erwartete Aktualisierungsfrequenz in Tagen, NULL = unbekannt
+    priority = db.Column(db.String(20), default='medium')  # low/medium/high/critical — wie Account.priority
+    automation_level = db.Column(db.Integer, default=0)  # 0-4 — wie Account.automation_level
+
+    active = db.Column(db.Boolean, default=True)
+    last_scanned_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class KnowledgeFact(db.Model):
+    """Ein einzelner, dauerhaft gespeicherter Fakt (Wissensdatenbank). Genauigkeit
+    vor Geschwindigkeit — wie ProductAlert/MissingChildCase: fehlende Angaben
+    bleiben NULL, nichts wird erfunden. Publish-reife Fakten erzeugen ContentItem/
+    ScheduledPost statt selbst eine Post-Pipeline zu sein (content_item_ids)."""
+    __tablename__ = 'knowledge_fact'
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False, index=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('knowledge_category.id'), nullable=True)
+    category = db.relationship('KnowledgeCategory')
+
+    title = db.Column(db.String(300), nullable=False)
+    short_version = db.Column(db.Text)
+    full_text = db.Column(db.Text)
+
+    # ── Faktenanalyse (Phase 2 befüllt, Spalten existieren schon) ──
+    quality_score = db.Column(db.Integer)     # 0-100
+    difficulty = db.Column(db.Integer)        # 0-100
+    surprise_value = db.Column(db.Integer)    # 0-100
+    virality_score = db.Column(db.Integer)    # 0-100
+    evergreen = db.Column(db.Boolean, default=True)
+    time_critical = db.Column(db.Boolean, default=False)
+
+    status = db.Column(db.String(20), default='entwurf', index=True)
+    # entwurf / geprueft / bereit / veroeffentlicht / archiviert / abgelehnt
+    last_checked_at = db.Column(db.DateTime)
+
+    tags = db.Column(db.Text, default='[]')             # JSON-Liste
+    content_item_ids = db.Column(db.Text, default='[]')  # JSON-Liste — Fakt kann mehrfach verwendet werden
+
+    # ── Veröffentlichung (Bild/Text-Ausgabe fürs Publish) ──
+    caption = db.Column(db.Text)
+    foto_media_id = db.Column(db.Integer, db.ForeignKey('media_item.id'))
+    generated_image_path = db.Column(db.String(600))
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def get_tags(self):
+        return json.loads(self.tags or '[]')
+
+    def get_content_item_ids(self):
+        return json.loads(self.content_item_ids or '[]')
+
+    def display_name(self):
+        return self.title or 'Unbenannt'
+
+
+class KnowledgeFactSource(db.Model):
+    """Verknüpfung Fakt↔Quelle (n:m) — jeder Fakt braucht mind. eine Quelle,
+    ein Fakt kann aus mehreren Quellen bestätigt sein."""
+    __tablename__ = 'knowledge_fact_source'
+    id = db.Column(db.Integer, primary_key=True)
+    fact_id = db.Column(db.Integer, db.ForeignKey('knowledge_fact.id'), nullable=False, index=True)
+    source_id = db.Column(db.Integer, db.ForeignKey('knowledge_source.id'), nullable=True)
+    fact = db.relationship('KnowledgeFact', backref=db.backref('fact_sources', cascade='all,delete-orphan'))
+    source = db.relationship('KnowledgeSource')
+
+    url_used = db.Column(db.Text)      # tatsächlich verwendete URL (kann von source.url abweichen, z.B. bei RSS)
+    snippet = db.Column(db.Text)       # relevanter Auszug aus der Quelle
+    retrieved_at = db.Column(db.DateTime, default=datetime.utcnow)

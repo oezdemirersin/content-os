@@ -29,7 +29,9 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     GrowthExperiment, GrowthVariant, GrowthParticipant, GrowthDataPoint, GrowthKnowledge,
                     KnowledgeEntry, MissingChildCase, EmergencyNumber,
                     TrendTopic, TrendSignal, TrendSource, TrendScoreSnapshot,
-                    ProductAlert, ProductAlertSource)
+                    ProductAlert, ProductAlertSource,
+                    KnowledgeNicheConfig, KnowledgeCategory, KnowledgeSource,
+                    KnowledgeFact, KnowledgeFactSource)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -20251,6 +20253,457 @@ def pwf_canva_test():
                         'Feldnamen stimmen nicht mit dem Canva-Template überein, oder API-Fehler).'}), 400
     import base64 as _b64
     return jsonify({'ok': True, 'preview': 'data:image/png;base64,' + _b64.standard_b64encode(png_bytes).decode()})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Knowledge Factory (Content Studio) — Phase 1: Kernloop für eine reale Nische
+# Quelle → Fakt extrahieren (nie erfinden) → prüfen → rendern → veröffentlichen.
+# Publish-reife Fakten erzeugen ContentItem+ScheduledPost (bestehende Planungs-/
+# Freigabe-/Performance-Pipeline) statt einer eigenen Silo-Pipeline wie MCF/PWF —
+# siehe Architekturentscheidung 1 im Knowledge-Factory-Plan.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_KF_JSON_SCHEMA = (
+    '{"is_fact": bool (steht im Text wirklich ein konkreter, überprüfbarer Fakt? '
+    'false bei Meinungsartikeln, Werbetexten oder Texten ohne konkrete Aussage), '
+    '"title": str|null (prägnanter Titel, max 100 Zeichen), '
+    '"short_version": str|null (1-2 Sätze, die den Fakt vollständig zusammenfassen), '
+    '"full_text": str|null (der vollständige Fakt mit allen Details aus dem Quelltext, '
+    'mehrere Sätze erlaubt), '
+    '"category_suggestion": str|null (kurzer Kategorie-Name, z.B. "Verhalten", "Geschichte", "Gesundheit"), '
+    '"tags": [str, ...] (3-6 Stichwörter), '
+    '"evergreen": bool (true wenn der Fakt zeitlos gültig bleibt, false wenn er an ein '
+    'aktuelles Ereignis/Datum gebunden ist), '
+    '"time_critical": bool (true nur wenn der Fakt an ein bald ablaufendes Ereignis gebunden ist)}'
+)
+
+
+def _kf_extract_system(account):
+    niche = account.name
+    cfg = account.knowledge_niche_config
+    rules = (cfg.content_rules or '').strip() if cfg else ''
+    audience = (cfg.target_audience or '').strip() if cfg else ''
+    lines = [
+        f'Du bist die zentrale KI einer Wissens-Content-Fabrik für die Instagram-/Social-Media-Seite '
+        f'"{niche}".',
+        '',
+        'Deine wichtigste Regel lautet: Genauigkeit vor Geschwindigkeit.',
+        '- Extrahiere ausschließlich Fakten, die eindeutig im gegebenen Text stehen.',
+        '- Erfinde niemals Informationen, auch keine plausible Vermutung.',
+        '- Fehlt eine Information, setze den Wert auf null — niemals raten oder ergänzen.',
+        '- Ist der Text kein überprüfbarer Fakt (z.B. Meinung, Werbung, Smalltalk), setze is_fact auf false.',
+        '- Arbeite NUR mit dem gegebenen Text, vergleiche keine externen Quellen.',
+    ]
+    if audience:
+        lines.append(f'- Zielgruppe der Seite: {audience}')
+    if rules:
+        lines.append(f'- Zusätzliche Content-Regeln dieser Nische: {rules}')
+    lines += ['', 'Antworte NUR mit einem JSON-Objekt, keine Erklärung davor oder danach, exakt in diesem Schema:',
+              _KF_JSON_SCHEMA]
+    return '\n'.join(lines)
+
+
+def _kf_extract_fact_from_text(text, account, api_key):
+    """Extrahiert Fakt-Felder NUR aus dem gegebenen Text (erfindet nichts, wie
+    _pwf_extract_from_text). Gibt dict|None."""
+    if not api_key or not (text or '').strip():
+        return None
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('analysis_model') or 'claude-sonnet-4-6'
+        resp = client.messages.create(
+            model=model, max_tokens=1500, system=_kf_extract_system(account),
+            messages=[{'role': 'user', 'content': str(text)[:8000]}])
+        _log_ai('kf_extract_text', resp)
+        raw = resp.content[0].text.strip()
+        span = _extract_balanced_json(raw, '{', '}')
+        return json.loads(span) if span else None
+    except Exception as e:
+        app.logger.warning('KF Extract-Text: %s', e)
+        return None
+
+
+def _kf_find_or_create_category(account_id, name):
+    """Ordnet eine Kategorie-Vorschlag der KI einer bestehenden Kategorie zu
+    (case-insensitive) oder legt sie neu an. Gibt category_id|None zurück."""
+    name = (name or '').strip()
+    if not name:
+        return None
+    cat = KnowledgeCategory.query.filter_by(account_id=account_id).filter(
+        KnowledgeCategory.name.ilike(name)).first()
+    if cat:
+        return cat.id
+    cat = KnowledgeCategory(account_id=account_id, name=name[:150])
+    db.session.add(cat)
+    db.session.flush()
+    return cat.id
+
+
+def _kf_draw_placeholder(bw, bh, accent_hex):
+    """Farbiger Platzhalter mit dem Nischen-Akzentfarbton, wenn (noch) kein
+    Bild vorliegt — anders als PWFs neutral-grauer Platzhalter, damit auch ohne
+    Foto ein Stück Nischen-Branding sichtbar ist."""
+    from PIL import Image as _Image, ImageDraw as _ImageDraw
+    bw, bh = int(bw), int(bh)
+    try:
+        rgb = tuple(int((accent_hex or '#6366f1').lstrip('#')[i:i + 2], 16) for i in (0, 2, 4))
+    except Exception:
+        rgb = (99, 102, 241)
+    box = _Image.new('RGB', (bw, bh), rgb)
+    return box
+
+
+def _render_knowledge_fact_image(fact):
+    """1080×1350 Instagram-Karte 'Classic Fact': Nischen-Kopfzeile, Bild (Foto
+    oder Akzentfarb-Platzhalter), Titel + Kurzfassung. Rendert nur vorhandene
+    Felder. Gibt PNG-Bytes zurück."""
+    from PIL import Image, ImageDraw, ImageOps
+    import io as _io
+    account = Account.query.get(fact.account_id)
+    accent = (account.ai_config.accent_color if account and account.ai_config else None) or '#6366f1'
+    ink_rgb = (30, 30, 32)
+    W, H = 1080, 1350
+    img = Image.new('RGB', (W, H), (255, 255, 255))
+    d = ImageDraw.Draw(img)
+
+    # ── Kopfzeile: Nischen-Name ──────────────────────────────────
+    HEAD_H = 90
+    try:
+        accent_rgb = tuple(int(accent.lstrip('#')[i:i + 2], 16) for i in (0, 2, 4))
+    except Exception:
+        accent_rgb = (99, 102, 241)
+    d.rectangle([0, 0, W, HEAD_H], fill=accent_rgb)
+    f_niche = _mcf_font(28, bold=True)
+    niche_name = (account.name if account else '').upper()
+    nw = d.textlength(niche_name, font=f_niche)
+    d.text(((W - nw) / 2, HEAD_H / 2 - 16), niche_name, font=f_niche, fill=(255, 255, 255))
+
+    # ── Bild ──────────────────────────────────────────────────────
+    PH_SIZE = 620
+    px0 = (W - PH_SIZE) // 2
+    py0 = HEAD_H + 40
+    media = MediaItem.query.get(fact.foto_media_id) if fact.foto_media_id else None
+    photo_bytes = _mcf_load_image_bytes(media) if media else None
+    if photo_bytes:
+        try:
+            photo = ImageOps.exif_transpose(Image.open(_io.BytesIO(photo_bytes)).convert('RGB'))
+            photo = ImageOps.fit(photo, (PH_SIZE, PH_SIZE), method=Image.LANCZOS)
+        except Exception:
+            photo = _kf_draw_placeholder(PH_SIZE, PH_SIZE, accent)
+    else:
+        photo = _kf_draw_placeholder(PH_SIZE, PH_SIZE, accent)
+    img.paste(photo, (px0, py0))
+
+    y = py0 + PH_SIZE + 44
+
+    # ── Titel ─────────────────────────────────────────────────────
+    title = fact.title or ''
+    if title:
+        f_h = _mcf_font(42, bold=True)
+        for line in _mcf_wrap(d, title, f_h, W - 120)[:3]:
+            lw = d.textlength(line, font=f_h)
+            d.text(((W - lw) / 2, y), line, font=f_h, fill=ink_rgb)
+            y += 50
+
+    y += 18
+    d.line([(80, y), (W - 80, y)], fill=(226, 228, 232), width=2)
+    y += 26
+
+    # ── Kurzfassung ───────────────────────────────────────────────
+    short = fact.short_version or ''
+    if short:
+        f_s = _mcf_font(26, bold=False)
+        max_y = H - 100
+        for line in _mcf_wrap(d, short, f_s, W - 140):
+            if y > max_y:
+                break
+            lw = d.textlength(line, font=f_s)
+            d.text(((W - lw) / 2, y), line, font=f_s, fill=(70, 70, 74))
+            y += 36
+
+    buf = _io.BytesIO()
+    img.save(buf, format='PNG')
+    return buf.getvalue()
+
+
+def _kf_publish_fact(fact):
+    """Erzeugt aus einem publish-bereiten Fakt einen ContentItem+ScheduledPost,
+    der die bestehende Planungs-/Freigabe-/Performance-Pipeline nutzt (statt einer
+    eigenen Silo-Pipeline). Gibt den neuen ContentItem zurück."""
+    account = Account.query.get(fact.account_id)
+    item = ContentItem(
+        title=fact.title or fact.display_name(),
+        raw_text=fact.full_text, caption=fact.caption or fact.short_version,
+        source_name='Knowledge Factory', category_id=fact.category_id,
+        status='ready', content_type='feed',
+    )
+    if account:
+        item.accounts.append(account)
+    db.session.add(item)
+    db.session.flush()
+
+    media = None
+    if fact.generated_image_path:
+        media = MediaItem.query.filter_by(filename=os.path.basename(fact.generated_image_path)).first()
+        if media:
+            media.content_item_id = item.id
+
+    post = ScheduledPost(
+        account_id=fact.account_id, content_item_id=item.id,
+        media_item_id=media.id if media else None,
+        caption=fact.caption or fact.short_version, post_type='feed',
+        status='scheduled', slot_type='flexible', scheduled_at=datetime.utcnow(),
+    )
+    db.session.add(post)
+    db.session.flush()
+
+    ids = fact.get_content_item_ids()
+    ids.append(item.id)
+    fact.content_item_ids = json.dumps(ids)
+    fact.status = 'veroeffentlicht'
+    db.session.commit()
+    return item
+
+
+@app.route('/content-studio/wissensfabrik')
+@login_required
+def knowledge_factory_list():
+    niches = (db.session.query(Account, KnowledgeNicheConfig)
+              .join(KnowledgeNicheConfig, KnowledgeNicheConfig.account_id == Account.id)
+              .order_by(Account.name).all())
+    from collections import Counter
+    counts_by_account = {}
+    for account, _cfg in niches:
+        counts_by_account[account.id] = dict(Counter(
+            f.status for f in KnowledgeFact.query.filter_by(account_id=account.id).all()))
+    return render_template('wissensfabrik_liste.html', niches=niches,
+        counts_by_account=counts_by_account, platforms=Platform.query.all(),
+        categories=Category.query.order_by(Category.name).all(), active_page='studio')
+
+
+@app.route('/content-studio/wissensfabrik/neu', methods=['POST'])
+@login_required
+def knowledge_factory_new_niche():
+    d = request.form
+    name = (d.get('name') or '').strip()
+    if not name or not d.get('platform_id'):
+        flash('Name und Plattform sind Pflichtfelder.', 'error')
+        return redirect(url_for('knowledge_factory_list'))
+    acc = Account(name=name, platform_id=int(d['platform_id']),
+                  category_id=int(d['category_id']) if d.get('category_id') else None,
+                  status='active', automation_level=0, priority='medium')
+    db.session.add(acc)
+    db.session.flush()
+    cfg = KnowledgeNicheConfig(
+        account_id=acc.id, language=d.get('language', 'de') or 'de',
+        country=d.get('country', 'DE') or 'DE',
+        target_audience=d.get('target_audience', '').strip() or None,
+        image_style=d.get('image_style', '').strip() or None,
+        design_style=d.get('design_style', '').strip() or None,
+        content_rules=d.get('content_rules', '').strip() or None,
+    )
+    db.session.add(cfg)
+    db.session.commit()
+    return redirect(url_for('knowledge_factory_niche', account_id=acc.id))
+
+
+@app.route('/content-studio/wissensfabrik/<int:account_id>')
+@login_required
+def knowledge_factory_niche(account_id):
+    account = Account.query.get_or_404(account_id)
+    if not account.knowledge_niche_config:
+        abort(404)
+    status_f = request.args.get('status', '')
+    q = KnowledgeFact.query.filter_by(account_id=account_id)
+    if status_f:
+        q = q.filter_by(status=status_f)
+    facts = q.order_by(KnowledgeFact.created_at.desc()).all()
+    from collections import Counter
+    counts = Counter(f.status for f in KnowledgeFact.query.filter_by(account_id=account_id).all())
+    sources = KnowledgeSource.query.filter_by(account_id=account_id).order_by(
+        KnowledgeSource.trust_score.desc()).all()
+    categories = KnowledgeCategory.query.filter_by(account_id=account_id).order_by(
+        KnowledgeCategory.name).all()
+    return render_template('wissensfabrik_niche.html', account=account, facts=facts,
+        counts=dict(counts), status_f=status_f, sources=sources, categories=categories,
+        active_page='studio')
+
+
+@app.route('/content-studio/wissensfabrik/<int:account_id>/quelle', methods=['POST'])
+@login_required
+def knowledge_factory_add_source(account_id):
+    Account.query.get_or_404(account_id)
+    d = request.form
+    name = (d.get('name') or '').strip()
+    if not name:
+        flash('Name der Quelle fehlt.', 'error')
+        return redirect(url_for('knowledge_factory_niche', account_id=account_id))
+    src = KnowledgeSource(
+        account_id=account_id, name=name, source_type=d.get('source_type', 'manuell'),
+        url=(d.get('url') or '').strip() or None,
+        trust_score=int(d.get('trust_score') or 50),
+        priority=d.get('priority', 'medium'),
+    )
+    db.session.add(src)
+    db.session.commit()
+    return redirect(url_for('knowledge_factory_niche', account_id=account_id))
+
+
+@app.route('/api/wissensfabrik/<int:account_id>/extrahieren', methods=['POST'])
+@login_required
+def knowledge_factory_extract(account_id):
+    """Zieht Text aus einer URL oder nimmt eingefügten Text entgegen und lässt
+    die KI einen Fakt-Entwurf extrahieren (erfindet nichts). Speichert NICHTS —
+    der Mensch prüft/editiert im Frontend, bevor knowledge_factory_save_fact
+    tatsächlich einen KnowledgeFact anlegt (gleiches Zwei-Schritt-Muster wie
+    PWF pwf_extract_from_url/pwf_extract_from_text)."""
+    account = Account.query.get_or_404(account_id)
+    d = request.get_json(silent=True) or request.form
+    url = (d.get('url') or '').strip()
+    text = (d.get('text') or '').strip()
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Kein Anthropic API-Key konfiguriert (Einstellungen → KI).'}), 400
+    og_image = None
+    if url:
+        if not _mcf_is_safe_url(url):
+            return jsonify({'ok': False, 'error': 'Diese URL ist nicht erlaubt.'}), 400
+        try:
+            text, og_image = _mcf_fetch_url_content(url)
+        except Exception as e:
+            return jsonify({'ok': False, 'error': f'Seite konnte nicht geladen werden: {e}'}), 400
+    if not text.strip():
+        return jsonify({'ok': False, 'error': 'Bitte Text einfügen oder eine URL mit lesbarem Inhalt angeben.'}), 400
+    data = _kf_extract_fact_from_text(text, account, api_key) or {}
+    if not data.get('is_fact'):
+        return jsonify({'ok': False, 'error': 'Im Text wurde kein überprüfbarer Fakt erkannt.'}), 400
+    return jsonify({'ok': True, 'fields': data, 'source_url': url or None, 'og_image': og_image})
+
+
+@app.route('/content-studio/wissensfabrik/<int:account_id>/fakt', methods=['POST'])
+@login_required
+def knowledge_factory_save_fact(account_id):
+    """Speichert einen (ggf. per KI extrahierten und vom Menschen geprüften/
+    editierten) Fakt. Legt bei Angabe von source_name/source_url zusätzlich
+    eine KnowledgeFactSource-Verknüpfung an."""
+    Account.query.get_or_404(account_id)
+    d = request.form
+    title = (d.get('title') or '').strip()
+    if not title:
+        flash('Titel fehlt.', 'error')
+        return redirect(url_for('knowledge_factory_niche', account_id=account_id))
+    category_id = _kf_find_or_create_category(account_id, d.get('category_suggestion', ''))
+    fact = KnowledgeFact(
+        account_id=account_id, category_id=category_id, title=title[:300],
+        short_version=(d.get('short_version') or '').strip() or None,
+        full_text=(d.get('full_text') or '').strip() or None,
+        evergreen=(d.get('evergreen', 'true') == 'true'),
+        time_critical=(d.get('time_critical') == 'true'),
+        tags=json.dumps([t.strip() for t in (d.get('tags') or '').split(',') if t.strip()]),
+    )
+    db.session.add(fact)
+    db.session.flush()
+
+    source_url = (d.get('source_url') or '').strip()
+    source_name = (d.get('source_name') or '').strip()
+    if source_url or source_name:
+        src = None
+        if source_url:
+            src = KnowledgeSource.query.filter_by(account_id=account_id, url=source_url).first()
+        if not src and source_name:
+            src = KnowledgeSource.query.filter_by(account_id=account_id, name=source_name).first()
+        db.session.add(KnowledgeFactSource(
+            fact_id=fact.id, source_id=src.id if src else None,
+            url_used=source_url or None, snippet=(d.get('full_text') or '')[:500] or None,
+        ))
+    db.session.commit()
+    return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact.id))
+
+
+@app.route('/content-studio/wissensfabrik/<int:account_id>/fakt/<int:fact_id>')
+@login_required
+def knowledge_factory_fact_detail(account_id, fact_id):
+    account = Account.query.get_or_404(account_id)
+    fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
+    photo = MediaItem.query.get(fact.foto_media_id) if fact.foto_media_id else None
+    return render_template('wissensfabrik_fakt.html', account=account, fact=fact,
+        photo=photo, fact_sources=fact.fact_sources, active_page='studio')
+
+
+@app.route('/content-studio/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/bild', methods=['POST'])
+@login_required
+def knowledge_factory_upload_photo(account_id, fact_id):
+    fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
+    fobj = request.files.get('photo')
+    if fobj and fobj.filename:
+        media_id = _pwf_save_photo(fobj)
+        if media_id:
+            fact.foto_media_id = media_id
+            db.session.commit()
+    return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
+
+
+@app.route('/content-studio/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/rendern', methods=['POST'])
+@login_required
+def knowledge_factory_render(account_id, fact_id):
+    fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
+    try:
+        png_bytes = _render_knowledge_fact_image(fact)
+        # Als MediaItem anlegen (nicht nur Rohdatei) — _kf_publish_fact braucht eine
+        # echte MediaItem-Zeile, um sie an ContentItem/ScheduledPost zu hängen.
+        media_id = _pwf_save_photo_bytes(png_bytes, '.png', orig_filename=f'kffact_{fact.id}.png')
+        if not media_id:
+            raise RuntimeError('MediaItem-Anlage fehlgeschlagen')
+        media = MediaItem.query.get(media_id)
+        fact.generated_image_path = media.url
+        db.session.commit()
+    except Exception as e:
+        app.logger.warning('KF Render: %s', e)
+        flash('Rendern fehlgeschlagen — Logs prüfen.', 'error')
+    return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
+
+
+@app.route('/content-studio/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/veroeffentlichen', methods=['POST'])
+@login_required
+def knowledge_factory_publish(account_id, fact_id):
+    fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
+    if not fact.generated_image_path:
+        flash('Bitte zuerst ein Bild rendern.', 'error')
+        return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
+    if not fact.fact_sources:
+        flash('Ein Fakt ohne Quelle kann nicht veröffentlicht werden.', 'error')
+        return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
+    d = request.form
+    if d.get('caption'):
+        fact.caption = d['caption'].strip()
+        db.session.commit()
+    _kf_publish_fact(fact)
+    flash('Fakt veröffentlicht — als Post eingeplant.', 'success')
+    return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
+
+
+@app.route('/content-studio/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/loeschen', methods=['POST'])
+@login_required
+def knowledge_factory_delete_fact(account_id, fact_id):
+    fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
+    db.session.delete(fact)
+    db.session.commit()
+    return redirect(url_for('knowledge_factory_niche', account_id=account_id))
+
+
+@app.route('/content-studio/wissensfabrik/einstellungen', methods=['GET', 'POST'])
+@login_required
+def knowledge_factory_settings():
+    if request.method == 'POST':
+        set_setting('analysis_model', request.form.get('analysis_model', '').strip() or 'claude-sonnet-4-6')
+        flash('Einstellungen gespeichert.', 'success')
+        return redirect(url_for('knowledge_factory_settings'))
+    niches = (db.session.query(Account, KnowledgeNicheConfig)
+              .join(KnowledgeNicheConfig, KnowledgeNicheConfig.account_id == Account.id)
+              .order_by(Account.name).all())
+    return render_template('wissensfabrik_einstellungen.html', niches=niches,
+        analysis_model=get_setting('analysis_model') or 'claude-sonnet-4-6', active_page='studio')
 
 
 if __name__ == '__main__':
