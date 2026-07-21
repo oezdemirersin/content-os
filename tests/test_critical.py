@@ -1,8 +1,9 @@
 """Critical endpoint tests — analytics growth, watchlist CRUD, city meta toggle."""
 import json
 import pytest
-from app import db
-from models import Account, AnalyticsSnapshot, WatchlistSeite, WatchlistCityMeta, WatchlistFollowerSnapshot
+from app import db, set_setting
+from models import (Account, AnalyticsSnapshot, AppSettings, Platform, WatchlistSeite,
+                    WatchlistCityMeta, WatchlistFollowerSnapshot)
 from datetime import datetime, timedelta
 
 
@@ -17,6 +18,8 @@ def clean_db(app):
         db.session.query(WatchlistSeite).delete()
         db.session.query(AnalyticsSnapshot).delete()
         db.session.query(Account).delete()
+        # Sync-Marker zurücksetzen — sonst hängt das Chart-Fenster vom Testlauf davor ab
+        AppSettings.query.filter_by(key='last_follower_sync_at').delete()
         db.session.commit()
     yield
     with app.app_context():
@@ -24,11 +27,23 @@ def clean_db(app):
 
 
 @pytest.fixture
-def test_account(app):
+def test_platform(app):
+    """Account.platform ist eine Relation auf Platform — kein String."""
+    with app.app_context():
+        p = Platform.query.filter_by(name='Instagram').first()
+        if not p:
+            p = Platform(name='Instagram')
+            db.session.add(p)
+            db.session.commit()
+        return p.id
+
+
+@pytest.fixture
+def test_account(app, test_platform):
     with app.app_context():
         acc = Account(
             name='Testcity', handle='testcity',
-            platform='Instagram', status='active',
+            platform_id=test_platform, status='active',
             follower_count=1000,
         )
         db.session.add(acc)
@@ -53,13 +68,33 @@ def test_entry(app):
 # ── Analytics Growth ──────────────────────────────────────────────────────────
 
 class TestAnalyticsGrowth:
-    def test_returns_json_with_correct_shape(self, auth_client):
+    def test_returns_json_with_correct_shape(self, auth_client, app):
+        """Chart endet am letzten Follower-Sync (_chart_last_day): mit Sync-Marker
+        von heute umfasst das Fenster genau `days` Tage."""
+        with app.app_context():
+            set_setting('last_follower_sync_at', datetime.utcnow().isoformat())
+            db.session.commit()
+
         r = auth_client.get('/api/analytics/growth?days=7')
         assert r.status_code == 200
         data = r.get_json()
         assert 'labels' in data and 'data' in data
         assert len(data['labels']) == 7
         assert len(data['data']) == 7
+
+    def test_window_ends_yesterday_without_sync_marker(self, auth_client, app):
+        """Ohne Sync-Marker endet der Chart bei gestern — heute wäre unvollständig."""
+        with app.app_context():
+            set_setting('last_follower_sync_at', '')
+            db.session.commit()
+
+        r = auth_client.get('/api/analytics/growth?days=7')
+        assert r.status_code == 200
+        data = r.get_json()
+        assert len(data['labels']) == 6
+        assert len(data['data']) == len(data['labels'])
+        yesterday = (datetime.utcnow().date() - timedelta(days=1)).strftime('%d.%m')
+        assert data['labels'][-1] == yesterday
 
     def test_data_never_goes_negative(self, auth_client, app, test_account):
         """Growth totals must be non-negative even when snapshots are sparse."""
