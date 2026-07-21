@@ -53,6 +53,41 @@
       <div style="font-size:13px;margin-bottom:16px;white-space:pre-wrap">{{ fact.full_text }}</div>
       {% endif %}
 
+      {% if fact.duplicate_of %}
+      <div class="card" style="padding:12px 14px;margin-bottom:14px;font-size:13px;border:1px solid var(--danger);background:rgba(239,68,68,.08)">
+        <b style="color:var(--danger)">⚠ Mögliches Duplikat</b> von
+        <a href="{{ url_for('knowledge_factory_fact_detail', account_id=account.id, fact_id=fact.duplicate_of.id) }}" style="color:var(--accent2)">{{ fact.duplicate_of.display_name() }}</a>
+      </div>
+      {% endif %}
+      {% if fact.contradiction_note %}
+      <div class="card" style="padding:12px 14px;margin-bottom:14px;font-size:13px;border:1px solid var(--warning);background:rgba(245,158,11,.08)">
+        <b style="color:var(--warning)">⚠ Möglicher Widerspruch</b><br>{{ fact.contradiction_note }}
+      </div>
+      {% endif %}
+      {% if similar_facts %}
+      <div style="font-size:11px;color:var(--muted);margin-bottom:14px">
+        Ähnliche Fakten:
+        {% for sf in similar_facts %}
+        <a href="{{ url_for('knowledge_factory_fact_detail', account_id=account.id, fact_id=sf.id) }}" style="color:var(--accent2)">{{ sf.display_name() }}</a>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if fact.quality_score is not none %}
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;font-size:12px">
+        <span><b>{{ fact.quality_score }}</b>/100 Qualität</span>
+        <span><b>{{ fact.difficulty }}</b>/100 Schwierigkeit</span>
+        <span><b>{{ fact.surprise_value }}</b>/100 Überraschung</span>
+        <span><b>{{ fact.virality_score }}</b>/100 Viralität</span>
+      </div>
+      {% endif %}
+
+      {% if fact.status in ('entwurf',) %}
+      <form method="POST" action="{{ url_for('knowledge_factory_verify', account_id=account.id, fact_id=fact.id) }}" style="margin-bottom:16px">
+        <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">Fakt prüfen (Duplikat/Widerspruch/Scoring)</button>
+      </form>
+      {% endif %}
+
       <div style="font-weight:700;font-size:13px;margin-bottom:6px">Quellen ({{ fact_sources|length }})</div>
       {% if fact_sources %}
       <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
@@ -72,8 +107,10 @@
       <div style="font-weight:700;font-size:13px;margin-bottom:6px">Caption</div>
       <form method="POST" action="{{ url_for('knowledge_factory_publish', account_id=account.id, fact_id=fact.id) }}">
         <textarea name="caption" rows="6" class="input-field" style="font-size:13px;font-family:inherit;margin-bottom:12px">{{ fact.caption or fact.short_version or '' }}</textarea>
-        <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 20px" {% if fact.status=='veroeffentlicht' %}disabled{% endif %}>
-          {{ 'Bereits veröffentlicht' if fact.status=='veroeffentlicht' else 'Veröffentlichen (als Post einplanen)' }}
+        <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 20px" {% if fact.status not in ('geprueft', 'bereit') %}disabled{% endif %}>
+          {% if fact.status=='veroeffentlicht' %}Bereits veröffentlicht
+          {% elif fact.status in ('geprueft', 'bereit') %}Veröffentlichen (als Post einplanen)
+          {% else %}Erst prüfen, dann veröffentlichbar{% endif %}
         </button>
       </form>
 

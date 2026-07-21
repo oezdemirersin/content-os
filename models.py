@@ -1450,6 +1450,12 @@ class KnowledgeFact(db.Model):
     # entwurf / geprueft / bereit / veroeffentlicht / archiviert / abgelehnt
     last_checked_at = db.Column(db.DateTime)
 
+    # ── Faktenprüfung (Phase 2) ──
+    duplicate_of_id = db.Column(db.Integer, db.ForeignKey('knowledge_fact.id'), nullable=True)
+    duplicate_of = db.relationship('KnowledgeFact', remote_side=[id])
+    similar_fact_ids = db.Column(db.Text, default='[]')  # JSON-Liste — ähnlich, aber kein Duplikat
+    contradiction_note = db.Column(db.Text)  # KI-Erklärung, falls Widerspruch zu einem ähnlichen Fakt gefunden
+
     tags = db.Column(db.Text, default='[]')             # JSON-Liste
     content_item_ids = db.Column(db.Text, default='[]')  # JSON-Liste — Fakt kann mehrfach verwendet werden
 
@@ -1466,6 +1472,9 @@ class KnowledgeFact(db.Model):
 
     def get_content_item_ids(self):
         return json.loads(self.content_item_ids or '[]')
+
+    def get_similar_fact_ids(self):
+        return json.loads(self.similar_fact_ids or '[]')
 
     def display_name(self):
         return self.title or 'Unbenannt'

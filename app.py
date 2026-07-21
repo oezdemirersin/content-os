@@ -20340,6 +20340,166 @@ def _kf_find_or_create_category(account_id, name):
     return cat.id
 
 
+# ── Faktenprüfung + Faktenanalyse (Phase 2) ──────────────────────────────────
+_KF_DUP_THRESHOLD = 0.82       # ab hier: echtes Duplikat, blockiert "geprüft"
+_KF_SIMILAR_THRESHOLD = 0.55   # ab hier: ähnlich, aber kein Duplikat
+_KF_STOPWORDS = {
+    'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer', 'eines', 'einem', 'einen',
+    'und', 'oder', 'aber', 'auch', 'nicht', 'kein', 'keine', 'ist', 'sind', 'war', 'waren',
+    'hat', 'haben', 'hatte', 'werden', 'wird', 'wurde', 'wurden', 'kann', 'können', 'sich',
+    'sie', 'er', 'es', 'wir', 'ihr', 'für', 'von', 'mit', 'bei', 'auf', 'aus', 'nach', 'über',
+    'unter', 'zwischen', 'durch', 'als', 'wie', 'wenn', 'dass', 'weil', 'so', 'sehr', 'mehr',
+    'nur', 'noch', 'schon', 'immer', 'alle', 'alles', 'diese', 'dieser', 'dieses', 'zu', 'im',
+    'in', 'am', 'an', 'um', 'bis',
+}
+
+
+def _kf_keyword_set(text):
+    import re as _re
+    words = _re.findall(r'\b\w{4,}\b', (text or '').lower())
+    return set(w for w in words if w not in _KF_STOPWORDS)
+
+
+def _kf_similarity(text_a, text_b):
+    """Zwei Signale kombiniert: Text-Ähnlichkeit (SequenceMatcher, erkennt ähnlich
+    formulierte Duplikate) und Keyword-Overlap (Jaccard, erkennt inhaltliche
+    Überschneidung auch bei anderer Formulierung). Nimmt das stärkere Signal —
+    echte Embeddings wären genauer, aber bewusst nicht eingebaut (offene
+    Entscheidung, s. Knowledge-Factory-Plan)."""
+    seq_ratio = difflib.SequenceMatcher(None, text_a.lower(), text_b.lower()).ratio()
+    kw_a, kw_b = _kf_keyword_set(text_a), _kf_keyword_set(text_b)
+    jaccard = len(kw_a & kw_b) / len(kw_a | kw_b) if (kw_a or kw_b) else 0.0
+    return max(seq_ratio, jaccard)
+
+
+def _kf_find_similar_facts(fact, limit=5):
+    """Vergleicht Titel+Kurzfassung gegen ALLE anderen Fakten derselben Nische
+    (ganze Nischen-DB, nicht nur ein Zeitfenster — Fakten verfallen nicht).
+    Gibt eine nach Ähnlichkeit absteigend sortierte [(sim, KnowledgeFact), ...]-Liste."""
+    text = f"{fact.title or ''} {fact.short_version or ''}".strip()
+    if not text:
+        return []
+    others = KnowledgeFact.query.filter(
+        KnowledgeFact.account_id == fact.account_id,
+        KnowledgeFact.id != fact.id,
+    ).all()
+    scored = []
+    for other in others:
+        other_text = f"{other.title or ''} {other.short_version or ''}".strip()
+        if not other_text:
+            continue
+        scored.append((_kf_similarity(text, other_text), other))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return scored[:limit]
+
+
+_KF_SCORE_SCHEMA = (
+    '{"quality_score": int (0-100, wie gut belegt/präzise ist der Fakt), '
+    '"difficulty": int (0-100, wie speziell ist das Wissen — 0=jeder kennt es, 100=Experten-Nische), '
+    '"surprise_value": int (0-100, wie überraschend ist der Fakt für die Zielgruppe), '
+    '"virality_score": int (0-100, wie wahrscheinlich wird das geteilt/kommentiert)}'
+)
+
+
+def _kf_score_fact(fact, api_key):
+    """Bewertet einen Fakt (Faktenanalyse, §4). Gibt dict|None."""
+    if not api_key:
+        return None
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('analysis_model') or 'claude-sonnet-4-6'
+        text = f"Titel: {fact.title}\nKurzfassung: {fact.short_version or ''}\nVolltext: {fact.full_text or ''}"
+        resp = client.messages.create(
+            model=model, max_tokens=300,
+            system='Du bewertest einen Wissens-Fakt für eine Social-Media-Seite. '
+                   'Antworte NUR mit einem JSON-Objekt, keine Erklärung, exakt in diesem Schema:\n'
+                   + _KF_SCORE_SCHEMA,
+            messages=[{'role': 'user', 'content': text[:4000]}])
+        _log_ai('kf_score_fact', resp)
+        raw = resp.content[0].text.strip()
+        span = _extract_balanced_json(raw, '{', '}')
+        return json.loads(span) if span else None
+    except Exception as e:
+        app.logger.warning('KF Score: %s', e)
+        return None
+
+
+def _kf_check_contradiction(fact, candidates, api_key):
+    """Prüft NUR gegen die übergebenen (Top-N textähnlichsten) Kandidaten, nicht
+    gegen die ganze DB — begrenzt Claude-Kosten (Faktenprüfung, §5). candidates:
+    [(sim, KnowledgeFact), ...]. Gibt (hat_widerspruch: bool, erklaerung: str|None)."""
+    if not api_key or not candidates:
+        return False, None
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('analysis_model') or 'claude-sonnet-4-6'
+        others_text = '\n\n'.join(
+            f'Bestehender Fakt {i + 1}: {o.title} — {o.short_version or o.full_text or ""}'
+            for i, (_sim, o) in enumerate(candidates))
+        prompt = (
+            f'Neuer Fakt: {fact.title} — {fact.short_version or fact.full_text or ""}\n\n'
+            f'{others_text}\n\n'
+            'Widerspricht der neue Fakt inhaltlich einem der bestehenden Fakten (unterschiedliche '
+            'oder gegensätzliche Aussagen zum selben Sachverhalt)? Unterschiedliche Aspekte '
+            'desselben Themas oder bloße Ergänzungen sind KEIN Widerspruch.'
+        )
+        resp = client.messages.create(
+            model=model, max_tokens=300,
+            system='Antworte NUR mit einem JSON-Objekt, keine Erklärung davor/danach, exakt in '
+                   'diesem Schema: {"contradiction": bool, "explanation": str|null}',
+            messages=[{'role': 'user', 'content': prompt}])
+        _log_ai('kf_check_contradiction', resp)
+        raw = resp.content[0].text.strip()
+        span = _extract_balanced_json(raw, '{', '}')
+        data = json.loads(span) if span else {}
+        return bool(data.get('contradiction')), data.get('explanation')
+    except Exception as e:
+        app.logger.warning('KF Contradiction: %s', e)
+        return False, None
+
+
+def _kf_verify_fact(fact, api_key):
+    """Faktenprüfung: Dedup zuerst (kostenlos), dann bei Bedarf Widerspruchsprüfung
+    + Scoring per KI (nur wenn kein exaktes Duplikat gefunden wurde — kein Grund,
+    Claude-Aufrufe für einen ohnehin blockierten Fakt zu bezahlen). Setzt status
+    NUR auf 'geprueft' wenn: mind. eine Quelle, kein Duplikat, kein Widerspruch.
+    Gibt (ok: bool, message: str) zurück."""
+    if not fact.fact_sources:
+        return False, 'Ein Fakt ohne Quelle kann nicht geprüft werden.'
+
+    similar = _kf_find_similar_facts(fact)
+    duplicate = next((o for sim, o in similar if sim >= _KF_DUP_THRESHOLD), None)
+    fact.similar_fact_ids = json.dumps([o.id for sim, o in similar
+                                        if _KF_SIMILAR_THRESHOLD <= sim < _KF_DUP_THRESHOLD])
+
+    if duplicate:
+        fact.duplicate_of_id = duplicate.id
+        fact.contradiction_note = None
+        db.session.commit()
+        return False, f'Möglicherweise ein Duplikat von "{duplicate.display_name()}" — bitte prüfen.'
+
+    fact.duplicate_of_id = None
+    candidates = [(sim, o) for sim, o in similar if sim >= 0.3][:3]
+    has_contradiction, explanation = _kf_check_contradiction(fact, candidates, api_key)
+    if has_contradiction:
+        fact.contradiction_note = explanation or 'Möglicher inhaltlicher Widerspruch zu einem ähnlichen Fakt.'
+        db.session.commit()
+        return False, 'Möglicher Widerspruch zu einem bestehenden Fakt gefunden — bitte prüfen.'
+    fact.contradiction_note = None
+
+    scores = _kf_score_fact(fact, api_key) or {}
+    for field in ('quality_score', 'difficulty', 'surprise_value', 'virality_score'):
+        if scores.get(field) is not None:
+            setattr(fact, field, scores[field])
+
+    fact.status = 'geprueft'
+    fact.last_checked_at = datetime.utcnow()
+    db.session.commit()
+    return True, 'Fakt geprüft — keine Duplikate oder Widersprüche gefunden.'
+
+
 def _kf_draw_placeholder(bw, bh, accent_hex):
     """Farbiger Platzhalter mit dem Nischen-Akzentfarbton, wenn (noch) kein
     Bild vorliegt — anders als PWFs neutral-grauer Platzhalter, damit auch ohne
@@ -20627,8 +20787,9 @@ def knowledge_factory_fact_detail(account_id, fact_id):
     account = Account.query.get_or_404(account_id)
     fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
     photo = MediaItem.query.get(fact.foto_media_id) if fact.foto_media_id else None
+    similar_facts = KnowledgeFact.query.filter(KnowledgeFact.id.in_(fact.get_similar_fact_ids())).all()
     return render_template('wissensfabrik_fakt.html', account=account, fact=fact,
-        photo=photo, fact_sources=fact.fact_sources, active_page='studio')
+        photo=photo, fact_sources=fact.fact_sources, similar_facts=similar_facts, active_page='studio')
 
 
 @app.route('/content-studio/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/bild', methods=['POST'])
@@ -20664,10 +20825,23 @@ def knowledge_factory_render(account_id, fact_id):
     return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
 
 
+@app.route('/content-studio/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/pruefen', methods=['POST'])
+@login_required
+def knowledge_factory_verify(account_id, fact_id):
+    fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    ok, message = _kf_verify_fact(fact, api_key)
+    flash(message, 'success' if ok else 'error')
+    return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
+
+
 @app.route('/content-studio/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/veroeffentlichen', methods=['POST'])
 @login_required
 def knowledge_factory_publish(account_id, fact_id):
     fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
+    if fact.status not in ('geprueft', 'bereit'):
+        flash('Bitte den Fakt zuerst prüfen (Duplikat-/Widerspruchs-Check) bevor er veröffentlicht wird.', 'error')
+        return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
     if not fact.generated_image_path:
         flash('Bitte zuerst ein Bild rendern.', 'error')
         return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
