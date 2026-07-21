@@ -3225,6 +3225,10 @@ def schedule_automations():
                 # längst abgelaufenem MHD automatisch archivieren
                 if tick >= 5 and (tick - 5) % 1440 == 0:
                     threading.Thread(target=_pwf_auto_archive_scheduled, daemon=True).start()
+                # Wissensfabrik: alle 60 Minuten RSS/Wikipedia-Quellen scannen (nie tick 0,
+                # s.o.). Legt NUR Entwürfe an, nie automatisch geprüft/veröffentlicht.
+                if tick >= 6 and (tick - 6) % 60 == 0:
+                    threading.Thread(target=_kf_auto_scan, daemon=True).start()
                 # Tageslichtblick: stündlich scannen. Nie tick 0 (get_setting
                 # existiert beim Thread-Start noch nicht, s. Webhook-Kommentar).
                 # Der Lauf prüft selbst, ob die Automatik überhaupt an ist, und
@@ -20286,7 +20290,7 @@ _KF_JSON_SCHEMA = (
 )
 
 
-def _kf_extract_system(account):
+def _kf_extract_system(account, schema=None, extra_instruction=None):
     niche = account.name
     cfg = account.knowledge_niche_config
     rules = (cfg.content_rules or '').strip() if cfg else ''
@@ -20306,8 +20310,11 @@ def _kf_extract_system(account):
         lines.append(f'- Zielgruppe der Seite: {audience}')
     if rules:
         lines.append(f'- Zusätzliche Content-Regeln dieser Nische: {rules}')
-    lines += ['', 'Antworte NUR mit einem JSON-Objekt, keine Erklärung davor oder danach, exakt in diesem Schema:',
-              _KF_JSON_SCHEMA]
+    lines.append('')
+    if extra_instruction:
+        lines.append(extra_instruction)
+    lines += ['Antworte NUR mit einem JSON-Objekt, keine Erklärung davor oder danach, exakt in diesem Schema:',
+              schema or _KF_JSON_SCHEMA]
     return '\n'.join(lines)
 
 
@@ -20330,6 +20337,176 @@ def _kf_extract_fact_from_text(text, account, api_key):
     except Exception as e:
         app.logger.warning('KF Extract-Text: %s', e)
         return None
+
+
+_KF_MULTI_SCHEMA = (
+    '{"facts": [{"title": str, "short_version": str, "full_text": str, '
+    '"category_suggestion": str|null, "tags": [str, ...], "evergreen": bool, '
+    '"time_critical": bool}, ...]}'
+)
+
+
+def _kf_extract_facts_from_text(text, account, api_key, max_facts=5):
+    """Wie _kf_extract_fact_from_text, aber für Quellen mit VIELEN einzelnen
+    Fakten in einem Text (z.B. ein ganzer Wikipedia-Artikel) — ein KI-Aufruf
+    statt vieler. Gibt eine Liste extrahierter Fakt-dicts zurück (kann leer sein,
+    NIE erfunden — dieselbe Disziplin wie beim Einzel-Fakt-Pfad)."""
+    if not api_key or not (text or '').strip():
+        return []
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('analysis_model') or 'claude-sonnet-4-6'
+        system = _kf_extract_system(
+            account, schema=_KF_MULTI_SCHEMA,
+            extra_instruction=f'Extrahiere bis zu {max_facts} EINZELNE, klar voneinander abgrenzbare '
+                               'Fakten aus dem Text — weniger sind besser als erfundene oder zu '
+                               'ähnliche Fakten untereinander.')
+        resp = client.messages.create(
+            model=model, max_tokens=3000, system=system,
+            messages=[{'role': 'user', 'content': str(text)[:8000]}])
+        _log_ai('kf_extract_multi', resp)
+        raw = resp.content[0].text.strip()
+        span = _extract_balanced_json(raw, '{', '}')
+        data = json.loads(span) if span else {}
+        return data.get('facts') or []
+    except Exception as e:
+        app.logger.warning('KF Extract-Multi: %s', e)
+        return []
+
+
+def _kf_would_be_duplicate(account_id, title, short_version):
+    """Günstige Vorprüfung (kein KI-Aufruf) bevor ein Auto-Scan-Fund überhaupt
+    als Entwurf gespeichert wird — verhindert, dass wiederholte Scans (v.a.
+    Wikipedia, dieselbe Seite wird periodisch neu gelesen) das Dashboard mit
+    Near-Duplikaten fluten. Ersetzt NICHT die vollständige Faktenprüfung
+    (_kf_verify_fact), die zusätzlich Widerspruchsprüfung + Scoring macht."""
+    text = f"{title or ''} {short_version or ''}".strip()
+    if not text:
+        return False
+    for other in KnowledgeFact.query.filter_by(account_id=account_id).all():
+        other_text = f"{other.title or ''} {other.short_version or ''}".strip()
+        if other_text and _kf_similarity(text, other_text) >= _KF_DUP_THRESHOLD:
+            return True
+    return False
+
+
+def _kf_create_draft_fact(source, account, url_used, data):
+    """Legt EINEN Entwurf aus extrahierten Feldern an (nie 'geprueft'/'bereit' —
+    Automatisierung schlägt nur vor, der Mensch prüft explizit über die
+    Prüfen-Route). Gibt den neuen KnowledgeFact zurück, oder None bei
+    fehlendem Titel oder erkanntem Near-Duplikat."""
+    if not data.get('title'):
+        return None
+    if _kf_would_be_duplicate(account.id, data.get('title'), data.get('short_version')):
+        return None
+    category_id = _kf_find_or_create_category(account.id, data.get('category_suggestion'))
+    fact = KnowledgeFact(
+        account_id=account.id, category_id=category_id, title=str(data['title'])[:300],
+        short_version=data.get('short_version'), full_text=data.get('full_text'),
+        evergreen=data.get('evergreen', True) is not False, time_critical=bool(data.get('time_critical')),
+        tags=json.dumps(data.get('tags') or []),
+    )
+    db.session.add(fact)
+    db.session.flush()
+    db.session.add(KnowledgeFactSource(
+        fact_id=fact.id, source_id=source.id, url_used=url_used or source.url,
+        snippet=(data.get('full_text') or '')[:500] or None,
+    ))
+    db.session.commit()
+    return fact
+
+
+def _kf_poll_rss(source, account, api_key, limit=8):
+    """Scannt einen RSS-Feed nach neuen Einträgen, extrahiert je EINEN Fakt pro
+    Item. Dedup gegen bereits verarbeitete Links, bevor überhaupt ein KI-Aufruf
+    passiert (spart Kosten für längst gesehene Einträge)."""
+    try:
+        entries = fetch_rss_feed(source.url, keywords=None) or []
+    except Exception as e:
+        app.logger.warning('KF RSS-Quelle %s: %s', source.name, e)
+        return 0
+    created = 0
+    for e in entries[:limit]:
+        link = (e.get('url') or '').strip()
+        if link and KnowledgeFactSource.query.filter_by(url_used=link).first():
+            continue
+        text = f"{e.get('title', '')}\n\n{e.get('description', '')}"
+        if link and _mcf_is_safe_url(link):
+            try:
+                full_text, _img = _mcf_fetch_url_content(link)
+                if full_text.strip():
+                    text = full_text
+            except Exception:
+                pass
+        data = _kf_extract_fact_from_text(text, account, api_key)
+        if data and data.get('is_fact') and _kf_create_draft_fact(source, account, link, data):
+            created += 1
+    return created
+
+
+def _kf_poll_wikipedia(source, account, api_key, max_facts=5):
+    """Liest einen Wikipedia-Artikel (source.url) komplett und extrahiert bis zu
+    max_facts einzelne Fakten in einem KI-Aufruf — ein Artikel enthält viele
+    Fakten, anders als ein einzelner RSS-Eintrag mit meist genau einem."""
+    if not source.url or not _mcf_is_safe_url(source.url):
+        return 0
+    try:
+        text, _img = _mcf_fetch_url_content(source.url)
+    except Exception as e:
+        app.logger.warning('KF Wikipedia-Quelle %s: %s', source.name, e)
+        return 0
+    if not text.strip():
+        return 0
+    created = 0
+    for data in _kf_extract_facts_from_text(text, account, api_key, max_facts=max_facts):
+        if _kf_create_draft_fact(source, account, source.url, data):
+            created += 1
+    return created
+
+
+# Pluggable Source-Handler-Registry — ein neuer Quellentyp später ist eine neue
+# Funktion + ein Registry-Eintrag, kein neuer Code-Pfad quer durch die Factory.
+_KF_SOURCE_HANDLERS = {'rss': _kf_poll_rss, 'wikipedia': _kf_poll_wikipedia}
+
+
+def _kf_run_research():
+    """Scannt alle aktiven RSS/Wikipedia-Quellen aller Nischen (Auto-Scan).
+    Gibt (created, checked_sources) zurück."""
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        app.logger.warning('KF Auto-Recherche übersprungen: kein API-Key')
+        return 0, 0
+    sources = KnowledgeSource.query.filter(
+        KnowledgeSource.active.is_(True),
+        KnowledgeSource.source_type.in_(_KF_SOURCE_HANDLERS.keys()),
+    ).all()
+    created = checked = 0
+    for source in sources:
+        if not source.url:
+            continue
+        account = Account.query.get(source.account_id)
+        if not account or not account.knowledge_niche_config:
+            continue
+        handler = _KF_SOURCE_HANDLERS.get(source.source_type)
+        if not handler:
+            continue
+        checked += 1
+        try:
+            created += handler(source, account, api_key)
+        except Exception as e:
+            app.logger.warning('KF Quelle %s (%s): %s', source.name, source.source_type, e)
+        source.last_scanned_at = datetime.utcnow()
+        db.session.commit()
+    app.logger.warning('KF Auto-Recherche abgeschlossen: %d neue Entwürfe, %d Quellen geprüft', created, checked)
+    return created, checked
+
+
+def _kf_auto_scan():
+    with app.app_context():
+        if get_setting('kf_auto_research') != '1':
+            return
+        _kf_run_research()
 
 
 def _kf_find_or_create_category(account_id, name):
@@ -20879,13 +21056,16 @@ def knowledge_factory_delete_fact(account_id, fact_id):
 def knowledge_factory_settings():
     if request.method == 'POST':
         set_setting('analysis_model', request.form.get('analysis_model', '').strip() or 'claude-sonnet-4-6')
+        set_setting('kf_auto_research', '1' if request.form.get('kf_auto_research') == 'on' else '0')
+        db.session.commit()
         flash('Einstellungen gespeichert.', 'success')
         return redirect(url_for('knowledge_factory_settings'))
     niches = (db.session.query(Account, KnowledgeNicheConfig)
               .join(KnowledgeNicheConfig, KnowledgeNicheConfig.account_id == Account.id)
               .order_by(Account.name).all())
     return render_template('wissensfabrik_einstellungen.html', niches=niches,
-        analysis_model=get_setting('analysis_model') or 'claude-sonnet-4-6', active_page='studio')
+        analysis_model=get_setting('analysis_model') or 'claude-sonnet-4-6',
+        kf_auto_research=get_setting('kf_auto_research') == '1', active_page='studio')
 
 
 
