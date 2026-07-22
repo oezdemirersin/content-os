@@ -65,6 +65,10 @@
       <i class="fa-solid fa-gear"></i> Quellen &amp; Module</a>
     <button onclick="scanJetzt(this)" class="btn btn-primary" style="font-size:13px;padding:8px 16px">Jetzt scannen</button>
   </div>
+  <form method="GET" style="margin-bottom:14px">
+    <input type="hidden" name="status" value="{{ status_filter }}">
+    <input type="search" name="q" value="{{ search }}" placeholder="Titel durchsuchen…" class="input-field" style="max-width:320px">
+  </form>
   <div id="scanMsg" style="font-size:12px;color:var(--muted);margin-bottom:14px"></div>
 
   <!-- ── Rangliste ── -->
@@ -128,6 +132,33 @@
     </div>
   </div>
   {% endfor %}
+
+  {% if pagination and pagination.pages > 1 %}
+  <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:20px">
+    {% if pagination.has_prev %}
+    <a href="{{ url_for('tageslichtblick', page=pagination.prev_num, status=status_filter, q=search) }}" class="btn btn-ghost" style="padding:7px 14px;font-size:12px">
+      <i class="fa-solid fa-chevron-left"></i>
+    </a>
+    {% endif %}
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if p %}
+      <a href="{{ url_for('tageslichtblick', page=p, status=status_filter, q=search) }}"
+         style="padding:6px 13px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;
+                {% if p == pagination.page %}background:var(--accent);color:white;{% else %}background:var(--surface);border:1px solid var(--border);color:var(--muted);{% endif %}">
+        {{ p }}
+      </a>
+      {% else %}
+      <span style="color:var(--muted);padding:0 4px">…</span>
+      {% endif %}
+    {% endfor %}
+    {% if pagination.has_next %}
+    <a href="{{ url_for('tageslichtblick', page=pagination.next_num, status=status_filter, q=search) }}" class="btn btn-ghost" style="padding:7px 14px;font-size:12px">
+      <i class="fa-solid fa-chevron-right"></i>
+    </a>
+    {% endif %}
+    <span style="font-size:12px;color:var(--muted);margin-left:8px">{{ pagination.total }} gesamt</span>
+  </div>
+  {% endif %}
 </div>
 
 <script>

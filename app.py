@@ -16923,16 +16923,22 @@ def _mcf_case_dict(c):
 @login_required
 def missing_children_factory():
     status_f = request.args.get('status', '')
+    search = (request.args.get('q') or '').strip()
     q = MissingChildCase.query
     if status_f:
         q = q.filter_by(status=status_f)
-    cases = q.order_by((MissingChildCase.status == 'erledigt'),
-                       MissingChildCase.created_at.desc()).all()
+    if search:
+        q = q.filter(db.or_(MissingChildCase.vorname.ilike(f'%{search}%'),
+                            MissingChildCase.nachname.ilike(f'%{search}%'),
+                            MissingChildCase.stadt.ilike(f'%{search}%')))
+    page = request.args.get('page', 1, type=int)
+    pagination = q.order_by((MissingChildCase.status == 'erledigt'),
+                            MissingChildCase.created_at.desc()).paginate(page=page, per_page=40, error_out=False)
     accounts = Account.query.filter(Account.status.in_(['active', 'paused'])).order_by(Account.name).all()
     from collections import Counter
     counts = Counter(c.status for c in MissingChildCase.query.all())
     return render_template('missing_children.html',
-        cases=[_mcf_case_dict(c) for c in cases],
+        cases=[_mcf_case_dict(c) for c in pagination.items], pagination=pagination, search=search,
         accounts=[{'id': a.id, 'name': a.name} for a in accounts],
         counts=dict(counts), status_f=status_f, active_page='studio')
 
@@ -19564,15 +19570,21 @@ def _pwf_apply_fields(alert, d, prefix_new=False):
 @login_required
 def product_alert_factory():
     status_f = request.args.get('status', '')
+    search = (request.args.get('q') or '').strip()
     q = ProductAlert.query
     if status_f:
         q = q.filter_by(status=status_f)
-    alerts = q.order_by((ProductAlert.status == 'archiviert'), ProductAlert.created_at.desc()).all()
+    if search:
+        q = q.filter(db.or_(ProductAlert.titel.ilike(f'%{search}%'), ProductAlert.produktname.ilike(f'%{search}%'),
+                            ProductAlert.marke.ilike(f'%{search}%')))
+    page = request.args.get('page', 1, type=int)
+    pagination = q.order_by((ProductAlert.status == 'archiviert'),
+                            ProductAlert.created_at.desc()).paginate(page=page, per_page=40, error_out=False)
     accounts = Account.query.filter(Account.status.in_(['active', 'paused'])).order_by(Account.name).all()
     from collections import Counter
     counts = Counter(a.status for a in ProductAlert.query.all())
     return render_template('produktwarnungen.html',
-        alerts=[_pwf_alert_dict(a) for a in alerts],
+        alerts=[_pwf_alert_dict(a) for a in pagination.items], pagination=pagination, search=search,
         accounts=[{'id': a.id, 'name': a.name} for a in accounts],
         counts=dict(counts), status_f=status_f,
         categories=PWF_CATEGORIES, risk_levels=PWF_RISK_LEVELS, active_page='studio')
@@ -21129,17 +21141,23 @@ def knowledge_factory_niche(account_id):
     if not account.knowledge_niche_config:
         abort(404)
     status_f = request.args.get('status', '')
+    search = (request.args.get('q') or '').strip()
     q = KnowledgeFact.query.filter_by(account_id=account_id)
     if status_f:
         q = q.filter_by(status=status_f)
-    facts = q.order_by(KnowledgeFact.created_at.desc()).all()
+    if search:
+        q = q.filter(db.or_(KnowledgeFact.title.ilike(f'%{search}%'),
+                            KnowledgeFact.short_version.ilike(f'%{search}%')))
+    page = request.args.get('page', 1, type=int)
+    pagination = q.order_by(KnowledgeFact.created_at.desc()).paginate(page=page, per_page=40, error_out=False)
     from collections import Counter
     counts = Counter(f.status for f in KnowledgeFact.query.filter_by(account_id=account_id).all())
     sources = KnowledgeSource.query.filter_by(account_id=account_id).order_by(
         KnowledgeSource.trust_score.desc()).all()
     categories = KnowledgeCategory.query.filter_by(account_id=account_id).order_by(
         KnowledgeCategory.name).all()
-    return render_template('wissensfabrik_niche.html', account=account, facts=facts,
+    return render_template('wissensfabrik_niche.html', account=account, facts=pagination.items,
+        pagination=pagination, search=search,
         counts=dict(counts), status_f=status_f, sources=sources, categories=categories,
         active_page='studio')
 
@@ -22161,15 +22179,20 @@ def tageslichtblick():
     ist der eigentliche Wert der Factory und darf keine Blackbox sein."""
     heute = datetime.utcnow().date()
     status_filter = request.args.get('status') or 'aktuell'
+    search = (request.args.get('q') or '').strip()
 
     q = TlbStory.query
     if status_filter == 'aktuell':
         q = q.filter(TlbStory.status.in_(['bewertet', 'entwurf', 'kandidat']))
     elif status_filter != 'alle':
         q = q.filter(TlbStory.status == status_filter)
+    if search:
+        q = q.filter(db.or_(TlbStory.titel.ilike(f'%{search}%'), TlbStory.roh_titel.ilike(f'%{search}%')))
 
-    stories = q.order_by(TlbStory.gesamtscore.desc().nullslast(),
-                         TlbStory.created_at.desc()).limit(120).all()
+    page = request.args.get('page', 1, type=int)
+    pagination = q.order_by(TlbStory.gesamtscore.desc().nullslast(),
+                            TlbStory.created_at.desc()).paginate(page=page, per_page=50, error_out=False)
+    stories = pagination.items
 
     sieger_heute = TlbStory.query.filter_by(tagessieger_am=heute).first()
     diese_woche = TlbStory.query.filter(
@@ -22187,7 +22210,7 @@ def tageslichtblick():
                                .scalar() or 0) / 100, 2),
     }
     return render_template('tageslichtblick.html',
-        stories=stories, stats=stats, sieger_heute=sieger_heute,
+        stories=stories, stats=stats, sieger_heute=sieger_heute, pagination=pagination, search=search,
         status_filter=status_filter, mode=_tlb_mode(), modes=TLB_MODES,
         min_score=_tlb_min_score(), auto_scan=get_setting('tlb_auto_scan') == '1',
         active_page='studio')

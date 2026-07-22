@@ -14,7 +14,7 @@
     <a href="?status={{ key }}"
        style="padding:6px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;font-weight:700;text-decoration:none;
               {% if status_f==key %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">
-      {{ lab }}{% if key %} ({{ counts.get(key,0) }}){% else %} ({{ alerts|length }}){% endif %}
+      {{ lab }}{% if key %} ({{ counts.get(key,0) }}){% else %} ({{ counts.values()|sum }}){% endif %}
     </a>
     {% endfor %}
     <a href="{{ url_for('pwf_einstellungen') }}" style="margin-left:auto;font-size:12px;color:var(--muted);text-decoration:none;padding:7px 10px" title="Quellen &amp; Auto-Recherche">
@@ -22,6 +22,10 @@
     <button onclick="var f=document.getElementById('pwfForm');f.style.display=f.style.display==='none'?'block':'none'"
             class="btn btn-primary" style="font-size:13px;padding:8px 16px">＋ Neue Warnung</button>
   </div>
+  <form method="GET" style="margin-bottom:14px">
+    <input type="hidden" name="status" value="{{ status_f }}">
+    <input type="search" name="q" value="{{ search }}" placeholder="Titel/Produkt/Marke durchsuchen…" class="input-field" style="max-width:320px">
+  </form>
 
   <div id="pwfForm" class="card" style="padding:20px;margin-bottom:22px;display:none">
     <div style="font-weight:700;margin-bottom:14px">Neue Produktwarnung erfassen <span style="font-weight:400;color:var(--muted);font-size:12px">— nur ausfüllen, was bekannt ist</span></div>
@@ -155,6 +159,33 @@
     </div>
     {% endfor %}
   </div>
+
+  {% if pagination and pagination.pages > 1 %}
+  <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:20px">
+    {% if pagination.has_prev %}
+    <a href="{{ url_for('product_alert_factory', page=pagination.prev_num, status=status_f, q=search) }}" class="btn btn-ghost" style="padding:7px 14px;font-size:12px">
+      <i class="fa-solid fa-chevron-left"></i>
+    </a>
+    {% endif %}
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if p %}
+      <a href="{{ url_for('product_alert_factory', page=p, status=status_f, q=search) }}"
+         style="padding:6px 13px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;
+                {% if p == pagination.page %}background:var(--accent);color:white;{% else %}background:var(--surface);border:1px solid var(--border);color:var(--muted);{% endif %}">
+        {{ p }}
+      </a>
+      {% else %}
+      <span style="color:var(--muted);padding:0 4px">…</span>
+      {% endif %}
+    {% endfor %}
+    {% if pagination.has_next %}
+    <a href="{{ url_for('product_alert_factory', page=pagination.next_num, status=status_f, q=search) }}" class="btn btn-ghost" style="padding:7px 14px;font-size:12px">
+      <i class="fa-solid fa-chevron-right"></i>
+    </a>
+    {% endif %}
+    <span style="font-size:12px;color:var(--muted);margin-left:8px">{{ pagination.total }} gesamt</span>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 
