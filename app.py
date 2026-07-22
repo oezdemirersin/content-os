@@ -3703,6 +3703,135 @@ def dashboard_ai_usage():
     return jsonify({'today': summarise(rows_today), 'month': summarise(rows_month)})
 
 
+# CityBot rechnet in USD, ContentOS führt alles in EUR (dieselbe Konvention wie
+# _log_ai). Bewusst ein fester Faktor: für eine Kostenübersicht reicht die
+# Größenordnung, ein Live-Wechselkurs wäre eine unnötige externe Abhängigkeit.
+_USD_TO_EUR = 0.92
+
+
+def _citybot_costs(days=30):
+    """Holt die KI-Kosten des CityBot über dessen externe API. (daten, fehler)."""
+    base_url = (get_setting('citybot_base_url', '') or '').rstrip('/')
+    api_key  = get_setting('citybot_api_key', '') or ''
+    if not (base_url and api_key):
+        return None, 'CityBot nicht verbunden (URL/API-Key fehlen unter Team → CityBot).'
+    try:
+        resp = _requests.get(f'{base_url}/api/external/api-costs',
+                             headers={'X-CityBot-Key': api_key},
+                             params={'days': days}, timeout=12)
+        if resp.status_code == 403:
+            return None, 'CityBot lehnt den API-Key ab (403).'
+        if resp.status_code == 503:
+            return None, 'CityBot hat keinen API-Key konfiguriert.'
+        if not resp.ok:
+            return None, f'CityBot antwortete mit HTTP {resp.status_code}.'
+        data = resp.json()
+        if not data.get('ok'):
+            return None, data.get('error') or 'Unbekannter Fehler vom CityBot.'
+        return data, None
+    except Exception as e:
+        return None, f'CityBot nicht erreichbar: {str(e)[:120]}'
+
+
+@app.route('/ki-kosten')
+@login_required
+def ki_kosten():
+    """Zentrale KI-Kostenübersicht über alle Projekte (ContentOS + CityBot).
+
+    Beantwortet die Frage 'wofür wurde mein Guthaben ausgegeben' — aufgeschlüsselt
+    nach Tag, Funktion, Modell und System, statt nur einer Gesamtsumme."""
+    from datetime import date as _date
+    try:
+        days = max(7, min(90, int(request.args.get('days', 30))))
+    except (ValueError, TypeError):
+        days = 30
+
+    today      = _date.today()
+    since      = datetime.combine(today - timedelta(days=days - 1), datetime.min.time())
+    day_start  = datetime.combine(today, datetime.min.time())
+    month_start = datetime(today.year, today.month, 1)
+
+    rows = AiUsageLog.query.filter(AiUsageLog.created_at >= since)\
+                           .order_by(AiUsageLog.created_at.desc()).all()
+
+    def _agg(items):
+        return {
+            'calls':  len(items),
+            'input':  sum(r.input_tokens  or 0 for r in items),
+            'output': sum(r.output_tokens or 0 for r in items),
+            'cost':   round(sum(r.cost_eur or 0.0 for r in items), 4),
+        }
+
+    co_today = _agg([r for r in rows if r.created_at >= day_start])
+    co_month = _agg([r for r in rows if r.created_at >= month_start])
+    co_range = _agg(rows)
+
+    # gestern — für den direkten Vergleich "gestern vs. heute"
+    y_start  = day_start - timedelta(days=1)
+    co_yest  = _agg([r for r in rows if y_start <= r.created_at < day_start])
+
+    by_feature, by_model, by_day = {}, {}, {}
+    for r in rows:
+        d = r.created_at.strftime('%Y-%m-%d')
+        for bucket, key in ((by_feature, r.feature or 'unbekannt'),
+                            (by_model,   r.model   or 'unbekannt'),
+                            (by_day,     d)):
+            b = bucket.setdefault(key, {'calls': 0, 'cost': 0.0, 'input': 0, 'output': 0})
+            b['calls']  += 1
+            b['cost']   += r.cost_eur or 0.0
+            b['input']  += r.input_tokens or 0
+            b['output'] += r.output_tokens or 0
+
+    # ── CityBot dazuholen (USD → EUR) ────────────────────────────────────────
+    cb_raw, cb_error = _citybot_costs(days)
+    cb = {'total': 0.0, 'today': 0.0, 'yesterday': 0.0, 'by_feature': {}, 'by_day': {}, 'calls': 0}
+    if cb_raw:
+        _y = (today - timedelta(days=1)).strftime('%Y-%m-%d')
+        _t = today.strftime('%Y-%m-%d')
+        for d, v in (cb_raw.get('daily') or {}).items():
+            eur = (v.get('cost') or 0.0) * _USD_TO_EUR
+            cb['by_day'][d] = {'calls': v.get('calls', 0), 'cost': eur,
+                               'input': v.get('input', 0), 'output': v.get('output', 0)}
+            cb['total'] += eur
+            cb['calls'] += v.get('calls', 0)
+            if d == _t: cb['today']     = eur
+            if d == _y: cb['yesterday'] = eur
+        for f, v in (cb_raw.get('by_feature') or {}).items():
+            cb['by_feature'][f] = {'calls': v.get('calls', 0),
+                                   'cost': (v.get('cost') or 0.0) * _USD_TO_EUR,
+                                   'input': v.get('input', 0), 'output': v.get('output', 0)}
+
+    # gemeinsame Tagesreihe für das Diagramm
+    series = []
+    for i in range(days):
+        d = (today - timedelta(days=days - 1 - i)).strftime('%Y-%m-%d')
+        series.append({
+            'day':       d,
+            'contentos': round(by_day.get(d, {}).get('cost', 0.0), 4),
+            'citybot':   round(cb['by_day'].get(d, {}).get('cost', 0.0), 4),
+        })
+
+    def _sorted(bucket):
+        return sorted(
+            ({'name': k, **v} for k, v in bucket.items()),
+            key=lambda x: x['cost'], reverse=True)
+
+    return render_template(
+        'ki_kosten.html',
+        active_page='ki_kosten',
+        days=days,
+        co_today=co_today, co_yesterday=co_yest, co_month=co_month, co_range=co_range,
+        by_feature=_sorted(by_feature), by_model=_sorted(by_model),
+        cb=cb, cb_feature=_sorted(cb['by_feature']), cb_error=cb_error,
+        cb_connected=bool(cb_raw),
+        series=series,
+        recent=rows[:60],
+        total_today=round(co_today['cost'] + cb['today'], 4),
+        total_yesterday=round(co_yest['cost'] + cb['yesterday'], 4),
+        total_range=round(co_range['cost'] + cb['total'], 4),
+    )
+
+
 @app.route('/heute')
 @login_required
 def heute():
@@ -21734,6 +21863,10 @@ def _tlb_ai_call(system, user_text, model, max_tokens=1500):
     resp = client.messages.create(
         model=model, max_tokens=max_tokens, system=system,
         messages=[{'role': 'user', 'content': user_text}])
+    # Ins zentrale KI-Kostenlog schreiben. Die Grobschaetzung weiter unten bleibt
+    # (sie haengt an der Story), war aber die einzige Erfassung — dadurch fehlte
+    # Tageslichtblick komplett in der KI-Kosten-Uebersicht.
+    _log_ai('tageslichtblick', resp)
     roh = resp.content[0].text.strip()
     if roh.startswith('```'):
         roh = roh.split('```')[1]

@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}KI-Kosten — Content OS{% endblock %}
+{% block page_title %}KI-KOSTEN{% endblock %}
+
+{% block content %}
+
+{# ── Zeitraum ────────────────────────────────────────────────────────────── #}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+  <div style="display:flex;gap:6px">
+    {% for d in [7, 30, 90] %}
+      <a href="{{ url_for('ki_kosten', days=d) }}" class="fchip {{ 'active' if days == d }}"
+         style="padding:6px 14px;border-radius:8px;text-decoration:none">letzte {{ d }} Tage</a>
+    {% endfor %}
+  </div>
+  <div style="font-size:11px;color:var(--muted)">
+    Beträge in EUR · CityBot rechnet in USD und wird mit Faktor 0,92 umgerechnet
+  </div>
+</div>
+
+{# ── Kennzahlen ──────────────────────────────────────────────────────────── #}
+{% set delta = total_today - total_yesterday %}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:20px">
+  <div class="stat-card">
+    <div class="stat-label">Heute</div>
+    <div class="stat-value blue">{{ '%.2f'|format(total_today) }} €</div>
+    <div class="stat-sub">
+      {% if total_yesterday > 0 %}
+        {% if delta >= 0 %}
+          <span style="color:var(--danger)">▲ {{ '%.2f'|format(delta) }} €</span> ggü. gestern
+        {% else %}
+          <span style="color:var(--success)">▼ {{ '%.2f'|format(-delta) }} €</span> ggü. gestern
+        {% endif %}
+      {% else %}kein Vergleichswert{% endif %}
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Gestern</div>
+    <div class="stat-value">{{ '%.2f'|format(total_yesterday) }} €</div>
+    <div class="stat-sub">alle Systeme</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Zeitraum gesamt</div>
+    <div class="stat-value">{{ '%.2f'|format(total_range) }} €</div>
+    <div class="stat-sub">{{ days }} Tage</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Content OS</div>
+    <div class="stat-value green">{{ '%.2f'|format(co_range.cost) }} €</div>
+    <div class="stat-sub">{{ '{:,}'.format(co_range.calls).replace(',', '.') }} Aufrufe</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">CityBot</div>
+    <div class="stat-value yellow">{{ '%.2f'|format(cb.total) }} €</div>
+    <div class="stat-sub">
+      {% if cb_connected %}{{ '{:,}'.format(cb.calls).replace(',', '.') }} Aufrufe
+      {% else %}<span style="color:var(--warning)">nicht verbunden</span>{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if cb_error %}
+  <div class="card" style="padding:12px 16px;margin-bottom:20px;border-color:rgba(245,158,11,.4);
+              background:rgba(245,158,11,.07);font-size:12px;color:var(--warning)">
+    <i class="fa-solid fa-triangle-exclamation" style="margin-right:6px"></i>
+    CityBot-Kosten fehlen in dieser Übersicht: {{ cb_error }}
+  </div>
+{% endif %}
+
+{# ── Tagesverlauf ────────────────────────────────────────────────────────── #}
+{# Höchster Tageswert als Bezugsgröße für die Balkenhöhe (0.01 als Divisions-Schutz) #}
+{% set _tot = [] %}
+{% for s in series %}{% if _tot.append(s.contentos + s.citybot) %}{% endif %}{% endfor %}
+{% set top = (_tot | max) or 0.01 %}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header">
+    <span class="card-title">TAGESVERLAUF</span>
+    <span style="font-size:11px;color:var(--muted)">
+      <span style="display:inline-block;width:9px;height:9px;background:var(--success);border-radius:2px"></span> Content OS
+      &nbsp;
+      <span style="display:inline-block;width:9px;height:9px;background:var(--warning);border-radius:2px"></span> CityBot
+    </span>
+  </div>
+  <div style="padding:18px 20px">
+    <div style="display:flex;align-items:flex-end;gap:3px;height:170px;overflow-x:auto">
+      {% for s in series %}
+        {% set tot = s.contentos + s.citybot %}
+        <div style="flex:1;min-width:9px;display:flex;flex-direction:column;justify-content:flex-end;
+                    height:100%;position:relative"
+             title="{{ s.day }} — {{ '%.3f'|format(tot) }} € (Content OS {{ '%.3f'|format(s.contentos) }} € · CityBot {{ '%.3f'|format(s.citybot) }} €)">
+          <div style="background:var(--warning);border-radius:2px 2px 0 0;
+                      height:{{ (s.citybot / top * 100) if top else 0 }}%"></div>
+          <div style="background:var(--success);border-radius:{{ '0' if s.citybot > 0 else '2px 2px 0 0' }};
+                      height:{{ (s.contentos / top * 100) if top else 0 }}%"></div>
+        </div>
+      {% endfor %}
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:8px">
+      <span>{{ series[0].day if series }}</span>
+      <span>Spitze: {{ '%.2f'|format(top) }} € / Tag</span>
+      <span>{{ series[-1].day if series }}</span>
+    </div>
+  </div>
+</div>
+
+{# ── Aufschlüsselung nach Funktion ───────────────────────────────────────── #}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:20px">
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">CONTENT OS — WOFÜR</span>
+      <span style="font-size:11px;color:var(--muted)">{{ '%.2f'|format(co_range.cost) }} €</span>
+    </div>
+    <div style="padding:8px 0">
+      {% if by_feature %}
+        {% for f in by_feature %}
+          <div style="padding:9px 20px;display:flex;align-items:center;gap:10px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600">{{ f.name }}</div>
+              <div style="font-size:11px;color:var(--muted)">
+                {{ f.calls }} Aufruf{{ '' if f.calls == 1 else 'e' }} · {{ '{:,}'.format(f.input + f.output).replace(',', '.') }} Tokens
+              </div>
+            </div>
+            <div style="flex:0 0 90px">
+              <div style="height:5px;background:var(--surface2);border-radius:3px;overflow:hidden">
+                <div style="height:100%;background:var(--success);
+                            width:{{ (f.cost / by_feature[0].cost * 100) if by_feature[0].cost else 0 }}%"></div>
+              </div>
+            </div>
+            <div style="flex:0 0 68px;text-align:right;font-size:13px;font-weight:700">
+              {{ '%.2f'|format(f.cost) }} €
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div style="padding:24px 20px;text-align:center;color:var(--muted);font-size:12px">
+          Keine KI-Aufrufe im gewählten Zeitraum.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">CITYBOT — WOFÜR</span>
+      <span style="font-size:11px;color:var(--muted)">{{ '%.2f'|format(cb.total) }} €</span>
+    </div>
+    <div style="padding:8px 0">
+      {% if cb_feature %}
+        {% for f in cb_feature %}
+          <div style="padding:9px 20px;display:flex;align-items:center;gap:10px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600">{{ f.name }}</div>
+              <div style="font-size:11px;color:var(--muted)">
+                {{ f.calls }} Aufruf{{ '' if f.calls == 1 else 'e' }} · {{ '{:,}'.format(f.input + f.output).replace(',', '.') }} Tokens
+              </div>
+            </div>
+            <div style="flex:0 0 90px">
+              <div style="height:5px;background:var(--surface2);border-radius:3px;overflow:hidden">
+                <div style="height:100%;background:var(--warning);
+                            width:{{ (f.cost / cb_feature[0].cost * 100) if cb_feature[0].cost else 0 }}%"></div>
+              </div>
+            </div>
+            <div style="flex:0 0 68px;text-align:right;font-size:13px;font-weight:700">
+              {{ '%.2f'|format(f.cost) }} €
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div style="padding:24px 20px;text-align:center;color:var(--muted);font-size:12px">
+          {% if cb_connected %}Keine CityBot-Aufrufe im Zeitraum.
+          {% else %}CityBot ist nicht verbunden.{% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ── Modelle ─────────────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:20px">
+  <div class="card-header"><span class="card-title">CONTENT OS — NACH MODELL</span></div>
+  <div style="padding:8px 0">
+    {% for m in by_model %}
+      <div style="padding:9px 20px;display:flex;align-items:center;gap:14px;font-size:13px">
+        <div style="flex:1;font-family:monospace;font-size:12px">{{ m.name }}</div>
+        <div style="color:var(--muted);font-size:11px">{{ m.calls }} Aufruf{{ '' if m.calls == 1 else 'e' }}</div>
+        <div style="color:var(--muted);font-size:11px">
+          {{ '{:,}'.format(m.input).replace(',', '.') }} in / {{ '{:,}'.format(m.output).replace(',', '.') }} out
+        </div>
+        <div style="flex:0 0 68px;text-align:right;font-weight:700">{{ '%.2f'|format(m.cost) }} €</div>
+      </div>
+    {% else %}
+      <div style="padding:24px 20px;text-align:center;color:var(--muted);font-size:12px">Keine Daten.</div>
+    {% endfor %}
+  </div>
+</div>
+
+{# ── Letzte Aufrufe ──────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">LETZTE AUFRUFE</span>
+    <span style="font-size:11px;color:var(--muted)">Content OS · max. 60</span>
+  </div>
+  <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="color:var(--muted);font-size:10px;letter-spacing:1px;text-transform:uppercase">
+          <th style="text-align:left;padding:10px 20px">Zeit</th>
+          <th style="text-align:left;padding:10px 8px">Funktion</th>
+          <th style="text-align:left;padding:10px 8px">Modell</th>
+          <th style="text-align:right;padding:10px 8px">Tokens</th>
+          <th style="text-align:right;padding:10px 20px">Kosten</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in recent %}
+          <tr style="border-top:1px solid var(--border)">
+            <td style="padding:8px 20px;color:var(--muted);white-space:nowrap">
+              {{ r.created_at.strftime('%d.%m. %H:%M') }}
+            </td>
+            <td style="padding:8px 8px;font-weight:600">{{ r.feature }}</td>
+            <td style="padding:8px 8px;font-family:monospace;font-size:11px;color:var(--muted)">{{ r.model }}</td>
+            <td style="padding:8px 8px;text-align:right;color:var(--muted)">
+              {{ '{:,}'.format((r.input_tokens or 0) + (r.output_tokens or 0)).replace(',', '.') }}
+            </td>
+            <td style="padding:8px 20px;text-align:right;font-weight:600">{{ '%.4f'|format(r.cost_eur or 0) }} €</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" style="padding:24px 20px;text-align:center;color:var(--muted)">
+            Noch keine KI-Aufrufe protokolliert.
+          </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
