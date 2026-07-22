@@ -114,6 +114,12 @@
         </button>
       </form>
 
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--muted)">War die KI-Extraktion (Fakt, Angaben) korrekt?</span>
+        <button onclick="kfSetFeedback(1,this)" data-active="{{ 'true' if fact.feedback==1 else 'false' }}" id="fbUp" class="btn btn-ghost" style="font-size:11px;padding:5px 10px;{% if fact.feedback==1 %}color:var(--success);border-color:var(--success){% endif %}"><i class="fa-solid fa-thumbs-up"></i></button>
+        <button onclick="kfSetFeedback(-1,this)" data-active="{{ 'true' if fact.feedback==-1 else 'false' }}" id="fbDown" class="btn btn-ghost" style="font-size:11px;padding:5px 10px;{% if fact.feedback==-1 %}color:var(--danger);border-color:var(--danger){% endif %}"><i class="fa-solid fa-thumbs-down"></i></button>
+      </div>
+
       <div style="border-top:1px solid var(--border);margin-top:18px;padding-top:14px">
         <form method="POST" action="{{ url_for('knowledge_factory_delete_fact', account_id=account.id, fact_id=fact.id) }}"
               onsubmit="return confirm('Diesen Fakt unwiderruflich löschen?')">
@@ -123,4 +129,19 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function kfSetFeedback(v, btn) {
+  const val = btn.dataset.active === 'true' ? 0 : v;
+  const r = await fetch('{{ url_for("knowledge_factory_feedback", account_id=account.id, fact_id=fact.id) }}', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({value: val})
+  }).then(r => r.json()).catch(() => ({ok: false}));
+  if (r.ok) {
+    if (typeof showToast === 'function') showToast(val ? 'Feedback gespeichert — fließt in künftige Extraktionen ein' : 'Feedback zurückgenommen');
+    setTimeout(() => location.reload(), 500);
+  } else if (typeof showToast === 'function') showToast('Fehler', 'error');
+}
+</script>
 {% endblock %}

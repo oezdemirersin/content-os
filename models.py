@@ -1144,6 +1144,9 @@ class MissingChildCase(db.Model):
     update_detected   = db.Column(db.Boolean, default=False)
     update_source_url = db.Column(db.Text)
     update_found_at   = db.Column(db.DateTime)
+    # Nutzer-Feedback zur KI-Erkennung (echter Fall? Angaben korrekt?), wie bei PWF/Trend-Radar/Tageslichtblick
+    feedback      = db.Column(db.Integer)     # +1 = Erkennung korrekt, -1 = falsch
+    feedback_at   = db.Column(db.DateTime)
     created_at    = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1455,6 +1458,10 @@ class KnowledgeFact(db.Model):
     duplicate_of = db.relationship('KnowledgeFact', remote_side=[id])
     similar_fact_ids = db.Column(db.Text, default='[]')  # JSON-Liste — ähnlich, aber kein Duplikat
     contradiction_note = db.Column(db.Text)  # KI-Erklärung, falls Widerspruch zu einem ähnlichen Fakt gefunden
+
+    # Nutzer-Feedback zur KI-Extraktion (war der Fakt/die Angaben korrekt?), wie bei PWF/Trend-Radar/Tageslichtblick/MCF
+    feedback      = db.Column(db.Integer)     # +1 = Extraktion korrekt, -1 = falsch
+    feedback_at   = db.Column(db.DateTime)
 
     tags = db.Column(db.Text, default='[]')             # JSON-Liste
     content_item_ids = db.Column(db.Text, default='[]')  # JSON-Liste — Fakt kann mehrfach verwendet werden

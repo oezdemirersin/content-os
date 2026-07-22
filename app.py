@@ -17055,7 +17055,7 @@ def mcf_extract_from_image():
         'Foto der vermissten Person zu sehen ist (kein Logo, kein Wappen, kein Fließtext). Gib die '
         'Bounding-Box als Bruchteile (0.0–1.0) der Bildbreite/-höhe zurück (x0,y0 = oben-links, '
         'x1,y1 = unten-rechts). Bei Unsicherheit: null.}'
-    )
+    ) + _mcf_calibration_block()
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
@@ -17386,6 +17386,23 @@ def mcf_delete_case(cid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/mcf/case/<int:cid>/feedback', methods=['POST'])
+@login_required
+def mcf_feedback(cid):
+    """Nutzer bewertet ob die KI-Erkennung zutraf (echter Fall, Angaben korrekt).
+    Fließt über _mcf_calibration_block in künftige Extraktionen ein."""
+    c = MissingChildCase.query.get_or_404(cid)
+    d = request.get_json(silent=True) or {}
+    try:
+        v = int(d.get('value', 0))
+    except Exception:
+        v = 0
+    c.feedback = v if v in (1, -1) else None
+    c.feedback_at = datetime.utcnow() if c.feedback else None
+    db.session.commit()
+    return jsonify({'ok': True, 'feedback': c.feedback or 0})
+
+
 # ─── Notfallnummern-Verwaltung ──────────────────────────────────
 @app.route('/api/mcf/emergency', methods=['POST'])
 @login_required
@@ -17448,6 +17465,32 @@ def mcf_source_delete():
 
 
 # ─── Auto-Recherche (Phase 2) ───────────────────────────────────
+def _mcf_calibration_block():
+    """Kurzer Kalibrierungs-Hinweis aus dem Nutzer-Feedback der letzten 60 Tage
+    — gleiches Muster wie _pwf_calibration_block. MCF hat keine Risiko-/
+    Kategorie-Einschätzung wie PWF, das Feedback bewertet stattdessen die
+    Grunderkennung selbst (echter Vermisstenfall eines Kindes? Angaben korrekt?)."""
+    cutoff = datetime.utcnow() - timedelta(days=60)
+    good = MissingChildCase.query.filter(MissingChildCase.feedback == 1,
+        MissingChildCase.feedback_at >= cutoff).order_by(MissingChildCase.feedback_at.desc()).limit(8).all()
+    bad = MissingChildCase.query.filter(MissingChildCase.feedback == -1,
+        MissingChildCase.feedback_at >= cutoff).order_by(MissingChildCase.feedback_at.desc()).limit(8).all()
+    if not good and not bad:
+        return ''
+    lines = ['\n\n--- NUTZER-FEEDBACK ZUR KALIBRIERUNG (aus echter Rückmeldung, letzte 60 Tage) ---']
+    if good:
+        lines.append('Als korrekt erkannt bestätigt (echter Fall, Angaben stimmten):')
+        for c in good:
+            lines.append(f'- "{c.display_name()}" ({c.stadt or "?"}, {c.alter or "?"} Jahre)')
+    if bad:
+        lines.append('Als FALSCH markiert (kein echter Fall oder Angaben stimmten nicht):')
+        for c in bad:
+            lines.append(f'- "{c.display_name()}" ({c.stadt or "?"}, {c.alter or "?"} Jahre)')
+    lines.append('Berücksichtige dieses Muster bei neuen Einschätzungen — ändert NICHTS an der Grundregel: '
+                 'nur aus dem gegebenen Text ableiten, nie erfinden.')
+    return '\n'.join(lines)
+
+
 def _mcf_extract_case_from_text(text, api_key):
     """Prüft eine Meldung auf Vermisstenmeldung eines KINDES und extrahiert Felder
     NUR aus dem Text (erfindet nichts). Gibt dict|None."""
@@ -17466,7 +17509,7 @@ def _mcf_extract_case_from_text(text, api_key):
         '"groesse": str|null, "haarfarbe": str|null, "kleidung": str|null, '
         '"merkmale": str|null, "beschreibung": str|null, "quelle_nummer": str|null (im Text genannte '
         'Polizei-Kontaktnummer)}.'
-    )
+    ) + _mcf_calibration_block()
     try:
         import anthropic
         import re as _re
@@ -20460,6 +20503,33 @@ _KF_JSON_SCHEMA = (
 )
 
 
+def _kf_calibration_block(account):
+    """Kurzer Kalibrierungs-Hinweis aus dem Nutzer-Feedback der letzten 60 Tage
+    — gleiches Muster wie _pwf_calibration_block/_mcf_calibration_block, hier
+    pro Nische statt global, weil jede Wissens-Nische andere Inhalte hat."""
+    cutoff = datetime.utcnow() - timedelta(days=60)
+    good = KnowledgeFact.query.filter(KnowledgeFact.account_id == account.id,
+        KnowledgeFact.feedback == 1, KnowledgeFact.feedback_at >= cutoff)\
+        .order_by(KnowledgeFact.feedback_at.desc()).limit(8).all()
+    bad = KnowledgeFact.query.filter(KnowledgeFact.account_id == account.id,
+        KnowledgeFact.feedback == -1, KnowledgeFact.feedback_at >= cutoff)\
+        .order_by(KnowledgeFact.feedback_at.desc()).limit(8).all()
+    if not good and not bad:
+        return ''
+    lines = ['\n\n--- NUTZER-FEEDBACK ZUR KALIBRIERUNG (aus echter Rückmeldung, letzte 60 Tage) ---']
+    if good:
+        lines.append('Als korrekt extrahiert bestätigt:')
+        for f in good:
+            lines.append(f'- "{f.display_name()}"')
+    if bad:
+        lines.append('Als FALSCH markiert (Fakt oder Angaben stimmten nicht):')
+        for f in bad:
+            lines.append(f'- "{f.display_name()}"')
+    lines.append('Berücksichtige dieses Muster bei neuen Extraktionen — ändert NICHTS an der Grundregel: '
+                 'nur aus dem gegebenen Text ableiten, nie erfinden.')
+    return '\n'.join(lines)
+
+
 def _kf_extract_system(account, schema=None, extra_instruction=None):
     niche = account.name
     cfg = account.knowledge_niche_config
@@ -20485,7 +20555,7 @@ def _kf_extract_system(account, schema=None, extra_instruction=None):
         lines.append(extra_instruction)
     lines += ['Antworte NUR mit einem JSON-Objekt, keine Erklärung davor oder danach, exakt in diesem Schema:',
               schema or _KF_JSON_SCHEMA]
-    return '\n'.join(lines)
+    return '\n'.join(lines) + _kf_calibration_block(account)
 
 
 def _kf_extract_fact_from_text(text, account, api_key):
@@ -21226,6 +21296,23 @@ def knowledge_factory_delete_fact(account_id, fact_id):
     db.session.delete(fact)
     db.session.commit()
     return redirect(url_for('knowledge_factory_niche', account_id=account_id))
+
+
+@app.route('/api/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/feedback', methods=['POST'])
+@login_required
+def knowledge_factory_feedback(account_id, fact_id):
+    """Nutzer bewertet ob die KI-Extraktion korrekt war. Fließt über
+    _kf_calibration_block in künftige Extraktionen dieser Nische ein."""
+    fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
+    d = request.get_json(silent=True) or {}
+    try:
+        v = int(d.get('value', 0))
+    except Exception:
+        v = 0
+    fact.feedback = v if v in (1, -1) else None
+    fact.feedback_at = datetime.utcnow() if fact.feedback else None
+    db.session.commit()
+    return jsonify({'ok': True, 'feedback': fact.feedback or 0})
 
 
 @app.route('/content-studio/wissensfabrik/einstellungen', methods=['GET', 'POST'])
