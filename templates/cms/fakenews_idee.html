@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Idee — Fake-News-Fabrik{% endblock %}
+{% block page_title %}FAKE-NEWS-IDEE{% endblock %}
+
+{% block content %}
+<div style="max-width:1000px">
+  <a href="{{ url_for('fake_news_fabrik') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Zurück zur Fake-News-Fabrik</a>
+
+  <div style="margin-top:14px;margin-bottom:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span class="badge badge-gray">{{ formate.get(idee.format, idee.format) }}</span>
+    <span class="badge" style="background:rgba(148,163,184,.15);color:{% if idee.origin == 'ki' %}var(--warning){% else %}var(--success){% endif %}">
+      {{ 'KI-generiert' if idee.origin == 'ki' else 'Selbst geschrieben' }}</span>
+    <span style="font-size:11px;color:var(--muted)">
+      angelegt {{ idee.created_at.strftime('%d.%m.%Y %H:%M') if idee.created_at else '—' }}
+      {% if gesamt_engagement is not none %} · bestes Engagement {{ gesamt_engagement }}{% endif %}
+    </span>
+  </div>
+
+  <div style="font-size:19px;font-weight:800;line-height:1.4;margin-bottom:10px">{{ idee.schlagzeile }}</div>
+  {% if idee.text %}
+  <div class="card" style="padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.6;white-space:pre-wrap">{{ idee.text }}</div>
+  {% endif %}
+  {% if idee.trend_thema %}
+  <div style="font-size:11px;color:var(--muted);margin-bottom:16px">
+    Entstanden aus dem aktuellen Thema: <b>{{ idee.trend_thema }}</b>
+  </div>
+  {% endif %}
+
+  <!-- Länder-Einschätzung -->
+  <div class="card" style="padding:18px;margin-bottom:18px;border-left:3px solid {% if idee.bezug == 'universell' %}var(--success){% elif idee.bezug %}var(--warning){% else %}var(--border){% endif %}">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+      <span style="font-weight:700;font-size:13px">Wo einsetzbar?</span>
+      {% if idee.bezug %}
+      <span class="badge" style="background:rgba(148,163,184,.15);color:{% if idee.bezug == 'universell' %}var(--success){% else %}var(--warning){% endif %}">
+        {{ bezug_labels.get(idee.bezug, idee.bezug) }}</span>
+      {% if idee.bezug_bestaetigt %}
+      <span style="font-size:11px;color:var(--success)">✓ von dir bestätigt</span>
+      {% else %}
+      <span style="font-size:11px;color:var(--warning)">KI-Vorschlag, noch nicht bestätigt</span>
+      {% endif %}
+      {% else %}
+      <span style="font-size:12px;color:var(--muted)">Noch nicht eingeschätzt</span>
+      {% endif %}
+      <button onclick="fnfBewerten(this)" class="btn btn-ghost" style="font-size:11px;padding:5px 12px;margin-left:auto">
+        {{ 'Neu einschätzen' if idee.bezug else 'KI einschätzen lassen' }}</button>
+    </div>
+    {% if idee.bezug_begruendung %}
+    <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:10px">{{ idee.bezug_begruendung }}</div>
+    {% endif %}
+    <div id="fnfBewertMsg" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+
+    <form method="POST" action="{{ url_for('fake_news_bezug_setzen', idee_id=idee.id) }}"
+          style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px">
+      <select name="bezug" class="select-field" style="width:auto;font-size:12px">
+        {% for key, lab in bezug_labels.items() %}
+        <option value="{{ key }}" {% if idee.bezug == key %}selected{% endif %}>{{ lab }}</option>
+        {% endfor %}
+      </select>
+      <input name="laender" value="{{ idee.get_laender()|join(', ') }}" class="input-field"
+             style="flex:1;min-width:180px;font-size:12px" placeholder="Länder, Komma-getrennt">
+      <button type="submit" class="btn btn-primary" style="font-size:12px;padding:8px 16px">Bestätigen</button>
+    </form>
+  </div>
+
+  <!-- Einsatz je Seite -->
+  <div style="font-weight:700;font-size:13px;margin-bottom:10px">Eingesetzt auf ({{ idee.einsaetze|length }})</div>
+  {% if not idee.einsaetze %}
+  <div class="card" style="padding:16px;margin-bottom:14px;font-size:12px;color:var(--muted)">
+    Noch auf keiner Seite eingesetzt.
+  </div>
+  {% endif %}
+  {% for e in idee.einsaetze %}
+  <div class="card" style="padding:14px 16px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-weight:700;font-size:13px">{{ e.account.name if e.account else '—' }}</span>
+      <span class="badge {% if e.status == 'veroeffentlicht' %}badge-green{% elif e.status == 'verworfen' %}badge-red{% else %}badge-gray{% endif %}">{{ e.status }}</span>
+      {% if e.engagement() is not none %}
+      <span style="font-size:11px;color:var(--success)">Engagement {{ e.engagement() }}</span>
+      {% endif %}
+      <button onclick="delEinsatz(this, {{ e.id }})" class="btn btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--danger);margin-left:auto">
+        <i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <form method="POST" action="{{ url_for('fake_news_einsatz_update', einsatz_id=e.id) }}"
+          style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;align-items:end">
+      <div><label class="form-label" style="font-size:10px">Status</label>
+        <select name="status" class="select-field" style="font-size:12px">
+          {% for s in ['geplant','veroeffentlicht','verworfen'] %}
+          <option value="{{ s }}" {% if e.status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select></div>
+      <div><label class="form-label" style="font-size:10px">Likes</label>
+        <input name="likes" type="number" min="0" value="{{ e.likes if e.likes is not none else '' }}" class="input-field" style="font-size:12px"></div>
+      <div><label class="form-label" style="font-size:10px">Kommentare</label>
+        <input name="comments" type="number" min="0" value="{{ e.comments if e.comments is not none else '' }}" class="input-field" style="font-size:12px"></div>
+      <div><label class="form-label" style="font-size:10px">Saves</label>
+        <input name="saves" type="number" min="0" value="{{ e.saves if e.saves is not none else '' }}" class="input-field" style="font-size:12px"></div>
+      <div><label class="form-label" style="font-size:10px">Reichweite</label>
+        <input name="reach" type="number" min="0" value="{{ e.reach if e.reach is not none else '' }}" class="input-field" style="font-size:12px"></div>
+      <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:8px">Speichern</button>
+    </form>
+  </div>
+  {% endfor %}
+
+  <!-- Wo noch möglich -->
+  <div style="font-weight:700;font-size:13px;margin:18px 0 10px">Wo noch möglich</div>
+  {% if not offene_seiten %}
+  <div class="card" style="padding:16px;font-size:12px;color:var(--muted)">
+    Auf allen angelegten Seiten bereits eingesetzt — oder es gibt noch keine weiteren Seiten.
+  </div>
+  {% endif %}
+  {% for o in offene_seiten %}
+  <div class="card" style="padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="flex:1;min-width:0">
+      <span style="font-weight:600;font-size:13px">{{ o.account.name }}</span>
+      <span style="font-size:11px;color:var(--muted)"> · {{ o.config.land }} ({{ o.config.sprache }})</span>
+    </div>
+    {% if o.passt is none %}
+    <span style="font-size:11px;color:var(--muted)">erst einschätzen lassen</span>
+    {% elif o.passt %}
+    <span style="font-size:11px;color:var(--success)">passt</span>
+    {% else %}
+    <span style="font-size:11px;color:var(--warning)">passt vermutlich nicht</span>
+    {% endif %}
+    <form method="POST" action="{{ url_for('fake_news_einsatz_anlegen', idee_id=idee.id) }}" style="display:inline">
+      <input type="hidden" name="account_id" value="{{ o.account.id }}">
+      <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:6px 14px">Hier einsetzen</button>
+    </form>
+  </div>
+  {% endfor %}
+
+  <div style="border-top:1px solid var(--border);margin-top:22px;padding-top:14px">
+    <button onclick="delIdee(this)" class="btn btn-ghost" style="font-size:12px;padding:7px 12px;color:var(--danger)">Idee löschen</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function fnfBewerten(btn){
+  const msg=document.getElementById('fnfBewertMsg');
+  btn.disabled=true; const o=btn.textContent; btn.textContent='Schätzt ein…';
+  msg.textContent='';
+  const r=await fetch('/api/fake-news/{{ idee.id }}/laender-bewerten',{method:'POST'})
+    .then(r=>r.json()).catch(()=>({ok:false,error:'Netzwerkfehler'}));
+  if(r.ok){ msg.textContent='Eingeschätzt — bitte unten bestätigen oder korrigieren.'; msg.style.color='var(--success)';
+            setTimeout(()=>location.reload(),900); }
+  else { msg.textContent=r.error||'Fehler.'; msg.style.color='var(--danger)'; btn.disabled=false; btn.textContent=o; }
+}
+async function delEinsatz(btn, eid){
+  if(!confirm('Diesen Einsatz entfernen?')) return;
+  btn.disabled=true;
+  const r=await fetch(`/api/fake-news/einsatz/${eid}/delete`,{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok) location.reload(); else { btn.disabled=false; alert('Entfernen fehlgeschlagen.'); }
+}
+async function delIdee(btn){
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Löschen','Diese Idee unwiderruflich löschen?','Löschen')) return; }
+  else if(!confirm('Diese Idee unwiderruflich löschen?')) return;
+  btn.disabled=true;
+  const r=await fetch('/api/fake-news/{{ idee.id }}/delete',{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok) window.location='{{ url_for("fake_news_fabrik") }}';
+  else { btn.disabled=false; alert('Löschen fehlgeschlagen.'); }
+}
+</script>
+{% endblock %}

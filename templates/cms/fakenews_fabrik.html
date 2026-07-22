@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}Fake-News-Fabrik — Content OS{% endblock %}
+{% block page_title %}FAKE-NEWS-FABRIK{% endblock %}
+
+{% block content %}
+<div style="max-width:1120px">
+  <p style="font-size:13px;color:var(--muted);margin-bottom:18px">
+    Satire-Ideen für alle deine Fake-News-Seiten. Eine Idee gehört nicht zu einer Seite —
+    die Fabrik schätzt ein, welche Ideen überall funktionieren und welche lokales Wissen brauchen.
+  </p>
+
+  {% if not seiten %}
+  <div class="card" style="padding:14px 18px;margin-bottom:18px;border:1px solid var(--warning);background:rgba(245,158,11,.08);font-size:13px">
+    Noch keine Fake-News-Seite angelegt — Ideen sammeln geht, aber die Länder-Zuordnung braucht Seiten.
+    <a href="{{ url_for('fake_news_einstellungen') }}" style="color:var(--accent2)">Jetzt anlegen →</a>
+  </div>
+  {% endif %}
+
+  <!-- Kennzahlen -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+    {% for lab, val, hint in [
+        ('Ideen gesamt', gesamt, 'alle'),
+        ('Entwürfe', counts.get('entwurf', 0), 'warten auf Prüfung'),
+        ('Verwendet', counts.get('verwendet', 0), 'schon eingesetzt'),
+        ('Überall nutzbar', bezug_counts.get('universell', 0), 'ohne lokales Wissen'),
+        ('Landesspezifisch', bezug_counts.get('landesspezifisch', 0), 'nur bestimmte Länder'),
+        ('Seiten', seiten|length, 'Module der Fabrik')] %}
+    <div class="card" style="padding:14px">
+      <div style="font-size:21px;font-weight:800">{{ val }}</div>
+      <div style="font-size:12px;font-weight:600">{{ lab }}</div>
+      <div style="font-size:10px;color:var(--muted)">{{ hint }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Idee selbst schreiben -->
+  <div class="card" style="padding:18px;margin-bottom:16px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:10px">Idee selbst schreiben</div>
+    <form method="POST" action="{{ url_for('fake_news_neu') }}">
+      <input name="schlagzeile" required class="input-field" style="font-size:13px;margin-bottom:10px"
+             placeholder="Schlagzeile — so wie sie später auf der Seite stehen soll">
+      <textarea name="text" rows="2" class="input-field" style="font-size:13px;font-family:inherit;margin-bottom:10px"
+                placeholder="Optionaler Meldungstext / Bildidee"></textarea>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <select name="format" class="select-field" style="width:auto;font-size:12px">
+          {% for key, lab in formate.items() %}<option value="{{ key }}">{{ lab }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 20px">Idee anlegen</button>
+        <span style="font-size:11px;color:var(--muted)">Zählt als Stil-Vorlage für die KI.</span>
+      </div>
+    </form>
+  </div>
+
+  <!-- KI generieren -->
+  <div class="card" style="padding:18px;margin-bottom:22px;border-left:3px solid var(--accent)">
+    <div style="font-weight:700;font-size:13px;margin-bottom:6px">Von der KI entwickeln lassen</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+      {% if stil_beispiele %}
+        Lernt aus {{ stil_beispiele }} eigenen Idee(n).
+        {% if trends %}Dockt optional an aktuelle Trend-Radar-Themen an: {{ trends[:3]|map(attribute='title')|join(', ') }}…{% endif %}
+      {% else %}
+        Noch keine eigenen Ideen — schreib erst ein paar selbst, damit die KI deinen Stil lernen kann.
+      {% endif %}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input type="number" id="fnfAnzahl" min="1" max="10" value="3" class="input-field" style="width:80px;font-size:12px">
+      <select id="fnfSeite" class="select-field" style="width:auto;font-size:12px">
+        <option value="">— ohne bestimmte Seite —</option>
+        {% for acc, cfg in seiten %}<option value="{{ acc.id }}">{{ acc.name }} ({{ cfg.land }})</option>{% endfor %}
+      </select>
+      <input type="text" id="fnfThema" class="input-field" style="flex:1;min-width:180px;font-size:12px" placeholder="Thema/Richtung (optional)">
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px">
+        <input type="checkbox" id="fnfTrends" checked> aktuelle Trends einbeziehen
+      </label>
+      <button onclick="fnfGenerieren(this)" class="btn btn-ghost" style="font-size:12px;padding:8px 14px"
+              {% if not stil_beispiele %}disabled{% endif %}>Ideen entwickeln</button>
+    </div>
+    <div id="fnfGenMsg" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+  </div>
+
+  <!-- Filter -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    {% for key, lab in [('','Alle'),('entwurf','Entwürfe'),('bereit','Bereit'),('verwendet','Verwendet'),('archiviert','Archiv'),('abgelehnt','Abgelehnt')] %}
+    <a href="?status={{ key }}{% if bezug_f %}&bezug={{ bezug_f }}{% endif %}{% if q_text %}&q={{ q_text }}{% endif %}"
+       style="padding:6px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;font-weight:700;text-decoration:none;
+              {% if status_f==key %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">
+      {{ lab }}{% if key %} ({{ counts.get(key,0) }}){% else %} ({{ gesamt }}){% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    {% for key, lab in [('','Alle Bezüge'),('universell','Überall nutzbar'),('landesspezifisch','Landesspezifisch')] %}
+    <a href="?bezug={{ key }}{% if status_f %}&status={{ status_f }}{% endif %}{% if q_text %}&q={{ q_text }}{% endif %}"
+       style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);font-size:11px;text-decoration:none;
+              {% if bezug_f==key %}background:var(--surface2);color:var(--accent2){% else %}color:var(--muted){% endif %}">{{ lab }}</a>
+    {% endfor %}
+    <form method="GET" style="margin-left:auto;display:flex;gap:6px">
+      {% if status_f %}<input type="hidden" name="status" value="{{ status_f }}">{% endif %}
+      {% if bezug_f %}<input type="hidden" name="bezug" value="{{ bezug_f }}">{% endif %}
+      <input type="text" name="q" value="{{ q_text }}" class="input-field" style="font-size:12px;width:180px" placeholder="Ideen durchsuchen…">
+      <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Suchen</button>
+    </form>
+    <a href="{{ url_for('fake_news_einstellungen') }}" style="font-size:12px;color:var(--muted);text-decoration:none;padding:7px 10px">
+      <i class="fa-solid fa-gear"></i> Seiten &amp; Einstellungen</a>
+  </div>
+
+  {% if not ideen %}
+  <div class="card" style="padding:34px;text-align:center;color:var(--muted);font-size:13px">
+    {% if q_text %}Keine Idee gefunden für „{{ q_text }}".{% else %}Noch keine Ideen — schreib oben die erste.{% endif %}
+  </div>
+  {% endif %}
+
+  {% if ideen %}
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <button onclick="selectAllFnf()" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Alle auswählen</button>
+    <span style="font-size:11px;color:var(--muted);margin-left:auto">{{ pagination.total }} gesamt · Seite {{ pagination.page }} von {{ pagination.pages or 1 }}</span>
+  </div>
+  <div id="fnfBulkBar" style="display:none;align-items:center;gap:12px;padding:12px 20px;
+       background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:10px;margin-bottom:16px">
+    <span id="fnfBulkCount" style="font-size:13px;font-weight:600;color:var(--accent2)"></span>
+    <button onclick="bulkDeleteFnf()" class="btn btn-danger" style="font-size:12px;padding:6px 14px">
+      <i class="fa-solid fa-trash"></i> Ausgewählte löschen</button>
+    <button onclick="deselectAllFnf()" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;margin-left:auto">Aufheben</button>
+  </div>
+  {% endif %}
+
+  {% for i in ideen %}
+  <div class="card" style="padding:14px 16px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start">
+    <input type="checkbox" class="fnf-checkbox" data-id="{{ i.id }}" onchange="updateFnfBulkBar()"
+           style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;margin-top:3px;flex-shrink:0">
+    <div style="flex:1;min-width:0">
+      <a href="{{ url_for('fake_news_idee', idee_id=i.id) }}"
+         style="font-size:13px;font-weight:600;line-height:1.5;text-decoration:none;color:var(--text);display:block">{{ i.display_name() }}</a>
+      <div style="font-size:11px;color:var(--muted);margin-top:5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span>{{ formate.get(i.format, i.format) }}</span>
+        <span>·</span>
+        <span>{{ 'KI' if i.origin == 'ki' else 'selbst' }}</span>
+        {% if i.bezug %}
+        <span>·</span>
+        <span style="color:{% if i.bezug == 'universell' %}var(--success){% else %}var(--warning){% endif %}">
+          {{ bezug_labels.get(i.bezug, i.bezug) }}{% if not i.bezug_bestaetigt %} (ungeprüft){% endif %}</span>
+        {% endif %}
+        {% if einsatz_zahl.get(i.id) %}
+        <span>·</span>
+        <span>auf {{ einsatz_zahl[i.id] }} Seite(n)</span>
+        {% endif %}
+        {% if idee_engagement.get(i.id) is not none %}
+        <span>·</span>
+        <span>bestes Engagement {{ idee_engagement[i.id] }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+      <span style="font-size:10px;padding:3px 9px;border-radius:11px;background:var(--surface2);color:var(--muted);white-space:nowrap">{{ i.status }}</span>
+      <button onclick="delFnfRow(event,{{ i.id }})" title="Löschen" class="btn btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--danger)">
+        <i class="fa-solid fa-xmark"></i></button>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if pagination and pagination.pages and pagination.pages > 1 %}
+  <div style="display:flex;gap:6px;justify-content:center;margin-top:18px;flex-wrap:wrap">
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if p %}
+      <a href="?page={{ p }}{% if status_f %}&status={{ status_f }}{% endif %}{% if bezug_f %}&bezug={{ bezug_f }}{% endif %}{% if q_text %}&q={{ q_text }}{% endif %}"
+         style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);font-size:12px;text-decoration:none;
+                {% if p == pagination.page %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">{{ p }}</a>
+      {% else %}<span style="color:var(--muted);padding:6px 4px">…</span>{% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function fnfGenerieren(btn){
+  const msg=document.getElementById('fnfGenMsg');
+  const body={
+    anzahl: parseInt(document.getElementById('fnfAnzahl').value)||3,
+    seite_id: document.getElementById('fnfSeite').value,
+    thema: document.getElementById('fnfThema').value.trim(),
+    mit_trends: document.getElementById('fnfTrends').checked
+  };
+  btn.disabled=true; const o=btn.textContent; btn.textContent='Entwickelt…';
+  msg.textContent='Die KI entwickelt Ideen im gelernten Stil…'; msg.style.color='var(--muted)';
+  try{
+    const r=await fetch('{{ url_for("fake_news_generieren") }}',{
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+    }).then(r=>r.json());
+    if(!r.ok){ msg.textContent=r.error||'Fehler.'; msg.style.color='var(--danger)'; }
+    else{ msg.textContent=`${r.angelegt} neue Ideen als Entwurf.`; msg.style.color='var(--success)';
+          setTimeout(()=>location.reload(),1400); }
+  }catch(e){ msg.textContent='Netzwerkfehler.'; msg.style.color='var(--danger)'; }
+  btn.disabled=false; btn.textContent=o;
+}
+async function delFnfRow(ev,id){
+  ev.preventDefault(); ev.stopPropagation();
+  const btn=ev.currentTarget, row=btn.closest('.card');
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Löschen','Diese Idee unwiderruflich löschen?','Löschen')) return; }
+  else if(!confirm('Diese Idee unwiderruflich löschen?')) return;
+  btn.disabled=true;
+  const r=await fetch(`/api/fake-news/${id}/delete`,{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){ row.style.transition='opacity .2s ease'; row.style.opacity='0'; setTimeout(()=>row.remove(),200); }
+  else { btn.disabled=false; alert('Löschen fehlgeschlagen.'); }
+}
+function getSelectedFnfIds(){
+  return Array.from(document.querySelectorAll('.fnf-checkbox:checked')).map(c=>parseInt(c.dataset.id));
+}
+function updateFnfBulkBar(){
+  const ids=getSelectedFnfIds(), bar=document.getElementById('fnfBulkBar');
+  if(!bar) return;
+  document.getElementById('fnfBulkCount').textContent=ids.length+' ausgewählt';
+  bar.style.display=ids.length?'flex':'none';
+}
+function selectAllFnf(){ document.querySelectorAll('.fnf-checkbox').forEach(cb=>cb.checked=true); updateFnfBulkBar(); }
+function deselectAllFnf(){ document.querySelectorAll('.fnf-checkbox').forEach(cb=>cb.checked=false); updateFnfBulkBar(); }
+async function bulkDeleteFnf(){
+  const ids=getSelectedFnfIds();
+  if(!ids.length) return;
+  const msg=`${ids.length} Idee(n) unwiderruflich löschen?`;
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Ausgewählte löschen',msg,'Löschen')) return; }
+  else if(!confirm(msg)) return;
+  const bar=document.getElementById('fnfBulkBar'), btn=bar.querySelector('.btn-danger');
+  const orig=btn.innerHTML;
+  btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Lösche…';
+  const r=await fetch('/api/fake-news/bulk-delete',{
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids})
+  }).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){
+    ids.forEach(id=>{
+      const cb=document.querySelector(`.fnf-checkbox[data-id="${id}"]`);
+      const row=cb&&cb.closest('.card');
+      if(row){ row.style.transition='opacity .2s ease'; row.style.opacity='0'; setTimeout(()=>row.remove(),200); }
+    });
+    updateFnfBulkBar();
+    if(typeof showToast==='function') showToast(`${r.deleted} gelöscht.`);
+  } else { btn.disabled=false; btn.innerHTML=orig; alert('Löschen fehlgeschlagen.'); }
+}
+</script>
+{% endblock %}

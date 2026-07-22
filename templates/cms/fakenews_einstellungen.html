@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Einstellungen — Fake-News-Fabrik{% endblock %}
+{% block page_title %}FAKE-NEWS-FABRIK{% endblock %}
+
+{% block content %}
+<div style="max-width:800px">
+  <a href="{{ url_for('fake_news_fabrik') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Zurück zur Fake-News-Fabrik</a>
+
+  <!-- Seiten (Module) -->
+  <div class="card" style="padding:20px;margin-top:14px;margin-bottom:20px">
+    <div style="font-weight:700;margin-bottom:6px">Seiten der Fabrik ({{ seiten|length }})</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px">
+      Jede Seite ist ein Modul der Fabrik. Land und Sprache entscheiden, welche Ideen hier funktionieren —
+      pro Land später eine eigene Seite anlegen.
+    </div>
+
+    {% if not seiten %}
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Noch keine Seite angelegt.</div>
+    {% endif %}
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px">
+      {% for acc, cfg in seiten %}
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface2);border-radius:8px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600">{{ acc.name }}{% if acc.handle %} <span style="color:var(--muted);font-weight:400">{{ acc.handle }}</span>{% endif %}</div>
+          <div style="font-size:11px;color:var(--muted)">
+            {{ cfg.land }} · {{ cfg.sprache }}{% if cfg.ausrichtung %} · {{ cfg.ausrichtung[:70] }}{% endif %}
+          </div>
+        </div>
+        <form method="POST" action="{{ url_for('fake_news_seite_entfernen', account_id=acc.id) }}"
+              onsubmit="return confirm('Seite aus der Fabrik nehmen? Der Account selbst bleibt bestehen.')">
+          <button type="submit" class="btn btn-ghost" style="font-size:11px;padding:5px 10px;color:var(--danger)">Entfernen</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div style="border-top:1px solid var(--border);padding-top:16px">
+      <div style="font-weight:700;font-size:12px;margin-bottom:10px">Seite hinzufügen</div>
+      <form method="POST" action="{{ url_for('fake_news_seite_anlegen') }}">
+        {% if freie_accounts %}
+        <div style="margin-bottom:10px">
+          <label class="form-label" style="font-size:11px">Bestehenden Account nutzen</label>
+          <select name="account_id" class="select-field" style="font-size:12px">
+            <option value="">— neuen Account anlegen —</option>
+            {% for a in freie_accounts %}
+            <option value="{{ a.id }}">{{ a.name }}{% if a.handle %} ({{ a.handle }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div><label class="form-label" style="font-size:11px">Name (nur bei neuem Account)</label>
+            <input name="name" class="input-field" style="font-size:12px" placeholder="z.B. Fake News Türkei"></div>
+          <div><label class="form-label" style="font-size:11px">Handle (optional)</label>
+            <input name="handle" class="input-field" style="font-size:12px" placeholder="@…"></div>
+          <div><label class="form-label" style="font-size:11px">Land</label>
+            <input name="land" value="Deutschland" class="input-field" style="font-size:12px"></div>
+          <div><label class="form-label" style="font-size:11px">Sprache</label>
+            <input name="sprache" value="de" class="input-field" style="font-size:12px"></div>
+        </div>
+        <div style="margin-bottom:12px">
+          <label class="form-label" style="font-size:11px">Ausrichtung (optional)</label>
+          <input name="ausrichtung" class="input-field" style="font-size:12px" placeholder="Tonfall, Themenschwerpunkte dieser Seite">
+        </div>
+        <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 18px">Seite hinzufügen</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- KI-Modell -->
+  <div class="card" style="padding:20px;margin-bottom:20px">
+    <div style="font-weight:700;margin-bottom:12px">KI-Modell</div>
+    <form method="POST" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input name="fnf_model" value="{{ fnf_model }}" class="input-field" style="flex:1;min-width:200px"
+             placeholder="leer = Standardmodell von Content OS">
+      <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 18px">Speichern</button>
+    </form>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">
+      Gilt für die Ideen-Generierung und die Länder-Einschätzung.
+    </div>
+  </div>
+
+  <!-- Stil-Vorlagen -->
+  <div class="card" style="padding:20px">
+    <div style="font-weight:700;margin-bottom:6px">Stil-Vorlagen ({{ stil_beispiele|length }})</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
+      Diese eigenen Ideen nimmt die KI als Vorbild — stärkste zuerst. KI-generierte Ideen dienen
+      bewusst nie selbst als Vorlage, damit sich der Stil nicht im Kreis dreht.
+    </div>
+    {% if not stil_beispiele %}
+    <div style="font-size:13px;color:var(--muted)">Noch keine eigenen Ideen — schreib erst welche in der Fabrik.</div>
+    {% endif %}
+    <div style="display:flex;flex-direction:column;gap:8px">
+      {% for i in stil_beispiele %}
+      <a href="{{ url_for('fake_news_idee', idee_id=i.id) }}"
+         style="font-size:12px;color:var(--text);text-decoration:none;padding:8px 10px;background:var(--surface2);border-radius:8px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        {{ i.display_name() }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

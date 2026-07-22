@@ -1770,3 +1770,97 @@ class Beichte(db.Model):
     def display_name(self):
         t = (self.text or '').strip()
         return (t[:70] + '…') if len(t) > 70 else (t or 'Leere Beichte')
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Fake-News-Fabrik (Content Studio)
+# Satire-Ideen für mehrere Seiten. Der springende Punkt gegenüber allen anderen
+# Fabriken: eine Idee gehört NICHT zu genau einer Seite, sondern kann auf
+# mehreren laufen — sofern sie kulturell passt. Deshalb Idee und Einsatz
+# getrennt: FakeNewsIdee = der Einfall, FakeNewsEinsatz = die Verwendung auf
+# einer konkreten Seite. Nur so ist beantwortbar, was noch woanders geht.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class FakeNewsSeiteConfig(db.Model):
+    """1:1-Ergänzung zu Account für Fake-News-Seiten — wie KnowledgeNicheConfig
+    bei der Wissensfabrik. Ein Account MIT dieser Zeile ist eine Fake-News-Seite
+    (Modul der Fabrik). Land/Sprache sind das Entscheidende: sie bestimmen, ob
+    eine landesspezifische Idee hier überhaupt funktioniert."""
+    __tablename__ = 'fake_news_seite_config'
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False, unique=True)
+    account = db.relationship('Account', backref=db.backref('fake_news_config', uselist=False))
+
+    land = db.Column(db.String(60), default='Deutschland')
+    sprache = db.Column(db.String(10), default='de')
+    ausrichtung = db.Column(db.Text)   # Tonfall/Themen dieser Seite, fließt in die Generierung ein
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class FakeNewsIdee(db.Model):
+    """Eine Satire-/Fake-News-Idee. Bewusst nur Text — Bilder kommen später,
+    diese Stufe liefert ausdrücklich nur die Einfälle."""
+    __tablename__ = 'fake_news_idee'
+    id = db.Column(db.Integer, primary_key=True)
+
+    schlagzeile = db.Column(db.String(400), nullable=False)
+    text = db.Column(db.Text)              # optionaler Ausbau/Meldungstext
+    format = db.Column(db.String(20), default='schlagzeile')   # schlagzeile / meme
+    origin = db.Column(db.String(20), default='selbst', index=True)  # selbst / ki
+    status = db.Column(db.String(20), default='entwurf', index=True)
+    # entwurf / bereit / verwendet / archiviert / abgelehnt
+
+    # ── Länder-Wiederverwendung (der Kern dieser Fabrik) ────────
+    # 'universell'        = funktioniert in jedem Land
+    # 'landesspezifisch'  = braucht lokales Wissen (Politiker, Marken, Ereignisse)
+    # None                = noch nicht eingeschätzt
+    bezug = db.Column(db.String(30), index=True)
+    laender = db.Column(db.Text, default='[]')      # JSON-Liste passender Länder
+    bezug_begruendung = db.Column(db.Text)          # warum universell / warum nicht
+    bezug_bestaetigt = db.Column(db.Boolean, default=False)  # Mensch hat die KI-Einschätzung abgenickt
+
+    trend_thema = db.Column(db.String(300))   # aktuelles Thema, aus dem die Idee entstand
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def get_laender(self):
+        return json.loads(self.laender or '[]')
+
+    def display_name(self):
+        s = (self.schlagzeile or '').strip()
+        return (s[:80] + '…') if len(s) > 80 else (s or 'Ohne Schlagzeile')
+
+
+class FakeNewsEinsatz(db.Model):
+    """Die Verwendung EINER Idee auf EINER Seite. Trennung von der Idee, weil
+    dieselbe Idee auf mehreren Länder-Seiten laufen kann und dort
+    unterschiedlich funktioniert — Performance gehört deshalb hierher, nicht
+    an die Idee."""
+    __tablename__ = 'fake_news_einsatz'
+    id = db.Column(db.Integer, primary_key=True)
+    idee_id = db.Column(db.Integer, db.ForeignKey('fake_news_idee.id'), nullable=False, index=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False, index=True)
+    idee = db.relationship('FakeNewsIdee', backref=db.backref('einsaetze', cascade='all,delete-orphan'))
+    account = db.relationship('Account')
+
+    status = db.Column(db.String(20), default='geplant')   # geplant / veroeffentlicht / verworfen
+    published_at = db.Column(db.DateTime)
+
+    likes = db.Column(db.Integer)
+    comments = db.Column(db.Integer)
+    saves = db.Column(db.Integer)
+    reach = db.Column(db.Integer)
+    performance_at = db.Column(db.DateTime)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def engagement(self):
+        """Gleiche Rechnung wie bei den Beichten, damit Zahlen aus beiden
+        Fabriken vergleichbar bleiben."""
+        if self.likes is None and self.comments is None and self.saves is None:
+            return None
+        roh = (self.likes or 0) + 3 * (self.comments or 0) + 2 * (self.saves or 0)
+        if self.reach:
+            return round(roh / self.reach * 1000, 1)
+        return roh

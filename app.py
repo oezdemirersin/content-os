@@ -33,7 +33,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     KnowledgeNicheConfig, KnowledgeCategory, KnowledgeSource,
                     KnowledgeFact, KnowledgeFactSource,
                     TlbStory, TlbSource,
-                    FactoryScanLog, Beichte)
+                    FactoryScanLog, Beichte,
+                    FakeNewsSeiteConfig, FakeNewsIdee, FakeNewsEinsatz)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -3180,6 +3181,11 @@ _FACTORY_DEFS = [
     {'key': 'beichten', 'label': 'Beichten', 'icon': '🤍',
      'url_endpoint': 'beichten_fabrik', 'settings_endpoint': 'beichten_einstellungen',
      'pending_label': 'wartet auf Prüfung', 'has_scan': False},
+    # Ebenfalls ohne Auto-Scan: Ideen entstehen durch eigenes Schreiben und
+    # KI-Generierung auf Zuruf (mit Trend-Radar-Bezug, aber ohne eigenen Scan).
+    {'key': 'fake_news', 'label': 'Fake News', 'icon': '🎭',
+     'url_endpoint': 'fake_news_fabrik', 'settings_endpoint': 'fake_news_einstellungen',
+     'pending_label': 'wartet auf Prüfung', 'has_scan': False},
 ]
 
 
@@ -3199,6 +3205,8 @@ def _factory_pending_count(key):
         return TlbStory.query.filter_by(status='entwurf').count()
     if key == 'beichten':
         return Beichte.query.filter_by(status='entwurf').count()
+    if key == 'fake_news':
+        return FakeNewsIdee.query.filter_by(status='entwurf').count()
     return 0
 
 
@@ -15103,6 +15111,7 @@ def content_studio_overview():
         'wissensfabrik': dict(Counter(f.status for f in KnowledgeFact.query.all())),
         'tageslichtblick': dict(Counter(s.status for s in TlbStory.query.all())),
         'beichten': dict(Counter(b.status for b in Beichte.query.all())),
+        'fake_news': dict(Counter(i.status for i in FakeNewsIdee.query.all())),
     }
     return render_template('factories_overview.html', overview=overview, breakdowns=breakdowns,
         active_page='studio')
@@ -22958,6 +22967,444 @@ def beichten_seite_anlegen():
     db.session.commit()
     flash(f'Seite "{acc.name}" angelegt und als Beichten-Seite gesetzt.', 'success')
     return redirect(url_for('beichten_einstellungen'))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FAKE-NEWS-FABRIK (Content Studio)
+#
+# Satire-Ideen für mehrere Seiten. Der Unterschied zu allen anderen Fabriken:
+# eine Idee gehört nicht zu genau einer Seite. Manche Satire funktioniert überall
+# ("Forscher entdecken, dass Katzen lügen"), manche braucht lokales Wissen
+# (Politiker, Marken, Ereignisse eines Landes). Deshalb sind Idee und Einsatz
+# getrennt — nur so lässt sich beantworten, was auf welcher Länder-Seite noch geht.
+#
+# Diese Stufe liefert bewusst NUR Ideen (Nutzer-Vorgabe) — kein Bild-Renderer.
+# ══════════════════════════════════════════════════════════════════════════════
+
+FNF_FORMATE = {'schlagzeile': 'Schlagzeile', 'meme': 'Meme'}
+FNF_BEZUG_LABELS = {'universell': 'Überall einsetzbar', 'landesspezifisch': 'Landesspezifisch'}
+
+
+def _fnf_seiten():
+    """Alle Fake-News-Seiten (= Module der Fabrik), Yarakschau ist die erste."""
+    return (db.session.query(Account, FakeNewsSeiteConfig)
+            .join(FakeNewsSeiteConfig, FakeNewsSeiteConfig.account_id == Account.id)
+            .order_by(Account.name).all())
+
+
+def _fnf_idee_engagement(idee):
+    """Bester Engagement-Wert über alle Einsätze dieser Idee. Eine Idee kann auf
+    mehreren Seiten laufen — fürs Stil-Lernen zählt, wie gut sie im besten Fall
+    funktioniert hat."""
+    werte = [e.engagement() for e in idee.einsaetze if e.engagement() is not None]
+    return max(werte) if werte else None
+
+
+def _fnf_style_examples(limit=12):
+    """Stil-Vorlagen: eigene (nicht-KI-)Ideen, die stärksten zuerst. Gleiche
+    Logik wie bei den Beichten — mit Zahlen belegte Ideen prägen den Stil
+    stärker, alles andere danach nach Aktualität."""
+    eigene = FakeNewsIdee.query.filter(FakeNewsIdee.origin != 'ki').all()
+    mit = [(i, _fnf_idee_engagement(i)) for i in eigene]
+    mit_zahlen = sorted([(i, e) for i, e in mit if e is not None], key=lambda x: x[1], reverse=True)
+    ohne_zahlen = sorted([i for i, e in mit if e is None],
+                         key=lambda i: i.created_at or datetime.min, reverse=True)
+    return [i for i, _ in mit_zahlen][:limit] + ohne_zahlen[:max(0, limit - len(mit_zahlen))]
+
+
+def _fnf_aktuelle_trends(limit=8):
+    """Was gerade im Land läuft — kommt aus dem Trend Radar, damit die Satire
+    an tatsächlichen Gesprächsthemen andockt statt im luftleeren Raum zu
+    entstehen. Ist der Trend Radar leer, funktioniert die Generierung trotzdem,
+    nur ohne aktuellen Bezug."""
+    try:
+        return (TrendTopic.query.filter_by(archived=False)
+                .order_by(TrendTopic.score.desc()).limit(limit).all())
+    except Exception as e:
+        app.logger.warning('FNF Trends: %s', e)
+        return []
+
+
+def _fnf_generate(anzahl, api_key, seite=None, thema=None, mit_trends=True):
+    """Generiert Satire-Ideen im gelernten Stil, optional angedockt an aktuelle
+    Trend-Radar-Themen. Erfinden ist hier ausdrücklich der Zweck — anders als in
+    den Recherche-Fabriken. Gibt Liste von dicts zurück."""
+    if not api_key:
+        return []
+    beispiele = _fnf_style_examples()
+    if not beispiele:
+        return []
+
+    def _mit_wert(i):
+        e = _fnf_idee_engagement(i)
+        return f'- {i.schlagzeile.strip()}' + (f'   [lief gut: {e}]' if e else '')
+
+    trends = _fnf_aktuelle_trends() if mit_trends else []
+    trend_block = ''
+    if trends:
+        trend_block = ('\n\nAktuell viel besprochene Themen (Trend Radar) — du DARFST daran '
+                       'andocken, musst aber nicht:\n'
+                       + '\n'.join(f'- {t.title}' for t in trends))
+
+    seiten_block = ''
+    if seite:
+        cfg = seite.fake_news_config
+        if cfg:
+            seiten_block = f'\n\nZielseite: {seite.name} (Land: {cfg.land}, Sprache: {cfg.sprache}).'
+            if cfg.ausrichtung:
+                seiten_block += f' Ausrichtung: {cfg.ausrichtung}'
+
+    system = (
+        'Du entwickelst Ideen für eine Satire-/Fake-News-Seite auf Instagram. '
+        'Die Meldungen sind ERFUNDEN — das ist hier gewollt und der Zweck der Seite. '
+        'Es geht um Humor und Überspitzung, nicht um Täuschung.\n\n'
+        'Richte dich eng nach Ton, Länge und Machart der folgenden Beispiele des '
+        'Betreibers. Beispiele mit "lief gut" haben beim Publikum besonders '
+        'funktioniert — orientiere dich stärker an diesen.\n\n'
+        + '\n'.join(_mit_wert(i) for i in beispiele)
+        + trend_block + seiten_block +
+        '\n\nRegeln:\n'
+        '- Keine realen Personen mit erfundenen Straftaten oder Krankheiten belasten.\n'
+        '- Nichts, was als echte Falschmeldung Schaden anrichten könnte (keine erfundenen '
+        'Katastrophen, Rückrufe, Gesundheitswarnungen, Wahlergebnisse).\n'
+        '- Keine Beleidigung von Gruppen, kein Hass, nichts Strafbares.\n'
+        '- Erkennbar überspitzt: der Witz soll beim Lesen auffliegen.\n\n'
+        'Gib pro Idee an, ob sie OHNE lokales Wissen überall funktioniert '
+        '("universell") oder ob sie an ein bestimmtes Land gebunden ist '
+        '("landesspezifisch").\n\n'
+        'Antworte NUR mit einem JSON-Objekt:\n'
+        '{"ideen": [{"schlagzeile": str, "text": str|null, '
+        '"format": "schlagzeile"|"meme", "bezug": "universell"|"landesspezifisch", '
+        '"laender": [str, ...], "begruendung": str, "trend_thema": str|null}, ...]}'
+    )
+    auftrag = f'Entwickle {anzahl} neue Ideen.'
+    if thema:
+        auftrag += f' Thema/Richtung: {thema}'
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('fnf_model') or get_setting('caption_model') or 'claude-sonnet-4-6'
+        resp = client.messages.create(model=model, max_tokens=2500, system=system,
+                                       messages=[{'role': 'user', 'content': auftrag}])
+        _log_ai('fnf_generate', resp)
+        span = _extract_balanced_json(resp.content[0].text.strip(), '{', '}')
+        data = json.loads(span) if span else {}
+        return [i for i in (data.get('ideen') or []) if isinstance(i, dict) and i.get('schlagzeile')]
+    except Exception as e:
+        app.logger.warning('FNF Generierung: %s', e)
+        return []
+
+
+def _fnf_bewerte_laender(idee, api_key):
+    """Schätzt ein, ob eine Idee überall funktioniert oder lokales Wissen
+    braucht — und welche der angelegten Seiten konkret in Frage kommen.
+    Der Mensch bestätigt die Einschätzung danach (bezug_bestaetigt)."""
+    if not api_key:
+        return False
+    seiten = _fnf_seiten()
+    seiten_text = '\n'.join(f'- {a.name} (Land: {c.land}, Sprache: {c.sprache})' for a, c in seiten) or '(noch keine Seiten angelegt)'
+    system = (
+        'Du beurteilst, ob eine Satire-Idee über Ländergrenzen hinweg funktioniert.\n\n'
+        'Vorhandene Seiten:\n' + seiten_text + '\n\n'
+        '"universell" = versteht man ohne Kenntnis eines bestimmten Landes '
+        '(allgemein menschliche Themen, Tiere, Alltag, Wissenschaft).\n'
+        '"landesspezifisch" = setzt lokales Wissen voraus (Politiker, Parteien, '
+        'Marken, TV-Formate, Ereignisse, Redewendungen eines Landes).\n\n'
+        'Antworte NUR mit einem JSON-Objekt:\n'
+        '{"bezug": "universell"|"landesspezifisch", "laender": [str, ...] '
+        '(bei universell die Länder aller passenden Seiten, sonst nur die passenden), '
+        '"begruendung": str (ein Satz)}'
+    )
+    inhalt = f'Schlagzeile: {idee.schlagzeile}'
+    if idee.text:
+        inhalt += f'\nText: {idee.text}'
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('fnf_model') or get_setting('caption_model') or 'claude-sonnet-4-6'
+        resp = client.messages.create(model=model, max_tokens=400, system=system,
+                                       messages=[{'role': 'user', 'content': inhalt}])
+        _log_ai('fnf_laender', resp)
+        span = _extract_balanced_json(resp.content[0].text.strip(), '{', '}')
+        data = json.loads(span) if span else {}
+        if not data.get('bezug'):
+            return False
+        idee.bezug = data['bezug']
+        idee.laender = json.dumps(data.get('laender') or [])
+        idee.bezug_begruendung = data.get('begruendung')
+        idee.bezug_bestaetigt = False   # Mensch muss noch abnicken
+        db.session.commit()
+        return True
+    except Exception as e:
+        app.logger.warning('FNF Länder-Bewertung: %s', e)
+        return False
+
+
+def _fnf_offene_seiten(idee):
+    """Seiten, auf denen die Idee noch NICHT eingesetzt wurde — inklusive Hinweis,
+    ob sie laut Einschätzung überhaupt passt. Das ist die eigentliche Antwort auf
+    'welche Fake News kann ich wo noch nutzen'."""
+    genutzt = {e.account_id for e in idee.einsaetze}
+    laender = [l.lower() for l in idee.get_laender()]
+    offen = []
+    for acc, cfg in _fnf_seiten():
+        if acc.id in genutzt:
+            continue
+        if idee.bezug == 'universell':
+            passt = True
+        elif idee.bezug == 'landesspezifisch':
+            passt = cfg.land and cfg.land.lower() in laender
+        else:
+            passt = None   # noch nicht eingeschätzt
+        offen.append({'account': acc, 'config': cfg, 'passt': passt})
+    return offen
+
+
+# ─── Routen ───────────────────────────────────────────────────────────────
+@app.route('/content-studio/fake-news')
+@login_required
+def fake_news_fabrik():
+    status_f = request.args.get('status', '')
+    bezug_f = request.args.get('bezug', '')
+    q_text = (request.args.get('q') or '').strip()
+    q = FakeNewsIdee.query
+    if status_f:
+        q = q.filter_by(status=status_f)
+    if bezug_f:
+        q = q.filter_by(bezug=bezug_f)
+    if q_text:
+        q = q.filter(FakeNewsIdee.schlagzeile.ilike(f'%{q_text}%'))
+    page = request.args.get('page', 1, type=int)
+    pagination = q.order_by(FakeNewsIdee.created_at.desc()).paginate(page=page, per_page=40, error_out=False)
+
+    from collections import Counter
+    alle = FakeNewsIdee.query.all()
+    return render_template('fakenews_fabrik.html',
+        ideen=pagination.items, pagination=pagination, gesamt=len(alle),
+        counts=dict(Counter(i.status for i in alle)),
+        bezug_counts=dict(Counter(i.bezug for i in alle if i.bezug)),
+        origin_counts=dict(Counter(i.origin for i in alle)),
+        status_f=status_f, bezug_f=bezug_f, q_text=q_text,
+        seiten=_fnf_seiten(), stil_beispiele=len(_fnf_style_examples()),
+        trends=_fnf_aktuelle_trends(5),
+        bezug_labels=FNF_BEZUG_LABELS, formate=FNF_FORMATE,
+        idee_engagement={i.id: _fnf_idee_engagement(i) for i in pagination.items},
+        einsatz_zahl={i.id: len(i.einsaetze) for i in pagination.items},
+        active_page='studio')
+
+
+@app.route('/content-studio/fake-news/<int:idee_id>')
+@login_required
+def fake_news_idee(idee_id):
+    idee = FakeNewsIdee.query.get_or_404(idee_id)
+    return render_template('fakenews_idee.html', idee=idee,
+        offene_seiten=_fnf_offene_seiten(idee),
+        bezug_labels=FNF_BEZUG_LABELS, formate=FNF_FORMATE,
+        gesamt_engagement=_fnf_idee_engagement(idee), active_page='studio')
+
+
+@app.route('/content-studio/fake-news/neu', methods=['POST'])
+@login_required
+def fake_news_neu():
+    s = (request.form.get('schlagzeile') or '').strip()
+    if len(s) < 5:
+        flash('Schlagzeile ist zu kurz.', 'error')
+        return redirect(url_for('fake_news_fabrik'))
+    idee = FakeNewsIdee(schlagzeile=s[:400], text=(request.form.get('text') or '').strip() or None,
+                        format=request.form.get('format', 'schlagzeile'),
+                        origin='selbst', status='entwurf')
+    db.session.add(idee)
+    db.session.commit()
+    return redirect(url_for('fake_news_idee', idee_id=idee.id))
+
+
+@app.route('/api/fake-news/generieren', methods=['POST'])
+@login_required
+def fake_news_generieren():
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Braucht einen Anthropic-API-Key (Einstellungen → KI).'}), 400
+    if not _fnf_style_examples():
+        return jsonify({'ok': False, 'error': 'Noch keine eigenen Ideen als Stil-Vorlage — schreib erst ein paar selbst.'}), 400
+    d = request.get_json(silent=True) or {}
+    try:
+        anzahl = max(1, min(10, int(d.get('anzahl', 3))))
+    except Exception:
+        anzahl = 3
+    seite = Account.query.get(int(d['seite_id'])) if str(d.get('seite_id', '')).isdigit() else None
+    ideen = _fnf_generate(anzahl, api_key, seite=seite,
+                          thema=(d.get('thema') or '').strip() or None,
+                          mit_trends=d.get('mit_trends', True))
+    if not ideen:
+        return jsonify({'ok': False, 'error': 'Die KI hat nichts geliefert — Logs prüfen.'}), 500
+    angelegt = 0
+    for i in ideen:
+        db.session.add(FakeNewsIdee(
+            schlagzeile=str(i['schlagzeile'])[:400], text=i.get('text'),
+            format=i.get('format') if i.get('format') in FNF_FORMATE else 'schlagzeile',
+            origin='ki', status='entwurf',
+            bezug=i.get('bezug') if i.get('bezug') in FNF_BEZUG_LABELS else None,
+            laender=json.dumps(i.get('laender') or []),
+            bezug_begruendung=i.get('begruendung'), trend_thema=i.get('trend_thema')))
+        angelegt += 1
+    db.session.commit()
+    return jsonify({'ok': True, 'angelegt': angelegt})
+
+
+@app.route('/api/fake-news/<int:idee_id>/laender-bewerten', methods=['POST'])
+@login_required
+def fake_news_laender_bewerten(idee_id):
+    idee = FakeNewsIdee.query.get_or_404(idee_id)
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Braucht einen Anthropic-API-Key.'}), 400
+    if not _fnf_bewerte_laender(idee, api_key):
+        return jsonify({'ok': False, 'error': 'Einschätzung fehlgeschlagen — Logs prüfen.'}), 500
+    return jsonify({'ok': True, 'bezug': idee.bezug, 'laender': idee.get_laender(),
+                    'begruendung': idee.bezug_begruendung})
+
+
+@app.route('/content-studio/fake-news/<int:idee_id>/bezug', methods=['POST'])
+@login_required
+def fake_news_bezug_setzen(idee_id):
+    """Mensch bestätigt oder korrigiert die KI-Einschätzung."""
+    idee = FakeNewsIdee.query.get_or_404(idee_id)
+    bezug = request.form.get('bezug')
+    if bezug in FNF_BEZUG_LABELS:
+        idee.bezug = bezug
+    laender = [l.strip() for l in (request.form.get('laender') or '').split(',') if l.strip()]
+    idee.laender = json.dumps(laender)
+    idee.bezug_bestaetigt = True
+    db.session.commit()
+    flash('Einschätzung bestätigt.', 'success')
+    return redirect(url_for('fake_news_idee', idee_id=idee_id))
+
+
+@app.route('/content-studio/fake-news/<int:idee_id>/einsatz', methods=['POST'])
+@login_required
+def fake_news_einsatz_anlegen(idee_id):
+    """Idee auf einer Seite einsetzen. Mehrfach möglich — genau darum geht es."""
+    FakeNewsIdee.query.get_or_404(idee_id)
+    aid = request.form.get('account_id')
+    if not (aid and str(aid).isdigit()):
+        flash('Keine Seite gewählt.', 'error')
+        return redirect(url_for('fake_news_idee', idee_id=idee_id))
+    if FakeNewsEinsatz.query.filter_by(idee_id=idee_id, account_id=int(aid)).first():
+        flash('Diese Idee ist auf der Seite bereits eingeplant.', 'error')
+        return redirect(url_for('fake_news_idee', idee_id=idee_id))
+    db.session.add(FakeNewsEinsatz(idee_id=idee_id, account_id=int(aid), status='geplant'))
+    db.session.commit()
+    return redirect(url_for('fake_news_idee', idee_id=idee_id))
+
+
+@app.route('/content-studio/fake-news/einsatz/<int:einsatz_id>', methods=['POST'])
+@login_required
+def fake_news_einsatz_update(einsatz_id):
+    """Status und Performance eines Einsatzes — Zahlen pro Seite, weil dieselbe
+    Idee je nach Land unterschiedlich läuft."""
+    e = FakeNewsEinsatz.query.get_or_404(einsatz_id)
+    neu = request.form.get('status')
+    if neu in ('geplant', 'veroeffentlicht', 'verworfen'):
+        if neu == 'veroeffentlicht' and e.status != 'veroeffentlicht':
+            e.published_at = datetime.utcnow()
+            e.idee.status = 'verwendet'
+        e.status = neu
+    if any(request.form.get(f) is not None for f in ('likes', 'comments', 'saves', 'reach')):
+        for feld in ('likes', 'comments', 'saves', 'reach'):
+            raw = (request.form.get(feld) or '').strip()
+            setattr(e, feld, int(raw) if raw.isdigit() else None)
+        e.performance_at = datetime.utcnow()
+    db.session.commit()
+    return redirect(url_for('fake_news_idee', idee_id=e.idee_id))
+
+
+@app.route('/api/fake-news/einsatz/<int:einsatz_id>/delete', methods=['POST'])
+@login_required
+def fake_news_einsatz_delete(einsatz_id):
+    e = FakeNewsEinsatz.query.get_or_404(einsatz_id)
+    db.session.delete(e)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/fake-news/<int:idee_id>/delete', methods=['POST'])
+@login_required
+def fake_news_delete(idee_id):
+    db.session.delete(FakeNewsIdee.query.get_or_404(idee_id))
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/fake-news/bulk-delete', methods=['POST'])
+@login_required
+def fake_news_bulk_delete():
+    ids = [int(i) for i in (request.get_json(silent=True) or {}).get('ids', []) if str(i).isdigit()]
+    if not ids:
+        return jsonify({'ok': False, 'error': 'Keine IDs übergeben'}), 400
+    rows = FakeNewsIdee.query.filter(FakeNewsIdee.id.in_(ids)).all()
+    for r in rows:
+        db.session.delete(r)
+    db.session.commit()
+    return jsonify({'ok': True, 'deleted': len(rows)})
+
+
+@app.route('/content-studio/fake-news/einstellungen', methods=['GET', 'POST'])
+@login_required
+def fake_news_einstellungen():
+    if request.method == 'POST':
+        set_setting('fnf_model', (request.form.get('fnf_model') or '').strip())
+        db.session.commit()
+        flash('Einstellungen gespeichert.', 'success')
+        return redirect(url_for('fake_news_einstellungen'))
+    vorhandene = {a.id for a, _c in _fnf_seiten()}
+    return render_template('fakenews_einstellungen.html',
+        seiten=_fnf_seiten(),
+        freie_accounts=[a for a in Account.query.order_by(Account.name).all() if a.id not in vorhandene],
+        fnf_model=get_setting('fnf_model') or '',
+        stil_beispiele=_fnf_style_examples(), active_page='studio')
+
+
+@app.route('/content-studio/fake-news/seite', methods=['POST'])
+@login_required
+def fake_news_seite_anlegen():
+    """Macht einen bestehenden Account zur Fake-News-Seite (Modul der Fabrik)
+    oder legt einen neuen an — z.B. später je Land."""
+    aid = request.form.get('account_id')
+    if aid and str(aid).isdigit():
+        acc = Account.query.get_or_404(int(aid))
+    else:
+        name = (request.form.get('name') or '').strip()
+        if not name:
+            flash('Name fehlt.', 'error')
+            return redirect(url_for('fake_news_einstellungen'))
+        platform = Platform.query.filter(Platform.name.ilike('%instagram%')).first() or Platform.query.first()
+        if not platform:
+            flash('Keine Plattform vorhanden.', 'error')
+            return redirect(url_for('fake_news_einstellungen'))
+        acc = Account(name=name, handle=(request.form.get('handle') or '').strip() or None,
+                      platform_id=platform.id, status='active', priority='medium')
+        db.session.add(acc)
+        db.session.flush()
+    if not acc.fake_news_config:
+        db.session.add(FakeNewsSeiteConfig(
+            account_id=acc.id,
+            land=(request.form.get('land') or 'Deutschland').strip(),
+            sprache=(request.form.get('sprache') or 'de').strip(),
+            ausrichtung=(request.form.get('ausrichtung') or '').strip() or None))
+    db.session.commit()
+    flash(f'"{acc.name}" ist jetzt eine Fake-News-Seite.', 'success')
+    return redirect(url_for('fake_news_einstellungen'))
+
+
+@app.route('/content-studio/fake-news/seite/<int:account_id>/entfernen', methods=['POST'])
+@login_required
+def fake_news_seite_entfernen(account_id):
+    """Nimmt die Seite aus der Fabrik — der Account selbst bleibt bestehen."""
+    cfg = FakeNewsSeiteConfig.query.filter_by(account_id=account_id).first_or_404()
+    db.session.delete(cfg)
+    db.session.commit()
+    flash('Seite aus der Fabrik entfernt (Account bleibt bestehen).', 'success')
+    return redirect(url_for('fake_news_einstellungen'))
 
 
 if __name__ == '__main__':
