@@ -1682,3 +1682,24 @@ class TlbSource(db.Model):
     veroeffentlicht_gesamt = db.Column(db.Integer, default=0)  # Trefferquote je Quelle
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class FactoryScanLog(db.Model):
+    """Fabrik-übergreifender Scan-Verlauf (Content Studio) — EIN gemeinsames
+    Modell für alle Content-Studio-Fabriken (MCF/PWF/Trend Radar/Wissensfabrik/
+    Tageslichtblick), damit Auto-Scans erstmals sichtbar sind statt nur im
+    Server-Log zu verschwinden. Jede Fabrik behält ihre eigene Scan-Logik —
+    dieses Modell ist reine Beobachtbarkeit, kein Eingriff in den Ablauf."""
+    __tablename__ = 'factory_scan_log'
+    id = db.Column(db.Integer, primary_key=True)
+    factory = db.Column(db.String(30), index=True, nullable=False)
+    # 'mcf' / 'pwf' / 'trend_radar' / 'wissensfabrik' / 'tageslichtblick'
+
+    started_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    finished_at = db.Column(db.DateTime)
+    status = db.Column(db.String(20), default='running')  # running/success/error
+
+    items_checked = db.Column(db.Integer)
+    items_created = db.Column(db.Integer)
+    summary = db.Column(db.Text)         # freier Einzeiler, z.B. "3 neu, Sieger: ..."
+    error_message = db.Column(db.Text)

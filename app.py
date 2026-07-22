@@ -32,7 +32,8 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     ProductAlert, ProductAlertSource,
                     KnowledgeNicheConfig, KnowledgeCategory, KnowledgeSource,
                     KnowledgeFact, KnowledgeFactSource,
-                    TlbStory, TlbSource)
+                    TlbStory, TlbSource,
+                    FactoryScanLog)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -3122,6 +3123,112 @@ def _ensure_telegram_webhook():
         app.logger.error('Telegram setWebhook (Auto) fehlgeschlagen: %s', res.get('description'))
 
 
+# ── Fabrik-übergreifender Scan-Verlauf (Content Studio) ──────────────────────
+# Reine Beobachtbarkeit: jede Fabrik behält ihre eigene Scan-Logik, hier wird nur
+# Start/Ende/Ergebnis protokolliert, damit Auto-Scans nicht mehr nur im Server-Log
+# verschwinden. MUSS vor dem Thread-Start definiert sein (s. Webhook-Kommentar oben).
+def _factory_scan_log_start(factory):
+    log = FactoryScanLog(factory=factory, status='running', started_at=datetime.utcnow())
+    db.session.add(log)
+    db.session.commit()
+    return log.id
+
+
+def _factory_scan_log_finish(log_id, status='success', items_checked=None, items_created=None,
+                              summary=None, error=None):
+    log = FactoryScanLog.query.get(log_id)
+    if not log:
+        return
+    log.finished_at = datetime.utcnow()
+    log.status = status
+    log.items_checked = items_checked
+    log.items_created = items_created
+    log.summary = summary
+    log.error_message = error
+    db.session.commit()
+
+
+# Erwartetes Scan-Intervall je Fabrik in Minuten — grobe Schätzung für die
+# Gesund/Veraltet-Einstufung im Überblick, kein exaktes Settings-Auslesen nötig.
+_FACTORY_SCAN_INTERVAL_MIN = {
+    'mcf': 120, 'pwf': 30, 'trend_radar': 180, 'wissensfabrik': 60, 'tageslichtblick': 60,
+}
+
+# Definition aller Content-Studio-Fabriken für den Überblick — bewusst als Liste
+# statt Auto-Erkennung, damit eine neue Fabrik hier explizit einen Eintrag
+# bekommt (kein Registrierungs-Mechanismus, s. Content-Studio-Registrierung).
+_FACTORY_DEFS = [
+    {'key': 'mcf', 'label': 'Missing Children', 'icon': '🚨',
+     'url_endpoint': 'missing_children_factory', 'settings_endpoint': 'mcf_einstellungen',
+     'pending_label': 'wartet auf Prüfung'},
+    {'key': 'pwf', 'label': 'Product Alerts', 'icon': '⚠️',
+     'url_endpoint': 'product_alert_factory', 'settings_endpoint': 'pwf_einstellungen',
+     'pending_label': 'wartet auf Prüfung'},
+    {'key': 'trend_radar', 'label': 'Trend Radar', 'icon': '📈',
+     'url_endpoint': 'trend_radar', 'settings_endpoint': None,
+     'pending_label': 'aktive Themen'},
+    {'key': 'wissensfabrik', 'label': 'Wissensfabrik', 'icon': '🧠',
+     'url_endpoint': 'knowledge_factory_list', 'settings_endpoint': 'knowledge_factory_settings',
+     'pending_label': 'wartet auf Prüfung'},
+    {'key': 'tageslichtblick', 'label': 'Tageslichtblick', 'icon': '☀️',
+     'url_endpoint': 'tageslichtblick', 'settings_endpoint': 'tageslichtblick_settings',
+     'pending_label': 'wartet auf Freigabe'},
+]
+
+
+def _factory_pending_count(key):
+    """Wie viele Elemente gerade menschliche Aufmerksamkeit brauchen — vier der
+    fünf Fabriken nutzen bereits identisch status=='entwurf', Trend Radar hat
+    keinen Freigabe-Workflow (kontinuierlicher Strom, daher 'aktive Themen')."""
+    if key == 'mcf':
+        return MissingChildCase.query.filter_by(status='entwurf').count()
+    if key == 'pwf':
+        return ProductAlert.query.filter_by(status='entwurf').count()
+    if key == 'trend_radar':
+        return TrendTopic.query.filter_by(archived=False).count()
+    if key == 'wissensfabrik':
+        return KnowledgeFact.query.filter_by(status='entwurf').count()
+    if key == 'tageslichtblick':
+        return TlbStory.query.filter_by(status='entwurf').count()
+    return 0
+
+
+def _factory_health(factory, log):
+    """'ok' / 'stale' / 'error' / 'running' — rein informativ, greift nirgends ein."""
+    if not log:
+        return 'stale'
+    if log.status == 'running':
+        return 'running'
+    if log.status == 'error':
+        return 'error'
+    if not log.finished_at:
+        return 'stale'
+    expected_min = _FACTORY_SCAN_INTERVAL_MIN.get(factory, 60)
+    age_min = (datetime.utcnow() - log.finished_at).total_seconds() / 60
+    return 'ok' if age_min <= expected_min * 2 else 'stale'
+
+
+def _factory_overview_summary():
+    """Eine Zeile pro Content-Studio-Fabrik für Sidebar-Badges + Überblicksseite."""
+    result = []
+    for d in _FACTORY_DEFS:
+        log = (FactoryScanLog.query.filter_by(factory=d['key'])
+               .order_by(FactoryScanLog.started_at.desc()).first())
+        result.append({
+            'key': d['key'], 'label': d['label'], 'icon': d['icon'],
+            'url': url_for(d['url_endpoint']),
+            'settings_url': url_for(d['settings_endpoint']) if d['settings_endpoint'] else None,
+            'pending_count': _factory_pending_count(d['key']),
+            'pending_label': d['pending_label'],
+            'last_scan_relative': _tr_rel_time(log.started_at) if log else None,
+            'last_scan_status': log.status if log else None,
+            'last_scan_summary': log.summary if log else None,
+            'last_scan_error': log.error_message if log else None,
+            'health': _factory_health(d['key'], log),
+        })
+    return result
+
+
 # Heartbeat des Hintergrund-Schedulers (für /status). Dict-Mutation = kein global nötig.
 _sched_health = {'last_tick': None}
 _last_mcf_research_at = None  # Missing-Children Auto-Recherche: letzter Lauf
@@ -3156,8 +3263,7 @@ def schedule_automations():
                     if _last_mcf_research_at is None or (now - _last_mcf_research_at).total_seconds() >= _iv * 60:
                         _last_mcf_research_at = now
                         try:
-                            _mcf_run_research()
-                            _mcf_monitor_updates()
+                            _mcf_scan_and_log()
                         except Exception as _e:
                             app.logger.error('MCF Auto-Recherche/Monitoring: %s', _e)
 
@@ -14818,7 +14924,8 @@ def content_studio():
         all_accounts=all_accounts,
         selected_account=first,
         active_page='studio',
-        automation_rules=[])
+        automation_rules=[],
+        factory_overview=_factory_overview_summary())
 
 
 @app.route('/content-studio/<int:account_id>')
@@ -14842,7 +14949,28 @@ def content_studio_account(account_id):
         all_accounts=all_accounts,
         selected_account=acc,
         active_page='studio',
-        automation_rules=automation_rules)
+        automation_rules=automation_rules,
+        factory_overview=_factory_overview_summary())
+
+
+@app.route('/content-studio/uebersicht')
+@login_required
+def content_studio_overview():
+    """Ein Blick auf alle Content-Studio-Fabriken: was steht an, läuft der
+    Auto-Scan gesund. Bewusst nur der jeweils letzte Scan pro Fabrik (kein
+    Verlauf/Timeline in dieser Phase)."""
+    from collections import Counter
+    overview = _factory_overview_summary()
+    breakdowns = {
+        'mcf': dict(Counter(c.status for c in MissingChildCase.query.all())),
+        'pwf': dict(Counter(a.status for a in ProductAlert.query.all())),
+        'trend_radar': {'aktiv': TrendTopic.query.filter_by(archived=False).count(),
+                         'archiviert': TrendTopic.query.filter_by(archived=True).count()},
+        'wissensfabrik': dict(Counter(f.status for f in KnowledgeFact.query.all())),
+        'tageslichtblick': dict(Counter(s.status for s in TlbStory.query.all())),
+    }
+    return render_template('factories_overview.html', overview=overview, breakdowns=breakdowns,
+        active_page='studio')
 
 
 @app.route('/api/content-studio/<int:account_id>/toggle', methods=['POST'])
@@ -17426,7 +17554,7 @@ def mcf_research_run():
         return jsonify({'ok': False, 'error': 'Auto-Recherche braucht einen Anthropic-API-Key (Einstellungen → KI).'}), 400
     if not json.loads(get_setting('mcf_sources') or '[]'):
         return jsonify({'ok': False, 'error': 'Noch keine Quellen hinterlegt.'}), 400
-    created, checked = _mcf_run_research()
+    created, checked = _mcf_scan_and_log()
     return jsonify({'ok': True, 'created': created, 'checked': checked})
 
 
@@ -17539,6 +17667,22 @@ def _mcf_monitor_updates():
                 flagged += 1
         db.session.commit()
     return flagged, checked
+
+
+def _mcf_scan_and_log():
+    """Kapselt Auto-Recherche + Auflösungs-Monitor mit gemeinsamem Scan-Log-Eintrag
+    (FactoryScanLog) — genutzt vom Scheduler UND vom manuellen Trigger, damit beide
+    Wege sichtbar werden."""
+    log_id = _factory_scan_log_start('mcf')
+    try:
+        created, checked1 = _mcf_run_research()
+        flagged, checked2 = _mcf_monitor_updates()
+        _factory_scan_log_finish(log_id, status='success', items_checked=checked1 + checked2,
+            items_created=created, summary=f'{created} neu, {flagged} Auflösung(en) erkannt')
+        return created, checked1
+    except Exception as e:
+        _factory_scan_log_finish(log_id, status='error', error=str(e))
+        raise
 
 
 @app.route('/api/mcf/monitor/run', methods=['POST'])
@@ -18342,14 +18486,19 @@ def _tr_fire_topic_alert(topic):
 
 
 def _tr_run_scan():
-    """Kompletter Scan: Signale sammeln + clustern. Läuft in eigenem Thread."""
+    """Kompletter Scan: Signale sammeln + clustern. Läuft in eigenem Thread.
+    Wrapping hier statt an den Aufrufstellen: der manuelle Trigger startet diese
+    Funktion fire-and-forget in einem Thread (Antwort kommt vor Scan-Ende zurück),
+    Auto-Scan ruft sie synchron auf — beide Wege laufen hier zusammen."""
     if _tr_scan_status['running']:
         return
     _tr_scan_status.update({'running': True, 'error': None, 'signals': 0,
                             'topics': 0, 'started_at': datetime.utcnow().isoformat(),
                             'finished_at': None, 'step': 'Starte…'})
+    log_id = None
     try:
         with app.app_context():
+            log_id = _factory_scan_log_start('trend_radar')
             _tr_scan_status['signals'] = _tr_collect_signals()
             api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
             if api_key:
@@ -18372,6 +18521,13 @@ def _tr_run_scan():
         _tr_scan_status['running'] = False
         _tr_scan_status['step'] = ''
         _tr_scan_status['finished_at'] = datetime.utcnow().isoformat()
+        if log_id is not None:
+            with app.app_context():
+                _factory_scan_log_finish(log_id,
+                    status='error' if _tr_scan_status['error'] else 'success',
+                    items_checked=_tr_scan_status['signals'], items_created=_tr_scan_status['topics'],
+                    summary=f"{_tr_scan_status['signals']} Signale, {_tr_scan_status['topics']} Themen",
+                    error=_tr_scan_status['error'])
 
 
 def _tr_auto_scan():
@@ -19763,6 +19919,20 @@ def _pwf_run_research():
     return created, checked
 
 
+def _pwf_scan_and_log():
+    """Kapselt _pwf_run_research() mit gemeinsamem Scan-Log-Eintrag (FactoryScanLog)
+    — genutzt vom Scheduler UND vom manuellen Trigger."""
+    log_id = _factory_scan_log_start('pwf')
+    try:
+        created, checked = _pwf_run_research()
+        _factory_scan_log_finish(log_id, status='success', items_checked=checked, items_created=created,
+            summary=f'{created} neu, {checked} geprüft')
+        return created, checked
+    except Exception as e:
+        _factory_scan_log_finish(log_id, status='error', error=str(e))
+        raise
+
+
 def _pwf_auto_scan():
     with app.app_context():
         if get_setting('pwf_auto_research') != '1':
@@ -19771,7 +19941,7 @@ def _pwf_auto_scan():
         if not (os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')):
             app.logger.warning('PWF Auto-Scan übersprungen: kein Anthropic-API-Key konfiguriert.')
             return
-        _pwf_run_research()
+        _pwf_scan_and_log()
 
 
 @app.route('/api/pwf/research/run', methods=['POST'])
@@ -19782,7 +19952,7 @@ def pwf_research_run():
         return jsonify({'ok': False, 'error': 'Auto-Recherche braucht einen Anthropic-API-Key (Einstellungen → KI).'}), 400
     if not ProductAlertSource.query.filter_by(active=True).first():
         return jsonify({'ok': False, 'error': 'Noch keine Quellen hinterlegt.'}), 400
-    created, checked = _pwf_run_research()
+    created, checked = _pwf_scan_and_log()
     return jsonify({'ok': True, 'created': created, 'checked': checked})
 
 
@@ -20506,7 +20676,14 @@ def _kf_auto_scan():
     with app.app_context():
         if get_setting('kf_auto_research') != '1':
             return
-        _kf_run_research()
+        log_id = _factory_scan_log_start('wissensfabrik')
+        try:
+            created, checked = _kf_run_research()
+            _factory_scan_log_finish(log_id, status='success', items_checked=checked, items_created=created,
+                summary=f'{created} neu, {checked} Quellen geprüft')
+        except Exception as e:
+            _factory_scan_log_finish(log_id, status='error', error=str(e))
+            raise
 
 
 def _kf_find_or_create_category(account_id, name):
@@ -21768,13 +21945,30 @@ def _tlb_publish(story, auto=False, user_id=None):
     return story
 
 
+def _tlb_scan_and_log(force=False):
+    """Kapselt _tlb_run_scan() mit gemeinsamem Scan-Log-Eintrag (FactoryScanLog)
+    — genutzt vom Scheduler UND vom manuellen Trigger."""
+    log_id = _factory_scan_log_start('tageslichtblick')
+    try:
+        bericht = _tlb_run_scan(force=force)
+        _factory_scan_log_finish(log_id,
+            status='error' if bericht.get('fehler') else 'success',
+            items_checked=bericht.get('bewertet'), items_created=bericht.get('neu'),
+            summary=f"{bericht.get('neu', 0)} neu, Sieger: {bericht.get('sieger') or '—'}",
+            error='; '.join(bericht.get('fehler') or []) or None)
+        return bericht
+    except Exception as e:
+        _factory_scan_log_finish(log_id, status='error', error=str(e))
+        raise
+
+
 def _tlb_auto_scan():
     """Scheduler-Einstieg. Läuft nur, wenn die Automatik aktiviert ist."""
     if get_setting('tlb_auto_scan') != '1':
         return
     try:
         with app.app_context():
-            _tlb_run_scan()
+            _tlb_scan_and_log()
     except Exception as e:
         app.logger.error('TLB Auto-Scan: %s', e)
 
@@ -21909,7 +22103,7 @@ def tlb_scan_now():
     """Manueller Scan. Läuft synchron, damit das Ergebnis direkt sichtbar ist —
     ein Lauf über die Startquellen dauert typischerweise unter einer Minute."""
     try:
-        bericht = _tlb_run_scan(force=bool((request.get_json(silent=True) or {}).get('force')))
+        bericht = _tlb_scan_and_log(force=bool((request.get_json(silent=True) or {}).get('force')))
         return jsonify({'ok': True, 'bericht': bericht})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
