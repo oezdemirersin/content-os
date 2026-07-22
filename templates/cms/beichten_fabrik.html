@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Beichten-Fabrik — Content OS{% endblock %}
+{% block page_title %}BEICHTEN-FABRIK{% endblock %}
+
+{% block content %}
+<div style="max-width:1120px">
+  <p style="font-size:13px;color:var(--muted);margin-bottom:18px">
+    Beichten selbst schreiben, einreichen lassen und von der KI im gelernten Stil erzeugen.
+    Deine eigenen Beichten sind gleichzeitig die Stil-Vorlage — je mehr Zahlen du einträgst,
+    desto gezielter schreibt die KI.
+  </p>
+
+  {% if not target_account %}
+  <div class="card" style="padding:14px 18px;margin-bottom:18px;border:1px solid var(--warning);background:rgba(245,158,11,.08);font-size:13px">
+    Noch keine Beichten-Seite festgelegt — Sammeln und Schreiben geht, Veröffentlichen noch nicht.
+    <a href="{{ url_for('beichten_einstellungen') }}" style="color:var(--accent2)">Jetzt festlegen →</a>
+  </div>
+  {% endif %}
+
+  <!-- Kennzahlen -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+    {% for lab, val, hint in [
+        ('Gesamt', gesamt, 'alle Beichten'),
+        ('Entwürfe', counts.get('entwurf', 0), 'warten auf Prüfung'),
+        ('Veröffentlicht', counts.get('veroeffentlicht', 0), 'als Post eingeplant'),
+        ('Selbst geschrieben', origin_counts.get('selbst', 0), 'Stil-Vorlage'),
+        ('Eingereicht', origin_counts.get('eingereicht', 0), 'über das Formular'),
+        ('KI-generiert', origin_counts.get('ki', 0), 'im gelernten Stil')] %}
+    <div class="card" style="padding:14px">
+      <div style="font-size:21px;font-weight:800">{{ val }}</div>
+      <div style="font-size:12px;font-weight:600">{{ lab }}</div>
+      <div style="font-size:10px;color:var(--muted)">{{ hint }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Neue Beichte schreiben -->
+  <div class="card" style="padding:18px;margin-bottom:16px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:10px">Beichte selbst schreiben</div>
+    <form method="POST" action="{{ url_for('beichte_neu') }}">
+      <textarea name="text" rows="3" required class="input-field" style="font-size:13px;font-family:inherit;margin-bottom:10px"
+                placeholder="Schreib die Beichte so, wie sie später auf der Seite stehen soll…"></textarea>
+      <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 20px">Beichte anlegen</button>
+      <span style="font-size:11px;color:var(--muted);margin-left:10px">Zählt als Stil-Vorlage für die KI.</span>
+    </form>
+  </div>
+
+  <!-- KI generieren lassen -->
+  <div class="card" style="padding:18px;margin-bottom:22px;border-left:3px solid var(--accent)">
+    <div style="font-weight:700;font-size:13px;margin-bottom:6px">Von der KI schreiben lassen</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+      {% if stil_beispiele %}
+        Lernt gerade aus {{ stil_beispiele }} eigenen Beichte(n). Ergebnisse landen immer als Entwurf.
+      {% else %}
+        Noch keine eigenen Beichten vorhanden — schreib erst ein paar selbst, dann kann die KI deinen Stil lernen.
+      {% endif %}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input type="number" id="bfAnzahl" min="1" max="10" value="3" class="input-field" style="width:80px;font-size:12px">
+      <input type="text" id="bfThema" class="input-field" style="flex:1;min-width:200px;font-size:12px" placeholder="Thema/Richtung (optional), z.B. Arbeit, Nachbarn, Schule">
+      <button onclick="bfGenerieren(this)" class="btn btn-ghost" style="font-size:12px;padding:8px 14px"
+              {% if not stil_beispiele %}disabled{% endif %}>Generieren</button>
+    </div>
+    <div id="bfGenMsg" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+  </div>
+
+  <!-- Filter + Suche -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    {% for key, lab in [('','Alle'),('entwurf','Entwürfe'),('bereit','Bereit'),('veroeffentlicht','Veröffentlicht'),('archiviert','Archiv'),('abgelehnt','Abgelehnt')] %}
+    <a href="?status={{ key }}{% if q_text %}&q={{ q_text }}{% endif %}"
+       style="padding:6px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;font-weight:700;text-decoration:none;
+              {% if status_f==key %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">
+      {{ lab }}{% if key %} ({{ counts.get(key,0) }}){% else %} ({{ gesamt }}){% endif %}
+    </a>
+    {% endfor %}
+    <form method="GET" style="margin-left:auto;display:flex;gap:6px">
+      {% if status_f %}<input type="hidden" name="status" value="{{ status_f }}">{% endif %}
+      <input type="text" name="q" value="{{ q_text }}" class="input-field" style="font-size:12px;width:180px" placeholder="Beichten durchsuchen…">
+      <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Suchen</button>
+    </form>
+    <a href="{{ url_for('beichten_einstellungen') }}" style="font-size:12px;color:var(--muted);text-decoration:none;padding:7px 10px">
+      <i class="fa-solid fa-gear"></i> Einstellungen</a>
+  </div>
+
+  {% if not beichten %}
+  <div class="card" style="padding:34px;text-align:center;color:var(--muted);font-size:13px">
+    {% if q_text %}Keine Beichte gefunden für „{{ q_text }}".{% else %}Noch keine Beichten — schreib oben die erste.{% endif %}
+  </div>
+  {% endif %}
+
+  {% if beichten %}
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <button onclick="selectAllBf()" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Alle auswählen</button>
+    <span style="font-size:11px;color:var(--muted);margin-left:auto">{{ pagination.total }} gesamt · Seite {{ pagination.page }} von {{ pagination.pages or 1 }}</span>
+  </div>
+  <div id="bfBulkBar" style="display:none;align-items:center;gap:12px;padding:12px 20px;
+       background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:10px;margin-bottom:16px">
+    <span id="bfBulkCount" style="font-size:13px;font-weight:600;color:var(--accent2)"></span>
+    <button onclick="bulkDeleteBf()" class="btn btn-danger" style="font-size:12px;padding:6px 14px">
+      <i class="fa-solid fa-trash"></i> Ausgewählte löschen
+    </button>
+    <button onclick="deselectAllBf()" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;margin-left:auto">Aufheben</button>
+  </div>
+  {% endif %}
+
+  {% set origin_colors = {'selbst':'var(--success)', 'eingereicht':'var(--accent2)', 'ki':'var(--warning)'} %}
+  {% for b in beichten %}
+  <div class="card" style="padding:14px 16px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start">
+    <input type="checkbox" class="bf-checkbox" data-id="{{ b.id }}" onchange="updateBfBulkBar()"
+           style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;margin-top:3px;flex-shrink:0">
+    <div style="flex:1;min-width:0">
+      <a href="{{ url_for('beichte_detail', beichte_id=b.id) }}"
+         style="font-size:13px;line-height:1.5;text-decoration:none;color:var(--text);display:block">{{ b.display_name() }}</a>
+      <div style="font-size:11px;color:var(--muted);margin-top:5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="color:{{ origin_colors.get(b.origin,'var(--muted)') }}">{{ origin_labels.get(b.origin, b.origin) }}</span>
+        <span>·</span>
+        <span>{{ b.created_at.strftime('%d.%m.%Y') if b.created_at else '—' }}</span>
+        {% if b.engagement() is not none %}
+        <span>·</span>
+        <span title="Likes + 3×Kommentare + 2×Saves{% if b.reach %}, je 1000 Reichweite{% endif %}">Engagement {{ b.engagement() }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+      <span style="font-size:10px;padding:3px 9px;border-radius:11px;background:var(--surface2);color:var(--muted);white-space:nowrap">{{ b.status }}</span>
+      <button onclick="delBfRow(event,{{ b.id }})" title="Löschen" class="btn btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--danger)">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if pagination and pagination.pages and pagination.pages > 1 %}
+  <div style="display:flex;gap:6px;justify-content:center;margin-top:18px;flex-wrap:wrap">
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if p %}
+      <a href="?page={{ p }}{% if status_f %}&status={{ status_f }}{% endif %}{% if q_text %}&q={{ q_text }}{% endif %}"
+         style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);font-size:12px;text-decoration:none;
+                {% if p == pagination.page %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">{{ p }}</a>
+      {% else %}<span style="color:var(--muted);padding:6px 4px">…</span>{% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function bfGenerieren(btn){
+  const msg=document.getElementById('bfGenMsg');
+  const anzahl=parseInt(document.getElementById('bfAnzahl').value)||3;
+  const thema=document.getElementById('bfThema').value.trim();
+  btn.disabled=true; const o=btn.textContent; btn.textContent='Schreibt…';
+  msg.textContent='Die KI schreibt im gelernten Stil — kann einen Moment dauern.'; msg.style.color='var(--muted)';
+  try{
+    const r=await fetch('{{ url_for("beichten_generieren") }}',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({anzahl, thema})
+    }).then(r=>r.json());
+    if(!r.ok){ msg.textContent=r.error||'Fehler.'; msg.style.color='var(--danger)'; }
+    else{
+      msg.textContent=`${r.angelegt} neue Entwürfe`+(r.uebersprungen?` · ${r.uebersprungen} als Duplikat übersprungen`:'');
+      msg.style.color='var(--success)';
+      setTimeout(()=>location.reload(),1400);
+    }
+  }catch(e){ msg.textContent='Netzwerkfehler.'; msg.style.color='var(--danger)'; }
+  btn.disabled=false; btn.textContent=o;
+}
+async function delBfRow(ev,bid){
+  ev.preventDefault(); ev.stopPropagation();
+  const btn=ev.currentTarget, row=btn.closest('.card');
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Löschen','Diese Beichte unwiderruflich löschen?','Löschen')) return; }
+  else if(!confirm('Diese Beichte unwiderruflich löschen?')) return;
+  btn.disabled=true;
+  const r=await fetch(`/api/beichten/${bid}/delete`,{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){ row.style.transition='opacity .2s ease'; row.style.opacity='0'; setTimeout(()=>row.remove(),200); }
+  else { btn.disabled=false; alert('Löschen fehlgeschlagen.'); }
+}
+function getSelectedBfIds(){
+  return Array.from(document.querySelectorAll('.bf-checkbox:checked')).map(c=>parseInt(c.dataset.id));
+}
+function updateBfBulkBar(){
+  const ids=getSelectedBfIds(), bar=document.getElementById('bfBulkBar');
+  if(!bar) return;
+  document.getElementById('bfBulkCount').textContent=ids.length+' ausgewählt';
+  bar.style.display=ids.length?'flex':'none';
+}
+function selectAllBf(){ document.querySelectorAll('.bf-checkbox').forEach(cb=>cb.checked=true); updateBfBulkBar(); }
+function deselectAllBf(){ document.querySelectorAll('.bf-checkbox').forEach(cb=>cb.checked=false); updateBfBulkBar(); }
+async function bulkDeleteBf(){
+  const ids=getSelectedBfIds();
+  if(!ids.length) return;
+  const msg=`${ids.length} Beichte(n) unwiderruflich löschen?`;
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Ausgewählte löschen',msg,'Löschen')) return; }
+  else if(!confirm(msg)) return;
+  const bar=document.getElementById('bfBulkBar'), btn=bar.querySelector('.btn-danger');
+  const orig=btn.innerHTML;
+  btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Lösche…';
+  const r=await fetch('/api/beichten/bulk-delete',{
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids})
+  }).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){
+    ids.forEach(id=>{
+      const cb=document.querySelector(`.bf-checkbox[data-id="${id}"]`);
+      const row=cb&&cb.closest('.card');
+      if(row){ row.style.transition='opacity .2s ease'; row.style.opacity='0'; setTimeout(()=>row.remove(),200); }
+    });
+    updateBfBulkBar();
+    if(typeof showToast==='function') showToast(`${r.deleted} gelöscht.`);
+  } else { btn.disabled=false; btn.innerHTML=orig; alert('Löschen fehlgeschlagen.'); }
+}
+</script>
+{% endblock %}

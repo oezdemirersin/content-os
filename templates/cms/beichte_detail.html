@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Beichte — Content OS{% endblock %}
+{% block page_title %}BEICHTE{% endblock %}
+
+{% block content %}
+<div style="max-width:1040px">
+  <a href="{{ url_for('beichten_fabrik') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Zurück zur Beichten-Fabrik</a>
+
+  <div style="display:grid;grid-template-columns:400px 1fr;gap:26px;margin-top:14px">
+    <!-- Textkarte -->
+    <div>
+      {% if b.generated_image_path %}
+      <img src="{{ b.generated_image_path }}" style="width:100%;border-radius:12px;border:1px solid var(--border);display:block">
+      {% else %}
+      <div class="card" style="aspect-ratio:4/5;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;text-align:center;padding:20px">
+        Noch keine Textkarte erzeugt
+      </div>
+      {% endif %}
+      <form method="POST" action="{{ url_for('beichte_rendern', beichte_id=b.id) }}" style="margin-top:10px">
+        <button type="submit" class="btn btn-ghost" style="width:100%;font-size:12px;padding:8px">
+          {{ 'Karte neu erzeugen' if b.generated_image_path else 'Textkarte erzeugen' }}
+        </button>
+      </form>
+
+      <!-- Performance -->
+      <div class="card" style="padding:16px;margin-top:14px">
+        <div style="font-weight:700;font-size:12px;margin-bottom:4px">Performance</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+          Von Hand eintragen — bestimmt, welche deiner Beichten die KI als Vorbild nimmt.
+        </div>
+        <form method="POST" action="{{ url_for('beichte_performance', beichte_id=b.id) }}">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+            <div><label class="form-label" style="font-size:11px">Likes</label>
+              <input name="likes" type="number" min="0" value="{{ b.likes if b.likes is not none else '' }}" class="input-field" style="font-size:12px"></div>
+            <div><label class="form-label" style="font-size:11px">Kommentare</label>
+              <input name="comments" type="number" min="0" value="{{ b.comments if b.comments is not none else '' }}" class="input-field" style="font-size:12px"></div>
+            <div><label class="form-label" style="font-size:11px">Saves</label>
+              <input name="saves" type="number" min="0" value="{{ b.saves if b.saves is not none else '' }}" class="input-field" style="font-size:12px"></div>
+            <div><label class="form-label" style="font-size:11px">Reichweite</label>
+              <input name="reach" type="number" min="0" value="{{ b.reach if b.reach is not none else '' }}" class="input-field" style="font-size:12px"></div>
+          </div>
+          <button type="submit" class="btn btn-ghost" style="width:100%;font-size:12px;padding:7px">Zahlen speichern</button>
+        </form>
+        {% if b.engagement() is not none %}
+        <div style="font-size:11px;color:var(--success);margin-top:8px;text-align:center">
+          Engagement-Wert: <b>{{ b.engagement() }}</b>{% if b.reach %} (je 1000 Reichweite){% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Rechts -->
+    <div>
+      {% set origin_colors = {'selbst':'var(--success)', 'eingereicht':'var(--accent2)', 'ki':'var(--warning)'} %}
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+        <span class="badge" style="background:rgba(148,163,184,.15);color:{{ origin_colors.get(b.origin,'var(--muted)') }}">
+          {{ origin_labels.get(b.origin, b.origin) }}</span>
+        {% if b.status=='veroeffentlicht' %}<span class="badge badge-green">Veröffentlicht</span>
+        {% elif b.status=='bereit' %}<span class="badge badge-blue">Bereit</span>
+        {% elif b.status=='abgelehnt' %}<span class="badge badge-red">Abgelehnt</span>
+        {% elif b.status=='archiviert' %}<span class="badge" style="background:rgba(99,102,241,.15);color:var(--accent2)">Archiviert</span>
+        {% else %}<span class="badge badge-gray">Entwurf</span>{% endif %}
+        <span style="font-size:11px;color:var(--muted)">
+          angelegt {{ b.created_at.strftime('%d.%m.%Y %H:%M') if b.created_at else '—' }}
+          {% if b.kontakt %} · Kontakt: {{ b.kontakt }}{% endif %}
+        </span>
+      </div>
+
+      {% if duplikat %}
+      <div class="card" style="padding:12px 14px;margin-bottom:14px;font-size:13px;border:1px solid var(--warning);background:rgba(245,158,11,.08)">
+        <b style="color:var(--warning)">⚠ Sehr ähnlich zu einer anderen Beichte</b><br>
+        <a href="{{ url_for('beichte_detail', beichte_id=duplikat.id) }}" style="color:var(--accent2)">{{ duplikat.display_name() }}</a>
+      </div>
+      {% endif %}
+
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px">Text</div>
+      <form method="POST" action="{{ url_for('beichte_veroeffentlichen', beichte_id=b.id) }}">
+        <textarea name="text" rows="9" class="input-field" style="font-size:13px;font-family:inherit;line-height:1.6;margin-bottom:12px">{{ b.text }}</textarea>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 20px"
+                  {% if b.status=='veroeffentlicht' %}disabled{% endif %}>
+            {{ 'Bereits veröffentlicht' if b.status=='veroeffentlicht' else 'Veröffentlichen (als Post einplanen)' }}
+          </button>
+          <span style="font-size:11px;color:var(--muted)">Änderungen am Text werden mit veröffentlicht.</span>
+        </div>
+      </form>
+
+      <div style="border-top:1px solid var(--border);margin-top:18px;padding-top:14px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:10px">Status</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          {% for key, lab in [('bereit','Als bereit markieren'),('archiviert','Archivieren'),('abgelehnt','Ablehnen')] %}
+          <form method="POST" action="{{ url_for('beichte_status', beichte_id=b.id) }}" style="display:inline">
+            <input type="hidden" name="status" value="{{ key }}">
+            <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">{{ lab }}</button>
+          </form>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--border);margin-top:18px;padding-top:14px">
+        <button onclick="delBeichte(this)" class="btn btn-ghost" style="font-size:12px;padding:7px 12px;color:var(--danger)">Beichte löschen</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function delBeichte(btn){
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Löschen','Diese Beichte unwiderruflich löschen?','Löschen')) return; }
+  else if(!confirm('Diese Beichte unwiderruflich löschen?')) return;
+  btn.disabled=true;
+  const r=await fetch('/api/beichten/{{ b.id }}/delete',{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok) window.location='{{ url_for("beichten_fabrik") }}';
+  else { btn.disabled=false; alert('Löschen fehlgeschlagen.'); }
+}
+</script>
+{% endblock %}

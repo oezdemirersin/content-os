@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Einstellungen — Beichten-Fabrik{% endblock %}
+{% block page_title %}BEICHTEN-FABRIK{% endblock %}
+
+{% block content %}
+<div style="max-width:760px">
+  <a href="{{ url_for('beichten_fabrik') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Zurück zur Beichten-Fabrik</a>
+
+  <div class="card" style="padding:20px;margin-top:14px;margin-bottom:20px">
+    <div style="font-weight:700;margin-bottom:12px">Beichten-Seite</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
+      Die Seite, auf der ausschließlich Beichten erscheinen. Ohne festgelegte Seite kannst du Beichten
+      sammeln und schreiben, aber nicht veröffentlichen.
+    </div>
+    <form method="POST" style="margin-bottom:16px">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+        <select name="account_id" class="select-field" style="flex:1;min-width:200px">
+          <option value="">— keine Seite festgelegt —</option>
+          {% for a in accounts %}
+          <option value="{{ a.id }}" {% if target_account and target_account.id == a.id %}selected{% endif %}>
+            {{ a.name }}{% if a.handle %} ({{ a.handle }}){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px">
+        <label class="form-label" style="font-size:12px">KI-Modell für die Beichten-Generierung</label>
+        <input name="bf_model" value="{{ bf_model }}" class="input-field" placeholder="leer = Standardmodell von Content OS">
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">
+          Optional. Leer lassen nutzt dasselbe Modell wie der Rest von Content OS.
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 18px">Speichern</button>
+    </form>
+
+    {% if not target_account %}
+    <div style="border-top:1px solid var(--border);padding-top:16px">
+      <div style="font-weight:700;font-size:12px;margin-bottom:8px">Oder neue Seite anlegen</div>
+      <form method="POST" action="{{ url_for('beichten_seite_anlegen') }}" style="display:flex;gap:8px;flex-wrap:wrap">
+        <input name="name" value="Beichten" class="input-field" style="flex:1;min-width:140px;font-size:12px" placeholder="Name der Seite">
+        <input name="handle" class="input-field" style="flex:1;min-width:140px;font-size:12px" placeholder="@handle (optional)">
+        <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">Anlegen &amp; festlegen</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="padding:20px">
+    <div style="font-weight:700;margin-bottom:6px">Stil-Vorlagen ({{ stil_beispiele|length }})</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
+      Diese Beichten nimmt die KI aktuell als Vorbild — stärkste zuerst. Beichten mit eingetragener
+      Performance stehen oben, danach die neuesten ohne Zahlen. KI-generierte Beichten dienen bewusst
+      nie selbst als Vorlage, damit sich der Stil nicht im Kreis dreht.
+    </div>
+    {% if not stil_beispiele %}
+    <div style="font-size:13px;color:var(--muted)">Noch keine eigenen Beichten — schreib erst welche in der Fabrik.</div>
+    {% endif %}
+    <div style="display:flex;flex-direction:column;gap:8px">
+      {% for b in stil_beispiele %}
+      <a href="{{ url_for('beichte_detail', beichte_id=b.id) }}"
+         style="font-size:12px;color:var(--text);text-decoration:none;padding:8px 10px;background:var(--surface2);border-radius:8px;display:flex;gap:10px;align-items:center">
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ b.display_name() }}</span>
+        {% if b.engagement() is not none %}
+        <span style="color:var(--success);font-weight:700;flex-shrink:0">{{ b.engagement() }}</span>
+        {% else %}
+        <span style="color:var(--muted);flex-shrink:0">keine Zahlen</span>
+        {% endif %}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

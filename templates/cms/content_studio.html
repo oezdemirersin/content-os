@@ -19,15 +19,17 @@
       </div>
     </a>
 
-    {% set factory_colors = {'mcf':'239,68,68', 'pwf':'245,158,11', 'trend_radar':'59,130,246', 'wissensfabrik':'99,102,241', 'tageslichtblick':'250,204,21'} %}
+    {% set factory_colors = {'mcf':'239,68,68', 'pwf':'245,158,11', 'trend_radar':'59,130,246', 'wissensfabrik':'99,102,241', 'tageslichtblick':'250,204,21', 'beichten':'244,63,94'} %}
     {% set health_colors = {'ok':'#22c55e', 'stale':'#9ca3af', 'error':'#ef4444', 'running':'#3b82f6'} %}
     {% for f in factory_overview %}
     <a href="{{ f.url }}"
-       title="{% if f.last_scan_relative %}Letzter Scan: {{ f.last_scan_relative }}{% if f.last_scan_status=='error' %} (Fehler — {{ f.last_scan_error }}){% endif %}{% else %}Noch kein Scan-Verlauf{% endif %}"
+       title="{% if not f.has_scan %}Kein Auto-Scan — Inhalte entstehen manuell und per KI{% elif f.last_scan_relative %}Letzter Scan: {{ f.last_scan_relative }}{% if f.last_scan_status=='error' %} (Fehler — {{ f.last_scan_error }}){% endif %}{% else %}Noch kein Scan-Verlauf{% endif %}"
        style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;text-decoration:none;color:var(--text)">
       <div style="width:28px;height:28px;border-radius:8px;background:rgba({{ factory_colors.get(f.key,'99,102,241') }},.15);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;position:relative">
         {{ f.icon }}
+        {% if f.has_scan %}
         <span style="position:absolute;bottom:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:{{ health_colors.get(f.health,'#9ca3af') }};border:1.5px solid var(--surface)"></span>
+        {% endif %}
       </div>
       <div style="min-width:0;flex:1">
         <div style="font-size:12px;font-weight:600;white-space:nowrap">{{ f.label }}</div>
@@ -38,21 +40,6 @@
       {% endif %}
     </a>
     {% endfor %}
-
-    {# Beichten: soll eine eigene Fabrik werden, ist aktuell aber nur eine
-       Inhalts-Liste ohne Workflow/Auto-Scan. Steht deshalb schon im Fabriken-
-       Bereich, aber ohne Zustandspunkt — der kommt mit dem echten Ausbau. #}
-    <a href="{{ url_for('beichten_dashboard') }}"
-       style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;text-decoration:none;
-              background:{% if active_page == 'beichten' %}rgba(244,63,94,.12){% else %}transparent{% endif %};
-              color:{% if active_page == 'beichten' %}#f43f5e{% else %}var(--text){% endif %}">
-      <div style="width:28px;height:28px;border-radius:8px;background:rgba(244,63,94,.1);
-                  display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🤍</div>
-      <div style="min-width:0">
-        <div style="font-size:12px;font-weight:600">Beichten</div>
-        <div style="font-size:10px;opacity:.55">Fabrik-Ausbau offen</div>
-      </div>
-    </a>
 
     <!-- ── Meine Seiten ── -->
     <div style="font-size:10px;letter-spacing:1.5px;color:var(--muted);font-weight:700;padding:4px 8px 8px;text-transform:uppercase;border-top:1px solid var(--border);margin-top:18px;padding-top:14px">Meine Seiten</div>

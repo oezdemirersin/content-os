@@ -1710,3 +1710,63 @@ class FactoryScanLog(db.Model):
     items_created = db.Column(db.Integer)
     summary = db.Column(db.Text)         # freier Einzeiler, z.B. "3 neu, Sieger: ..."
     error_message = db.Column(db.Text)
+
+
+class Beichte(db.Model):
+    """Beichten-Fabrik (Content Studio) — bewusst das GEGENTEIL der anderen
+    Fabriken: MCF/PWF/Wissensfabrik/Tageslichtblick extrahieren geprüfte Fakten
+    und dürfen NIE etwas erfinden. Hier IST das Erfinden der Zweck. Deshalb:
+    keine Quellenpflicht, keine Faktenprüfung, kein externer Auto-Scan.
+
+    Die selbst geschriebenen Beichten sind gleichzeitig die Stil-Vorlage, aus
+    der die KI später eigene Beichten im selben Ton generiert — gewichtet nach
+    der tatsächlichen Performance (die der Mensch von Hand einträgt, weil pro
+    Post noch keine Instagram-Zahlen automatisch hereinkommen)."""
+    __tablename__ = 'beichte'
+    id = db.Column(db.Integer, primary_key=True)
+
+    text = db.Column(db.Text, nullable=False)
+
+    # eingereicht = über das öffentliche Formular
+    # selbst      = vom Betreiber geschrieben → dient als Stil-Vorlage
+    # ki          = von der KI im gelernten Stil generiert
+    origin = db.Column(db.String(20), default='selbst', index=True)
+    kontakt = db.Column(db.String(100))   # optionale Kontaktangabe aus dem Formular
+
+    status = db.Column(db.String(20), default='entwurf', index=True)
+    # entwurf / bereit / veroeffentlicht / archiviert / abgelehnt
+
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'))
+    generated_image_path = db.Column(db.String(600))
+    content_item_ids = db.Column(db.Text, default='[]')   # JSON-Liste, wie bei KnowledgeFact
+
+    # ── Performance (manuell eingetragen) ───────────────────────
+    likes = db.Column(db.Integer)
+    comments = db.Column(db.Integer)
+    saves = db.Column(db.Integer)
+    reach = db.Column(db.Integer)
+    performance_at = db.Column(db.DateTime)   # wann zuletzt eingetragen
+
+    published_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def get_content_item_ids(self):
+        return json.loads(self.content_item_ids or '[]')
+
+    def engagement(self):
+        """Ein einzelner Vergleichswert fürs Stil-Lernen. Saves zählen doppelt,
+        Kommentare dreifach — beides sind stärkere Signale als ein Like, weil
+        sie mehr Aufwand kosten. Ohne Reichweite absolute Zahlen, mit Reichweite
+        auf 1000 Impressionen normiert, damit alte kleine und neue große Posts
+        vergleichbar bleiben."""
+        if self.likes is None and self.comments is None and self.saves is None:
+            return None
+        roh = (self.likes or 0) + 3 * (self.comments or 0) + 2 * (self.saves or 0)
+        if self.reach:
+            return round(roh / self.reach * 1000, 1)
+        return roh
+
+    def display_name(self):
+        t = (self.text or '').strip()
+        return (t[:70] + '…') if len(t) > 70 else (t or 'Leere Beichte')

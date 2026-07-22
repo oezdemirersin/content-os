@@ -33,7 +33,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     KnowledgeNicheConfig, KnowledgeCategory, KnowledgeSource,
                     KnowledgeFact, KnowledgeFactSource,
                     TlbStory, TlbSource,
-                    FactoryScanLog)
+                    FactoryScanLog, Beichte)
 import calendar as cal_mod_global
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -3173,6 +3173,13 @@ _FACTORY_DEFS = [
     {'key': 'tageslichtblick', 'label': 'Tageslichtblick', 'icon': '☀️',
      'url_endpoint': 'tageslichtblick', 'settings_endpoint': 'tageslichtblick_settings',
      'pending_label': 'wartet auf Freigabe'},
+    # Beichten hat KEINE externen Quellen und deshalb auch keinen Auto-Scan —
+    # Inhalte entstehen durch Einreichungen, eigenes Schreiben und KI-Generierung
+    # auf Zuruf. has_scan=False verhindert, dass der Überblick sie fälschlich als
+    # "veraltet" meldet, nur weil nie ein Scan lief.
+    {'key': 'beichten', 'label': 'Beichten', 'icon': '🤍',
+     'url_endpoint': 'beichten_fabrik', 'settings_endpoint': 'beichten_einstellungen',
+     'pending_label': 'wartet auf Prüfung', 'has_scan': False},
 ]
 
 
@@ -3190,11 +3197,17 @@ def _factory_pending_count(key):
         return KnowledgeFact.query.filter_by(status='entwurf').count()
     if key == 'tageslichtblick':
         return TlbStory.query.filter_by(status='entwurf').count()
+    if key == 'beichten':
+        return Beichte.query.filter_by(status='entwurf').count()
     return 0
 
 
-def _factory_health(factory, log):
-    """'ok' / 'stale' / 'error' / 'running' — rein informativ, greift nirgends ein."""
+def _factory_health(factory, log, has_scan=True):
+    """'ok' / 'stale' / 'error' / 'running' / 'kein_scan' — rein informativ,
+    greift nirgends ein. Fabriken ohne externe Quellen (Beichten) haben
+    keinen Scan-Begriff und werden deshalb nicht als "veraltet" gemeldet."""
+    if not has_scan:
+        return 'kein_scan'
     if not log:
         return 'stale'
     if log.status == 'running':
@@ -3212,19 +3225,21 @@ def _factory_overview_summary():
     """Eine Zeile pro Content-Studio-Fabrik für Sidebar-Badges + Überblicksseite."""
     result = []
     for d in _FACTORY_DEFS:
+        has_scan = d.get('has_scan', True)
         log = (FactoryScanLog.query.filter_by(factory=d['key'])
-               .order_by(FactoryScanLog.started_at.desc()).first())
+               .order_by(FactoryScanLog.started_at.desc()).first()) if has_scan else None
         result.append({
             'key': d['key'], 'label': d['label'], 'icon': d['icon'],
             'url': url_for(d['url_endpoint']),
             'settings_url': url_for(d['settings_endpoint']) if d['settings_endpoint'] else None,
             'pending_count': _factory_pending_count(d['key']),
             'pending_label': d['pending_label'],
+            'has_scan': has_scan,
             'last_scan_relative': _tr_rel_time(log.started_at) if log else None,
             'last_scan_status': log.status if log else None,
             'last_scan_summary': log.summary if log else None,
             'last_scan_error': log.error_message if log else None,
-            'health': _factory_health(d['key'], log),
+            'health': _factory_health(d['key'], log, has_scan=has_scan),
         })
     return result
 
@@ -6869,14 +6884,10 @@ def bulk_followers_update():
 
 @app.route('/beichten')
 def beichten_dashboard():
-    cat = Category.query.filter(Category.name.ilike('%beicht%')).first()
-    items = ContentItem.query
-    if cat:
-        items = items.filter_by(category_id=cat.id)
-    else:
-        items = items.filter(ContentItem.source_name.ilike('%beicht%'))
-    items = items.order_by(ContentItem.created_at.desc()).all()
-    return render_template('beichten.html', items=items, active_page='beichten')
+    """Alt-Route: Beichten sind seit dem Fabrik-Ausbau kein loser ContentItem-
+    Bestand mehr, sondern eine eigene Fabrik. Bestehende Lesezeichen/Links
+    landen deshalb direkt dort."""
+    return redirect(url_for('beichten_fabrik'))
 
 
 # ─────────────────────── ACCOUNT GROUPS ───────────────────────
@@ -7168,22 +7179,16 @@ def submit_beichte():
     if not text or len(text) < 20:
         return jsonify({'ok': False, 'error': 'Text zu kurz (min. 20 Zeichen)'}), 400
 
-    # Finde Beichten-Kategorie
-    cat = Category.query.filter(Category.name.ilike('%beicht%')).first()
+    # Landet in der Beichten-Fabrik (früher: ContentItem in der Kategorie
+    # "Beichten"). Als 'eingereicht' markiert, damit echte Einreichungen und
+    # selbst geschriebene Beichten im selben Topf, aber unterscheidbar sind —
+    # nur die selbst geschriebenen dienen der KI als Stil-Vorlage.
     account = Account.query.get(account_id) if account_id else None
-
-    item = ContentItem(
-        title=text[:80] + ('…' if len(text) > 80 else ''),
-        raw_text=text,
-        caption=text,
-        source_name=f'Beichten-Formular{" · " + contact if contact else ""}',
-        category_id=cat.id if cat else None,
-        status='draft',
-        content_type='feed',
-    )
-    if account:
-        item.accounts.append(account)
-    db.session.add(item)
+    db.session.add(Beichte(
+        text=text, origin='eingereicht', status='entwurf',
+        kontakt=contact or None,
+        account_id=account.id if account else None,
+    ))
     db.session.commit()
     return jsonify({'ok': True})
 
@@ -14968,6 +14973,7 @@ def content_studio_overview():
                          'archiviert': TrendTopic.query.filter_by(archived=True).count()},
         'wissensfabrik': dict(Counter(f.status for f in KnowledgeFact.query.all())),
         'tageslichtblick': dict(Counter(s.status for s in TlbStory.query.all())),
+        'beichten': dict(Counter(b.status for b in Beichte.query.all())),
     }
     return render_template('factories_overview.html', overview=overview, breakdowns=breakdowns,
         active_page='studio')
@@ -22389,6 +22395,436 @@ def tlb_quelle_update(source_id):
         src.scan_interval_hours = max(1, int(d['scan_interval_hours']))
     db.session.commit()
     return jsonify({'ok': True})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BEICHTEN-FABRIK (Content Studio)
+#
+# Bewusst das Gegenteil der anderen Fabriken: MCF/PWF/Wissensfabrik/Tageslichtblick
+# recherchieren echte Sachverhalte und dürfen NIE etwas erfinden. Hier ist das
+# Erfinden der Zweck. Deshalb gibt es hier KEINE Quellenpflicht, KEINE Faktenprüfung
+# und KEINEN externen Auto-Scan — die Fabrik hat schlicht keine externen Quellen.
+#
+# Lernschleife in drei Stufen:
+#   1. Der Betreiber schreibt Beichten selbst → das sind gleichzeitig die Stil-Vorlagen.
+#   2. Die KI generiert neue Beichten im gelernten Ton (immer nur als Entwurf).
+#   3. Die von Hand eingetragene Performance gewichtet, welche eigenen Beichten
+#      als Vorbild dienen — gute Beichten prägen den Stil stärker als schwache.
+# ══════════════════════════════════════════════════════════════════════════════
+
+BF_ORIGIN_LABELS = {'eingereicht': 'Eingereicht', 'selbst': 'Selbst geschrieben', 'ki': 'KI-generiert'}
+
+
+def _bf_target_account():
+    """Die eine Seite, die ausschließlich Beichten postet. ID liegt in den
+    Einstellungen; ohne gesetzte Seite läuft die Fabrik trotzdem (Beichten
+    sammeln geht, nur Veröffentlichen braucht die Seite)."""
+    aid = get_setting('bf_account_id')
+    return Account.query.get(int(aid)) if aid and str(aid).isdigit() else None
+
+
+def _bf_is_duplicate(text, exclude_id=None):
+    """Verhindert, dass dieselbe Beichte zweimal rausgeht. Nutzt bewusst
+    dieselbe Ähnlichkeitsmessung wie die Wissensfabrik (_kf_similarity:
+    Textähnlichkeit + Stichwort-Überschneidung) — bei Beichten ist derselbe
+    Fall oft leicht umformuliert, exakte Gleichheit würde nichts finden.
+    Gibt die als Duplikat erkannte Beichte zurück, sonst None."""
+    text = (text or '').strip()
+    if not text:
+        return None
+    q = Beichte.query.filter(Beichte.status != 'abgelehnt')
+    if exclude_id:
+        q = q.filter(Beichte.id != exclude_id)
+    for other in q.all():
+        if _kf_similarity(text, other.text or '') >= _KF_DUP_THRESHOLD:
+            return other
+    return None
+
+
+def _bf_style_examples(limit=12):
+    """Stil-Vorlagen für die KI-Generierung: eigene (nicht KI-)Beichten,
+    die stärksten zuerst. Beichten mit eingetragener Performance werden nach
+    Engagement sortiert, Beichten ohne Zahlen kommen danach (neueste zuerst) —
+    so funktioniert die Generierung schon am ersten Tag, wird aber mit jeder
+    eingetragenen Zahl gezielter."""
+    eigene = Beichte.query.filter(Beichte.origin != 'ki',
+                                   Beichte.text.isnot(None)).all()
+    mit_zahlen = [b for b in eigene if b.engagement() is not None]
+    ohne_zahlen = [b for b in eigene if b.engagement() is None]
+    mit_zahlen.sort(key=lambda b: b.engagement(), reverse=True)
+    ohne_zahlen.sort(key=lambda b: b.created_at or datetime.min, reverse=True)
+    return (mit_zahlen + ohne_zahlen)[:limit]
+
+
+def _bf_generate(anzahl, api_key, thema=None):
+    """Generiert neue Beichten im gelernten Stil. Anders als überall sonst in
+    Content OS ist Erfinden hier ausdrücklich erlaubt — die Beichten sind
+    fiktiv und sollen es sein. Gibt eine Liste von Texten zurück."""
+    if not api_key:
+        return []
+    beispiele = _bf_style_examples()
+    if not beispiele:
+        return []
+
+    def _beschrifte(b):
+        e = b.engagement()
+        return f'- {b.text.strip()}' + (f'   [lief gut: {e}]' if e else '')
+
+    system = (
+        'Du schreibst fiktive Beichten für eine anonyme Beichten-Seite auf Instagram. '
+        'Diese Beichten sind bewusst ERFUNDEN — das ist hier gewollt und kein Problem, '
+        'sie geben niemanden real Existierenden wieder.\n\n'
+        'Richte dich eng nach dem Ton, der Länge und der Erzählweise der folgenden '
+        'Beispiele des Betreibers. Beichten mit dem Vermerk "lief gut" haben beim '
+        'Publikum besonders funktioniert — orientiere dich stärker an diesen.\n\n'
+        + '\n'.join(_beschrifte(b) for b in beispiele) +
+        '\n\nRegeln:\n'
+        '- Keine echten Namen, keine realen Personen, keine identifizierbaren Orte oder Firmen.\n'
+        '- Nichts Strafbares, keine sexuellen Inhalte mit Minderjährigen, keine Aufrufe zu Gewalt.\n'
+        '- Jede Beichte steht für sich und wiederholt die Beispiele nicht.\n'
+        '- Schreib in derselben Sprache wie die Beispiele.\n\n'
+        'Antworte NUR mit einem JSON-Objekt: {"beichten": [str, ...]}'
+    )
+    auftrag = f'Schreibe {anzahl} neue Beichten.'
+    if thema:
+        auftrag += f' Thema/Richtung: {thema}'
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('bf_model') or get_setting('caption_model') or 'claude-sonnet-4-6'
+        resp = client.messages.create(model=model, max_tokens=2000, system=system,
+                                       messages=[{'role': 'user', 'content': auftrag}])
+        _log_ai('bf_generate', resp)
+        span = _extract_balanced_json(resp.content[0].text.strip(), '{', '}')
+        data = json.loads(span) if span else {}
+        return [t.strip() for t in (data.get('beichten') or []) if isinstance(t, str) and t.strip()]
+    except Exception as e:
+        app.logger.warning('Beichten-Generierung: %s', e)
+        return []
+
+
+def _render_beichte_image(beichte):
+    """1080×1350 Textkarte. Der Text IST das Bild — kein Foto, keine Fakten-
+    zeilen wie bei den anderen Fabriken. Schriftgröße passt sich der Textlänge
+    an, damit kurze Beichten groß und lange trotzdem vollständig lesbar sind."""
+    from PIL import Image, ImageDraw
+    import io as _io
+    W, H = 1080, 1350
+    account = Account.query.get(beichte.account_id) if beichte.account_id else None
+    cfg = account.ai_config if account else None
+    bg_hex = (cfg.primary_color if cfg else None) or '#12121a'
+    accent_hex = (cfg.accent_color if cfg else None) or '#f43f5e'
+
+    def _rgb(h, fallback):
+        try:
+            return tuple(int(h.lstrip('#')[i:i + 2], 16) for i in (0, 2, 4))
+        except Exception:
+            return fallback
+    bg = _rgb(bg_hex, (18, 18, 26))
+    accent = _rgb(accent_hex, (244, 63, 94))
+
+    img = Image.new('RGB', (W, H), bg)
+    d = ImageDraw.Draw(img)
+
+    # Kopfzeile: Seitenname als dezenter Absender
+    if account:
+        f_head = _mcf_font(26, bold=True)
+        name = account.name.upper()
+        d.text(((W - d.textlength(name, font=f_head)) / 2, 74), name, font=f_head, fill=accent)
+
+    # Großes Anführungszeichen als Anker
+    f_quote = _mcf_font(190, bold=True)
+    d.text((78, 130), '"', font=f_quote, fill=accent)
+
+    # Text: Größe nach Länge, damit die Karte nie überläuft
+    text = (beichte.text or '').strip()
+    laenge = len(text)
+    size = 54 if laenge < 220 else 46 if laenge < 400 else 38 if laenge < 650 else 32
+    f_text = _mcf_font(size, bold=False)
+    max_w = W - 200
+    zeilen = _mcf_wrap(d, text, f_text, max_w)
+    zeilenhoehe = int(size * 1.45)
+
+    # Vertikal mittig im Bereich zwischen Kopf und Fuß
+    block_h = len(zeilen) * zeilenhoehe
+    y = max(300, (H - block_h) // 2)
+    max_y = H - 190
+    for zeile in zeilen:
+        if y > max_y:
+            d.text((100, y), '…', font=f_text, fill=(255, 255, 255))
+            break
+        d.text((100, y), zeile, font=f_text, fill=(255, 255, 255))
+        y += zeilenhoehe
+
+    # Fußleiste
+    d.line([(100, H - 130), (W - 100, H - 130)], fill=accent, width=3)
+    f_foot = _mcf_font(24, bold=False)
+    fuss = 'anonym eingereicht'
+    d.text(((W - d.textlength(fuss, font=f_foot)) / 2, H - 105), fuss, font=f_foot, fill=(150, 150, 160))
+
+    buf = _io.BytesIO()
+    img.save(buf, format='PNG')
+    return buf.getvalue()
+
+
+def _bf_publish(beichte):
+    """Macht aus einer freigegebenen Beichte einen echten Post — gleiches
+    Prinzip wie die Wissensfabrik: ContentItem + ScheduledPost, damit die
+    Beichte im normalen Kalender/Freigabe-Ablauf landet statt in einer
+    Insel-Logik."""
+    account = Account.query.get(beichte.account_id) if beichte.account_id else None
+    item = ContentItem(title=beichte.display_name(), raw_text=beichte.text,
+                       caption=beichte.text, source_name='Beichten-Fabrik',
+                       status='ready', content_type='feed')
+    if account:
+        item.accounts.append(account)
+    db.session.add(item)
+    db.session.flush()
+
+    media = None
+    if beichte.generated_image_path:
+        media = MediaItem.query.filter_by(
+            filename=os.path.basename(beichte.generated_image_path)).first()
+        if media:
+            media.content_item_id = item.id
+
+    db.session.add(ScheduledPost(
+        account_id=beichte.account_id, content_item_id=item.id,
+        media_item_id=media.id if media else None,
+        caption=beichte.text, post_type='feed', status='scheduled',
+        slot_type='flexible', scheduled_at=datetime.utcnow()))
+
+    ids = beichte.get_content_item_ids()
+    ids.append(item.id)
+    beichte.content_item_ids = json.dumps(ids)
+    beichte.status = 'veroeffentlicht'
+    beichte.published_at = datetime.utcnow()
+    db.session.commit()
+    return item
+
+
+def _bf_import_alte_einreichungen():
+    """Einmalige Übernahme: Beichten, die früher über das Formular als
+    ContentItem in der Kategorie "Beichten" gelandet sind, in die neue Tabelle
+    holen — sonst wären sie mit dem Umbau unsichtbar geworden. Läuft genau
+    einmal (Marker in AppSettings), damit später bewusst gelöschte Beichten
+    nicht wieder auftauchen."""
+    if AppSettings.query.filter_by(key='bf_import_done').first():
+        return 0
+    cat = Category.query.filter(Category.name.ilike('%beicht%')).first()
+    alte = ContentItem.query.filter_by(category_id=cat.id).all() if cat else []
+    uebernommen = 0
+    for item in alte:
+        text = (item.raw_text or item.caption or '').strip()
+        if not text:
+            continue
+        db.session.add(Beichte(text=text, origin='eingereicht', status='entwurf',
+                               created_at=item.created_at or datetime.utcnow()))
+        uebernommen += 1
+    db.session.add(AppSettings(key='bf_import_done', value='1'))
+    db.session.commit()
+    if uebernommen:
+        app.logger.warning('Beichten-Fabrik: %d alte Formular-Einreichungen übernommen.', uebernommen)
+    return uebernommen
+
+
+# ─── Routen ───────────────────────────────────────────────────────────────
+@app.route('/content-studio/beichten')
+@login_required
+def beichten_fabrik():
+    _bf_import_alte_einreichungen()
+    status_f = request.args.get('status', '')
+    q_text = (request.args.get('q') or '').strip()
+    q = Beichte.query
+    if status_f:
+        q = q.filter_by(status=status_f)
+    if q_text:
+        q = q.filter(Beichte.text.ilike(f'%{q_text}%'))
+    page = request.args.get('page', 1, type=int)
+    pagination = q.order_by(Beichte.created_at.desc()).paginate(page=page, per_page=40, error_out=False)
+
+    from collections import Counter
+    alle = Beichte.query.all()
+    counts = Counter(b.status for b in alle)
+    origin_counts = Counter(b.origin for b in alle)
+    return render_template('beichten_fabrik.html',
+        beichten=pagination.items, pagination=pagination,
+        counts=dict(counts), origin_counts=dict(origin_counts), gesamt=len(alle),
+        status_f=status_f, q_text=q_text,
+        origin_labels=BF_ORIGIN_LABELS, target_account=_bf_target_account(),
+        stil_beispiele=len(_bf_style_examples()), active_page='studio')
+
+
+@app.route('/content-studio/beichten/<int:beichte_id>')
+@login_required
+def beichte_detail(beichte_id):
+    b = Beichte.query.get_or_404(beichte_id)
+    return render_template('beichte_detail.html', b=b, origin_labels=BF_ORIGIN_LABELS,
+        duplikat=_bf_is_duplicate(b.text, exclude_id=b.id), active_page='studio')
+
+
+@app.route('/content-studio/beichten/neu', methods=['POST'])
+@login_required
+def beichte_neu():
+    text = (request.form.get('text') or '').strip()
+    if len(text) < 10:
+        flash('Beichte ist zu kurz.', 'error')
+        return redirect(url_for('beichten_fabrik'))
+    acc = _bf_target_account()
+    b = Beichte(text=text, origin='selbst', status='entwurf',
+                account_id=acc.id if acc else None)
+    db.session.add(b)
+    db.session.commit()
+    return redirect(url_for('beichte_detail', beichte_id=b.id))
+
+
+@app.route('/api/beichten/generieren', methods=['POST'])
+@login_required
+def beichten_generieren():
+    """Erzeugt neue Beichten im gelernten Stil — immer nur als Entwurf, nie
+    direkt veröffentlicht."""
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Braucht einen Anthropic-API-Key (Einstellungen → KI).'}), 400
+    if not _bf_style_examples():
+        return jsonify({'ok': False, 'error': 'Noch keine eigenen Beichten als Stil-Vorlage — schreib erst ein paar selbst.'}), 400
+    d = request.get_json(silent=True) or {}
+    try:
+        anzahl = max(1, min(10, int(d.get('anzahl', 3))))
+    except Exception:
+        anzahl = 3
+    texte = _bf_generate(anzahl, api_key, thema=(d.get('thema') or '').strip() or None)
+    if not texte:
+        return jsonify({'ok': False, 'error': 'Die KI hat nichts geliefert — Logs prüfen.'}), 500
+    acc = _bf_target_account()
+    angelegt = uebersprungen = 0
+    for t in texte:
+        if _bf_is_duplicate(t):
+            uebersprungen += 1
+            continue
+        db.session.add(Beichte(text=t, origin='ki', status='entwurf',
+                               account_id=acc.id if acc else None))
+        angelegt += 1
+    db.session.commit()
+    return jsonify({'ok': True, 'angelegt': angelegt, 'uebersprungen': uebersprungen})
+
+
+@app.route('/content-studio/beichten/<int:beichte_id>/rendern', methods=['POST'])
+@login_required
+def beichte_rendern(beichte_id):
+    b = Beichte.query.get_or_404(beichte_id)
+    try:
+        png = _render_beichte_image(b)
+        media_id = _pwf_save_photo_bytes(png, '.png', orig_filename=f'beichte_{b.id}.png')
+        if not media_id:
+            raise RuntimeError('MediaItem-Anlage fehlgeschlagen')
+        b.generated_image_path = MediaItem.query.get(media_id).url
+        db.session.commit()
+    except Exception as e:
+        app.logger.warning('Beichte rendern: %s', e)
+        flash('Rendern fehlgeschlagen — Logs prüfen.', 'error')
+    return redirect(url_for('beichte_detail', beichte_id=beichte_id))
+
+
+@app.route('/content-studio/beichten/<int:beichte_id>/veroeffentlichen', methods=['POST'])
+@login_required
+def beichte_veroeffentlichen(beichte_id):
+    b = Beichte.query.get_or_404(beichte_id)
+    if not b.account_id and not _bf_target_account():
+        flash('Erst in den Einstellungen die Beichten-Seite festlegen.', 'error')
+        return redirect(url_for('beichte_detail', beichte_id=beichte_id))
+    if not b.account_id:
+        b.account_id = _bf_target_account().id
+    if not b.generated_image_path:
+        flash('Bitte zuerst die Textkarte erzeugen.', 'error')
+        return redirect(url_for('beichte_detail', beichte_id=beichte_id))
+    if request.form.get('text'):
+        b.text = request.form['text'].strip()
+    _bf_publish(b)
+    flash('Beichte veröffentlicht — als Post eingeplant.', 'success')
+    return redirect(url_for('beichte_detail', beichte_id=beichte_id))
+
+
+@app.route('/content-studio/beichten/<int:beichte_id>/performance', methods=['POST'])
+@login_required
+def beichte_performance(beichte_id):
+    """Zahlen von Hand eintragen — das ist die Grundlage dafür, dass die KI
+    lernt, welche Beichten funktionieren."""
+    b = Beichte.query.get_or_404(beichte_id)
+    for feld in ('likes', 'comments', 'saves', 'reach'):
+        raw = (request.form.get(feld) or '').strip()
+        setattr(b, feld, int(raw) if raw.isdigit() else None)
+    b.performance_at = datetime.utcnow()
+    db.session.commit()
+    flash('Zahlen gespeichert — fließen ab jetzt in die Stil-Auswahl ein.', 'success')
+    return redirect(url_for('beichte_detail', beichte_id=beichte_id))
+
+
+@app.route('/content-studio/beichten/<int:beichte_id>/status', methods=['POST'])
+@login_required
+def beichte_status(beichte_id):
+    b = Beichte.query.get_or_404(beichte_id)
+    neu = request.form.get('status')
+    if neu in ('entwurf', 'bereit', 'veroeffentlicht', 'archiviert', 'abgelehnt'):
+        b.status = neu
+        db.session.commit()
+    return redirect(url_for('beichte_detail', beichte_id=beichte_id))
+
+
+@app.route('/api/beichten/<int:beichte_id>/delete', methods=['POST'])
+@login_required
+def beichte_delete(beichte_id):
+    db.session.delete(Beichte.query.get_or_404(beichte_id))
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/beichten/bulk-delete', methods=['POST'])
+@login_required
+def beichten_bulk_delete():
+    ids = [int(i) for i in (request.get_json(silent=True) or {}).get('ids', []) if str(i).isdigit()]
+    if not ids:
+        return jsonify({'ok': False, 'error': 'Keine IDs übergeben'}), 400
+    rows = Beichte.query.filter(Beichte.id.in_(ids)).all()
+    for b in rows:
+        db.session.delete(b)
+    db.session.commit()
+    return jsonify({'ok': True, 'deleted': len(rows)})
+
+
+@app.route('/content-studio/beichten/einstellungen', methods=['GET', 'POST'])
+@login_required
+def beichten_einstellungen():
+    if request.method == 'POST':
+        set_setting('bf_account_id', (request.form.get('account_id') or '').strip())
+        set_setting('bf_model', (request.form.get('bf_model') or '').strip())
+        db.session.commit()
+        flash('Einstellungen gespeichert.', 'success')
+        return redirect(url_for('beichten_einstellungen'))
+    return render_template('beichten_einstellungen.html',
+        accounts=Account.query.order_by(Account.name).all(),
+        target_account=_bf_target_account(),
+        bf_model=get_setting('bf_model') or '',
+        stil_beispiele=_bf_style_examples(), active_page='studio')
+
+
+@app.route('/content-studio/beichten/seite-anlegen', methods=['POST'])
+@login_required
+def beichten_seite_anlegen():
+    """Legt die dedizierte Beichten-Seite an, falls es sie noch nicht gibt."""
+    name = (request.form.get('name') or 'Beichten').strip()
+    platform = Platform.query.filter(Platform.name.ilike('%instagram%')).first() or Platform.query.first()
+    if not platform:
+        flash('Keine Plattform vorhanden — bitte erst eine anlegen.', 'error')
+        return redirect(url_for('beichten_einstellungen'))
+    acc = Account(name=name, handle=(request.form.get('handle') or '').strip() or None,
+                  platform_id=platform.id, status='active', priority='medium')
+    db.session.add(acc)
+    db.session.flush()
+    set_setting('bf_account_id', str(acc.id))
+    db.session.commit()
+    flash(f'Seite "{acc.name}" angelegt und als Beichten-Seite gesetzt.', 'success')
+    return redirect(url_for('beichten_einstellungen'))
 
 
 if __name__ == '__main__':

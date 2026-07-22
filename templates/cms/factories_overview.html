@@ -8,8 +8,8 @@
     Was steht in jeder Fabrik gerade an, und läuft der Auto-Scan gesund. Zeigt nur den jeweils letzten Scan-Lauf.
   </p>
 
-  {% set health_labels = {'ok':'Gesund','stale':'Veraltet','error':'Fehler','running':'Läuft gerade'} %}
-  {% set health_colors = {'ok':'#22c55e','stale':'#9ca3af','error':'#ef4444','running':'#3b82f6'} %}
+  {% set health_labels = {'ok':'Gesund','stale':'Veraltet','error':'Fehler','running':'Läuft gerade','kein_scan':'Kein Auto-Scan'} %}
+  {% set health_colors = {'ok':'#22c55e','stale':'#9ca3af','error':'#ef4444','running':'#3b82f6','kein_scan':'#64748b'} %}
 
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
     {% for f in overview %}
@@ -38,7 +38,9 @@
       {% endif %}
 
       <div style="font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:10px;margin-top:auto">
-        {% if f.last_scan_relative %}
+        {% if not f.has_scan %}
+          Kein Auto-Scan — Inhalte entstehen durch Einreichungen, eigenes Schreiben und KI auf Zuruf.
+        {% elif f.last_scan_relative %}
           Letzter Scan: {{ f.last_scan_relative }}
           {% if f.last_scan_status == 'error' %}
           <div style="color:var(--danger);margin-top:4px">⚠ {{ f.last_scan_error or 'Fehler beim letzten Lauf' }}</div>
