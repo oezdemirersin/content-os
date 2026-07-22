@@ -106,25 +106,52 @@
   {% if not cases %}
   <div class="card" style="padding:40px;text-align:center;color:var(--muted)">Noch keine Fälle — lege oben einen an.</div>
   {% endif %}
+
+  {% if cases %}
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <button onclick="selectAllMcf()" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Alle auswählen</button>
+  </div>
+  <div id="mcfBulkBar" style="display:none;align-items:center;gap:12px;padding:12px 20px;
+       background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);
+       border-radius:10px;margin-bottom:16px">
+    <span id="mcfBulkCount" style="font-size:13px;font-weight:600;color:var(--accent2)"></span>
+    <button onclick="bulkDeleteMcf()" class="btn btn-danger" style="font-size:12px;padding:6px 14px">
+      <i class="fa-solid fa-trash"></i> Ausgewählte löschen
+    </button>
+    <button onclick="deselectAllMcf()" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;margin-left:auto">Aufheben</button>
+  </div>
+  {% endif %}
+
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:16px">
     {% for c in cases %}
-    <a href="{{ url_for('missing_child_case', case_id=c.id) }}" class="card" style="text-decoration:none;color:inherit;overflow:hidden;display:block">
-      {% if c.image %}<img src="{{ c.image }}" style="width:100%;aspect-ratio:4/5;object-fit:cover;display:block" loading="lazy">{% endif %}
-      <div style="padding:12px 14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <span style="font-weight:700;font-size:14px">{{ c.name }}{% if c.alter %} · {{ c.alter }}J{% endif %}</span>
-          <span style="display:flex;gap:4px;align-items:center">
-          {% if c.update_detected and c.status != 'erledigt' %}<span class="badge" style="background:rgba(245,158,11,.15);color:var(--warning)" title="Mögliches Update erkannt">⚠️</span>{% endif %}
-          {% if c.status=='veroeffentlicht' %}<span class="badge badge-green">Veröffentlicht</span>
-          {% elif c.status=='erledigt' %}<span class="badge" style="background:rgba(99,102,241,.15);color:var(--accent2)">Erledigt</span>
-          {% else %}<span class="badge badge-gray">Entwurf</span>{% endif %}
-          </span>
-        </div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">
-          {{ c.stadt or '—' }}{% if c.account %} · {{ c.account }}{% endif %}{% if c.telegram_sent %} · <i class="fa-brands fa-telegram" style="color:var(--accent2)"></i>{% endif %}
-        </div>
+    <div class="card" style="position:relative;overflow:hidden;padding:0">
+      <div style="position:absolute;top:6px;left:6px;z-index:5;width:24px;height:24px;border-radius:6px;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center">
+        <input type="checkbox" class="mcf-checkbox" data-id="{{ c.id }}" onclick="event.stopPropagation()" onchange="updateMcfBulkBar();toggleMcfCardSelected(this)"
+               style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
       </div>
-    </a>
+      <button onclick="delMcfCard(event,{{ c.id }})" title="Fall löschen"
+              onmouseover="this.style.background='rgba(220,38,38,.9)'" onmouseout="this.style.background='rgba(0,0,0,.6)'"
+              style="position:absolute;top:6px;right:6px;z-index:5;width:34px;height:34px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s ease">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+      <a href="{{ url_for('missing_child_case', case_id=c.id) }}" style="text-decoration:none;color:inherit;display:block">
+        {% if c.image %}<img src="{{ c.image }}" style="width:100%;aspect-ratio:4/5;object-fit:cover;display:block" loading="lazy">{% endif %}
+        <div style="padding:12px 14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span style="font-weight:700;font-size:14px">{{ c.name }}{% if c.alter %} · {{ c.alter }}J{% endif %}</span>
+            <span style="display:flex;gap:4px;align-items:center">
+            {% if c.update_detected and c.status != 'erledigt' %}<span class="badge" style="background:rgba(245,158,11,.15);color:var(--warning)" title="Mögliches Update erkannt">⚠️</span>{% endif %}
+            {% if c.status=='veroeffentlicht' %}<span class="badge badge-green">Veröffentlicht</span>
+            {% elif c.status=='erledigt' %}<span class="badge" style="background:rgba(99,102,241,.15);color:var(--accent2)">Erledigt</span>
+            {% else %}<span class="badge badge-gray">Entwurf</span>{% endif %}
+            </span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px">
+            {{ c.stadt or '—' }}{% if c.account %} · {{ c.account }}{% endif %}{% if c.telegram_sent %} · <i class="fa-brands fa-telegram" style="color:var(--accent2)"></i>{% endif %}
+          </div>
+        </div>
+      </a>
+    </div>
     {% endfor %}
   </div>
 </div>
@@ -132,6 +159,71 @@
 
 {% block scripts %}
 <script>
+async function delMcfCard(ev,cid){
+  ev.preventDefault(); ev.stopPropagation();
+  const btn=ev.currentTarget, card=btn.closest('.card');
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Fall löschen','Diesen Fall unwiderruflich löschen?','Löschen')) return; }
+  else if(!confirm('Diesen Fall unwiderruflich löschen?')) return;
+  btn.disabled=true; btn.style.opacity='0.5'; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
+  const r=await fetch(`/api/mcf/case/${cid}/delete`,{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){
+    card.style.transition='opacity .2s ease'; card.style.opacity='0';
+    setTimeout(()=>card.remove(),200);
+  } else {
+    btn.disabled=false; btn.style.opacity=''; btn.innerHTML='<i class="fa-solid fa-xmark"></i>';
+    alert('Löschen fehlgeschlagen.');
+  }
+}
+function getSelectedMcfIds(){
+  return Array.from(document.querySelectorAll('.mcf-checkbox:checked')).map(c=>parseInt(c.dataset.id));
+}
+function updateMcfBulkBar(){
+  const ids=getSelectedMcfIds(), bar=document.getElementById('mcfBulkBar');
+  if(!bar) return;
+  document.getElementById('mcfBulkCount').textContent=ids.length+' ausgewählt';
+  bar.style.display=ids.length?'flex':'none';
+}
+function toggleMcfCardSelected(cb){
+  const card=cb.closest('.card');
+  if(!card) return;
+  if(cb.checked){ card.style.boxShadow='0 0 0 2px var(--accent)'; }
+  else{ card.style.boxShadow=''; }
+}
+function selectAllMcf(){
+  document.querySelectorAll('.mcf-checkbox').forEach(cb=>{ cb.checked=true; toggleMcfCardSelected(cb); });
+  updateMcfBulkBar();
+}
+function deselectAllMcf(){
+  document.querySelectorAll('.mcf-checkbox').forEach(cb=>{ cb.checked=false; toggleMcfCardSelected(cb); });
+  updateMcfBulkBar();
+}
+async function bulkDeleteMcf(){
+  const ids=getSelectedMcfIds();
+  if(!ids.length) return;
+  const msg=`${ids.length} Fall/Fälle unwiderruflich löschen?`;
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Ausgewählte löschen',msg,'Löschen')) return; }
+  else if(!confirm(msg)) return;
+  const bar=document.getElementById('mcfBulkBar');
+  const btn=bar.querySelector('.btn-danger');
+  const origHtml=btn.innerHTML;
+  btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Lösche…';
+  const r=await fetch('/api/mcf/case/bulk-delete',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ids})
+  }).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){
+    ids.forEach(id=>{
+      const cb=document.querySelector(`.mcf-checkbox[data-id="${id}"]`);
+      const card=cb && cb.closest('.card');
+      if(card){ card.style.transition='opacity .2s ease'; card.style.opacity='0'; setTimeout(()=>card.remove(),200); }
+    });
+    updateMcfBulkBar();
+    if(typeof showToast==='function') showToast(`${r.deleted} gelöscht.`);
+  } else {
+    btn.disabled=false; btn.innerHTML=origHtml;
+    alert('Löschen fehlgeschlagen.');
+  }
+}
 async function extractFromPoster(){
   const inp=document.getElementById('posterUpload'), msg=document.getElementById('extractMsg'), btn=document.getElementById('extractBtn');
   if(!inp.files[0]){ msg.textContent='Bitte zuerst ein Bild auswählen.'; msg.style.color='var(--warning)'; return; }

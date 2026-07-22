@@ -22,6 +22,10 @@
       <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 18px">Speichern</button>
     </form>
     <div style="font-size:11px;color:var(--muted);margin-top:12px">Gilt für alle Wissens-Nischen. Nutzt denselben Anthropic-Key wie der Rest von Content OS.</div>
+    <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px;display:flex;align-items:center;gap:10px">
+      <button onclick="kfScanNow(this)" id="kfScanBtn" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">Jetzt scannen (alle Nischen)</button>
+      <span id="kfScanMsg" style="font-size:12px;color:var(--muted)"></span>
+    </div>
   </div>
 
   <div class="card" style="padding:20px">
@@ -38,4 +42,19 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function kfScanNow(btn) {
+  const msg = document.getElementById('kfScanMsg');
+  btn.disabled = true; const o = btn.textContent; btn.textContent = 'Scanne…'; msg.textContent = '';
+  try {
+    const r = await fetch('{{ url_for("knowledge_factory_scan_now") }}', {method: 'POST'}).then(r => r.json());
+    if (r.ok) { msg.textContent = `${r.created} neue Entwürfe, ${r.checked} Quellen geprüft.`; msg.style.color = 'var(--success)'; }
+    else { msg.textContent = r.error || 'Fehler beim Scan.'; msg.style.color = 'var(--danger)'; }
+  } catch (e) { msg.textContent = 'Netzwerkfehler.'; msg.style.color = 'var(--danger)'; }
+  btn.disabled = false; btn.textContent = o;
+}
+</script>
 {% endblock %}

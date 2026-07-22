@@ -91,23 +91,44 @@
   <div class="card" style="padding:40px;text-align:center;color:var(--muted)">Noch keine Fakten — oben einen erfassen.</div>
   {% endif %}
 
+  {% if facts %}
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <button onclick="selectAllKf()" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Alle auswählen</button>
+  </div>
+  <div id="kfBulkBar" style="display:none;align-items:center;gap:12px;padding:12px 20px;
+       background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);
+       border-radius:10px;margin-bottom:16px">
+    <span id="kfBulkCount" style="font-size:13px;font-weight:600;color:var(--accent2)"></span>
+    <button onclick="bulkDeleteKf()" class="btn btn-danger" style="font-size:12px;padding:6px 14px">
+      <i class="fa-solid fa-trash"></i> Ausgewählte löschen
+    </button>
+    <button onclick="deselectAllKf()" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;margin-left:auto">Aufheben</button>
+  </div>
+  {% endif %}
+
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px">
     {% for f in facts %}
-    <a href="{{ url_for('knowledge_factory_fact_detail', account_id=account.id, fact_id=f.id) }}" class="card" style="padding:0;overflow:hidden;text-decoration:none;color:inherit;display:block">
-      {% if f.generated_image_path %}<img src="{{ f.generated_image_path }}" style="width:100%;aspect-ratio:4/5;object-fit:cover;display:block" loading="lazy">{% endif %}
-      <div style="padding:12px 14px">
-        <div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ f.title }}</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:6px;align-items:center">
-          {% if f.status=='veroeffentlicht' %}<span class="badge badge-green">Veröff.</span>
-          {% elif f.status=='geprueft' %}<span class="badge badge-blue">Geprüft</span>
-          {% elif f.status=='bereit' %}<span class="badge badge-blue">Bereit</span>
-          {% elif f.status=='abgelehnt' %}<span class="badge badge-red">Abgelehnt</span>
-          {% elif f.status=='archiviert' %}<span class="badge" style="background:rgba(99,102,241,.15);color:var(--accent2)">Archiv</span>
-          {% else %}<span class="badge badge-gray">Entwurf</span>{% endif %}
-          {% if f.category %}<span>{{ f.category.name }}</span>{% endif %}
-        </div>
+    <div class="card" style="position:relative;overflow:hidden;padding:0">
+      <div style="position:absolute;top:6px;left:6px;z-index:5;width:24px;height:24px;border-radius:6px;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center">
+        <input type="checkbox" class="kf-checkbox" data-id="{{ f.id }}" onclick="event.stopPropagation()" onchange="updateKfBulkBar();toggleKfCardSelected(this)"
+               style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
       </div>
-    </a>
+      <a href="{{ url_for('knowledge_factory_fact_detail', account_id=account.id, fact_id=f.id) }}" style="text-decoration:none;color:inherit;display:block">
+        {% if f.generated_image_path %}<img src="{{ f.generated_image_path }}" style="width:100%;aspect-ratio:4/5;object-fit:cover;display:block" loading="lazy">{% endif %}
+        <div style="padding:12px 14px">
+          <div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ f.title }}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:6px;align-items:center">
+            {% if f.status=='veroeffentlicht' %}<span class="badge badge-green">Veröff.</span>
+            {% elif f.status=='geprueft' %}<span class="badge badge-blue">Geprüft</span>
+            {% elif f.status=='bereit' %}<span class="badge badge-blue">Bereit</span>
+            {% elif f.status=='abgelehnt' %}<span class="badge badge-red">Abgelehnt</span>
+            {% elif f.status=='archiviert' %}<span class="badge" style="background:rgba(99,102,241,.15);color:var(--accent2)">Archiv</span>
+            {% else %}<span class="badge badge-gray">Entwurf</span>{% endif %}
+            {% if f.category %}<span>{{ f.category.name }}</span>{% endif %}
+          </div>
+        </div>
+      </a>
+    </div>
     {% endfor %}
   </div>
 </div>
@@ -115,6 +136,56 @@
 
 {% block scripts %}
 <script>
+function getSelectedKfIds(){
+  return Array.from(document.querySelectorAll('.kf-checkbox:checked')).map(c=>parseInt(c.dataset.id));
+}
+function updateKfBulkBar(){
+  const ids=getSelectedKfIds(), bar=document.getElementById('kfBulkBar');
+  if(!bar) return;
+  document.getElementById('kfBulkCount').textContent=ids.length+' ausgewählt';
+  bar.style.display=ids.length?'flex':'none';
+}
+function toggleKfCardSelected(cb){
+  const card=cb.closest('.card');
+  if(!card) return;
+  if(cb.checked){ card.style.boxShadow='0 0 0 2px var(--accent)'; }
+  else{ card.style.boxShadow=''; }
+}
+function selectAllKf(){
+  document.querySelectorAll('.kf-checkbox').forEach(cb=>{ cb.checked=true; toggleKfCardSelected(cb); });
+  updateKfBulkBar();
+}
+function deselectAllKf(){
+  document.querySelectorAll('.kf-checkbox').forEach(cb=>{ cb.checked=false; toggleKfCardSelected(cb); });
+  updateKfBulkBar();
+}
+async function bulkDeleteKf(){
+  const ids=getSelectedKfIds();
+  if(!ids.length) return;
+  const msg=`${ids.length} Fakt(en) unwiderruflich löschen?`;
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Ausgewählte löschen',msg,'Löschen')) return; }
+  else if(!confirm(msg)) return;
+  const bar=document.getElementById('kfBulkBar');
+  const btn=bar.querySelector('.btn-danger');
+  const origHtml=btn.innerHTML;
+  btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Lösche…';
+  const r=await fetch('{{ url_for("knowledge_factory_bulk_delete", account_id=account.id) }}',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ids})
+  }).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){
+    ids.forEach(id=>{
+      const cb=document.querySelector(`.kf-checkbox[data-id="${id}"]`);
+      const card=cb && cb.closest('.card');
+      if(card){ card.style.transition='opacity .2s ease'; card.style.opacity='0'; setTimeout(()=>card.remove(),200); }
+    });
+    updateKfBulkBar();
+    if(typeof showToast==='function') showToast(`${r.deleted} gelöscht.`);
+  } else {
+    btn.disabled=false; btn.innerHTML=origHtml;
+    alert('Löschen fehlgeschlagen.');
+  }
+}
 function kfFillForm(fields){
   if(!fields) return;
   if(fields.title) document.getElementById('kfTitle').value = fields.title;

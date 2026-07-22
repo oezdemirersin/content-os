@@ -17386,6 +17386,21 @@ def mcf_delete_case(cid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/mcf/case/bulk-delete', methods=['POST'])
+@login_required
+def mcf_bulk_delete_cases():
+    d = request.get_json(silent=True) or {}
+    ids = [int(i) for i in d.get('ids', []) if str(i).isdigit()]
+    if not ids:
+        return jsonify({'ok': False, 'error': 'Keine IDs übergeben'}), 400
+    cases = MissingChildCase.query.filter(MissingChildCase.id.in_(ids)).all()
+    count = len(cases)
+    for c in cases:
+        db.session.delete(c)
+    db.session.commit()
+    return jsonify({'ok': True, 'deleted': count})
+
+
 @app.route('/api/mcf/case/<int:cid>/feedback', methods=['POST'])
 @login_required
 def mcf_feedback(cid):
@@ -20742,18 +20757,25 @@ def _kf_run_research():
     return created, checked
 
 
+def _kf_scan_and_log():
+    """Kapselt _kf_run_research() mit gemeinsamem Scan-Log-Eintrag (FactoryScanLog)
+    — genutzt vom Scheduler UND vom manuellen Trigger."""
+    log_id = _factory_scan_log_start('wissensfabrik')
+    try:
+        created, checked = _kf_run_research()
+        _factory_scan_log_finish(log_id, status='success', items_checked=checked, items_created=created,
+            summary=f'{created} neu, {checked} Quellen geprüft')
+        return created, checked
+    except Exception as e:
+        _factory_scan_log_finish(log_id, status='error', error=str(e))
+        raise
+
+
 def _kf_auto_scan():
     with app.app_context():
         if get_setting('kf_auto_research') != '1':
             return
-        log_id = _factory_scan_log_start('wissensfabrik')
-        try:
-            created, checked = _kf_run_research()
-            _factory_scan_log_finish(log_id, status='success', items_checked=checked, items_created=created,
-                summary=f'{created} neu, {checked} Quellen geprüft')
-        except Exception as e:
-            _factory_scan_log_finish(log_id, status='error', error=str(e))
-            raise
+        _kf_scan_and_log()
 
 
 def _kf_find_or_create_category(account_id, name):
@@ -21298,6 +21320,21 @@ def knowledge_factory_delete_fact(account_id, fact_id):
     return redirect(url_for('knowledge_factory_niche', account_id=account_id))
 
 
+@app.route('/api/wissensfabrik/<int:account_id>/fakt/bulk-delete', methods=['POST'])
+@login_required
+def knowledge_factory_bulk_delete(account_id):
+    d = request.get_json(silent=True) or {}
+    ids = [int(i) for i in d.get('ids', []) if str(i).isdigit()]
+    if not ids:
+        return jsonify({'ok': False, 'error': 'Keine IDs übergeben'}), 400
+    facts = KnowledgeFact.query.filter(KnowledgeFact.account_id == account_id, KnowledgeFact.id.in_(ids)).all()
+    count = len(facts)
+    for f in facts:
+        db.session.delete(f)
+    db.session.commit()
+    return jsonify({'ok': True, 'deleted': count})
+
+
 @app.route('/api/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/feedback', methods=['POST'])
 @login_required
 def knowledge_factory_feedback(account_id, fact_id):
@@ -21330,6 +21367,20 @@ def knowledge_factory_settings():
     return render_template('wissensfabrik_einstellungen.html', niches=niches,
         analysis_model=get_setting('analysis_model') or 'claude-sonnet-4-6',
         kf_auto_research=get_setting('kf_auto_research') == '1', active_page='studio')
+
+
+@app.route('/api/wissensfabrik/scan', methods=['POST'])
+@login_required
+def knowledge_factory_scan_now():
+    """Manueller Scan über alle RSS/Wikipedia-Quellen aller Nischen — läuft
+    unabhängig vom Auto-Scan-Schalter (der nur den Scheduler steuert)."""
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Braucht einen Anthropic-API-Key (Einstellungen → KI).'}), 400
+    if not KnowledgeSource.query.filter_by(active=True).first():
+        return jsonify({'ok': False, 'error': 'Noch keine aktive Quelle in irgendeiner Nische hinterlegt.'}), 400
+    created, checked = _kf_scan_and_log()
+    return jsonify({'ok': True, 'created': created, 'checked': checked})
 
 
 
@@ -22239,6 +22290,30 @@ def tlb_set_status(story_id):
         story.abgelehnt_grund = d.get('grund') or 'manuell abgelehnt'
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/api/tlb/story/<int:story_id>/delete', methods=['POST'])
+@login_required
+def tlb_delete_story(story_id):
+    story = TlbStory.query.get_or_404(story_id)
+    db.session.delete(story)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/tlb/story/bulk-delete', methods=['POST'])
+@login_required
+def tlb_bulk_delete_stories():
+    d = request.get_json(silent=True) or {}
+    ids = [int(i) for i in d.get('ids', []) if str(i).isdigit()]
+    if not ids:
+        return jsonify({'ok': False, 'error': 'Keine IDs übergeben'}), 400
+    stories = TlbStory.query.filter(TlbStory.id.in_(ids)).all()
+    count = len(stories)
+    for s in stories:
+        db.session.delete(s)
+    db.session.commit()
+    return jsonify({'ok': True, 'deleted': count})
 
 
 @app.route('/api/tlb/story/<int:story_id>/feedback', methods=['POST'])

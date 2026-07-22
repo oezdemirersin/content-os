@@ -75,8 +75,25 @@
   </div>
   {% endif %}
 
+  {% if stories %}
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <button onclick="selectAllTlb()" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">Alle auswählen</button>
+  </div>
+  <div id="tlbBulkBar" style="display:none;align-items:center;gap:12px;padding:12px 20px;
+       background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);
+       border-radius:10px;margin-bottom:16px">
+    <span id="tlbBulkCount" style="font-size:13px;font-weight:600;color:var(--accent2)"></span>
+    <button onclick="bulkDeleteTlb()" class="btn btn-danger" style="font-size:12px;padding:6px 14px">
+      <i class="fa-solid fa-trash"></i> Ausgewählte löschen
+    </button>
+    <button onclick="deselectAllTlb()" class="btn btn-ghost" style="font-size:12px;padding:6px 14px;margin-left:auto">Aufheben</button>
+  </div>
+  {% endif %}
+
   {% for s in stories %}
   <div class="card" style="padding:14px 16px;margin-bottom:10px;display:flex;gap:14px;align-items:flex-start">
+    <input type="checkbox" class="tlb-checkbox" data-id="{{ s.id }}" onchange="updateTlbBulkBar()"
+           style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;margin-top:3px;flex-shrink:0">
     <div style="min-width:52px;text-align:center">
       <div style="font-size:19px;font-weight:800;
                   color:{% if s.gesamtscore and s.gesamtscore >= min_score %}var(--success){% elif s.gesamtscore %}var(--muted){% else %}var(--border){% endif %}">
@@ -99,12 +116,15 @@
       <div style="font-size:11px;color:var(--muted);margin-top:5px;font-style:italic">{{ s.wow_begruendung }}</div>
       {% endif %}
     </div>
-    <div style="text-align:right">
+    <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
       <span style="font-size:10px;padding:3px 9px;border-radius:11px;background:var(--surface2);color:var(--muted);white-space:nowrap">
         {{ s.status }}</span>
       {% if s.filter_gescheitert_an %}
-      <div style="font-size:10px;color:var(--muted);margin-top:5px">Stufe {{ s.filter_gescheitert_an }}</div>
+      <div style="font-size:10px;color:var(--muted)">Stufe {{ s.filter_gescheitert_an }}</div>
       {% endif %}
+      <button onclick="delTlbRow(event,{{ s.id }})" title="Löschen" class="btn btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--danger)">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
     </div>
   </div>
   {% endfor %}
@@ -129,6 +149,62 @@ async function scanJetzt(btn){
     }
   }catch(e){ msg.textContent = 'Fehler: ' + e; }
   btn.disabled = false; btn.textContent = 'Jetzt scannen';
+}
+async function delTlbRow(ev,sid){
+  ev.preventDefault(); ev.stopPropagation();
+  const btn=ev.currentTarget, row=btn.closest('.card');
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Löschen','Diese Geschichte unwiderruflich löschen?','Löschen')) return; }
+  else if(!confirm('Diese Geschichte unwiderruflich löschen?')) return;
+  btn.disabled=true;
+  const r=await fetch(`/api/tlb/story/${sid}/delete`,{method:'POST'}).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){
+    row.style.transition='opacity .2s ease'; row.style.opacity='0';
+    setTimeout(()=>row.remove(),200);
+  } else { btn.disabled=false; alert('Löschen fehlgeschlagen.'); }
+}
+function getSelectedTlbIds(){
+  return Array.from(document.querySelectorAll('.tlb-checkbox:checked')).map(c=>parseInt(c.dataset.id));
+}
+function updateTlbBulkBar(){
+  const ids=getSelectedTlbIds(), bar=document.getElementById('tlbBulkBar');
+  if(!bar) return;
+  document.getElementById('tlbBulkCount').textContent=ids.length+' ausgewählt';
+  bar.style.display=ids.length?'flex':'none';
+}
+function selectAllTlb(){
+  document.querySelectorAll('.tlb-checkbox').forEach(cb=>{ cb.checked=true; });
+  updateTlbBulkBar();
+}
+function deselectAllTlb(){
+  document.querySelectorAll('.tlb-checkbox').forEach(cb=>{ cb.checked=false; });
+  updateTlbBulkBar();
+}
+async function bulkDeleteTlb(){
+  const ids=getSelectedTlbIds();
+  if(!ids.length) return;
+  const msg=`${ids.length} Geschichte(n) unwiderruflich löschen?`;
+  if(typeof customConfirm==='function'){ if(!await customConfirm('Ausgewählte löschen',msg,'Löschen')) return; }
+  else if(!confirm(msg)) return;
+  const bar=document.getElementById('tlbBulkBar');
+  const btn=bar.querySelector('.btn-danger');
+  const origHtml=btn.innerHTML;
+  btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Lösche…';
+  const r=await fetch('/api/tlb/story/bulk-delete',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ids})
+  }).then(r=>r.json()).catch(()=>({ok:false}));
+  if(r.ok){
+    ids.forEach(id=>{
+      const cb=document.querySelector(`.tlb-checkbox[data-id="${id}"]`);
+      const row=cb && cb.closest('.card');
+      if(row){ row.style.transition='opacity .2s ease'; row.style.opacity='0'; setTimeout(()=>row.remove(),200); }
+    });
+    updateTlbBulkBar();
+    if(typeof showToast==='function') showToast(`${r.deleted} gelöscht.`);
+  } else {
+    btn.disabled=false; btn.innerHTML=origHtml;
+    alert('Löschen fehlgeschlagen.');
+  }
 }
 </script>
 {% endblock %}
