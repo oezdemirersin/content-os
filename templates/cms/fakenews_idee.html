@@ -26,6 +26,42 @@
   </div>
   {% endif %}
 
+  <!-- Satire-Karte -->
+  <div class="card" style="padding:18px;margin-bottom:18px">
+    <div style="display:flex;gap:20px;flex-wrap:wrap">
+      <div style="flex-shrink:0">
+        {% if idee.generated_image_path %}
+        <img src="{{ idee.generated_image_path }}" style="width:220px;border-radius:10px;border:1px solid var(--border);display:block">
+        {% else %}
+        <div style="width:220px;aspect-ratio:4/5;border-radius:10px;border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;text-align:center;padding:14px">
+          Noch keine Karte erzeugt
+        </div>
+        {% endif %}
+      </div>
+      <div style="flex:1;min-width:220px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:6px">Satire-Karte</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">
+          1080×1350 im {{ formate.get(idee.format, idee.format) }}-Layout. Mit fester „SATIRE"-Kennzeichnung
+          in der Fußzeile — hält den Beitrag als klar erkennbare Parodie und schützt die Seite.
+        </div>
+        <form method="POST" action="{{ url_for('fake_news_rendern', idee_id=idee.id) }}"
+              style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select name="account_id" class="select-field" style="width:auto;font-size:12px">
+            <option value="">Standard-Farben</option>
+            {% for e in idee.einsaetze %}
+            <option value="{{ e.account_id }}">Farben von {{ e.account.name if e.account else '—' }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-ghost" style="font-size:12px;padding:8px 14px">
+            {{ 'Karte neu erzeugen' if idee.generated_image_path else 'Karte erzeugen' }}</button>
+          {% if idee.generated_image_path %}
+          <a href="{{ idee.generated_image_path }}" download class="btn btn-ghost" style="font-size:12px;padding:8px 12px" title="Herunterladen">⬇</a>
+          {% endif %}
+        </form>
+      </div>
+    </div>
+  </div>
+
   <!-- Länder-Einschätzung -->
   <div class="card" style="padding:18px;margin-bottom:18px;border-left:3px solid {% if idee.bezug == 'universell' %}var(--success){% elif idee.bezug %}var(--warning){% else %}var(--border){% endif %}">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">

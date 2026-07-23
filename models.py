@@ -1821,6 +1821,8 @@ class FakeNewsIdee(db.Model):
 
     trend_thema = db.Column(db.String(300))   # aktuelles Thema, aus dem die Idee entstand
 
+    generated_image_path = db.Column(db.String(600))   # gerenderte Satire-Karte (optional)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

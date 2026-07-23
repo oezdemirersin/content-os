@@ -23375,6 +23375,86 @@ def _fnf_bewerte_laender(idee, api_key):
         return False
 
 
+def _fnf_render_image(idee, account=None):
+    """1080×1350 Satire-Karte. Zwei Layouts: 'schlagzeile' sieht aus wie ein
+    News-Post (Kopfbalken mit Seitenname, große Schlagzeile, optionaler Fließtext),
+    'meme' ist die Schlagzeile groß-zentriert auf farbigem Grund.
+
+    WICHTIG — fester SATIRE-Hinweis in der Fußzeile, bewusst NICHT abschaltbar:
+    hält den Inhalt als klar erkennbare Parodie (kein echtes Täuschen), schützt
+    den Account und ist der verantwortungsvolle Standard für generierte
+    Fake-News-Bilder. Gibt PNG-Bytes zurück."""
+    from PIL import Image, ImageDraw
+    import io as _io
+    W, H = 1080, 1350
+    account = account or (Account.query.get(idee.einsaetze[0].account_id)
+                          if idee.einsaetze else None)
+    cfg = account.ai_config if account else None
+
+    def _rgb(h, fallback):
+        try:
+            return tuple(int((h or '').lstrip('#')[i:i + 2], 16) for i in (0, 2, 4))
+        except Exception:
+            return fallback
+    bg = _rgb(cfg.primary_color if cfg else None, (16, 18, 27))
+    accent = _rgb(cfg.accent_color if cfg else None, (168, 85, 247))
+    WHITE = (245, 245, 248)
+    MUTED = (150, 152, 165)
+
+    img = Image.new('RGB', (W, H), bg)
+    d = ImageDraw.Draw(img)
+    seitenname = (account.name if account else 'FAKE NEWS').upper()
+
+    if idee.format == 'meme':
+        # Meme: Schlagzeile groß und mittig, kein Kopfbalken.
+        text = idee.schlagzeile.strip()
+        size = 76 if len(text) < 90 else 62 if len(text) < 160 else 50
+        f = _mcf_font(size, bold=True)
+        zeilen = _mcf_wrap(d, text, f, W - 160)
+        zh = int(size * 1.3)
+        y = max(200, (H - len(zeilen) * zh) // 2)
+        for z in zeilen:
+            d.text(((W - d.textlength(z, font=f)) / 2, y), z, font=f, fill=WHITE)
+            y += zh
+    else:
+        # Schlagzeile: News-Post-Look. Kopfbalken in Akzentfarbe mit Seitenname.
+        d.rectangle([0, 0, W, 130], fill=accent)
+        f_head = _mcf_font(38, bold=True)
+        d.text((60, 44), seitenname, font=f_head, fill=WHITE)
+        f_label = _mcf_font(24, bold=True)
+        lbl = 'EILMELDUNG'
+        d.text((W - 60 - d.textlength(lbl, font=f_label), 51), lbl, font=f_label, fill=WHITE)
+
+        y = 210
+        f_h = _mcf_font(60, bold=True)
+        for z in _mcf_wrap(d, idee.schlagzeile.strip(), f_h, W - 120)[:6]:
+            d.text((60, y), z, font=f_h, fill=WHITE)
+            y += 74
+        if idee.text:
+            y += 30
+            d.line([(60, y), (W - 60, y)], fill=accent, width=3)
+            y += 28
+            f_t = _mcf_font(32, bold=False)
+            max_y = H - 190
+            for z in _mcf_wrap(d, idee.text.strip(), f_t, W - 120):
+                if y > max_y:
+                    break
+                d.text((60, y), z, font=f_t, fill=MUTED)
+                y += 44
+
+    # Fester Satire-Hinweis — nicht abschaltbar (s. Docstring).
+    d.line([(60, H - 128), (W - 60, H - 128)], fill=accent, width=2)
+    f_foot = _mcf_font(26, bold=True)
+    d.text((60, H - 104), 'SATIRE', font=f_foot, fill=accent)
+    f_foot2 = _mcf_font(22, bold=False)
+    hinweis = 'Frei erfundene Meldung zu Unterhaltungszwecken'
+    d.text((W - 60 - d.textlength(hinweis, font=f_foot2), H - 101), hinweis, font=f_foot2, fill=MUTED)
+
+    buf = _io.BytesIO()
+    img.save(buf, format='PNG')
+    return buf.getvalue()
+
+
 def _fnf_offene_seiten(idee):
     """Seiten, auf denen die Idee noch NICHT eingesetzt wurde — inklusive Hinweis,
     ob sie laut Einschätzung überhaupt passt. Das ist die eigentliche Antwort auf
@@ -23560,6 +23640,27 @@ def fake_news_einsatz_delete(einsatz_id):
     db.session.delete(e)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@app.route('/content-studio/fake-news/<int:idee_id>/rendern', methods=['POST'])
+@login_required
+def fake_news_rendern(idee_id):
+    """Erzeugt die Satire-Karte. Nimmt optional eine Seite mit, damit deren
+    Farben/Name aufs Bild kommen — eine Idee kann auf mehreren Seiten laufen."""
+    idee = FakeNewsIdee.query.get_or_404(idee_id)
+    aid = request.form.get('account_id')
+    account = Account.query.get(int(aid)) if aid and str(aid).isdigit() else None
+    try:
+        png = _fnf_render_image(idee, account=account)
+        media_id = _pwf_save_photo_bytes(png, '.png', orig_filename=f'fakenews_{idee.id}.png')
+        if not media_id:
+            raise RuntimeError('MediaItem-Anlage fehlgeschlagen')
+        idee.generated_image_path = MediaItem.query.get(media_id).url
+        db.session.commit()
+    except Exception as e:
+        app.logger.warning('FNF rendern: %s', e)
+        flash('Rendern fehlgeschlagen — Logs prüfen.', 'error')
+    return redirect(url_for('fake_news_idee', idee_id=idee_id))
 
 
 @app.route('/api/fake-news/<int:idee_id>/delete', methods=['POST'])
