@@ -46,6 +46,9 @@
               @click="hours=f.h; load()" x-text="f.label"></button>
     </template>
     <div style="margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <input type="text" x-model="search" placeholder="Themen durchsuchen…"
+             class="input-field" style="font-size:12px;width:180px;padding:7px 10px"
+             x-show="topics.length > 6" x-cloak>
       <span class="tr-meta" x-show="lastScanRel" x-cloak>
         <i class="fa-solid fa-clock-rotate-left"></i>
         Letzter Scan: <span x-text="lastScanRel"></span>
@@ -82,8 +85,13 @@
     </div>
   </div>
 
+  <!-- Suche ohne Treffer -->
+  <div x-show="!loading && topics.length && !filteredTopics.length" x-cloak class="tr-topic" style="text-align:center;padding:32px 20px;color:var(--muted);font-size:13px">
+    Kein Thema passt zu „<span x-text="search"></span>".
+  </div>
+
   <!-- Themenliste -->
-  <template x-for="(t, idx) in topics" :key="t.id">
+  <template x-for="(t, idx) in filteredTopics" :key="t.id">
     <div class="tr-topic">
       <div style="display:flex;gap:14px">
         <div class="tr-rank" x-text="idx+1"></div>
@@ -375,7 +383,7 @@ function trendRadar() {
       {key: 'reddit',    label: 'Reddit'},
     ],
     topics: [], loading: true, scanning: false, scanStep: '',
-    signalCount: 0, lastScanRel: '',
+    signalCount: 0, lastScanRel: '', search: '',
     settingsOpen: false,
     settings: {youtube_api_key: '', auto: true, alert_score: 80},
     youtubeKeySet: {{ 'true' if youtube_ready else 'false' }},
@@ -386,6 +394,14 @@ function trendRadar() {
 
     get nicheOptions() {
       return [...new Set(this.sources.map(s => s.niche).filter(Boolean))];
+    },
+
+    get filteredTopics() {
+      const q = this.search.trim().toLowerCase();
+      if (!q) return this.topics;
+      return this.topics.filter(t =>
+        (t.title || '').toLowerCase().includes(q) ||
+        (t.description || '').toLowerCase().includes(q));
     },
 
     async init() {
