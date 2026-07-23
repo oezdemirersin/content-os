@@ -3343,6 +3343,18 @@ def schedule_automations():
                 # Smart-Refill alle 30 Minuten
                 if tick % 30 == 0:
                     threading.Thread(target=_smart_refill_check, daemon=True).start()
+                # KI-Kosten einmal täglich in Ausgaben übernehmen (nie tick 0, s.o.).
+                # Hält den Monatseintrag aktuell, auch wenn niemand die Seite öffnet.
+                if tick >= 6 and (tick - 6) % 1440 == 0:
+                    def _sync_ki():
+                        with app.app_context():
+                            try:
+                                _n = datetime.utcnow()
+                                _sync_ki_kosten_ausgabe(_n.year, _n.month)
+                            except Exception as _e:
+                                db.session.rollback()
+                                app.logger.warning('KI-Kosten-Sync (Scheduler): %s', _e)
+                    threading.Thread(target=_sync_ki, daemon=True).start()
                 # Trend Radar: alle 3 Stunden scannen (Start bei tick 3, nie tick 0 —
                 # get_setting existiert beim Thread-Start noch nicht, s. Webhook-Kommentar)
                 if tick >= 3 and (tick - 3) % 180 == 0:
@@ -3397,13 +3409,19 @@ def get_setting(key, default=None):
     return s.value if s and s.value else default
 
 def set_setting(key, value):
-    """Speichert einen Wert in AppSettings (upsert)."""
+    """Speichert einen Wert in AppSettings (upsert) und committet sofort.
+
+    Ohne das commit() ging der Wert verloren, wenn der aufrufende Handler selbst
+    nicht committet — genau das passierte beim Speichern der CityBot-Verbindung.
+    Aufrufer, die danach noch selbst db.session.commit() aufrufen, sind davon
+    nicht betroffen (ein zweites commit ohne offene Änderung ist ein No-op)."""
     s = AppSettings.query.filter_by(key=key).first()
     if not s:
         s = AppSettings(key=key)
         db.session.add(s)
     s.value = value
     s.updated_at = datetime.utcnow()
+    db.session.commit()
 
 
 def _last_synced_date():
@@ -3741,7 +3759,48 @@ def _citybot_costs(days=30):
         return None, f'CityBot nicht erreichbar: {str(e)[:120]}'
 
 
-@app.route('/ki-kosten')
+def _sync_ki_kosten_ausgabe(year, month):
+    """Trägt die KI-Kosten eines Monats als EINE Ausgabe ein (Upsert).
+
+    Idempotent: findet den bestehenden Eintrag über einen Marker in notizen und
+    aktualisiert nur den Betrag, statt Duplikate anzulegen. Betrag = ContentOS +
+    CityBot in EUR. Wird aus der Seite und aus dem Scheduler aufgerufen."""
+    from datetime import date as _date
+    marker = f'[auto:ki-kosten:{year}-{month:02d}]'
+    m_start = datetime(year, month, 1)
+    m_end   = datetime(year + (month == 12), (month % 12) + 1, 1)
+
+    # ContentOS-Anteil aus dem lokalen Log
+    co = db.session.query(func.coalesce(func.sum(AiUsageLog.cost_eur), 0.0))\
+        .filter(AiUsageLog.created_at >= m_start, AiUsageLog.created_at < m_end).scalar() or 0.0
+
+    # CityBot-Anteil aus dessen monthly-Dict (USD → EUR)
+    cb = 0.0
+    cb_raw, _ = _citybot_costs(90)
+    if cb_raw:
+        mrow = (cb_raw.get('monthly') or {}).get(f'{year}-{month:02d}')
+        if mrow:
+            cb = (mrow.get('cost') or 0.0) * _USD_TO_EUR
+
+    total = round(co + cb, 2)
+    if total <= 0:
+        return  # nichts auszugeben → keinen Nullbetrag anlegen
+
+    row = Ausgabe.query.filter(Ausgabe.notizen.like(f'%{marker}%')).first()
+    titel = f'KI-Kosten {year}-{month:02d}'
+    notiz = (f'Automatisch aus der KI-Kosten-Übersicht. ContentOS {co:.2f} € + '
+             f'CityBot {cb:.2f} €. {marker}')
+    if row:
+        row.betrag  = total
+        row.notizen = notiz
+    else:
+        db.session.add(Ausgabe(
+            titel=titel, betrag=total, kategorie='KI / Software',
+            datum=_date(year, month, 1), finanzamt=True, notizen=notiz))
+    db.session.commit()
+
+
+@app.route('/ki-kosten', methods=['GET', 'POST'])
 @login_required
 def ki_kosten():
     """Zentrale KI-Kostenübersicht über alle Projekte (ContentOS + CityBot).
@@ -3749,6 +3808,14 @@ def ki_kosten():
     Beantwortet die Frage 'wofür wurde mein Guthaben ausgegeben' — aufgeschlüsselt
     nach Tag, Funktion, Modell und System, statt nur einer Gesamtsumme."""
     from datetime import date as _date
+
+    # CityBot-Verbindung speichern (Formular auf dieser Seite)
+    if request.method == 'POST' and request.form.get('form') == 'citybot':
+        set_setting('citybot_base_url', (request.form.get('base_url') or '').strip().rstrip('/'))
+        set_setting('citybot_api_key', (request.form.get('api_key') or '').strip())
+        flash('CityBot-Verbindung gespeichert.', 'success')
+        return redirect(url_for('ki_kosten'))
+
     try:
         days = max(7, min(90, int(request.args.get('days', 30))))
     except (ValueError, TypeError):
@@ -3824,6 +3891,16 @@ def ki_kosten():
             ({'name': k, **v} for k, v in bucket.items()),
             key=lambda x: x['cost'], reverse=True)
 
+    # Laufenden + Vormonat idempotent in Ausgaben übernehmen (sofortige Wirkung
+    # beim Öffnen der Seite; der Scheduler hält es zusätzlich täglich aktuell).
+    try:
+        _sync_ki_kosten_ausgabe(today.year, today.month)
+        _prev = (month_start - timedelta(days=1))
+        _sync_ki_kosten_ausgabe(_prev.year, _prev.month)
+    except Exception as _e:
+        db.session.rollback()
+        app.logger.warning('KI-Kosten → Ausgaben: %s', _e)
+
     return render_template(
         'ki_kosten.html',
         active_page='ki_kosten',
@@ -3832,6 +3909,8 @@ def ki_kosten():
         by_feature=_sorted(by_feature), by_model=_sorted(by_model),
         cb=cb, cb_feature=_sorted(cb['by_feature']), cb_error=cb_error,
         cb_connected=bool(cb_raw),
+        base_url=get_setting('citybot_base_url', '') or '',
+        api_key=get_setting('citybot_api_key', '') or '',
         series=series,
         recent=rows[:60],
         total_today=round(co_today['cost'] + cb['today'], 4),

@@ -80,13 +80,18 @@
       <span style="display:inline-block;width:9px;height:9px;background:var(--warning);border-radius:2px"></span> CityBot
     </span>
   </div>
-  <div style="padding:18px 20px">
-    <div style="display:flex;align-items:flex-end;gap:3px;height:170px;overflow-x:auto">
+  <div style="padding:18px 20px;overflow-x:auto">
+    {# min-width sorgt dafuer, dass bei 30/90 Tagen pro Tag genug Platz fuer den
+       Wert bleibt — bei Bedarf wird horizontal gescrollt statt gequetscht. #}
+    <div style="display:flex;align-items:flex-end;gap:4px;height:190px;min-width:{{ (series|length) * 34 }}px">
       {% for s in series %}
         {% set tot = s.contentos + s.citybot %}
-        <div style="flex:1;min-width:9px;display:flex;flex-direction:column;justify-content:flex-end;
+        <div style="flex:1;min-width:28px;display:flex;flex-direction:column;justify-content:flex-end;
                     height:100%;position:relative"
              title="{{ s.day }} — {{ '%.3f'|format(tot) }} € (Content OS {{ '%.3f'|format(s.contentos) }} € · CityBot {{ '%.3f'|format(s.citybot) }} €)">
+          <div style="font-size:9px;color:var(--muted);text-align:center;margin-bottom:2px;white-space:nowrap">
+            {{ ('%.2f'|format(tot)) if tot > 0 else '' }}
+          </div>
           <div style="background:var(--warning);border-radius:2px 2px 0 0;
                       height:{{ (s.citybot / top * 100) if top else 0 }}%"></div>
           <div style="background:var(--success);border-radius:{{ '0' if s.citybot > 0 else '2px 2px 0 0' }};
@@ -94,10 +99,13 @@
         </div>
       {% endfor %}
     </div>
-    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:8px">
-      <span>{{ series[0].day if series }}</span>
-      <span>Spitze: {{ '%.2f'|format(top) }} € / Tag</span>
-      <span>{{ series[-1].day if series }}</span>
+    {# Datums-Achse: Tag/Monat unter jedem Balken #}
+    <div style="display:flex;gap:4px;margin-top:6px;min-width:{{ (series|length) * 34 }}px">
+      {% for s in series %}
+        <div style="flex:1;min-width:28px;text-align:center;font-size:9px;color:var(--muted);white-space:nowrap">
+          {{ s.day[8:10] }}.{{ s.day[5:7] }}.
+        </div>
+      {% endfor %}
     </div>
   </div>
 </div>
@@ -233,5 +241,33 @@
     </table>
   </div>
 </div>
+
+{# ── CityBot-Verbindung ──────────────────────────────────────────────────── #}
+<details style="margin-top:20px" {% if not (base_url and api_key) %}open{% endif %}>
+  <summary style="cursor:pointer;font-weight:700;font-size:13px;color:var(--muted)">
+    <i class="fa-solid fa-plug" style="margin-right:6px"></i>CityBot-Verbindung
+    {% if base_url and api_key %}
+      <span style="color:var(--success);font-size:11px;margin-left:6px">✓ verbunden</span>
+    {% else %}
+      <span style="color:var(--warning);font-size:11px;margin-left:6px">nicht verbunden</span>
+    {% endif %}
+  </summary>
+  <form method="post" style="margin-top:12px;max-width:560px;display:grid;gap:10px">
+    <input type="hidden" name="form" value="citybot">
+    <label style="font-size:12px;color:var(--muted)">CityBot Basis-URL</label>
+    <input name="base_url" value="{{ base_url }}" placeholder="https://citybot-v3lg.onrender.com" required
+           style="padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-family:monospace">
+    <label style="font-size:12px;color:var(--muted)">API-Key (im CityBot: Team-Tab → Key generieren)</label>
+    <input name="api_key" value="{{ api_key }}" placeholder="X-CityBot-Key" required
+           style="padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-family:monospace">
+    <button type="submit" class="btn btn-primary" style="justify-self:start;font-size:13px;padding:8px 18px">Speichern</button>
+  </form>
+</details>
+
+<p style="margin-top:14px;font-size:11px;color:var(--muted)">
+  <i class="fa-solid fa-circle-info" style="margin-right:5px"></i>
+  Die Kosten werden automatisch monatlich unter <a href="{{ url_for('ausgaben') }}" style="color:var(--accent2)">Ausgaben</a>
+  eingetragen (Kategorie „KI / Software").
+</p>
 
 {% endblock %}
