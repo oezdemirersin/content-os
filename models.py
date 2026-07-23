@@ -1471,11 +1471,23 @@ class KnowledgeFact(db.Model):
     foto_media_id = db.Column(db.Integer, db.ForeignKey('media_item.id'))
     generated_image_path = db.Column(db.String(600))
 
+    # ── Layout-Familie (Phase 4) ──
+    layout = db.Column(db.String(20), default='classic')   # classic / big_number
+    stat_value = db.Column(db.String(60))   # z.B. "73%" — nur bei layout='big_number' genutzt
+
+    # ── Volles Textsystem (Phase 4) ──
+    hashtags = db.Column(db.Text, default='[]')   # JSON-Liste, ohne '#'
+    alt_text = db.Column(db.Text)                 # Bildbeschreibung für Barrierefreiheit
+    story_text = db.Column(db.Text)               # kürzere Variante für die Story
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def get_tags(self):
         return json.loads(self.tags or '[]')
+
+    def get_hashtags(self):
+        return json.loads(self.hashtags or '[]')
 
     def get_content_item_ids(self):
         return json.loads(self.content_item_ids or '[]')

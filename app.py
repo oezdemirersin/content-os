@@ -21223,6 +21223,80 @@ def _kf_draw_placeholder(bw, bh, accent_hex):
 
 
 def _render_knowledge_fact_image(fact):
+    """Layout-Dispatch — welche Karten-Familie gerendert wird, entscheidet
+    fact.layout. 'classic' bleibt der Standard (Foto+Titel+Kurzfassung),
+    'big_number' ist für Statistik-Fakten (ein Wert dominiert die Karte)."""
+    if fact.layout == 'big_number':
+        return _render_knowledge_fact_bignumber(fact)
+    return _render_knowledge_fact_classic(fact)
+
+
+def _render_knowledge_fact_bignumber(fact):
+    """1080×1350 Statistik-Karte: eine große Zahl dominiert (z.B. '73%'),
+    darunter Titel als Erklärung, oben die Nischen-Kopfzeile wie bei Classic
+    Fact — gleiche Markenoptik, andere Gewichtung. Fällt auf den Titel zurück,
+    wenn kein stat_value gesetzt ist (kein leeres Layout)."""
+    from PIL import Image, ImageDraw
+    import io as _io
+    account = Account.query.get(fact.account_id)
+    accent = (account.ai_config.accent_color if account and account.ai_config else None) or '#6366f1'
+    ink_rgb = (30, 30, 32)
+    W, H = 1080, 1350
+    img = Image.new('RGB', (W, H), (255, 255, 255))
+    d = ImageDraw.Draw(img)
+
+    HEAD_H = 90
+    try:
+        accent_rgb = tuple(int(accent.lstrip('#')[i:i + 2], 16) for i in (0, 2, 4))
+    except Exception:
+        accent_rgb = (99, 102, 241)
+    d.rectangle([0, 0, W, HEAD_H], fill=accent_rgb)
+    f_niche = _mcf_font(28, bold=True)
+    niche_name = (account.name if account else '').upper()
+    nw = d.textlength(niche_name, font=f_niche)
+    d.text(((W - nw) / 2, HEAD_H / 2 - 16), niche_name, font=f_niche, fill=(255, 255, 255))
+
+    # ── Die Zahl — dominiert die Karte ──────────────────────────────
+    stat = (fact.stat_value or '').strip()
+    y = HEAD_H + 120
+    if stat:
+        size = 220 if len(stat) <= 4 else 160 if len(stat) <= 8 else 110
+        f_num = _mcf_font(size, bold=True)
+        nw2 = d.textlength(stat, font=f_num)
+        d.text(((W - nw2) / 2, y), stat, font=f_num, fill=accent_rgb)
+        y += int(size * 1.15)
+    else:
+        y += 40
+
+    d.line([(80, y), (W - 80, y)], fill=(226, 228, 232), width=2)
+    y += 34
+
+    # ── Titel erklärt die Zahl ────────────────────────────────────
+    title = fact.title or ''
+    f_h = _mcf_font(40, bold=True)
+    for line in _mcf_wrap(d, title, f_h, W - 140)[:4]:
+        lw = d.textlength(line, font=f_h)
+        d.text(((W - lw) / 2, y), line, font=f_h, fill=ink_rgb)
+        y += 50
+
+    y += 14
+    short = fact.short_version or ''
+    if short:
+        f_s = _mcf_font(26, bold=False)
+        max_y = H - 100
+        for line in _mcf_wrap(d, short, f_s, W - 160):
+            if y > max_y:
+                break
+            lw = d.textlength(line, font=f_s)
+            d.text(((W - lw) / 2, y), line, font=f_s, fill=(70, 70, 74))
+            y += 36
+
+    buf = _io.BytesIO()
+    img.save(buf, format='PNG')
+    return buf.getvalue()
+
+
+def _render_knowledge_fact_classic(fact):
     """1080×1350 Instagram-Karte 'Classic Fact': Nischen-Kopfzeile, Bild (Foto
     oder Akzentfarb-Platzhalter), Titel + Kurzfassung. Rendert nur vorhandene
     Felder. Gibt PNG-Bytes zurück."""
@@ -21295,14 +21369,49 @@ def _render_knowledge_fact_image(fact):
     return buf.getvalue()
 
 
+def _kf_generate_text_set(fact, api_key):
+    """Generiert Hashtags, Alt-Text und Story-Text in einem Aufruf (volles
+    Textsystem, Phase 4). Erfindet nichts Neues am Fakt — arbeitet nur mit dem,
+    was Titel/Kurzfassung/Volltext bereits hergeben. Gibt dict|None."""
+    if not api_key:
+        return None
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        model = get_setting('analysis_model') or 'claude-sonnet-4-6'
+        text = f"Titel: {fact.title}\nKurzfassung: {fact.short_version or ''}\nVolltext: {fact.full_text or ''}"
+        resp = client.messages.create(
+            model=model, max_tokens=500,
+            system=(
+                'Du erstellst das Text-Set für einen Instagram-Post zu einem Wissens-Fakt. '
+                'Erfinde nichts Neues, arbeite nur mit dem gegebenen Fakt.\n\n'
+                '- hashtags: 5-8 relevante deutsche und/oder englische Hashtags, ohne "#", nichts Generisches wie "instagood"\n'
+                '- alt_text: sachliche Bildbeschreibung für Sehbehinderte, 1-2 Sätze, beschreibt was auf der Karte zu sehen wäre (Titel/Zahl), nicht "Bild von..."\n'
+                '- story_text: eine kurze, spannende Ein-Satz-Version für die Story (max. 100 Zeichen), gleicher Fakt, anderer Rahmen als der Titel\n\n'
+                'Antworte NUR mit einem JSON-Objekt: {"hashtags": [str, ...], "alt_text": str, "story_text": str}'
+            ),
+            messages=[{'role': 'user', 'content': text[:4000]}])
+        _log_ai('kf_generate_text_set', resp)
+        raw = resp.content[0].text.strip()
+        span = _extract_balanced_json(raw, '{', '}')
+        return json.loads(span) if span else None
+    except Exception as e:
+        app.logger.warning('KF Textset: %s', e)
+        return None
+
+
 def _kf_publish_fact(fact):
     """Erzeugt aus einem publish-bereiten Fakt einen ContentItem+ScheduledPost,
     der die bestehende Planungs-/Freigabe-/Performance-Pipeline nutzt (statt einer
     eigenen Silo-Pipeline). Gibt den neuen ContentItem zurück."""
     account = Account.query.get(fact.account_id)
+    caption = fact.caption or fact.short_version or ''
+    hashtags = fact.get_hashtags()
+    if hashtags and not any(f'#{h}' in caption for h in hashtags):
+        caption = caption.rstrip() + '\n\n' + ' '.join(f'#{h}' for h in hashtags)
     item = ContentItem(
         title=fact.title or fact.display_name(),
-        raw_text=fact.full_text, caption=fact.caption or fact.short_version,
+        raw_text=fact.full_text, caption=caption,
         source_name='Knowledge Factory', category_id=fact.category_id,
         status='ready', content_type='feed',
     )
@@ -21320,7 +21429,7 @@ def _kf_publish_fact(fact):
     post = ScheduledPost(
         account_id=fact.account_id, content_item_id=item.id,
         media_item_id=media.id if media else None,
-        caption=fact.caption or fact.short_version, post_type='feed',
+        caption=caption, post_type='feed',
         status='scheduled', slot_type='flexible', scheduled_at=datetime.utcnow(),
     )
     db.session.add(post)
@@ -21537,6 +21646,52 @@ def knowledge_factory_render(account_id, fact_id):
         app.logger.warning('KF Render: %s', e)
         flash('Rendern fehlgeschlagen — Logs prüfen.', 'error')
     return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
+
+
+@app.route('/content-studio/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/layout', methods=['POST'])
+@login_required
+def knowledge_factory_set_layout(account_id, fact_id):
+    """Layout-Familie wählen (Classic-Fact / Big-Number). Ändert nichts am
+    gerenderten Bild — dafür ist erneutes "Karte erzeugen" nötig."""
+    fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
+    layout = request.form.get('layout')
+    if layout in ('classic', 'big_number'):
+        fact.layout = layout
+    fact.stat_value = (request.form.get('stat_value') or '').strip()[:60] or None
+    db.session.commit()
+    return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
+
+
+@app.route('/content-studio/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/text', methods=['POST'])
+@login_required
+def knowledge_factory_save_text(account_id, fact_id):
+    """Manuelles Speichern von Hashtags/Alt-Text/Story-Text — unabhängig von der
+    KI-Generierung editierbar, wie überall sonst in Content OS."""
+    fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
+    tags = [t.strip().lstrip('#') for t in (request.form.get('hashtags') or '').split(',') if t.strip()]
+    fact.hashtags = json.dumps(tags)
+    fact.alt_text = (request.form.get('alt_text') or '').strip() or None
+    fact.story_text = (request.form.get('story_text') or '').strip() or None
+    db.session.commit()
+    flash('Text-Set gespeichert.', 'success')
+    return redirect(url_for('knowledge_factory_fact_detail', account_id=account_id, fact_id=fact_id))
+
+
+@app.route('/api/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/textset', methods=['POST'])
+@login_required
+def knowledge_factory_generate_text_set(account_id, fact_id):
+    fact = KnowledgeFact.query.filter_by(id=fact_id, account_id=account_id).first_or_404()
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Braucht einen Anthropic-API-Key (Einstellungen → KI).'}), 400
+    data = _kf_generate_text_set(fact, api_key)
+    if not data:
+        return jsonify({'ok': False, 'error': 'Generierung fehlgeschlagen — Logs prüfen.'}), 500
+    fact.hashtags = json.dumps([str(h).lstrip('#') for h in (data.get('hashtags') or [])])
+    fact.alt_text = data.get('alt_text')
+    fact.story_text = data.get('story_text')
+    db.session.commit()
+    return jsonify({'ok': True, 'hashtags': fact.get_hashtags(), 'alt_text': fact.alt_text, 'story_text': fact.story_text})
 
 
 @app.route('/content-studio/wissensfabrik/<int:account_id>/fakt/<int:fact_id>/pruefen', methods=['POST'])

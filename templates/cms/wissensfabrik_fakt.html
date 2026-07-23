@@ -19,6 +19,22 @@
       </form>
 
       <div class="card" style="padding:14px;margin-top:14px">
+        <div style="font-weight:700;font-size:12px;margin-bottom:8px">Layout</div>
+        <form method="POST" action="{{ url_for('knowledge_factory_set_layout', account_id=account.id, fact_id=fact.id) }}">
+          <select name="layout" id="kfLayoutSelect" onchange="document.getElementById('kfStatRow').style.display = this.value==='big_number' ? 'flex' : 'none'"
+                  class="select-field" style="font-size:12px;margin-bottom:8px">
+            <option value="classic" {% if fact.layout != 'big_number' %}selected{% endif %}>Classic Fact (Foto + Titel)</option>
+            <option value="big_number" {% if fact.layout == 'big_number' %}selected{% endif %}>Big Number (Statistik-Karte)</option>
+          </select>
+          <div id="kfStatRow" style="display:{{ 'flex' if fact.layout == 'big_number' else 'none' }};gap:8px;margin-bottom:8px">
+            <input name="stat_value" value="{{ fact.stat_value or '' }}" class="input-field" style="font-size:12px" placeholder="z.B. 73% oder 12.000">
+          </div>
+          <button type="submit" class="btn btn-ghost" style="width:100%;font-size:11px;padding:6px">Layout speichern</button>
+        </form>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px">Nach dem Ändern die Karte neu erzeugen.</div>
+      </div>
+
+      <div class="card" style="padding:14px;margin-top:14px">
         <div style="font-weight:700;font-size:12px;margin-bottom:8px">Bild</div>
         {% if photo %}<img src="{{ photo.url }}" style="width:100%;border-radius:8px;margin-bottom:8px">{% endif %}
         <form method="POST" action="{{ url_for('knowledge_factory_upload_photo', account_id=account.id, fact_id=fact.id) }}" enctype="multipart/form-data" style="display:flex;gap:8px">
@@ -104,9 +120,33 @@
       </div>
       {% endif %}
 
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <span style="font-weight:700;font-size:13px">Text-Set</span>
+        <button type="button" onclick="kfGenTextSet(this)" class="btn btn-ghost" style="font-size:11px;padding:4px 10px">Von der KI generieren</button>
+        <span id="kfTextSetMsg" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+      <form method="POST" action="{{ url_for('knowledge_factory_save_text', account_id=account.id, fact_id=fact.id) }}" style="margin-bottom:18px">
+        <div style="margin-bottom:8px">
+          <label class="form-label" style="font-size:11px">Hashtags (Komma-getrennt, ohne #)</label>
+          <input id="kfHashtagsInput" name="hashtags" value="{{ fact.get_hashtags()|join(', ') }}" class="input-field" style="font-size:12px">
+        </div>
+        <div style="margin-bottom:8px">
+          <label class="form-label" style="font-size:11px">Alt-Text (Barrierefreiheit)</label>
+          <input id="kfAltTextInput" name="alt_text" value="{{ fact.alt_text or '' }}" class="input-field" style="font-size:12px">
+        </div>
+        <div style="margin-bottom:8px">
+          <label class="form-label" style="font-size:11px">Story-Text</label>
+          <input id="kfStoryTextInput" name="story_text" value="{{ fact.story_text or '' }}" class="input-field" style="font-size:12px">
+        </div>
+        <button type="submit" class="btn btn-ghost" style="font-size:11px;padding:6px 12px">Text-Set speichern</button>
+      </form>
+
       <div style="font-weight:700;font-size:13px;margin-bottom:6px">Caption</div>
       <form method="POST" action="{{ url_for('knowledge_factory_publish', account_id=account.id, fact_id=fact.id) }}">
         <textarea name="caption" rows="6" class="input-field" style="font-size:13px;font-family:inherit;margin-bottom:12px">{{ fact.caption or fact.short_version or '' }}</textarea>
+        {% if fact.get_hashtags() %}
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px;margin-top:-8px">Hashtags werden beim Veröffentlichen automatisch angehängt, falls noch nicht enthalten.</div>
+        {% endif %}
         <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 20px" {% if fact.status not in ('geprueft', 'bereit') %}disabled{% endif %}>
           {% if fact.status=='veroeffentlicht' %}Bereits veröffentlicht
           {% elif fact.status in ('geprueft', 'bereit') %}Veröffentlichen (als Post einplanen)
@@ -133,6 +173,23 @@
 
 {% block scripts %}
 <script>
+async function kfGenTextSet(btn) {
+  const msg = document.getElementById('kfTextSetMsg');
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Generiert…';
+  msg.textContent = '';
+  const r = await fetch('{{ url_for("knowledge_factory_generate_text_set", account_id=account.id, fact_id=fact.id) }}', {method: 'POST'})
+    .then(r => r.json()).catch(() => ({ok: false, error: 'Netzwerkfehler'}));
+  if (r.ok) {
+    document.getElementById('kfHashtagsInput').value = (r.hashtags || []).join(', ');
+    document.getElementById('kfAltTextInput').value = r.alt_text || '';
+    document.getElementById('kfStoryTextInput').value = r.story_text || '';
+    msg.textContent = 'Generiert — unten „Text-Set speichern" nicht vergessen.';
+    msg.style.color = 'var(--success)';
+  } else {
+    msg.textContent = r.error || 'Fehler.'; msg.style.color = 'var(--danger)';
+  }
+  btn.disabled = false; btn.textContent = orig;
+}
 async function kfSetFeedback(v, btn) {
   const val = btn.dataset.active === 'true' ? 0 : v;
   const r = await fetch('{{ url_for("knowledge_factory_feedback", account_id=account.id, fact_id=fact.id) }}', {
