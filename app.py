@@ -15140,6 +15140,22 @@ def _factory_breakdowns():
     }
 
 
+def _factory_recent_activity(limit=8):
+    """Letzte Scan-Ereignisse über alle Fabriken hinweg, neueste zuerst — macht
+    den Überblick zu einer lebendigen Zeitleiste statt nur statischer Zähler."""
+    labels = {d['key']: {'label': d['label'], 'icon': d['icon']} for d in _FACTORY_DEFS}
+    logs = FactoryScanLog.query.order_by(FactoryScanLog.started_at.desc()).limit(limit).all()
+    out = []
+    for log in logs:
+        meta = labels.get(log.factory, {})
+        out.append({
+            'label': meta.get('label', log.factory), 'icon': meta.get('icon', '•'),
+            'status': log.status, 'started_rel': _tr_rel_time(log.started_at),
+            'summary': log.summary, 'error_message': log.error_message,
+        })
+    return out
+
+
 @app.route('/content-studio')
 @login_required
 def content_studio():
@@ -15157,6 +15173,11 @@ def content_studio():
     # den Überblick, egal ob schon Seiten angelegt sind — eine Seite wählt man
     # bewusst über "Meine Seiten" aus (Struktur-Vorgabe des Users, 2026-07-23).
     factory_overview = _factory_overview_summary()
+    # Aufmerksamkeit zuerst statt einer gleichförmigen Kartenwand: Fabriken mit
+    # offenen Punkten oder Scan-Fehlern bekommen die großen Karten, ruhige
+    # Fabriken (nichts zu tun, gesund) nur eine kompakte Zeile.
+    attention = [f for f in factory_overview if f['pending_count'] or f['health'] == 'error']
+    calm = [f for f in factory_overview if f not in attention]
     return render_template('content_studio.html',
         studio_accounts=studio_accs,
         all_accounts=all_accounts,
@@ -15165,7 +15186,11 @@ def content_studio():
         automation_rules=[],
         factory_overview=factory_overview,
         overview=factory_overview,
-        breakdowns=_factory_breakdowns())
+        attention_factories=attention,
+        calm_factories=calm,
+        total_pending=sum(f['pending_count'] for f in factory_overview),
+        breakdowns=_factory_breakdowns(),
+        recent_activity=_factory_recent_activity())
 
 
 @app.route('/content-studio/<int:account_id>')
