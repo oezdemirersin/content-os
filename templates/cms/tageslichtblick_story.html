@@ -142,10 +142,50 @@
   </div>
   {% endif %}
 
+  <!-- ── Bild ── -->
+  <div class="card" style="padding:16px;margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <div style="font-weight:700;font-size:13px;flex:1">Bild</div>
+      {% if story.quelle_url or story.originalquelle_url %}
+      <button onclick="bildHolen(this)" class="btn btn-ghost" style="font-size:12px;padding:6px 12px">
+        {% if foto %}Neu holen{% else %}Originalbild holen{% endif %}</button>
+      {% endif %}
+      <label class="btn btn-ghost" style="font-size:12px;padding:6px 12px;cursor:pointer;margin:0">
+        Hochladen<input type="file" id="bildUpload" accept="image/*" style="display:none" onchange="bildUpload(this)">
+      </label>
+      {% if foto %}
+      <button onclick="bildEntfernen(this)" class="btn btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--danger)">Entfernen</button>
+      {% endif %}
+    </div>
+
+    {% if foto %}
+    <img src="{{ foto.url }}" alt="{{ story.alt_text or story.display_name() }}"
+         style="width:100%;max-width:420px;border-radius:10px;border:1px solid var(--border);display:block">
+    <div style="font-size:11px;margin-top:8px">
+      Stufe: <strong>{{ story.bild_quelle_stufe or 'unbekannt' }}</strong>
+    </div>
+    {% if story.bild_lizenz %}
+    {% set geklaert = 'gemeinfrei' in story.bild_lizenz.lower() or story.bild_quelle_stufe == 'upload' %}
+    <div style="font-size:11px;margin-top:6px;padding:8px 10px;border-radius:8px;
+                background:{% if geklaert %}rgba(34,197,94,.10){% else %}rgba(245,158,11,.12){% endif %};
+                color:{% if geklaert %}var(--success){% else %}var(--warning){% endif %}">
+      {% if not geklaert %}<i class="fa-solid fa-triangle-exclamation"></i> {% endif %}{{ story.bild_lizenz }}
+    </div>
+    {% endif %}
+    {% else %}
+    <div style="font-size:12px;color:var(--muted)">
+      Noch kein Bild. „Originalbild holen“ zieht das Vorschaubild (og:image) aus der Quelle — das ist
+      ein Kandidat zur Sichtprüfung, keine geklärte Lizenz. Nur NASA/US-Behörden gelten pauschal als
+      gemeinfrei; bei allem anderen die Rechte vor der Veröffentlichung klären.
+    </div>
+    {% endif %}
+    <div id="bildMsg" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+  </div>
+
   <!-- ── Bildvorschläge ── -->
   {% if story.get_bildvorschlaege() %}
   <div class="card" style="padding:16px;margin-bottom:16px">
-    <div style="font-weight:700;font-size:13px;margin-bottom:8px">Bildvorschläge</div>
+    <div style="font-weight:700;font-size:13px;margin-bottom:8px">Bildvorschläge <span style="font-weight:400;color:var(--muted);font-size:11px">— zur manuellen Recherche</span></div>
     {% for b in story.get_bildvorschlaege() %}
     <div style="font-size:12px;margin-bottom:6px">
       {{ b.get('beschreibung') }}
@@ -247,6 +287,30 @@ async function feedback(btn, gut){
   el.disabled = true;
   const d = await post('/api/tlb/story/{{ story.id }}/feedback', {gut: gut});
   msg.textContent = d.ok ? 'Rückmeldung gespeichert.' : ('Fehler: ' + (d.error||'unbekannt'));
+}
+async function bildHolen(btn){
+  const el = btn, msg = document.getElementById('bildMsg');
+  el.disabled = true; msg.textContent = 'Suche Originalbild in der Quelle…';
+  const r = await fetch('/api/tlb/story/{{ story.id }}/bild', {method:'POST'});
+  const d = await r.json();
+  if(d.ok){ location.reload(); }
+  else { msg.textContent = 'Fehler: ' + (d.error||'unbekannt'); el.disabled = false; }
+}
+async function bildUpload(input){
+  const msg = document.getElementById('bildMsg');
+  if(!input.files || !input.files[0]) return;
+  msg.textContent = 'Lade hoch…';
+  const fd = new FormData(); fd.append('bild', input.files[0]);
+  const r = await fetch('/api/tlb/story/{{ story.id }}/bild', {method:'POST', body: fd});
+  const d = await r.json();
+  if(d.ok){ location.reload(); } else { msg.textContent = 'Fehler: ' + (d.error||'unbekannt'); }
+}
+async function bildEntfernen(btn){
+  const el = btn, msg = document.getElementById('bildMsg');
+  el.disabled = true;
+  const r = await fetch('/api/tlb/story/{{ story.id }}/bild', {method:'DELETE'});
+  const d = await r.json();
+  if(d.ok){ location.reload(); } else { msg.textContent = 'Fehler: ' + (d.error||'unbekannt'); el.disabled = false; }
 }
 </script>
 {% endblock %}

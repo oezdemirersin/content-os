@@ -22059,7 +22059,82 @@ def _tlb_produce(story):
         story.fakten = _json.dumps(daten['fakten'], ensure_ascii=False)
     if daten.get('bildvorschlaege'):
         story.bildvorschlaege = _json.dumps(daten['bildvorschlaege'], ensure_ascii=False)
+
+    # Bildsuche ist ein eigenes Modul — nur wenn aktiv, sonst kein Netzzugriff.
+    if _tlb_feature_on('bildsuche'):
+        try:
+            _tlb_fetch_bild(story)
+        except Exception as e:
+            app.logger.warning('TLB Bildsuche: %s', e)
     return story
+
+
+# ───────────────────────── BILDBESCHAFFUNG ─────────────────────────
+# Priorität laut Konzept: Originalbilder, Behörden, Universitäten, NASA/ESA,
+# Forschungsinstitute, lizenzierte Pressebilder, eigene Bilddatenbank,
+# Symbolbilder. content_os hat KEINE eigene Symbolbibliothek (die liegt im
+# CityBot-Elternprojekt), darum sind die realistischen Stufen: Originalbild aus
+# der Quelle → manueller Upload. Ein automatisch gezogenes og:image ist ein
+# KANDIDAT zur Sichtprüfung, KEINE geklärte Lizenz — nur NASA/ESA/US-Behörden
+# gelten pauschal als gemeinfrei. Alles andere wird als "Rechte ungeprüft"
+# markiert, damit im Dashboard niemand versehentlich ein Pressebild postet.
+
+# (Domain-Fragment → (Stufenlabel, Lizenzhinweis, gilt als geklärt))
+_TLB_BILD_QUELLEN = [
+    ('nasa.gov',    ('nasa',     'NASA — i.d.R. gemeinfrei (NASA media guidelines prüfen)', True)),
+    ('esa.int',     ('esa',      'ESA — Nutzungsbedingungen prüfen (oft CC BY-SA IGO)', False)),
+    ('nih.gov',     ('behoerde', 'US-Behörde — meist gemeinfrei', True)),
+    ('.gov',        ('behoerde', 'Behörde — Nutzungsrechte prüfen', False)),
+    ('who.int',     ('behoerde', 'WHO — Nutzungsbedingungen prüfen', False)),
+    ('un.org',      ('behoerde', 'UN — Nutzungsbedingungen prüfen', False)),
+    ('nature.com',  ('presse',   'Verlagsbild — Rechte NICHT geklärt', False)),
+    ('.edu',        ('uni',      'Universität — Nutzungsrechte prüfen', False)),
+    ('embl.org',    ('uni',      'Forschungsinstitut — Nutzungsrechte prüfen', False)),
+]
+
+
+def _tlb_bild_einordnung(url, quelle_name=None):
+    """(stufe, lizenz, geklaert) für eine Bild-/Artikelquelle."""
+    u = (url or '').lower()
+    for fragment, info in _TLB_BILD_QUELLEN:
+        if fragment in u:
+            return info
+    return ('presse', 'Herkunft/Rechte ungeprüft — vor Veröffentlichung klären', False)
+
+
+def _tlb_fetch_bild(story, force=False):
+    """Best-effort: das Originalbild der Quelle (og:image) holen und als
+    MediaItem an die Story hängen. SSRF-geprüft, still fehlschlagend — kein Bild
+    ist kein Fehler. Setzt bild_quelle_stufe + bild_lizenz. Überschreibt ein
+    bereits gesetztes Bild nur bei force=True (manuelle Uploads bleiben so
+    erhalten)."""
+    if story.foto_media_id and not force:
+        return story.foto_media_id
+
+    # Beste verfügbare Quelle: nachrecherchierte Originalquelle vor Rohquelle.
+    quell_url = story.originalquelle_url or story.quelle_url
+    if not quell_url or not _mcf_is_safe_url(quell_url):
+        return None
+
+    # og:image der Artikelseite bestimmen (nutzt denselben Extractor wie MCF/PWF)
+    try:
+        _text, bild_url = _mcf_fetch_url_content(quell_url)
+    except Exception as e:
+        app.logger.warning('TLB og:image-Suche: %s', e)
+        bild_url = None
+    if not bild_url:
+        return None
+
+    media_id = _pwf_maybe_fetch_photo(bild_url, orig_filename=f'tlb_{story.id}')
+    if not media_id:
+        return None
+
+    stufe, lizenz, _geklaert = _tlb_bild_einordnung(bild_url, story.quelle_name)
+    story.foto_media_id = media_id
+    story.bild_quelle_stufe = stufe
+    story.bild_lizenz = lizenz
+    db.session.commit()
+    return media_id
 
 
 # ───────────────────────── DUBLETTEN ─────────────────────────
@@ -22388,8 +22463,9 @@ def tageslichtblick():
 def tageslichtblick_story(story_id):
     story = TlbStory.query.get_or_404(story_id)
     dublette = TlbStory.query.get(story.dublette_von_id) if story.dublette_von_id else None
+    foto = MediaItem.query.get(story.foto_media_id) if story.foto_media_id else None
     return render_template('tageslichtblick_story.html', story=story, dublette=dublette,
-                           weights=TLB_SCORE_WEIGHTS, active_page='studio')
+                           foto=foto, weights=TLB_SCORE_WEIGHTS, active_page='studio')
 
 
 @app.route('/content-studio/tageslichtblick/einstellungen', methods=['GET', 'POST'])
@@ -22410,6 +22486,9 @@ def tageslichtblick_settings():
             pass
         set_setting('tlb_triage_model', request.form.get('triage_model', '').strip() or 'claude-haiku-4-5')
         set_setting('tlb_produce_model', request.form.get('produce_model', '').strip() or 'claude-opus-4-8')
+        # set_setting committet NICHT — ohne dies rollt der Kontext-Teardown alle
+        # Toggle-Änderungen still zurück (Flask-SQLAlchemy entfernt die Session).
+        db.session.commit()
         flash('Einstellungen gespeichert.', 'success')
         return redirect(url_for('tageslichtblick_settings'))
 
@@ -22465,6 +22544,64 @@ def tlb_aufbereiten(story_id):
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/tlb/story/<int:story_id>/bild', methods=['POST'])
+@login_required
+def tlb_bild(story_id):
+    """Bild beschaffen. Ohne Datei: Originalbild (og:image) der Quelle holen.
+    Mit hochgeladener Datei: manueller Upload (überschreibt immer)."""
+    story = TlbStory.query.get_or_404(story_id)
+    datei = request.files.get('bild')
+    if datei and datei.filename:
+        if not allowed_file(datei.filename):
+            return jsonify({'ok': False, 'error': 'Dateityp nicht erlaubt.'}), 400
+        try:
+            import uuid as _uuid
+            ext = os.path.splitext(datei.filename)[1].lower() or '.jpg'
+            name = f'tlb_{_uuid.uuid4().hex}{ext}'
+            datei.save(os.path.join(app.config['UPLOAD_FOLDER'], name))
+            w = h = None
+            try:
+                from PIL import Image as _I
+                w, h = _I.open(os.path.join(app.config['UPLOAD_FOLDER'], name)).size
+            except Exception:
+                pass
+            m = MediaItem(filename=name, original_filename=datei.filename,
+                          url=f'/media/file/{name}', file_type='image',
+                          storage_source='local', width=w, height=h)
+            db.session.add(m)
+            db.session.flush()
+            story.foto_media_id = m.id
+            story.bild_quelle_stufe = 'upload'
+            story.bild_lizenz = 'Manuell hochgeladen — Rechte liegen beim Nutzer'
+            db.session.commit()
+            return jsonify({'ok': True, 'media_id': m.id, 'stufe': 'upload'})
+        except Exception as e:
+            return jsonify({'ok': False, 'error': str(e)}), 500
+
+    # Kein Upload → Originalbild automatisch holen
+    if not _tlb_feature_on('bildsuche'):
+        return jsonify({'ok': False, 'error': 'Modul Bildsuche ist deaktiviert.'}), 400
+    try:
+        media_id = _tlb_fetch_bild(story, force=True)
+        if not media_id:
+            return jsonify({'ok': False, 'error': 'Kein Originalbild in der Quelle gefunden.'}), 404
+        return jsonify({'ok': True, 'media_id': media_id,
+                        'stufe': story.bild_quelle_stufe, 'lizenz': story.bild_lizenz})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/tlb/story/<int:story_id>/bild', methods=['DELETE'])
+@login_required
+def tlb_bild_entfernen(story_id):
+    story = TlbStory.query.get_or_404(story_id)
+    story.foto_media_id = None
+    story.bild_quelle_stufe = None
+    story.bild_lizenz = None
+    db.session.commit()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/tlb/story/<int:story_id>/status', methods=['POST'])
