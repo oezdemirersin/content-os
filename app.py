@@ -15117,6 +15117,25 @@ def content_studio_overview():
         active_page='studio')
 
 
+@app.route('/content-studio/scan-verlauf')
+@login_required
+def content_studio_scan_history():
+    """Verlauf der Auto-Scans über alle Fabriken — anders als der Überblick
+    (nur letzter Lauf) zeigt das die letzten N Läufe, damit wiederholte Fehler
+    einer Quelle sichtbar werden. Rein lesend, greift nirgends in die Abläufe ein."""
+    factory_f = request.args.get('factory', '')
+    q = FactoryScanLog.query
+    if factory_f:
+        q = q.filter_by(factory=factory_f)
+    page = request.args.get('page', 1, type=int)
+    pagination = q.order_by(FactoryScanLog.started_at.desc()).paginate(page=page, per_page=50, error_out=False)
+    # Nur Fabriken mit Auto-Scan (has_scan != False) für den Filter anbieten.
+    labels = {d['key']: {'label': d['label'], 'icon': d['icon']}
+              for d in _FACTORY_DEFS if d.get('has_scan', True)}
+    return render_template('factories_scan_history.html', logs=pagination.items,
+        pagination=pagination, labels=labels, factory_f=factory_f, active_page='studio')
+
+
 @app.route('/api/content-studio/<int:account_id>/toggle', methods=['POST'])
 @login_required
 def studio_toggle(account_id):

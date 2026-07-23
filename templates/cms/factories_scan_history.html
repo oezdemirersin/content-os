@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Scan-Verlauf — Content Studio{% endblock %}
+{% block page_title %}SCAN-VERLAUF{% endblock %}
+
+{% block content %}
+<div style="max-width:960px">
+  <a href="{{ url_for('content_studio_overview') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Zurück zum Überblick</a>
+
+  <p style="font-size:13px;color:var(--muted);margin:12px 0 18px">
+    Die letzten Auto-Scans aller Fabriken. Zeigt wiederholte Fehler einer Quelle,
+    die im Überblick (nur letzter Lauf) nicht auffallen würden.
+  </p>
+
+  <!-- Fabrik-Filter -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <a href="{{ url_for('content_studio_scan_history') }}"
+       style="padding:6px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;font-weight:700;text-decoration:none;
+              {% if not factory_f %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">Alle</a>
+    {% for key, meta in labels.items() %}
+    <a href="?factory={{ key }}"
+       style="padding:6px 14px;border-radius:20px;border:1px solid var(--border);font-size:12px;font-weight:700;text-decoration:none;
+              {% if factory_f==key %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">
+      {{ meta.icon }} {{ meta.label }}</a>
+    {% endfor %}
+  </div>
+
+  {% set status_colors = {'success':'#22c55e','error':'#ef4444','running':'#3b82f6'} %}
+  {% set status_labels = {'success':'Erfolgreich','error':'Fehler','running':'Läuft'} %}
+
+  {% if not logs %}
+  <div class="card" style="padding:34px;text-align:center;color:var(--muted);font-size:13px">
+    Noch kein Scan-Verlauf{% if factory_f %} für diese Fabrik{% endif %}.
+  </div>
+  {% endif %}
+
+  {% for log in logs %}
+  <div class="card" style="padding:12px 16px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start">
+    <span style="width:8px;height:8px;border-radius:50%;margin-top:6px;flex-shrink:0;
+                 background:{{ status_colors.get(log.status,'#9ca3af') }}"></span>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:13px;font-weight:600">
+          {% set meta = labels.get(log.factory) %}
+          {% if meta %}{{ meta.icon }} {{ meta.label }}{% else %}{{ log.factory }}{% endif %}
+        </span>
+        <span style="font-size:11px;color:{{ status_colors.get(log.status,'var(--muted)') }}">
+          {{ status_labels.get(log.status, log.status) }}</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">
+        {{ log.started_at.strftime('%d.%m.%Y %H:%M') if log.started_at else '—' }}
+        {% if log.items_created is not none %} · {{ log.items_created }} neu{% endif %}
+        {% if log.items_checked is not none %} · {{ log.items_checked }} geprüft{% endif %}
+      </div>
+      {% if log.status == 'error' and log.error_message %}
+      <div style="font-size:11px;color:var(--danger);margin-top:5px">⚠ {{ log.error_message }}</div>
+      {% elif log.summary %}
+      <div style="font-size:11px;color:var(--muted);margin-top:5px">{{ log.summary }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if pagination and pagination.pages and pagination.pages > 1 %}
+  <div style="display:flex;gap:6px;justify-content:center;margin-top:18px;flex-wrap:wrap">
+    {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if p %}
+      <a href="?page={{ p }}{% if factory_f %}&factory={{ factory_f }}{% endif %}"
+         style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);font-size:12px;text-decoration:none;
+                {% if p == pagination.page %}background:var(--accent);color:#fff{% else %}color:var(--muted){% endif %}">{{ p }}</a>
+      {% else %}<span style="color:var(--muted);padding:6px 4px">…</span>{% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
