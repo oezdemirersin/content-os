@@ -15124,6 +15124,22 @@ def koop_rechnung(kid):
 
 # ─────────────────────── CONTENT STUDIO ───────────────────────
 
+def _factory_breakdowns():
+    """Pending-Zahlen pro Fabrik nach Status aufgeschlüsselt (nicht nur eine
+    Gesamtzahl) — für die Überblicks-Karten."""
+    from collections import Counter
+    return {
+        'mcf': dict(Counter(c.status for c in MissingChildCase.query.all())),
+        'pwf': dict(Counter(a.status for a in ProductAlert.query.all())),
+        'trend_radar': {'aktiv': TrendTopic.query.filter_by(archived=False).count(),
+                         'archiviert': TrendTopic.query.filter_by(archived=True).count()},
+        'wissensfabrik': dict(Counter(f.status for f in KnowledgeFact.query.all())),
+        'tageslichtblick': dict(Counter(s.status for s in TlbStory.query.all())),
+        'beichten': dict(Counter(b.status for b in Beichte.query.all())),
+        'fake_news': dict(Counter(i.status for i in FakeNewsIdee.query.all())),
+    }
+
+
 @app.route('/content-studio')
 @login_required
 def content_studio():
@@ -15133,20 +15149,23 @@ def content_studio():
     all_accounts = Account.query.filter(
         Account.status.in_(['active', 'pause'])
     ).order_by(Account.name).all()
-    # Ensure every account has an AccountIdeenContext
-    studio_ids = {a.id for a in studio_accs}
     for acc in all_accounts:
         if not acc.ideen_context:
             db.session.add(AccountIdeenContext(account_id=acc.id))
     db.session.commit()
-    first = studio_accs[0] if studio_accs else None
+    # Kein Auto-Select mehr: Content Studio zeigt beim Reingehen immer erst
+    # den Überblick, egal ob schon Seiten angelegt sind — eine Seite wählt man
+    # bewusst über "Meine Seiten" aus (Struktur-Vorgabe des Users, 2026-07-23).
+    factory_overview = _factory_overview_summary()
     return render_template('content_studio.html',
         studio_accounts=studio_accs,
         all_accounts=all_accounts,
-        selected_account=first,
+        selected_account=None,
         active_page='studio',
         automation_rules=[],
-        factory_overview=_factory_overview_summary())
+        factory_overview=factory_overview,
+        overview=factory_overview,
+        breakdowns=_factory_breakdowns())
 
 
 @app.route('/content-studio/<int:account_id>')
@@ -15177,23 +15196,12 @@ def content_studio_account(account_id):
 @app.route('/content-studio/uebersicht')
 @login_required
 def content_studio_overview():
-    """Ein Blick auf alle Content-Studio-Fabriken: was steht an, läuft der
-    Auto-Scan gesund. Bewusst nur der jeweils letzte Scan pro Fabrik (kein
-    Verlauf/Timeline in dieser Phase)."""
-    from collections import Counter
-    overview = _factory_overview_summary()
-    breakdowns = {
-        'mcf': dict(Counter(c.status for c in MissingChildCase.query.all())),
-        'pwf': dict(Counter(a.status for a in ProductAlert.query.all())),
-        'trend_radar': {'aktiv': TrendTopic.query.filter_by(archived=False).count(),
-                         'archiviert': TrendTopic.query.filter_by(archived=True).count()},
-        'wissensfabrik': dict(Counter(f.status for f in KnowledgeFact.query.all())),
-        'tageslichtblick': dict(Counter(s.status for s in TlbStory.query.all())),
-        'beichten': dict(Counter(b.status for b in Beichte.query.all())),
-        'fake_news': dict(Counter(i.status for i in FakeNewsIdee.query.all())),
-    }
-    return render_template('factories_overview.html', overview=overview, breakdowns=breakdowns,
-        active_page='studio')
+    """Alte eigenständige Überblicksseite — der Überblick ist jetzt die
+    Standardansicht von /content-studio selbst (Struktur-Vorgabe des Users,
+    2026-07-23: "Überblick hat nichts mit Fabriken zu tun", soll nicht als
+    Fabrik-Sidebar-Eintrag auftauchen, sondern das Erste sein was man sieht).
+    Route bleibt als Redirect erhalten, falls irgendwo noch verlinkt."""
+    return redirect(url_for('content_studio'))
 
 
 @app.route('/content-studio/scan-verlauf')
