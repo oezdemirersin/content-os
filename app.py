@@ -3152,7 +3152,7 @@ def _factory_scan_log_finish(log_id, status='success', items_checked=None, items
 # Erwartetes Scan-Intervall je Fabrik in Minuten — grobe Schätzung für die
 # Gesund/Veraltet-Einstufung im Überblick, kein exaktes Settings-Auslesen nötig.
 _FACTORY_SCAN_INTERVAL_MIN = {
-    'mcf': 120, 'pwf': 30, 'trend_radar': 180, 'wissensfabrik': 60, 'tageslichtblick': 60,
+    'mcf': 120, 'pwf': 30, 'wissensfabrik': 60, 'tageslichtblick': 60,
 }
 
 # Definition aller Content-Studio-Fabriken für den Überblick — bewusst als Liste
@@ -3165,9 +3165,10 @@ _FACTORY_DEFS = [
     {'key': 'pwf', 'label': 'Product Alerts', 'icon': '⚠️',
      'url_endpoint': 'product_alert_factory', 'settings_endpoint': 'pwf_einstellungen',
      'pending_label': 'wartet auf Prüfung'},
-    {'key': 'trend_radar', 'label': 'Trend Radar', 'icon': '📈',
-     'url_endpoint': 'trend_radar', 'settings_endpoint': None,
-     'pending_label': 'aktive Themen'},
+    # Trend Radar ist bewusst KEINE Fabrik hier — es ist ein Werkzeug FÜR die
+    # Fabriken (liefert z.B. der Fake-News-Fabrik aktuelle Themen), produziert
+    # aber selbst keinen veröffentlichbaren Content für einen Account. Lebt
+    # als eigener Menüpunkt im Hauptmenü unter "Wachstum" (User-Vorgabe, 2026-07-23).
     {'key': 'wissensfabrik', 'label': 'Wissensfabrik', 'icon': '🧠',
      'url_endpoint': 'knowledge_factory_list', 'settings_endpoint': 'knowledge_factory_settings',
      'pending_label': 'wartet auf Prüfung'},
@@ -3190,15 +3191,12 @@ _FACTORY_DEFS = [
 
 
 def _factory_pending_count(key):
-    """Wie viele Elemente gerade menschliche Aufmerksamkeit brauchen — vier der
-    fünf Fabriken nutzen bereits identisch status=='entwurf', Trend Radar hat
-    keinen Freigabe-Workflow (kontinuierlicher Strom, daher 'aktive Themen')."""
+    """Wie viele Elemente gerade menschliche Aufmerksamkeit brauchen — die
+    Fabriken nutzen dafür identisch status=='entwurf'."""
     if key == 'mcf':
         return MissingChildCase.query.filter_by(status='entwurf').count()
     if key == 'pwf':
         return ProductAlert.query.filter_by(status='entwurf').count()
-    if key == 'trend_radar':
-        return TrendTopic.query.filter_by(archived=False).count()
     if key == 'wissensfabrik':
         return KnowledgeFact.query.filter_by(status='entwurf').count()
     if key == 'tageslichtblick':
@@ -15131,8 +15129,6 @@ def _factory_breakdowns():
     return {
         'mcf': dict(Counter(c.status for c in MissingChildCase.query.all())),
         'pwf': dict(Counter(a.status for a in ProductAlert.query.all())),
-        'trend_radar': {'aktiv': TrendTopic.query.filter_by(archived=False).count(),
-                         'archiviert': TrendTopic.query.filter_by(archived=True).count()},
         'wissensfabrik': dict(Counter(f.status for f in KnowledgeFact.query.all())),
         'tageslichtblick': dict(Counter(s.status for s in TlbStory.query.all())),
         'beichten': dict(Counter(b.status for b in Beichte.query.all())),
@@ -18826,18 +18822,17 @@ def _tr_fire_topic_alert(topic):
 
 def _tr_run_scan():
     """Kompletter Scan: Signale sammeln + clustern. Läuft in eigenem Thread.
-    Wrapping hier statt an den Aufrufstellen: der manuelle Trigger startet diese
-    Funktion fire-and-forget in einem Thread (Antwort kommt vor Scan-Ende zurück),
-    Auto-Scan ruft sie synchron auf — beide Wege laufen hier zusammen."""
+    Eigene Statusverfolgung (_tr_scan_status + Setting 'trend_last_scan') statt
+    FactoryScanLog — Trend Radar ist keine Fabrik, sondern ein Werkzeug FÜR die
+    Fabriken, und taucht deshalb bewusst nicht im Fabriken-Überblick/Scan-Verlauf
+    auf (User-Vorgabe, 2026-07-23)."""
     if _tr_scan_status['running']:
         return
     _tr_scan_status.update({'running': True, 'error': None, 'signals': 0,
                             'topics': 0, 'started_at': datetime.utcnow().isoformat(),
                             'finished_at': None, 'step': 'Starte…'})
-    log_id = None
     try:
         with app.app_context():
-            log_id = _factory_scan_log_start('trend_radar')
             _tr_scan_status['signals'] = _tr_collect_signals()
             api_key = os.environ.get('ANTHROPIC_API_KEY') or get_setting('anthropic_api_key')
             if api_key:
@@ -18860,13 +18855,6 @@ def _tr_run_scan():
         _tr_scan_status['running'] = False
         _tr_scan_status['step'] = ''
         _tr_scan_status['finished_at'] = datetime.utcnow().isoformat()
-        if log_id is not None:
-            with app.app_context():
-                _factory_scan_log_finish(log_id,
-                    status='error' if _tr_scan_status['error'] else 'success',
-                    items_checked=_tr_scan_status['signals'], items_created=_tr_scan_status['topics'],
-                    summary=f"{_tr_scan_status['signals']} Signale, {_tr_scan_status['topics']} Themen",
-                    error=_tr_scan_status['error'])
 
 
 def _tr_auto_scan():
