@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Kontrollzentrum — Content Studio{% endblock %}
+{% block page_title %}KONTROLLZENTRUM{% endblock %}
+
+{% block content %}
+<div style="max-width:1080px">
+  <a href="{{ url_for('content_studio') }}" style="font-size:12px;color:var(--muted);text-decoration:none">← Zurück zum Überblick</a>
+
+  <p style="font-size:13px;color:var(--muted);margin:12px 0 26px;max-width:70ch">
+    Jede Fabrik an- und ausschalten, testen ohne vollen Lauf, Modell-Anbieter wählen —
+    alles an einer Stelle, damit keine Kosten für Seiten entstehen, auf denen gerade
+    nichts läuft. Kosten sind der aktuelle Monat, aus der KI-Kosten-Erfassung.
+  </p>
+
+  {% for f in factories %}
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+      <span style="font-size:22px">{{ f.icon }}</span>
+      <span style="font-weight:700;font-size:16px;flex:1">{{ f.label }}</span>
+      <span style="font-family:monospace;font-size:13px;color:var(--muted)">{{ '%.2f'|format(f.cost) }} € diesen Monat</span>
+      <a href="{{ f.settings_url }}" style="font-size:11px;color:var(--muted);text-decoration:none">
+        <i class="fa-solid fa-gear"></i> Einstellungen</a>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" {% if f.auto_on %}checked{% endif %}
+               onchange="kzToggle('{{ f.toggle_url }}', this)" style="width:15px;height:15px;accent-color:var(--accent)">
+        Auto-Scan aktiv
+      </label>
+      <button onclick="kzTestScan('{{ f.test_url }}', this)" class="btn btn-ghost" style="font-size:12px;padding:7px 14px">
+        Testlauf (2-3 Posts)
+      </button>
+      <span class="kz-msg" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+
+    {% if f.has_routing %}
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-top:12px;border-top:1px solid var(--border)">
+      <span style="font-size:12px;color:var(--muted)">Modell:</span>
+      <select onchange="kzProvider('{{ f.provider_setting }}', this.value, this)" class="select-field" style="width:auto;font-size:12px">
+        <option value="anthropic" {% if f.provider == 'anthropic' %}selected{% endif %}>Anthropic (Standard)</option>
+        <option value="deepseek" {% if f.provider == 'deepseek' %}selected{% endif %} {% if not deepseek_ready %}disabled{% endif %}>
+          DeepSeek {% if not deepseek_ready %}(Key fehlt){% endif %}</option>
+      </select>
+      {% if f.provider == 'deepseek' %}
+      <span style="font-size:11px;color:var(--good)">aktiv — deutlich günstiger, Qualität selbst beobachten</span>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if f.key == 'mcf' %}
+    <form method="POST" action="{{ url_for('factory_kontrollzentrum_mcf_schedule') }}"
+          style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-top:12px;margin-top:12px;border-top:1px solid var(--border)">
+      <span style="font-size:12px;color:var(--muted)">Zeitplan:</span>
+      <select name="schedule_mode" class="select-field" style="width:auto;font-size:12px">
+        <option value="fixed" {% if f.schedule_mode == 'fixed' %}selected{% endif %}>Feste Uhrzeiten</option>
+        <option value="interval" {% if f.schedule_mode == 'interval' %}selected{% endif %}>Intervall (alt)</option>
+      </select>
+      <span style="font-size:11px;color:var(--muted)">Std. (Berlin):</span>
+      <input name="fixed_hours" value="{{ f.fixed_hours }}" class="input-field" style="width:80px;font-size:12px" placeholder="10,20">
+      <span style="font-size:11px;color:var(--muted)">oder Intervall (Min.):</span>
+      <input name="interval_min" value="{{ f.interval_min }}" class="input-field" style="width:70px;font-size:12px">
+      <button type="submit" class="btn btn-ghost" style="font-size:11px;padding:6px 12px">Speichern</button>
+    </form>
+    {% endif %}
+
+    {% if f.key in ('wissensfabrik', 'tageslichtblick') %}
+    <form method="POST" action="{{ url_for('factory_kontrollzentrum_backlog') }}"
+          style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-top:12px;margin-top:12px;border-top:1px solid var(--border)">
+      <input type="hidden" name="key" value="{{ f.key }}">
+      <span style="font-size:12px;color:var(--muted)">Vorrats-Bremse:</span>
+      <span style="font-size:12px">{{ f.backlog }} wartend
+        {% if f.backlog >= f.backlog_threshold %}<span style="color:var(--warning)"> — aktiv, nur noch 1×/Tag</span>{% endif %}
+      </span>
+      <span style="font-size:11px;color:var(--muted)">ab</span>
+      <input name="threshold" value="{{ f.backlog_threshold }}" class="input-field" style="width:50px;font-size:12px">
+      <button type="submit" class="btn btn-ghost" style="font-size:11px;padding:6px 12px">Speichern</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <div style="font-size:11px;letter-spacing:.5px;color:var(--muted);font-weight:700;text-transform:uppercase;margin:24px 0 10px">
+    Ohne Auto-Scan — nur auf Zuruf
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-bottom:26px">
+    {% for f in no_scan_factories %}
+    <a href="{{ f.settings_url }}" style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--surface2);border-radius:10px;text-decoration:none;color:var(--text)">
+      <span style="font-size:16px">{{ f.icon }}</span>
+      <span style="font-size:13px;font-weight:600;flex:1">{{ f.label }}</span>
+      <span style="font-family:monospace;font-size:12px;color:var(--muted)">{{ '%.2f'|format(f.cost) }} €</span>
+    </a>
+    {% endfor %}
+  </div>
+
+  <div class="card" style="padding:20px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:6px">
+      DeepSeek-Anbindung
+      {% if deepseek_ready %}<span style="color:var(--success);font-size:11px;margin-left:6px">✓ Key hinterlegt</span>
+      {% else %}<span style="color:var(--warning);font-size:11px;margin-left:6px">kein Key hinterlegt</span>{% endif %}
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
+      Deutlich günstiger als Anthropic-Modelle, Qualität für die jeweilige Fabrik selbst prüfen
+      (Testlauf oben nutzen). Ohne Key bleibt die Modell-Auswahl oben auf Anthropic gesperrt.
+    </div>
+    <form method="POST" action="{{ url_for('factory_kontrollzentrum_deepseek_key') }}" style="display:flex;gap:10px;max-width:480px">
+      <input name="deepseek_api_key" type="password" placeholder="DeepSeek API-Key" class="input-field" style="flex:1;font-size:13px">
+      <button type="submit" class="btn btn-primary" style="font-size:13px;padding:9px 18px">Speichern</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function kzToggle(url, checkbox) {
+  const msg = checkbox.closest('.card').querySelector('.kz-msg');
+  checkbox.disabled = true;
+  const r = await fetch(url, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({on: checkbox.checked})
+  }).then(r => r.json()).catch(() => ({ok: false}));
+  checkbox.disabled = false;
+  if (r.ok) {
+    msg.textContent = checkbox.checked ? 'aktiviert' : 'deaktiviert';
+    msg.style.color = 'var(--success)';
+  } else {
+    checkbox.checked = !checkbox.checked;
+    msg.textContent = 'Fehler'; msg.style.color = 'var(--danger)';
+  }
+  setTimeout(() => { msg.textContent = ''; }, 2000);
+}
+
+async function kzTestScan(url, btn) {
+  const msg = btn.closest('.card').querySelector('.kz-msg');
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Läuft…';
+  msg.textContent = '';
+  const r = await fetch(url, {method: 'POST'}).then(r => r.json()).catch(() => ({ok: false, error: 'Netzwerkfehler'}));
+  if (r.ok) {
+    const n = r.created !== undefined ? r.created : (r.bericht ? r.bericht.neu : '?');
+    msg.textContent = `Test fertig — ${n} neu`;
+    msg.style.color = 'var(--success)';
+  } else {
+    msg.textContent = r.error || 'Fehler'; msg.style.color = 'var(--danger)';
+  }
+  btn.disabled = false; btn.textContent = orig;
+}
+
+async function kzProvider(setting, provider, select) {
+  const msg = select.closest('.card').querySelector('.kz-msg');
+  const r = await fetch('{{ url_for("factory_kontrollzentrum_provider") }}', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({setting, provider})
+  }).then(r => r.json()).catch(() => ({ok: false}));
+  if (r.ok) {
+    if (typeof showToast === 'function') showToast('Modell gespeichert — Seite lädt neu…');
+    setTimeout(() => location.reload(), 600);
+  } else {
+    msg.textContent = 'Fehler'; msg.style.color = 'var(--danger)';
+  }
+}
+</script>
+{% endblock %}

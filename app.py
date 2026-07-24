@@ -15344,6 +15344,138 @@ def content_studio_scan_history():
         pagination=pagination, labels=labels, factory_f=factory_f, active_page='studio')
 
 
+def _factory_cost_this_month(feature_prefix, exact=False):
+    """Summe AiUsageLog.cost_eur seit Monatsanfang für eine Fabrik — nutzt die
+    schon vorhandene Feature-Präfix-Konvention (pwf_*, mcf_*, kf_*, …), keine
+    neue Zuordnungstabelle nötig."""
+    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    q = db.session.query(func.coalesce(func.sum(AiUsageLog.cost_eur), 0.0)) \
+        .filter(AiUsageLog.created_at >= month_start)
+    q = q.filter(AiUsageLog.feature == feature_prefix) if exact \
+        else q.filter(AiUsageLog.feature.like(f'{feature_prefix}%'))
+    return round(q.scalar() or 0.0, 4)
+
+
+@app.route('/content-studio/kontrollzentrum')
+@login_required
+def factory_kontrollzentrum():
+    """Zentrale Steuerung aller Fabriken: an/aus, Testlauf, Modell-Anbieter,
+    Kosten diesen Monat, Sonderregeln (feste Zeiten, Vorrats-Bremse) — auf
+    einen Blick statt über 4 verschiedene Einstellungsseiten verteilt."""
+    deepseek_ready = bool(get_setting('deepseek_api_key'))
+
+    factories = [
+        {
+            'key': 'mcf', 'label': 'Missing Children', 'icon': '🚨',
+            'auto_on': get_setting('mcf_auto_research') == '1',
+            'toggle_url': url_for('mcf_research_toggle'), 'test_url': url_for('mcf_research_test_scan'),
+            'settings_url': url_for('mcf_einstellungen'),
+            'cost': _factory_cost_this_month('mcf_'),
+            'provider': get_setting('mcf_model_provider') or 'anthropic',
+            'provider_setting': 'mcf_model_provider', 'has_routing': True,
+            'schedule_mode': get_setting('mcf_schedule_mode', 'fixed'),
+            'fixed_hours': get_setting('mcf_fixed_hours', '10,20'),
+            'interval_min': get_setting('mcf_research_interval_min') or '120',
+        },
+        {
+            'key': 'pwf', 'label': 'Product Alerts', 'icon': '⚠️',
+            'auto_on': get_setting('pwf_auto_research') == '1',
+            'toggle_url': url_for('pwf_research_toggle'), 'test_url': url_for('pwf_research_test_scan'),
+            'settings_url': url_for('pwf_einstellungen'),
+            'cost': _factory_cost_this_month('pwf_'),
+            'provider': get_setting('pwf_model_provider') or 'anthropic',
+            'provider_setting': 'pwf_model_provider', 'has_routing': True,
+        },
+        {
+            'key': 'wissensfabrik', 'label': 'Wissensfabrik', 'icon': '🧠',
+            'auto_on': get_setting('kf_auto_research') == '1',
+            'toggle_url': url_for('knowledge_factory_toggle'), 'test_url': url_for('knowledge_factory_test_scan'),
+            'settings_url': url_for('knowledge_factory_settings'),
+            'cost': _factory_cost_this_month('kf_'),
+            'provider': get_setting('kf_model_provider') or 'anthropic',
+            'provider_setting': 'kf_model_provider', 'has_routing': True,
+            'backlog': _kf_backlog_count(),
+            'backlog_threshold': int(get_setting('kf_backlog_threshold') or 3),
+        },
+        {
+            'key': 'tageslichtblick', 'label': 'Tageslichtblick', 'icon': '☀️',
+            'auto_on': get_setting('tlb_auto_scan') == '1',
+            'toggle_url': url_for('tlb_toggle'), 'test_url': url_for('tlb_test_scan'),
+            'settings_url': url_for('tageslichtblick_settings'),
+            'cost': _factory_cost_this_month('tageslichtblick', exact=True),
+            'has_routing': False,
+            'backlog': _tlb_backlog_count(),
+            'backlog_threshold': int(get_setting('tlb_backlog_threshold') or 3),
+        },
+    ]
+    no_scan_factories = [
+        {'key': 'beichten', 'label': 'Beichten', 'icon': '🤍',
+         'settings_url': url_for('beichten_einstellungen'), 'cost': _factory_cost_this_month('bf_')},
+        {'key': 'fake_news', 'label': 'Fake News', 'icon': '🎭',
+         'settings_url': url_for('fake_news_einstellungen'), 'cost': _factory_cost_this_month('fnf_')},
+    ]
+    return render_template('factory_kontrollzentrum.html',
+        factories=factories, no_scan_factories=no_scan_factories,
+        deepseek_ready=deepseek_ready, active_page='studio')
+
+
+@app.route('/content-studio/kontrollzentrum/provider', methods=['POST'])
+@login_required
+def factory_kontrollzentrum_provider():
+    """Setzt den Modell-Anbieter EINER Fabrik. Erwartet {setting, provider}
+    — setting ist einer der bekannten *_model_provider-Schlüssel, keine
+    beliebige Einstellung ist darüber änderbar."""
+    d = request.get_json(silent=True) or {}
+    allowed = {'pwf_model_provider', 'mcf_model_provider', 'kf_model_provider'}
+    setting = d.get('setting')
+    provider = d.get('provider')
+    if setting not in allowed or provider not in ('anthropic', 'deepseek'):
+        return jsonify({'ok': False, 'error': 'Ungültige Anfrage.'}), 400
+    set_setting(setting, provider)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/content-studio/kontrollzentrum/mcf-schedule', methods=['POST'])
+@login_required
+def factory_kontrollzentrum_mcf_schedule():
+    mode = request.form.get('schedule_mode')
+    if mode in ('fixed', 'interval'):
+        set_setting('mcf_schedule_mode', mode)
+    hours = (request.form.get('fixed_hours') or '').strip()
+    if hours:
+        set_setting('mcf_fixed_hours', hours)
+    interval = (request.form.get('interval_min') or '').strip()
+    if interval.isdigit():
+        set_setting('mcf_research_interval_min', interval)
+    db.session.commit()
+    flash('Zeitplan gespeichert.', 'success')
+    return redirect(url_for('factory_kontrollzentrum'))
+
+
+@app.route('/content-studio/kontrollzentrum/backlog', methods=['POST'])
+@login_required
+def factory_kontrollzentrum_backlog():
+    """Setzt die Vorrats-Bremse-Schwelle für Wissensfabrik oder Tageslichtblick."""
+    key = request.form.get('key')
+    setting = {'wissensfabrik': 'kf_backlog_threshold', 'tageslichtblick': 'tlb_backlog_threshold'}.get(key)
+    value = (request.form.get('threshold') or '').strip()
+    if setting and value.isdigit() and int(value) > 0:
+        set_setting(setting, value)
+        db.session.commit()
+        flash('Schwelle gespeichert.', 'success')
+    return redirect(url_for('factory_kontrollzentrum'))
+
+
+@app.route('/content-studio/kontrollzentrum/deepseek-key', methods=['POST'])
+@login_required
+def factory_kontrollzentrum_deepseek_key():
+    set_setting('deepseek_api_key', (request.form.get('deepseek_api_key') or '').strip())
+    db.session.commit()
+    flash('DeepSeek-Key gespeichert.', 'success')
+    return redirect(url_for('factory_kontrollzentrum'))
+
+
 @app.route('/api/content-studio/<int:account_id>/toggle', methods=['POST'])
 @login_required
 def studio_toggle(account_id):
@@ -20481,6 +20613,28 @@ def pwf_research_test_scan():
 def pwf_research_toggle():
     d = request.get_json(silent=True) or {}
     set_setting('pwf_auto_research', '1' if d.get('on') else '0')
+    db.session.commit()
+    return jsonify({'ok': True, 'on': bool(d.get('on'))})
+
+
+@app.route('/api/wissensfabrik/toggle', methods=['POST'])
+@login_required
+def knowledge_factory_toggle():
+    """AJAX-Toggle fürs Kontrollzentrum — dieselbe Einstellung wie das
+    Formular auf der Wissensfabrik-Einstellungsseite, nur ohne Reload."""
+    d = request.get_json(silent=True) or {}
+    set_setting('kf_auto_research', '1' if d.get('on') else '0')
+    db.session.commit()
+    return jsonify({'ok': True, 'on': bool(d.get('on'))})
+
+
+@app.route('/api/tlb/toggle', methods=['POST'])
+@login_required
+def tlb_toggle():
+    """AJAX-Toggle fürs Kontrollzentrum — dieselbe Einstellung wie das
+    Formular auf der Tageslichtblick-Einstellungsseite, nur ohne Reload."""
+    d = request.get_json(silent=True) or {}
+    set_setting('tlb_auto_scan', '1' if d.get('on') else '0')
     db.session.commit()
     return jsonify({'ok': True, 'on': bool(d.get('on'))})
 
