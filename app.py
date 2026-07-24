@@ -13047,16 +13047,26 @@ _AI_PRICING = {
     'claude-sonnet-4-6':          {'in': 3.00,  'out': 15.00},
     'claude-opus-4-5':            {'in': 5.00,  'out': 25.00},
     'claude-opus-4-8':            {'in': 5.00,  'out': 25.00},
+    # DeepSeek — verifiziert 2026-07-24 direkt vor dem Bauen (api-docs.deepseek.com/
+    # quick_start/pricing). 'in' = Cache-Miss-Preis (konservativ, da wir kein Prompt-
+    # Caching nutzen — bei Cache-Hit wäre es nochmal ~50× günstiger). deepseek-chat/
+    # deepseek-reasoner wurden GENAU HEUTE (24.07., 15:59 UTC) durch deepseek-v4-flash/
+    # deepseek-v4-pro abgelöst — deshalb bewusst die neuen Namen, nicht die alten.
+    'deepseek-v4-flash':          {'in': 0.14,  'out': 0.28},
+    'deepseek-v4-pro':            {'in': 0.435, 'out': 0.87},
 }
 
 def _log_ai(feature, resp, provider='anthropic'):
-    """Logt einen API-Call nach client.messages.create(). resp = Anthropic-Response.
-    provider-Parameter schon vorbereitet für einen künftigen zweiten LLM-Anbieter
-    (z.B. DeepSeek) — bislang läuft ausschließlich Anthropic, _AI_PRICING müsste
-    dafür um dessen Preistabelle ergänzt werden."""
+    """Logt einen API-Call. resp = Antwortobjekt des jeweiligen Anbieters —
+    Anthropic (resp.usage.input_tokens/output_tokens) und die OpenAI-
+    kompatible DeepSeek-Antwort (resp.usage.prompt_tokens/completion_tokens)
+    haben unterschiedliche Feldnamen für dasselbe."""
     try:
         p = _AI_PRICING.get(resp.model, {'in': 3.00, 'out': 15.00})
-        it, ot = resp.usage.input_tokens, resp.usage.output_tokens
+        if provider == 'deepseek':
+            it, ot = resp.usage.prompt_tokens, resp.usage.completion_tokens
+        else:
+            it, ot = resp.usage.input_tokens, resp.usage.output_tokens
         cost = (it * p['in'] + ot * p['out']) / 1_000_000 * 0.92
         entry = AiUsageLog(provider=provider, feature=feature, model=resp.model,
                            input_tokens=it, output_tokens=ot, cost_eur=cost)
@@ -13064,6 +13074,52 @@ def _log_ai(feature, resp, provider='anthropic'):
         db.session.commit()
     except Exception:
         pass
+
+
+def _llm_call(system, user_text, feature, provider='anthropic', model=None, max_tokens=1024):
+    """Einheitlicher Zugang zu allen angebundenen LLM-Anbietern — gibt den
+    reinen Antworttext zurück (str) oder None bei Fehler, loggt intern über
+    _log_ai mit dem jeweiligen provider. Bestehende Aufrufer, die direkt
+    anthropic.Anthropic() nutzen, bleiben unverändert funktionsfähig; neue/
+    umgestellte Aufrufer gehen über diese eine Stelle, damit ein Fabrik-
+    Einstellung wie 'pwf_model_provider' ohne Code-Änderung an jeder
+    Aufrufstelle wirkt.
+
+    provider='deepseek': OpenAI-kompatible API, braucht Setting
+    'deepseek_api_key' — ohne Key sauberer Fehlerpfad (None), kein Crash."""
+    if provider == 'deepseek':
+        api_key = get_setting('deepseek_api_key')
+        if not api_key:
+            app.logger.warning('LLM-Aufruf (%s): kein DeepSeek-Key hinterlegt', feature)
+            return None
+        try:
+            import openai
+            client = openai.OpenAI(api_key=api_key, base_url='https://api.deepseek.com')
+            resp = client.chat.completions.create(
+                model=model or 'deepseek-v4-flash', max_tokens=max_tokens,
+                messages=[{'role': 'system', 'content': system},
+                          {'role': 'user', 'content': user_text}])
+            _log_ai(feature, resp, provider='deepseek')
+            return resp.choices[0].message.content
+        except Exception as e:
+            app.logger.warning('LLM-Aufruf (%s, deepseek): %s', feature, e)
+            return None
+
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return None
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=model or get_setting('analysis_model') or 'claude-sonnet-4-6',
+            max_tokens=max_tokens, system=system,
+            messages=[{'role': 'user', 'content': user_text}])
+        _log_ai(feature, resp, provider='anthropic')
+        return resp.content[0].text
+    except Exception as e:
+        app.logger.warning('LLM-Aufruf (%s, anthropic): %s', feature, e)
+        return None
 
 
 def _koop_ref_date(k):
@@ -17106,8 +17162,9 @@ def _mcf_generate_caption(case, contact_line):
         return '\n'.join(['🚨 VERMISST 🚨', ''] + facts + ['', contact_line, '',
                          'Bitte teilen, um zu helfen. #Vermisst' + tag])
 
+    provider = get_setting('mcf_model_provider') or 'anthropic'
     api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
-    if not api_key or not facts:
+    if not facts or (provider != 'deepseek' and not api_key):
         return _fallback()
     system = (
         'Du erstellst Instagram-Captions für Vermisstenmeldungen von Kindern. '
@@ -17119,17 +17176,10 @@ def _mcf_generate_caption(case, contact_line):
         'passenden Hashtags. Keine Spekulation, keine Übertreibung, kein Clickbait.'
     )
     user = f"Bekannte Fakten (NUR diese verwenden):\n{chr(10).join(facts)}\n\nKontaktzeile (unverändert einbauen):\n{contact_line}"
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        model = get_setting('caption_model') or 'claude-haiku-4-5'
-        resp = client.messages.create(model=model, max_tokens=700, system=system,
-                                       messages=[{'role': 'user', 'content': user}])
-        _log_ai('mcf_caption', resp)
-        return resp.content[0].text.strip()
-    except Exception as e:
-        app.logger.warning('MCF Caption-Fehler: %s', e)
-        return _fallback()
+    text = _llm_call(system, user, 'mcf_caption', provider=provider,
+                      model=(get_setting('caption_model') or 'claude-haiku-4-5') if provider == 'anthropic' else None,
+                      max_tokens=700)
+    return text.strip() if text else _fallback()
 
 
 def _mcf_resolution_texts(case):
@@ -17830,7 +17880,9 @@ def _mcf_calibration_block():
 def _mcf_extract_case_from_text(text, api_key):
     """Prüft eine Meldung auf Vermisstenmeldung eines KINDES und extrahiert Felder
     NUR aus dem Text (erfindet nichts). Gibt dict|None."""
-    if not api_key or not text:
+    if not text:
+        return None
+    if (get_setting('mcf_model_provider') or 'anthropic') != 'deepseek' and not api_key:
         return None
     system = (
         'Du prüfst deutsche Polizei-/Nachrichtenmeldungen auf Vermisstenmeldungen von KINDERN '
@@ -17846,16 +17898,18 @@ def _mcf_extract_case_from_text(text, api_key):
         '"merkmale": str|null, "beschreibung": str|null, "quelle_nummer": str|null (im Text genannte '
         'Polizei-Kontaktnummer)}.'
     ) + _mcf_calibration_block()
+    # Modell-Anbieter pro Fabrik umschaltbar (Setting 'mcf_model_provider',
+    # Default 'anthropic', Kontrollzentrum) — ohne explizites Umstellen
+    # identisch zu vorher (Haiku über 'caption_model').
+    provider = get_setting('mcf_model_provider') or 'anthropic'
+    raw = _llm_call(system, str(text)[:4000], 'mcf_research', provider=provider,
+                     model=(get_setting('caption_model') or 'claude-haiku-4-5') if provider == 'anthropic' else None,
+                     max_tokens=600)
+    if not raw:
+        return None
     try:
-        import anthropic
         import re as _re
-        client = anthropic.Anthropic(api_key=api_key)
-        model = get_setting('caption_model') or 'claude-haiku-4-5'
-        resp = client.messages.create(model=model, max_tokens=600, system=system,
-                                       messages=[{'role': 'user', 'content': str(text)[:4000]}])
-        _log_ai('mcf_research', resp)
-        raw = resp.content[0].text.strip()
-        m = _re.search(r'\{.*\}', raw, _re.S)
+        m = _re.search(r'\{.*\}', raw.strip(), _re.S)
         return json.loads(m.group(0)) if m else None
     except Exception as e:
         app.logger.warning('MCF Extract: %s', e)
@@ -19406,19 +19460,20 @@ def _pwf_calibration_block():
 
 def _pwf_extract_from_text(text, api_key):
     """Extrahiert Produktwarnungs-Felder NUR aus dem gegebenen Text (erfindet
-    nichts). Gibt dict|None."""
-    if not api_key or not (text or '').strip():
+    nichts). Gibt dict|None. Modell-Anbieter ist pro Fabrik umschaltbar
+    (Setting 'pwf_model_provider', Default 'anthropic', Kontrollzentrum) —
+    ohne explizites Umstellen ist das Verhalten identisch zu vorher."""
+    if not (text or '').strip():
+        return None
+    provider = get_setting('pwf_model_provider') or 'anthropic'
+    if provider != 'deepseek' and not api_key:
+        return None
+    raw = _llm_call(_PWF_EXTRACT_SYSTEM + _pwf_calibration_block(), str(text)[:8000],
+                     'pwf_extract_text', provider=provider, max_tokens=3000)
+    if not raw:
         return None
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        model = get_setting('analysis_model') or 'claude-sonnet-4-6'
-        resp = client.messages.create(
-            model=model, max_tokens=3000, system=_PWF_EXTRACT_SYSTEM + _pwf_calibration_block(),
-            messages=[{'role': 'user', 'content': str(text)[:8000]}])
-        _log_ai('pwf_extract_text', resp)
-        raw = resp.content[0].text.strip()
-        span = _extract_balanced_json(raw, '{', '}')
+        span = _extract_balanced_json(raw.strip(), '{', '}')
         return json.loads(span) if span else None
     except Exception as e:
         app.logger.warning('PWF Extract-Text: %s', e)
@@ -19778,8 +19833,9 @@ def _pwf_generate_caption(alert):
         head = _PWF_CATEGORY_BANNER.get(alert.kategorie, 'PRODUKTWARNUNG')
         return '\n'.join([f'⚠️ {head}', ''] + facts + ([''] + src if src else []))
 
+    provider = get_setting('pwf_model_provider') or 'anthropic'
     api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
-    if not api_key or not facts:
+    if not facts or (provider != 'deepseek' and not api_key):
         return _fallback()
     system = (
         'Du erstellst Instagram-Captions für Produktwarnungen/Rückrufe. ABSOLUT ZWINGEND: '
@@ -19790,17 +19846,10 @@ def _pwf_generate_caption(alert):
     user = f"Bekannte Fakten (NUR diese verwenden):\n{chr(10).join(facts)}"
     if src:
         user += f"\n\nQuelle (unverändert einbauen):\n{chr(10).join(src)}"
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        model = get_setting('caption_model') or 'claude-haiku-4-5'
-        resp = client.messages.create(model=model, max_tokens=700, system=system,
-                                       messages=[{'role': 'user', 'content': user}])
-        _log_ai('pwf_caption', resp)
-        return resp.content[0].text.strip()
-    except Exception as e:
-        app.logger.warning('PWF Caption-Fehler: %s', e)
-        return _fallback()
+    text = _llm_call(system, user, 'pwf_caption', provider=provider,
+                      model=(get_setting('caption_model') or 'claude-haiku-4-5') if provider == 'anthropic' else None,
+                      max_tokens=700)
+    return text.strip() if text else _fallback()
 
 
 def _pwf_target_account():
@@ -20988,19 +21037,19 @@ def _kf_extract_system(account, schema=None, extra_instruction=None):
 
 def _kf_extract_fact_from_text(text, account, api_key):
     """Extrahiert Fakt-Felder NUR aus dem gegebenen Text (erfindet nichts, wie
-    _pwf_extract_from_text). Gibt dict|None."""
-    if not api_key or not (text or '').strip():
+    _pwf_extract_from_text). Gibt dict|None. Modell-Anbieter pro Fabrik
+    umschaltbar (Setting 'kf_model_provider', Default 'anthropic')."""
+    if not (text or '').strip():
+        return None
+    provider = get_setting('kf_model_provider') or 'anthropic'
+    if provider != 'deepseek' and not api_key:
+        return None
+    raw = _llm_call(_kf_extract_system(account), str(text)[:8000], 'kf_extract_text',
+                     provider=provider, max_tokens=1500)
+    if not raw:
         return None
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        model = get_setting('analysis_model') or 'claude-sonnet-4-6'
-        resp = client.messages.create(
-            model=model, max_tokens=1500, system=_kf_extract_system(account),
-            messages=[{'role': 'user', 'content': str(text)[:8000]}])
-        _log_ai('kf_extract_text', resp)
-        raw = resp.content[0].text.strip()
-        span = _extract_balanced_json(raw, '{', '}')
+        span = _extract_balanced_json(raw.strip(), '{', '}')
         return json.loads(span) if span else None
     except Exception as e:
         app.logger.warning('KF Extract-Text: %s', e)
@@ -21019,23 +21068,21 @@ def _kf_extract_facts_from_text(text, account, api_key, max_facts=5):
     Fakten in einem Text (z.B. ein ganzer Wikipedia-Artikel) — ein KI-Aufruf
     statt vieler. Gibt eine Liste extrahierter Fakt-dicts zurück (kann leer sein,
     NIE erfunden — dieselbe Disziplin wie beim Einzel-Fakt-Pfad)."""
-    if not api_key or not (text or '').strip():
+    if not (text or '').strip():
+        return []
+    provider = get_setting('kf_model_provider') or 'anthropic'
+    if provider != 'deepseek' and not api_key:
+        return []
+    system = _kf_extract_system(
+        account, schema=_KF_MULTI_SCHEMA,
+        extra_instruction=f'Extrahiere bis zu {max_facts} EINZELNE, klar voneinander abgrenzbare '
+                           'Fakten aus dem Text — weniger sind besser als erfundene oder zu '
+                           'ähnliche Fakten untereinander.')
+    raw = _llm_call(system, str(text)[:8000], 'kf_extract_multi', provider=provider, max_tokens=3000)
+    if not raw:
         return []
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        model = get_setting('analysis_model') or 'claude-sonnet-4-6'
-        system = _kf_extract_system(
-            account, schema=_KF_MULTI_SCHEMA,
-            extra_instruction=f'Extrahiere bis zu {max_facts} EINZELNE, klar voneinander abgrenzbare '
-                               'Fakten aus dem Text — weniger sind besser als erfundene oder zu '
-                               'ähnliche Fakten untereinander.')
-        resp = client.messages.create(
-            model=model, max_tokens=3000, system=system,
-            messages=[{'role': 'user', 'content': str(text)[:8000]}])
-        _log_ai('kf_extract_multi', resp)
-        raw = resp.content[0].text.strip()
-        span = _extract_balanced_json(raw, '{', '}')
+        span = _extract_balanced_json(raw.strip(), '{', '}')
         data = json.loads(span) if span else {}
         return data.get('facts') or []
     except Exception as e:
@@ -21570,27 +21617,23 @@ def _kf_generate_text_set(fact, api_key):
     """Generiert Hashtags, Alt-Text und Story-Text in einem Aufruf (volles
     Textsystem, Phase 4). Erfindet nichts Neues am Fakt — arbeitet nur mit dem,
     was Titel/Kurzfassung/Volltext bereits hergeben. Gibt dict|None."""
-    if not api_key:
+    provider = get_setting('kf_model_provider') or 'anthropic'
+    if provider != 'deepseek' and not api_key:
+        return None
+    text = f"Titel: {fact.title}\nKurzfassung: {fact.short_version or ''}\nVolltext: {fact.full_text or ''}"
+    system = (
+        'Du erstellst das Text-Set für einen Instagram-Post zu einem Wissens-Fakt. '
+        'Erfinde nichts Neues, arbeite nur mit dem gegebenen Fakt.\n\n'
+        '- hashtags: 5-8 relevante deutsche und/oder englische Hashtags, ohne "#", nichts Generisches wie "instagood"\n'
+        '- alt_text: sachliche Bildbeschreibung für Sehbehinderte, 1-2 Sätze, beschreibt was auf der Karte zu sehen wäre (Titel/Zahl), nicht "Bild von..."\n'
+        '- story_text: eine kurze, spannende Ein-Satz-Version für die Story (max. 100 Zeichen), gleicher Fakt, anderer Rahmen als der Titel\n\n'
+        'Antworte NUR mit einem JSON-Objekt: {"hashtags": [str, ...], "alt_text": str, "story_text": str}'
+    )
+    raw = _llm_call(system, text[:4000], 'kf_generate_text_set', provider=provider, max_tokens=500)
+    if not raw:
         return None
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        model = get_setting('analysis_model') or 'claude-sonnet-4-6'
-        text = f"Titel: {fact.title}\nKurzfassung: {fact.short_version or ''}\nVolltext: {fact.full_text or ''}"
-        resp = client.messages.create(
-            model=model, max_tokens=500,
-            system=(
-                'Du erstellst das Text-Set für einen Instagram-Post zu einem Wissens-Fakt. '
-                'Erfinde nichts Neues, arbeite nur mit dem gegebenen Fakt.\n\n'
-                '- hashtags: 5-8 relevante deutsche und/oder englische Hashtags, ohne "#", nichts Generisches wie "instagood"\n'
-                '- alt_text: sachliche Bildbeschreibung für Sehbehinderte, 1-2 Sätze, beschreibt was auf der Karte zu sehen wäre (Titel/Zahl), nicht "Bild von..."\n'
-                '- story_text: eine kurze, spannende Ein-Satz-Version für die Story (max. 100 Zeichen), gleicher Fakt, anderer Rahmen als der Titel\n\n'
-                'Antworte NUR mit einem JSON-Objekt: {"hashtags": [str, ...], "alt_text": str, "story_text": str}'
-            ),
-            messages=[{'role': 'user', 'content': text[:4000]}])
-        _log_ai('kf_generate_text_set', resp)
-        raw = resp.content[0].text.strip()
-        span = _extract_balanced_json(raw, '{', '}')
+        span = _extract_balanced_json(raw.strip(), '{', '}')
         return json.loads(span) if span else None
     except Exception as e:
         app.logger.warning('KF Textset: %s', e)
