@@ -3774,7 +3774,9 @@ def _sync_ki_kosten_ausgabe(year, month):
 
     Idempotent: findet den bestehenden Eintrag über einen Marker in notizen und
     aktualisiert nur den Betrag, statt Duplikate anzulegen. Betrag = ContentOS +
-    CityBot in EUR. Wird aus der Seite und aus dem Scheduler aufgerufen."""
+    CityBot (beide metered, aus dem jeweiligen Monat) + externe Dienste (RapidAPI
+    & Co., pauschal — aktueller Stand, nicht rückwirkend rekonstruierbar) in EUR.
+    Wird aus der Seite und aus dem Scheduler aufgerufen."""
     from datetime import date as _date
     marker = f'[auto:ki-kosten:{year}-{month:02d}]'
     m_start = datetime(year, month, 1)
@@ -3792,14 +3794,23 @@ def _sync_ki_kosten_ausgabe(year, month):
         if mrow:
             cb = (mrow.get('cost') or 0.0) * _USD_TO_EUR
 
-    total = round(co + cb, 2)
+    # Externe Dienste (RapidAPI etc., pauschal/manuell gepflegt) — aktueller
+    # Stand, kein historischer Verlauf möglich (im Gegensatz zu den beiden
+    # metered Quellen oben). Nur für den aktuellen Kalendermonat sinnvoll.
+    ext = 0.0
+    today = _date.today()
+    if year == today.year and month == today.month:
+        ext = sum(e.monthly_eur or 0.0 for e in ExternalServiceCost.query.all())
+
+    total = round(co + cb + ext, 2)
     if total <= 0:
         return  # nichts auszugeben → keinen Nullbetrag anlegen
 
     row = Ausgabe.query.filter(Ausgabe.notizen.like(f'%{marker}%')).first()
     titel = f'KI-Kosten {year}-{month:02d}'
     notiz = (f'Automatisch aus der KI-Kosten-Übersicht. ContentOS {co:.2f} € + '
-             f'CityBot {cb:.2f} €. {marker}')
+             f'CityBot {cb:.2f} €' + (f' + externe Dienste {ext:.2f} €' if ext else '') +
+             f'. {marker}')
     if row:
         row.betrag  = total
         row.notizen = notiz
