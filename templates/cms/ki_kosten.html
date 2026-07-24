@@ -242,6 +242,50 @@
   </div>
 </div>
 
+{# ── Externe Dienste (RapidAPI & Co., manuell gepflegt) ──────────────────── #}
+<details style="margin-top:20px" {% if external_costs %}{% else %}open{% endif %}>
+  <summary style="cursor:pointer;font-weight:700;font-size:13px;color:var(--muted)">
+    <i class="fa-solid fa-plug-circle-bolt" style="margin-right:6px"></i>Externe Dienste (RapidAPI &amp; Co.)
+    {% if external_costs %}
+      <span style="color:var(--text);font-size:11px;margin-left:6px">≈ {{ '%.2f'|format(external_monthly_total) }} €/Monat</span>
+    {% endif %}
+  </summary>
+  <p style="font-size:11px;color:var(--muted);margin:10px 0 12px;max-width:70ch">
+    Diese Dienste rechnen pauschal ab, nicht pro Aufruf wie Anthropic — deshalb hier
+    manuell eingetragen statt automatisch erfasst. Trägt nicht in die Tages-/Monats-
+    zahlen oben ein, nur in die Summe hier.
+  </p>
+  {% if external_costs %}
+  <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;max-width:560px">
+    {% for e in external_costs %}
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface2);border-radius:8px">
+      <div style="flex:1;min-width:0">
+        <span style="font-size:13px;font-weight:600">{{ e.name }}</span>
+        {% if e.note %}<span style="font-size:11px;color:var(--muted)"> — {{ e.note }}</span>{% endif %}
+      </div>
+      <span style="font-size:13px;font-family:monospace">{{ '%.2f'|format(e.monthly_eur or 0) }} €/Monat</span>
+      <form method="post" style="margin:0">
+        <input type="hidden" name="form" value="external_delete">
+        <input type="hidden" name="ext_id" value="{{ e.id }}">
+        <button type="submit" class="btn btn-ghost" style="font-size:11px;padding:4px 8px;color:var(--danger)" title="Entfernen">
+          <i class="fa-solid fa-xmark"></i></button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <form method="post" style="max-width:560px;display:grid;grid-template-columns:1fr 120px;gap:10px">
+    <input type="hidden" name="form" value="external_add">
+    <input name="ext_name" placeholder="Name, z.B. RapidAPI" required
+           style="padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px">
+    <input name="ext_amount" placeholder="€/Monat" required inputmode="decimal"
+           style="padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px">
+    <input name="ext_note" placeholder="Notiz (optional, z.B. Tarif)"
+           style="grid-column:1/3;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px">
+    <button type="submit" class="btn btn-primary" style="grid-column:1/3;justify-self:start;font-size:13px;padding:8px 18px">Hinzufügen</button>
+  </form>
+</details>
+
 {# ── CityBot-Verbindung ──────────────────────────────────────────────────── #}
 <details style="margin-top:20px" {% if not (base_url and api_key) %}open{% endif %}>
   <summary style="cursor:pointer;font-weight:700;font-size:13px;color:var(--muted)">

@@ -24,7 +24,7 @@ from models import (db, Platform, Category, Label, TeamMember, Account, AIConfig
                     InspirationSource, InspirationPost,
                     WeatherCache, WeatherTriggerLog,
                     ContentSeries, Kooperation, AccountIdeenContext,
-                    Partner, AiUsageLog, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf,
+                    Partner, AiUsageLog, ExternalServiceCost, AppTodo, Ausgabe, AboKosten, GeplantAusgabe, LocalEvent, SeitenKauf,
                     WatchlistSeite, WatchlistFollowerSnapshot, WatchlistCityMeta,
                     GrowthExperiment, GrowthVariant, GrowthParticipant, GrowthDataPoint, GrowthKnowledge,
                     KnowledgeEntry, MissingChildCase, EmergencyNumber,
@@ -3814,6 +3814,30 @@ def ki_kosten():
         flash('CityBot-Verbindung gespeichert.', 'success')
         return redirect(url_for('ki_kosten'))
 
+    # Externe Dienste (RapidAPI, künftige Anbieter ohne Pro-Call-Logging) —
+    # pauschal abgerechnet, deshalb manuell gepflegt statt automatisch erfasst.
+    if request.method == 'POST' and request.form.get('form') == 'external_add':
+        name = (request.form.get('ext_name') or '').strip()
+        try:
+            amount = float((request.form.get('ext_amount') or '0').replace(',', '.'))
+        except ValueError:
+            amount = 0.0
+        if name:
+            db.session.add(ExternalServiceCost(
+                name=name, monthly_eur=amount,
+                note=(request.form.get('ext_note') or '').strip() or None))
+            db.session.commit()
+            flash(f'"{name}" hinzugefügt.', 'success')
+        return redirect(url_for('ki_kosten'))
+    if request.method == 'POST' and request.form.get('form') == 'external_delete':
+        eid = request.form.get('ext_id')
+        if eid and eid.isdigit():
+            row = ExternalServiceCost.query.get(int(eid))
+            if row:
+                db.session.delete(row)
+                db.session.commit()
+        return redirect(url_for('ki_kosten'))
+
     try:
         days = max(7, min(90, int(request.args.get('days', 30))))
     except (ValueError, TypeError):
@@ -3899,6 +3923,9 @@ def ki_kosten():
         db.session.rollback()
         app.logger.warning('KI-Kosten → Ausgaben: %s', _e)
 
+    external_costs = ExternalServiceCost.query.order_by(ExternalServiceCost.name).all()
+    external_monthly_total = round(sum(e.monthly_eur or 0.0 for e in external_costs), 2)
+
     return render_template(
         'ki_kosten.html',
         active_page='ki_kosten',
@@ -3914,6 +3941,8 @@ def ki_kosten():
         total_today=round(co_today['cost'] + cb['today'], 4),
         total_yesterday=round(co_yest['cost'] + cb['yesterday'], 4),
         total_range=round(co_range['cost'] + cb['total'], 4),
+        external_costs=external_costs,
+        external_monthly_total=external_monthly_total,
     )
 
 
@@ -13008,13 +13037,16 @@ _AI_PRICING = {
     'claude-opus-4-8':            {'in': 5.00,  'out': 25.00},
 }
 
-def _log_ai(feature, resp):
-    """Logt einen API-Call nach client.messages.create(). resp = Anthropic-Response."""
+def _log_ai(feature, resp, provider='anthropic'):
+    """Logt einen API-Call nach client.messages.create(). resp = Anthropic-Response.
+    provider-Parameter schon vorbereitet für einen künftigen zweiten LLM-Anbieter
+    (z.B. DeepSeek) — bislang läuft ausschließlich Anthropic, _AI_PRICING müsste
+    dafür um dessen Preistabelle ergänzt werden."""
     try:
         p = _AI_PRICING.get(resp.model, {'in': 3.00, 'out': 15.00})
         it, ot = resp.usage.input_tokens, resp.usage.output_tokens
         cost = (it * p['in'] + ot * p['out']) / 1_000_000 * 0.92
-        entry = AiUsageLog(feature=feature, model=resp.model,
+        entry = AiUsageLog(provider=provider, feature=feature, model=resp.model,
                            input_tokens=it, output_tokens=ot, cost_eur=cost)
         db.session.add(entry)
         db.session.commit()
@@ -17837,12 +17869,23 @@ def _mcf_run_research():
         except Exception as e:
             app.logger.warning('MCF Feed %s: %s', url, e)
             continue
+        seen = src.get('checked_urls') or []
+        seen_set = set(seen)
+        newly_seen = []
         for e in entries:
             checked += 1
             link = (e.get('url') or '').strip()
+            # Kosten-Bremse: schon mal extrahiert, egal mit welchem Ergebnis —
+            # sonst kostet derselbe Feed-Eintrag bei jedem Scan erneut (Bug wie
+            # bei PWF gefunden: Dedup prüfte bisher nur gegen ERFOLGREICH
+            # angelegte Fälle, nicht gegen bereits geprüfte-und-abgelehnte).
+            if link and link in seen_set:
+                continue
             if link and MissingChildCase.query.filter_by(quelle_url=link).first():
                 continue
             data = _mcf_extract_case_from_text(f"{e.get('title', '')}\n\n{e.get('description', '')}", api_key)
+            if link:
+                newly_seen.append(link)
             if not data or not data.get('is_case') or not data.get('is_child'):
                 continue
             vs = _mcf_parse_date(data.get('vermisst_seit'))
@@ -17877,7 +17920,11 @@ def _mcf_run_research():
             except Exception as ex:
                 app.logger.warning('MCF Auto-Gen: %s', ex)
             created += 1
+        if newly_seen:
+            src['checked_urls'] = (seen + newly_seen)[-400:]
         db.session.commit()
+    set_setting('mcf_sources', json.dumps(sources))
+    db.session.commit()
     return created, checked
 
 
@@ -20184,9 +20231,18 @@ def _pwf_run_research():
             app.logger.warning('PWF Feed %s: %s', src.url, e)
             continue
         src.last_scanned_at = datetime.utcnow()
+        seen = json.loads(src.checked_urls or '[]')
+        seen_set = set(seen)
+        newly_seen = []
         for e in entries:
             checked += 1
             link = (e.get('url') or '').strip()
+            # Kosten-Bremse: dieser Eintrag wurde schon mal extrahiert (egal mit
+            # welchem Ergebnis) — RSS-Feeds behalten alte Einträge oft tagelang,
+            # ohne das würde derselbe Artikel bei jedem 30-Minuten-Scan erneut
+            # kostenpflichtig an die KI gehen.
+            if link and link in seen_set:
+                continue
             if link and ProductAlert.query.filter_by(quelle_url=link).first():
                 continue
             # RSS-Titel+Description sind oft nur ein Teaser (Charge, MHD, betroffene
@@ -20203,6 +20259,8 @@ def _pwf_run_research():
                 except Exception as ex:
                     app.logger.info('PWF Vollartikel-Abruf fehlgeschlagen (%s), nutze Teaser: %s', link, ex)
             data = _pwf_extract_from_text(source_text, api_key)
+            if link:
+                newly_seen.append(link)
             if not data or not data.get('is_case'):
                 continue
             # Auto-Scan: nur Produkte/Lebensmittel aus deutschen Supermärkten/
@@ -20246,6 +20304,8 @@ def _pwf_run_research():
             if a.foto_media_id:
                 _pwf_score_image_match_async(a.id)
             created += 1
+        if newly_seen:
+            src.checked_urls = json.dumps((seen + newly_seen)[-400:])
         db.session.commit()
     app.logger.warning('PWF Auto-Recherche abgeschlossen: %d neue Entwürfe, %d geprüft (Quellen: %s)',
                     created, checked, ', '.join(s.name for s in sources))

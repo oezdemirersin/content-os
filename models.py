@@ -804,15 +804,32 @@ class AccountIdeenContext(db.Model):
 
 
 class AiUsageLog(db.Model):
-    """Logt jeden KI-API-Call mit Token-Verbrauch und Kostenschätzung."""
+    """Logt jeden KI-API-Call mit Token-Verbrauch und Kostenschätzung.
+    provider steht bewusst schon hier (Default 'anthropic'), auch wenn aktuell
+    ausschließlich Anthropic läuft — sobald ein weiterer LLM-Anbieter (z.B.
+    DeepSeek) dazukommt, muss dafür kein Spalten-Nachrüsten mehr passieren."""
     __tablename__ = 'ai_usage_log'
     id            = db.Column(db.Integer, primary_key=True)
+    provider      = db.Column(db.String(30), default='anthropic')
     feature       = db.Column(db.String(60), nullable=False)   # caption, kategorisierung, …
     model         = db.Column(db.String(80), nullable=False)
     input_tokens  = db.Column(db.Integer, default=0)
     output_tokens = db.Column(db.Integer, default=0)
     cost_eur      = db.Column(db.Float,   default=0.0)
     created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ExternalServiceCost(db.Model):
+    """Manuell gepflegte Kosten für Dienste, die sich nicht wie Anthropic pro
+    Call mitloggen lassen — RapidAPI-Abo, künftige pauschal abgerechnete
+    Anbieter etc. Bewusst kein Pro-Call-Tracking (gäbe es das, gehörte der
+    Dienst in AiUsageLog statt hierher)."""
+    __tablename__ = 'external_service_cost'
+    id          = db.Column(db.Integer, primary_key=True)
+    name        = db.Column(db.String(100), nullable=False)   # z.B. "RapidAPI", "ElevenLabs"
+    monthly_eur = db.Column(db.Float, default=0.0)
+    note        = db.Column(db.String(300))
+    updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class WeatherCache(db.Model):
@@ -1359,6 +1376,13 @@ class ProductAlertSource(db.Model):
     dedicated_feed = db.Column(db.Boolean, default=False)
     last_scanned_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Kosten-Bremse: URLs, die schon mal an die KI-Extraktion gingen — egal mit
+    # welchem Ergebnis. Ohne das wird bei jedem Scan (alle 30 Min.) derselbe,
+    # längst geprüfte und abgelehnte Feed-Eintrag erneut kostenpflichtig
+    # extrahiert, weil der bisherige Dedup nur gegen ERFOLGREICH angelegte
+    # ProductAlert-Zeilen prüfte. JSON-Liste, auf die letzten 400 gekappt.
+    checked_urls = db.Column(db.Text, default='[]')
 
 
 # ═══════════════════════════════════════════════════════════════════════════
