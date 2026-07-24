@@ -3275,18 +3275,30 @@ def schedule_automations():
                         app.logger.error('Webhook-Auto-Registrierung: %s', _e)
 
                 # ── Missing Children: Auto-Recherche (nur wenn aktiviert) ──
+                # Zwei Modi: 'fixed' (Standard) läuft nur zu festen Uhrzeiten
+                # Berliner Zeit (z.B. morgens+abends statt alle 2 Std. rund um
+                # die Uhr — spart Kosten, Vermisstenmeldungen sind nicht
+                # sekundengenau), 'interval' ist das alte Verhalten für alle,
+                # die das lieber so behalten wollen.
                 if tick >= 2 and get_setting('mcf_auto_research') == '1':
                     global _last_mcf_research_at
-                    try:
-                        _iv = int(get_setting('mcf_research_interval_min') or 120)
-                    except Exception:
-                        _iv = 120
-                    if _last_mcf_research_at is None or (now - _last_mcf_research_at).total_seconds() >= _iv * 60:
-                        _last_mcf_research_at = now
+                    if get_setting('mcf_schedule_mode', 'fixed') == 'fixed':
+                        if _mcf_fixed_slot_due():
+                            try:
+                                _mcf_scan_and_log()
+                            except Exception as _e:
+                                app.logger.error('MCF Auto-Recherche/Monitoring: %s', _e)
+                    else:
                         try:
-                            _mcf_scan_and_log()
-                        except Exception as _e:
-                            app.logger.error('MCF Auto-Recherche/Monitoring: %s', _e)
+                            _iv = int(get_setting('mcf_research_interval_min') or 120)
+                        except Exception:
+                            _iv = 120
+                        if _last_mcf_research_at is None or (now - _last_mcf_research_at).total_seconds() >= _iv * 60:
+                            _last_mcf_research_at = now
+                            try:
+                                _mcf_scan_and_log()
+                            except Exception as _e:
+                                app.logger.error('MCF Auto-Recherche/Monitoring: %s', _e)
 
                 # ── Täglicher Follower-Sync + Snapshot um 23:55 Berliner Zeit ──
                 from zoneinfo import ZoneInfo
@@ -17850,6 +17862,26 @@ def _mcf_extract_case_from_text(text, api_key):
         return None
 
 
+def _mcf_fixed_slot_due():
+    """Für den Zeitplan-Modus 'fixed': prüft, ob JETZT eine der konfigurierten
+    Uhrzeiten (Berliner Zeit, Setting 'mcf_fixed_hours', Default 10/20 Uhr)
+    erreicht ist und in diesem Zeitfenster heute noch kein Lauf stattfand.
+    Ohne den Marker würde der Minuten-Tick den Scan 60× pro Stunde auslösen."""
+    try:
+        hours = {int(h.strip()) for h in (get_setting('mcf_fixed_hours', '10,20') or '10,20').split(',') if h.strip()}
+    except Exception:
+        hours = {10, 20}
+    now = now_berlin()
+    if now.hour not in hours:
+        return False
+    slot_marker = f'{now.date().isoformat()}-{now.hour}'
+    if get_setting('mcf_last_slot_run') == slot_marker:
+        return False
+    set_setting('mcf_last_slot_run', slot_marker)
+    db.session.commit()
+    return True
+
+
 def _mcf_run_research(limit=None):
     """Scannt konfigurierte RSS-Quellen nach Vermisstenmeldungen von Kindern und
     legt Auto-Entwürfe an (mit Dedup + Auto-Poster/Caption). Gibt (created, checked).
@@ -21171,10 +21203,29 @@ def _kf_scan_and_log():
         raise
 
 
+def _kf_backlog_count():
+    """Fakten, die auf Freigabe/Veröffentlichung warten (geprüft oder bereit) —
+    Grundlage der Vorrats-Bremse: ist genug zum Freigeben da, muss nicht auf
+    Verdacht weitergescannt werden."""
+    return KnowledgeFact.query.filter(KnowledgeFact.status.in_(['geprueft', 'bereit'])).count()
+
+
 def _kf_auto_scan():
     with app.app_context():
         if get_setting('kf_auto_research') != '1':
             return
+        # Vorrats-Bremse: ab genug wartenden Fakten reicht 1× täglich statt im
+        # vollen Stundentakt — es gibt schon genug zu prüfen/freizugeben.
+        try:
+            threshold = int(get_setting('kf_backlog_threshold') or 3)
+        except Exception:
+            threshold = 3
+        if _kf_backlog_count() >= threshold:
+            today = datetime.utcnow().date().isoformat()
+            if get_setting('kf_last_throttled_run') == today:
+                return
+            set_setting('kf_last_throttled_run', today)
+            db.session.commit()
         _kf_scan_and_log()
 
 
@@ -22600,6 +22651,12 @@ def _tlb_scan_quelle(source):
     return neu, uebersprungen
 
 
+def _tlb_backlog_count():
+    """Beiträge, die fertig aufbereitet auf Freigabe warten (Tagessieger,
+    Status 'entwurf') — Grundlage der Vorrats-Bremse."""
+    return TlbStory.query.filter_by(status='entwurf').count()
+
+
 def _tlb_run_scan(force=False, limit=None):
     """Vollständiger Lauf: sammeln → triagieren → ranken. Gibt einen Bericht
     zurück. 'Kein Beitrag heute' ist ein gültiges Ergebnis.
@@ -22762,11 +22819,31 @@ def _tlb_scan_and_log(force=False):
 
 
 def _tlb_auto_scan():
-    """Scheduler-Einstieg. Läuft nur, wenn die Automatik aktiviert ist."""
-    if get_setting('tlb_auto_scan') != '1':
-        return
+    """Scheduler-Einstieg. Läuft nur, wenn die Automatik aktiviert ist.
+
+    Der Toggle-Check lag früher VOR dem app_context-Block — lief aber in
+    einem eigenen Thread (kein geerbter Kontext vom Scheduler-Thread), das
+    riss bei jedem Aufruf ein RuntimeError ('Working outside of application
+    context'), noch bevor der Scan überhaupt starten konnte. Damit lief
+    Tageslichtblick über den Scheduler vermutlich nie automatisch, nur über
+    den manuellen Button (der im Request-Kontext läuft). Jetzt alles innerhalb
+    des Kontexts."""
     try:
         with app.app_context():
+            if get_setting('tlb_auto_scan') != '1':
+                return
+            # Vorrats-Bremse: ab genug wartenden, freigabefähigen Beiträgen
+            # reicht 1× täglich statt im vollen Stundentakt.
+            try:
+                threshold = int(get_setting('tlb_backlog_threshold') or 3)
+            except Exception:
+                threshold = 3
+            if _tlb_backlog_count() >= threshold:
+                today = datetime.utcnow().date().isoformat()
+                if get_setting('tlb_last_throttled_run') == today:
+                    return
+                set_setting('tlb_last_throttled_run', today)
+                db.session.commit()
             _tlb_scan_and_log()
     except Exception as e:
         app.logger.error('TLB Auto-Scan: %s', e)
