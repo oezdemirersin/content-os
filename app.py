@@ -17850,16 +17850,21 @@ def _mcf_extract_case_from_text(text, api_key):
         return None
 
 
-def _mcf_run_research():
+def _mcf_run_research(limit=None):
     """Scannt konfigurierte RSS-Quellen nach Vermisstenmeldungen von Kindern und
-    legt Auto-Entwürfe an (mit Dedup + Auto-Poster/Caption). Gibt (created, checked)."""
+    legt Auto-Entwürfe an (mit Dedup + Auto-Poster/Caption). Gibt (created, checked).
+
+    limit: bricht ab, sobald so viele Einträge tatsächlich extrahiert wurden
+    (quellenübergreifend gezählt) — für den Test-Scan."""
     sources = json.loads(get_setting('mcf_sources') or '[]')
     api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
     if not api_key or not sources:
         return 0, 0
     KW = ['vermisst', 'vermisste', 'vermisster', 'vermisstenfahndung', 'abgängig', 'fahndung', 'wird vermisst']
-    checked = created = 0
+    checked = created = extracted = 0
     for src in sources:
+        if limit is not None and extracted >= limit:
+            break
         url = (src.get('url') or '').strip()
         name = src.get('name') or url
         if not url:
@@ -17873,6 +17878,8 @@ def _mcf_run_research():
         seen_set = set(seen)
         newly_seen = []
         for e in entries:
+            if limit is not None and extracted >= limit:
+                break
             checked += 1
             link = (e.get('url') or '').strip()
             # Kosten-Bremse: schon mal extrahiert, egal mit welchem Ergebnis —
@@ -17884,6 +17891,7 @@ def _mcf_run_research():
             if link and MissingChildCase.query.filter_by(quelle_url=link).first():
                 continue
             data = _mcf_extract_case_from_text(f"{e.get('title', '')}\n\n{e.get('description', '')}", api_key)
+            extracted += 1
             if link:
                 newly_seen.append(link)
             if not data or not data.get('is_case') or not data.get('is_child'):
@@ -17937,6 +17945,21 @@ def mcf_research_run():
     if not json.loads(get_setting('mcf_sources') or '[]'):
         return jsonify({'ok': False, 'error': 'Noch keine Quellen hinterlegt.'}), 400
     created, checked = _mcf_scan_and_log()
+    return jsonify({'ok': True, 'created': created, 'checked': checked})
+
+
+@app.route('/api/mcf/research/test-scan', methods=['POST'])
+@login_required
+def mcf_research_test_scan():
+    """Kleiner Testlauf (max. 3 Extraktionen) zum Prüfen, ob eine Quelle etwas
+    Sinnvolles liefert — läuft bewusst auch wenn die Auto-Recherche gerade
+    ausgeschaltet ist, und zählt nicht als regulärer Scan im Verlauf."""
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Braucht einen Anthropic-API-Key (Einstellungen → KI).'}), 400
+    if not json.loads(get_setting('mcf_sources') or '[]'):
+        return jsonify({'ok': False, 'error': 'Noch keine Quellen hinterlegt.'}), 400
+    created, checked = _mcf_run_research(limit=3)
     return jsonify({'ok': True, 'created': created, 'checked': checked})
 
 
@@ -20208,9 +20231,13 @@ def pwf_bulk_delete_alerts():
 
 
 # ─── Quellen-Verwaltung + Auto-Recherche ──────────────────────────────────
-def _pwf_run_research():
+def _pwf_run_research(limit=None):
     """Scannt konfigurierte RSS-Quellen nach Produktwarnungen/Rückrufen und
-    legt Auto-Entwürfe an (mit Dedup + Auto-Bild/Caption). Gibt (created, checked)."""
+    legt Auto-Entwürfe an (mit Dedup + Auto-Bild/Caption). Gibt (created, checked).
+
+    limit: bricht ab, sobald so viele Einträge tatsächlich extrahiert wurden
+    (quellenübergreifend gezählt) — für den Test-Scan (2-3 Posts statt vollem
+    Lauf), ohne dass dafür extra Testdaten/eine zweite Codepfad-Version nötig sind."""
     sources = ProductAlertSource.query.filter_by(active=True).all()
     api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
     if not api_key or not sources:
@@ -20219,8 +20246,10 @@ def _pwf_run_research():
         return 0, 0
     KW = ['rückruf', 'rueckruf', 'warnung', 'warnhinweis', 'gesundheitsgefahr',
          'verkaufsstopp', 'kontamination', 'fremdkörper', 'allergen']
-    checked = created = 0
+    checked = created = extracted = 0
     for src in sources:
+        if limit is not None and extracted >= limit:
+            break
         try:
             # Dedizierte Rückruf-Feeds (z.B. BAuA) brauchen keinen Keyword-
             # Filter — jeder Eintrag ist bereits ein Rückruf, die Titel
@@ -20235,6 +20264,8 @@ def _pwf_run_research():
         seen_set = set(seen)
         newly_seen = []
         for e in entries:
+            if limit is not None and extracted >= limit:
+                break
             checked += 1
             link = (e.get('url') or '').strip()
             # Kosten-Bremse: dieser Eintrag wurde schon mal extrahiert (egal mit
@@ -20259,6 +20290,7 @@ def _pwf_run_research():
                 except Exception as ex:
                     app.logger.info('PWF Vollartikel-Abruf fehlgeschlagen (%s), nutze Teaser: %s', link, ex)
             data = _pwf_extract_from_text(source_text, api_key)
+            extracted += 1
             if link:
                 newly_seen.append(link)
             if not data or not data.get('is_case'):
@@ -20346,6 +20378,20 @@ def pwf_research_run():
     if not ProductAlertSource.query.filter_by(active=True).first():
         return jsonify({'ok': False, 'error': 'Noch keine Quellen hinterlegt.'}), 400
     created, checked = _pwf_scan_and_log()
+    return jsonify({'ok': True, 'created': created, 'checked': checked})
+
+
+@app.route('/api/pwf/research/test-scan', methods=['POST'])
+@login_required
+def pwf_research_test_scan():
+    """Kleiner Testlauf (max. 3 Extraktionen) — läuft auch bei ausgeschalteter
+    Auto-Recherche, zählt nicht als regulärer Scan im Verlauf."""
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Braucht einen Anthropic-API-Key (Einstellungen → KI).'}), 400
+    if not ProductAlertSource.query.filter_by(active=True).first():
+        return jsonify({'ok': False, 'error': 'Noch keine Quellen hinterlegt.'}), 400
+    created, checked = _pwf_run_research(limit=3)
     return jsonify({'ok': True, 'created': created, 'checked': checked})
 
 
@@ -21010,13 +21056,15 @@ def _kf_create_draft_fact(source, account, url_used, data):
 def _kf_poll_rss(source, account, api_key, limit=8):
     """Scannt einen RSS-Feed nach neuen Einträgen, extrahiert je EINEN Fakt pro
     Item. Dedup gegen bereits verarbeitete Links, bevor überhaupt ein KI-Aufruf
-    passiert (spart Kosten für längst gesehene Einträge)."""
+    passiert (spart Kosten für längst gesehene Einträge). Gibt (created,
+    attempted) zurück — attempted zählt tatsächliche KI-Aufrufe, unabhängig
+    vom Ergebnis (Budget-Grundlage für den Test-Scan, s. _kf_run_research)."""
     try:
         entries = fetch_rss_feed(source.url, keywords=None) or []
     except Exception as e:
         app.logger.warning('KF RSS-Quelle %s: %s', source.name, e)
-        return 0
-    created = 0
+        return 0, 0
+    created = attempted = 0
     for e in entries[:limit]:
         link = (e.get('url') or '').strip()
         if link and KnowledgeFactSource.query.filter_by(url_used=link).first():
@@ -21030,29 +21078,33 @@ def _kf_poll_rss(source, account, api_key, limit=8):
             except Exception:
                 pass
         data = _kf_extract_fact_from_text(text, account, api_key)
+        attempted += 1
         if data and data.get('is_fact') and _kf_create_draft_fact(source, account, link, data):
             created += 1
-    return created
+    return created, attempted
 
 
 def _kf_poll_wikipedia(source, account, api_key, max_facts=5):
     """Liest einen Wikipedia-Artikel (source.url) komplett und extrahiert bis zu
     max_facts einzelne Fakten in einem KI-Aufruf — ein Artikel enthält viele
-    Fakten, anders als ein einzelner RSS-Eintrag mit meist genau einem."""
+    Fakten, anders als ein einzelner RSS-Eintrag mit meist genau einem. Gibt
+    (created, attempted) zurück — attempted ist hier 0 oder 1 (ein KI-Aufruf
+    pro Artikel, unabhängig von max_facts)."""
     if not source.url or not _mcf_is_safe_url(source.url):
-        return 0
+        return 0, 0
     try:
         text, _img = _mcf_fetch_url_content(source.url)
     except Exception as e:
         app.logger.warning('KF Wikipedia-Quelle %s: %s', source.name, e)
-        return 0
+        return 0, 0
     if not text.strip():
-        return 0
+        return 0, 0
     created = 0
-    for data in _kf_extract_facts_from_text(text, account, api_key, max_facts=max_facts):
+    facts = _kf_extract_facts_from_text(text, account, api_key, max_facts=max_facts)
+    for data in facts:
         if _kf_create_draft_fact(source, account, source.url, data):
             created += 1
-    return created
+    return created, 1
 
 
 # Pluggable Source-Handler-Registry — ein neuer Quellentyp später ist eine neue
@@ -21060,9 +21112,15 @@ def _kf_poll_wikipedia(source, account, api_key, max_facts=5):
 _KF_SOURCE_HANDLERS = {'rss': _kf_poll_rss, 'wikipedia': _kf_poll_wikipedia}
 
 
-def _kf_run_research():
+def _kf_run_research(limit=None):
     """Scannt alle aktiven RSS/Wikipedia-Quellen aller Nischen (Auto-Scan).
-    Gibt (created, checked_sources) zurück."""
+    Gibt (created, checked_sources) zurück.
+
+    limit: Gesamtobergrenze tatsächlicher KI-Aufrufe über alle Quellen hinweg
+    — für den Test-Scan. Bewusst über "attempted" (KI-Aufrufe) gebudgetet,
+    nicht über "created" (erfolgreiche Treffer) — sonst würde das Budget nie
+    aufgebraucht, wenn ein Testlauf zufällig nichts Brauchbares findet, und
+    jede weitere Quelle bekäme ihr eigenes volles Budget."""
     api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
     if not api_key:
         app.logger.warning('KF Auto-Recherche übersprungen: kein API-Key')
@@ -21071,8 +21129,10 @@ def _kf_run_research():
         KnowledgeSource.active.is_(True),
         KnowledgeSource.source_type.in_(_KF_SOURCE_HANDLERS.keys()),
     ).all()
-    created = checked = 0
+    created = checked = attempted = 0
     for source in sources:
+        if limit is not None and attempted >= limit:
+            break
         if not source.url:
             continue
         account = Account.query.get(source.account_id)
@@ -21083,7 +21143,12 @@ def _kf_run_research():
             continue
         checked += 1
         try:
-            created += handler(source, account, api_key)
+            if limit is not None:
+                c, a = handler(source, account, api_key, max(1, limit - attempted))
+            else:
+                c, a = handler(source, account, api_key)
+            created += c
+            attempted += a
         except Exception as e:
             app.logger.warning('KF Quelle %s (%s): %s', source.name, source.source_type, e)
         source.last_scanned_at = datetime.utcnow()
@@ -21879,6 +21944,20 @@ def knowledge_factory_scan_now():
     return jsonify({'ok': True, 'created': created, 'checked': checked})
 
 
+@app.route('/api/wissensfabrik/test-scan', methods=['POST'])
+@login_required
+def knowledge_factory_test_scan():
+    """Kleiner Testlauf (max. 3 neue Entwürfe insgesamt) — zählt nicht als
+    regulärer Scan im Verlauf."""
+    api_key = get_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'Braucht einen Anthropic-API-Key (Einstellungen → KI).'}), 400
+    if not KnowledgeSource.query.filter_by(active=True).first():
+        return jsonify({'ok': False, 'error': 'Noch keine aktive Quelle in irgendeiner Nische hinterlegt.'}), 400
+    created, checked = _kf_run_research(limit=3)
+    return jsonify({'ok': True, 'created': created, 'checked': checked})
+
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -22521,15 +22600,21 @@ def _tlb_scan_quelle(source):
     return neu, uebersprungen
 
 
-def _tlb_run_scan(force=False):
+def _tlb_run_scan(force=False, limit=None):
     """Vollständiger Lauf: sammeln → triagieren → ranken. Gibt einen Bericht
-    zurück. 'Kein Beitrag heute' ist ein gültiges Ergebnis."""
+    zurück. 'Kein Beitrag heute' ist ein gültiges Ergebnis.
+
+    limit: für den Test-Scan — sammelt nur aus der ersten fälligen Quelle und
+    triagiert (der eigentliche Kostenpunkt, ein Haiku-Call je Kandidatin) nur
+    `limit` statt bis zu 60 Kandidatinnen."""
     bericht = {'quellen': 0, 'neu': 0, 'bewertet': 0, 'abgelehnt': 0,
                'sieger': None, 'fehler': [], 'kosten_cent': 0.0}
     now = datetime.utcnow()
 
     quellen = TlbSource.query.filter_by(active=True).all()
     for src in quellen:
+        if limit is not None and bericht['quellen'] >= 1:
+            break
         if not _tlb_module_on(src.modul):
             continue
         if not force and src.last_scanned_at:
@@ -22546,7 +22631,8 @@ def _tlb_run_scan(force=False):
         db.session.commit()
 
     # Triage aller offenen Kandidatinnen
-    offen = TlbStory.query.filter_by(status='kandidat').order_by(TlbStory.created_at).limit(60).all()
+    offen = (TlbStory.query.filter_by(status='kandidat').order_by(TlbStory.created_at)
+             .limit(limit if limit is not None else 60).all())
     for story in offen:
         try:
             dublette = _tlb_ist_dublette(story)
@@ -22826,6 +22912,18 @@ def tlb_scan_now():
     ein Lauf über die Startquellen dauert typischerweise unter einer Minute."""
     try:
         bericht = _tlb_scan_and_log(force=bool((request.get_json(silent=True) or {}).get('force')))
+        return jsonify({'ok': True, 'bericht': bericht})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/tlb/test-scan', methods=['POST'])
+@login_required
+def tlb_test_scan():
+    """Kleiner Testlauf (max. 3 Triagen, eine Quelle) — läuft auch bei
+    ausgeschalteter Automatik, zählt nicht als regulärer Scan im Verlauf."""
+    try:
+        bericht = _tlb_run_scan(force=True, limit=3)
         return jsonify({'ok': True, 'bericht': bericht})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
