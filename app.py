@@ -1891,6 +1891,20 @@ def init_db():
             db.session.rollback()
             app.logger.warning(f'[CityMeta Migration] {_e}')
 
+        # ── Rosenheim: einmalig zur Stadtseiten-Watchlist hinzufügen ──
+        try:
+            existing_staedte_lower = {s.lower() for (s,) in db.session.query(WatchlistSeite.stadt)
+                .filter(WatchlistSeite.ziel_typ == 'stadtseite', WatchlistSeite.is_deleted == False).all()}
+            if 'rosenheim' not in existing_staedte_lower:
+                db.session.add(WatchlistSeite(
+                    stadt='Rosenheim', ziel_typ='stadtseite',
+                    ziel_name='Rosenheim – Stadtseite', ziel_meta='ca. 67.000 Einwohner',
+                ))
+                db.session.commit()
+        except Exception as _e:
+            db.session.rollback()
+            app.logger.warning(f'[Rosenheim Migration] {_e}')
+
         # ── Trend Radar: einmalig trend_ig_accounts-Setting in TrendSource
         # migrieren (ersetzt die alte Komma-Liste durch echte Quellen-Zeilen).
         # Nutzt AppSettings/TrendSource direkt (nicht get_setting()/_TR_DEFAULT_

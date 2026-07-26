@@ -32,6 +32,9 @@
       <div style="font-size:12px;color:var(--muted)">Targets für Seitenakquisition — Stadtseiten, Vereine, Hochschulen und mehr</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
+      <button @click="openNewCity()" class="btn btn-ghost" style="font-size:11px;padding:8px 12px">
+        <i class="fa-solid fa-city"></i> Neue Stadt
+      </button>
       <button @click="openSonstigeAdd()" class="btn btn-ghost" style="font-size:11px;padding:8px 12px">
         <i class="fa-solid fa-plus"></i> Eintrag
       </button>
@@ -630,16 +633,27 @@
     <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(560px,95vw);max-height:90vh;overflow-y:auto">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
         <div style="font-family:var(--font-display);font-size:14px"
-             x-text="form.id?'SEITE BEARBEITEN':'SEITE HINZUFÜGEN'"></div>
+             x-text="form.id?'SEITE BEARBEITEN':(isNewCity?'NEUE STADT':'SEITE HINZUFÜGEN')"></div>
         <button @click="modalOpen=false" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
       </div>
       <!-- Target info bar -->
-      <div x-show="!isSonstige"
+      <div x-show="!isSonstige && !isNewCity"
            style="font-size:11px;color:var(--muted);margin-bottom:18px;padding:8px 12px;background:var(--surface2);border-radius:8px;display:flex;align-items:center;gap:6px">
         <i class="fa-solid fa-map-pin" style="font-size:10px"></i>
         <span x-text="form.stadt" style="font-weight:600"></span>
         <span x-show="form.ziel_name && !showNameInput" x-text="'— '+form.ziel_name"></span>
         <span x-show="form.ziel_meta && !showNameInput" x-text="'('+form.ziel_meta+')'" style="color:var(--muted)"></span>
+      </div>
+      <!-- Neue Stadt: nur Name + Einwohnerzahl -->
+      <div x-show="isNewCity" style="margin-bottom:16px">
+        <div style="margin-bottom:12px">
+          <label class="form-label">Stadt *</label>
+          <input type="text" x-model="form.stadt" class="input-field" placeholder="z.B. Rosenheim" autofocus>
+        </div>
+        <div>
+          <label class="form-label">Einwohnerzahl</label>
+          <input type="number" x-model.number="form.einwohner" class="input-field" placeholder="z.B. 67000" min="0">
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
         <!-- Kategorie (sonstige only) -->
@@ -655,7 +669,7 @@
           </datalist>
         </div>
         <!-- Ziel-Name (add-new mode or sonstige) -->
-        <div x-show="showNameInput || isSonstige" style="grid-column:1/-1">
+        <div x-show="(showNameInput || isSonstige) && !isNewCity" style="grid-column:1/-1">
           <label class="form-label">Name *</label>
           <input type="text" x-model="form.ziel_name" class="input-field" placeholder="z.B. Schwabing, TuS Musterstadt, Humor-Seite…">
           <div x-show="!isSonstige" style="display:flex;gap:6px;margin-top:8px">
@@ -669,6 +683,8 @@
                    style="font-size:11px;flex:1" placeholder="z.B. ca. 120.000 Einwohner">
           </div>
         </div>
+        <!-- Rest des Formulars: bei "Neue Stadt" nicht nötig -->
+        <div x-show="!isNewCity" style="display:contents">
         <!-- Status -->
         <div style="grid-column:1/-1">
           <label class="form-label">Status *</label>
@@ -796,6 +812,7 @@
           <textarea x-model="form.notizen" rows="2" class="input-field"
                     placeholder="Anmerkungen, Kontakt, Besonderheiten…"></textarea>
         </div>
+        </div><!-- /Rest des Formulars -->
       </div>
       <div style="display:flex;gap:10px;justify-content:flex-end">
         <button @click="modalOpen=false" class="btn btn-ghost">Abbrechen</button>
@@ -841,10 +858,11 @@ function watchlistApp() {
     modalOpen: false,
     showNameInput: false,
     isSonstige: false,
+    isNewCity: false,
     currentCity: null,
     form: {
       id:'', wl_kategorie:'stadtseite', stadt:'', ziel_typ:'stadtseite',
-      ziel_name:'', ziel_meta:'', platform:'Instagram',
+      ziel_name:'', ziel_meta:'', einwohner:'', platform:'Instagram',
       url:'', handle:'', follower:'', letzte_aktivitaet:'',
       seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
       seiten_kategorie:'', preis_vorstellung:'', mein_angebot:'', notizen:'',
@@ -1102,6 +1120,7 @@ function watchlistApp() {
     openEdit(e) {
       this.currentCity = this.cities.find(c=>c.stadt===e.stadt)||null;
       this.isSonstige = false;
+      this.isNewCity = false;
       this.form = this._formFromEntry(e);
       this.showNameInput = true;
       this.modalOpen = true;
@@ -1109,6 +1128,7 @@ function watchlistApp() {
     openEditAngebot(e) {
       this.currentCity = this.cities.find(c=>c.stadt===e.stadt)||null;
       this.isSonstige = false;
+      this.isNewCity = false;
       this.form = this._formFromEntry(e);
       this.showNameInput = true;
       this.modalOpen = true;
@@ -1116,6 +1136,7 @@ function watchlistApp() {
     openAdd(city, typ, prefillName, prefillMeta) {
       this.currentCity = city;
       this.isSonstige = false;
+      this.isNewCity = false;
       this.form = {
         id:'', wl_kategorie:'stadtseite', stadt:city.stadt, ziel_typ:typ||'stadtseite',
         ziel_name:prefillName||'', ziel_meta:prefillMeta||'',
@@ -1127,9 +1148,25 @@ function watchlistApp() {
       this.showNameInput = true;
       this.modalOpen = true;
     },
+    openNewCity() {
+      this.currentCity = null;
+      this.isSonstige = false;
+      this.isNewCity = true;
+      this.form = {
+        id:'', wl_kategorie:'stadtseite', stadt:'', ziel_typ:'stadtseite',
+        ziel_name:'', ziel_meta:'', einwohner:'',
+        platform:'Instagram', url:'', handle:'', follower:'', letzte_aktivitaet:'',
+        seiten_status:'nicht_gesucht', kaufprioritaet:'keine',
+        seiten_kategorie:'', preis_vorstellung:'', mein_angebot:'', notizen:'',
+        zweck:'', ist_befreundet:false, kontaktiert_am_input:this.todayStr(),
+      };
+      this.showNameInput = true;
+      this.modalOpen = true;
+    },
     openSonstigeAdd() {
       this.currentCity = null;
       this.isSonstige = true;
+      this.isNewCity = false;
       this.form = {
         id:'', wl_kategorie:'sonstige', stadt:'', ziel_typ:'sonstige',
         ziel_name:'', ziel_meta:'',
@@ -1144,6 +1181,7 @@ function watchlistApp() {
     openSonstigeEdit(e) {
       this.currentCity = null;
       this.isSonstige = true;
+      this.isNewCity = false;
       this.form = this._formFromEntry({...e, wl_kategorie:e.wl_kategorie||'sonstige', ziel_typ:e.ziel_typ||'sonstige'});
       this.showNameInput = false;
       this.modalOpen = true;
@@ -1174,6 +1212,29 @@ function watchlistApp() {
 
     async save() {
       const f = this.form;
+      if(this.isNewCity){
+        const stadtName = (f.stadt||'').trim();
+        if(!stadtName){ showToast('Stadt ist Pflichtfeld','error'); return; }
+        if(this.cities.some(c=>c.stadt.toLowerCase()===stadtName.toLowerCase())){
+          showToast('Diese Stadt gibt es schon','error'); return;
+        }
+        const ew = f.einwohner ? parseInt(f.einwohner) : null;
+        const payload = {
+          stadt: stadtName, ziel_typ: 'stadtseite', wl_kategorie: 'stadtseite',
+          ziel_name: stadtName + ' – Stadtseite',
+          ziel_meta: ew ? 'ca. ' + ew.toLocaleString('de-DE') + ' Einwohner' : null,
+          seiten_status: 'nicht_gesucht', kaufprioritaet: 'keine',
+        };
+        const r = await fetch('/api/watchlist/stadtseiten',{
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+        }).then(x=>x.json());
+        if(r.ok){
+          showToast('Stadt hinzugefügt','success');
+          this.modalOpen = false;
+          await this.loadCities();
+        } else { showToast(r.error||'Fehler','error'); }
+        return;
+      }
       if(!f.ziel_name){ showToast('Name ist Pflichtfeld','error'); return; }
       const payload = {
         platform:f.platform, url:f.url||null, handle:f.handle||null,
