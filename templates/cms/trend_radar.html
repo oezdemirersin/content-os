@@ -57,6 +57,12 @@
         <i class="fa-solid fa-wave-square"></i>
         <span x-text="signalCount"></span> Signale (24h)
       </span>
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;color:var(--muted)"
+             title="Trend Radar läuft sonst automatisch alle 3 Stunden — bei Bedarf ausschalten, um Kosten zu sparen">
+        <input type="checkbox" x-model="autoOn" @change="toggleAuto()"
+               style="accent-color:var(--accent);width:16px;height:16px">
+        Auto-Scan
+      </label>
       <button class="btn btn-ghost" style="font-size:12px;padding:7px 12px" @click="openSettings()">
         <i class="fa-solid fa-sliders"></i> Quellen
       </button>
@@ -385,6 +391,7 @@ function trendRadar() {
     topics: [], loading: true, scanning: false, scanStep: '',
     signalCount: 0, lastScanRel: '', search: '',
     settingsOpen: false,
+    autoOn: true,
     settings: {youtube_api_key: '', auto: true, alert_score: 80},
     youtubeKeySet: {{ 'true' if youtube_ready else 'false' }},
     alertConfigured: true,
@@ -406,6 +413,25 @@ function trendRadar() {
 
     async init() {
       await this.load();
+      try {
+        const d = await fetch('/api/trend-radar/settings').then(r => r.json());
+        this.autoOn = !!d.auto;
+        this.settings.auto = this.autoOn;
+      } catch (e) {}
+    },
+
+    async toggleAuto() {
+      const r = await fetch('/api/trend-radar/settings', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({auto: this.autoOn}),
+      }).then(r => r.json()).catch(() => ({ok: false}));
+      if (r.ok) {
+        this.settings.auto = this.autoOn;
+        showToast(this.autoOn ? 'Auto-Scan aktiviert' : 'Auto-Scan deaktiviert — Trend Radar läuft nur noch manuell', 'info');
+      } else {
+        this.autoOn = !this.autoOn;
+        showToast('Fehler beim Speichern', 'error');
+      }
     },
 
     async load() {
