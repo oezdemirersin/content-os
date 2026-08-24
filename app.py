@@ -1907,14 +1907,26 @@ def init_db():
 
         # ── Rechnungsnummern-Zähler einmalig auf 137 anheben, damit die
         # nächste generierte Rechnung mit 138 beginnt statt bei der
-        # bisherigen niedrigen Zahl weiterzulaufen ──
+        # bisherigen niedrigen Zahl weiterzulaufen. get_setting/set_setting
+        # sind an dieser Stelle im Modul noch nicht definiert (init_db()
+        # läuft vor deren def-Zeile, s. [[project_scheduler_loadorder]]) —
+        # deshalb direkt über AppSettings statt über die Helper. ──
         try:
-            if get_setting('invoice_counter_138_applied') != '1':
+            flag = AppSettings.query.filter_by(key='invoice_counter_138_applied').first()
+            if not flag or flag.value != '1':
                 year = datetime.utcnow().year
-                current = int(get_setting(f'invoice_counter_{year}', '0') or '0')
+                counter_key = f'invoice_counter_{year}'
+                counter = AppSettings.query.filter_by(key=counter_key).first()
+                current = int(counter.value) if (counter and counter.value) else 0
                 if current < 137:
-                    set_setting(f'invoice_counter_{year}', '137')
-                set_setting('invoice_counter_138_applied', '1')
+                    if counter:
+                        counter.value = '137'
+                    else:
+                        db.session.add(AppSettings(key=counter_key, value='137'))
+                if not flag:
+                    db.session.add(AppSettings(key='invoice_counter_138_applied', value='1'))
+                else:
+                    flag.value = '1'
                 db.session.commit()
         except Exception as _e:
             db.session.rollback()
