@@ -531,17 +531,17 @@
       {% if not no_vat %}
       <div class="totals-row">
         <span>Nettobetrag</span>
-        <span>{% if k.amount %}{{ '%.2f'|format(k.amount / 1.19) }} {{ k.currency or 'EUR' }}{% else %}—{% endif %}</span>
+        <span>{% if k.amount %}{{ '%.2f'|format(k.amount) }} {{ k.currency or 'EUR' }}{% else %}—{% endif %}</span>
       </div>
       <div class="totals-row">
         <span>MwSt. 19%</span>
-        <span>{% if k.amount %}{{ '%.2f'|format(k.amount - k.amount / 1.19) }} {{ k.currency or 'EUR' }}{% else %}—{% endif %}</span>
+        <span>{% if k.amount %}{{ '%.2f'|format(k.amount * 0.19) }} {{ k.currency or 'EUR' }}{% else %}—{% endif %}</span>
       </div>
       {% endif %}
       <div class="totals-row total-final">
         <span>{{ 'Betrag' if no_vat else 'Gesamtbetrag' }}</span>
         <span class="amount">
-          {% if k.amount %}{{ '%.2f'|format(k.amount) }} {{ k.currency or 'EUR' }}
+          {% if k.amount %}{{ '%.2f'|format(k.amount * 1.19 if not no_vat else k.amount) }} {{ k.currency or 'EUR' }}
           {% else %}—{% endif %}
         </span>
       </div>
