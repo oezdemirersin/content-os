@@ -475,13 +475,14 @@
           {% set price = (k.amount or 0) / (deliverables | length) %}
           {% set line_total = price %}
           {% set ns.total = ns.total + line_total %}
+          {% set is_auto = label and (label|lower in text|lower) %}
           <tr>
             <td class="pos-num">{{ ns.row }}</td>
             <td>
               <div class="pos-desc">
-                {{ text or (count ~ '× ' ~ label) }}
+                {{ label if is_auto else (text or (count ~ '× ' ~ label)) }}
               </div>
-              {% if text and label and (label|lower not in text|lower) %}
+              {% if text and label and not is_auto %}
               <div class="pos-subdesc">Format: {{ label }}</div>
               {% endif %}
             </td>
