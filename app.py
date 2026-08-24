@@ -14352,6 +14352,7 @@ def koop_generate_contract(kid):
     our_tax_id  = d.get('our_tax_id', '')
     partner_address = d.get('partner_address', '')
     deliverables_text = d.get('deliverables_text', k.deliverables or '')
+    leistungszeitraum = d.get('leistungszeitraum', '')
     posting_dates_text = ''
     if k.posting_dates:
         try:
@@ -14387,6 +14388,7 @@ Kampagne/Projekt: {campaign or 'Social-Media-Kooperation'}
 Partner: {partner}
 Posting-Termine: {posting_dates_text or 'nach Vereinbarung'}
 Leistungsbeschreibung: {deliverables_text or 'Social-Media-Posting und Kooperation'}
+{('Leistungszeitraum: ' + leistungszeitraum) if leistungszeitraum else ''}
 
 BETRAG: {amount} {currency} (zzgl. 19% MwSt. falls zutreffend)
 
@@ -14404,6 +14406,7 @@ PROJEKT: {campaign or 'Social-Media-Kooperation'}
 VERGÜTUNG: {amount} {currency}
 LEISTUNGEN: {deliverables_text or 'Social-Media-Postings, Kooperation'}
 POSTING-TERMINE: {posting_dates_text or 'nach Vereinbarung'}
+{('LEISTUNGSZEITRAUM: ' + leistungszeitraum) if leistungszeitraum else ''}
 {('WEITERE HINWEISE: ' + extra_notes) if extra_notes else ''}
 
 Erstelle einen vollständigen, rechtlich soliden Vertrag mit:

@@ -1147,6 +1147,7 @@ async function generateContract() {
     our_tax_id:       document.getElementById('cgOurTaxId').value,
     partner_address:  document.getElementById('cgPartnerAddress').value,
     deliverables_text:document.getElementById('cgDeliverables').value,
+    leistungszeitraum:document.getElementById('cgLeistungszeitraum').value,
     invoice_number:   document.getElementById('cgInvoiceNumber').value,
     campaign:         document.getElementById('cgCampaign').value,
     extra_notes:      document.getElementById('cgExtraNotes').value,
@@ -1233,6 +1234,10 @@ async function copyContract() {
       <div style="grid-column:1/-1">
         <label class="form-label">Leistungen / Liefergegenstände</label>
         <textarea id="cgDeliverables" rows="3" class="input-field" placeholder="z.B. 2× Instagram Feed-Post, 3× Story, 1× Reel"></textarea>
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="form-label">Leistungszeitraum</label>
+        <input type="text" id="cgLeistungszeitraum" class="input-field" placeholder="z.B. 01.08. – 31.08.2026">
       </div>
       <div style="grid-column:1/-1">
         <label class="form-label">Weitere Hinweise (optional)</label>
