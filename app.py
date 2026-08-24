@@ -139,6 +139,16 @@ def fmt_followers(n):
         return f'{n/1_000_000:.1f}M'.replace('.', ',')
     # Exakte Zahl mit Tausender-Punkt: 1600 → 1.600
     return f'{n:,}'.replace(',', '.')
+
+
+@app.template_filter('de_num')
+def de_num_filter(v):
+    """Zeigt Geldbeträge im deutschen Format: 30000.0 → 30.000,00."""
+    try:
+        v = float(v or 0)
+    except (ValueError, TypeError):
+        return v
+    return f'{v:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
 _secret = os.environ.get('SECRET_KEY')
 if not _secret:
     _is_prod = 'postgresql' in os.environ.get('DATABASE_URL', '')
@@ -1931,6 +1941,33 @@ def init_db():
         except Exception as _e:
             db.session.rollback()
             app.logger.warning(f'[Invoice Counter Migration] {_e}')
+
+        # ── Korrektur: Rechnungsnummern-Format auf "JAHR-NUMMER" ohne
+        # Präfix umgestellt, nächste Rechnung soll 2026-081 sein (löst die
+        # 138er-Migration oben ab) ──
+        try:
+            flag = AppSettings.query.filter_by(key='invoice_counter_081_applied').first()
+            if not flag or flag.value != '1':
+                prefix_setting = AppSettings.query.filter_by(key='invoice_prefix').first()
+                if prefix_setting:
+                    prefix_setting.value = ''
+                else:
+                    db.session.add(AppSettings(key='invoice_prefix', value=''))
+                year = datetime.utcnow().year
+                counter_key = f'invoice_counter_{year}'
+                counter = AppSettings.query.filter_by(key=counter_key).first()
+                if counter:
+                    counter.value = '80'
+                else:
+                    db.session.add(AppSettings(key=counter_key, value='80'))
+                if not flag:
+                    db.session.add(AppSettings(key='invoice_counter_081_applied', value='1'))
+                else:
+                    flag.value = '1'
+                db.session.commit()
+        except Exception as _e:
+            db.session.rollback()
+            app.logger.warning(f'[Invoice Counter 081 Migration] {_e}')
 
         # ── Trend Radar: einmalig trend_ig_accounts-Setting in TrendSource
         # migrieren (ersetzt die alte Komma-Liste durch echte Quellen-Zeilen).
@@ -15215,7 +15252,9 @@ def _next_invoice_number():
     next_num = current + 1
     set_setting(counter_key, str(next_num))
     db.session.commit()
-    return f'{prefix}-{year}-{next_num:03d}'
+    if prefix:
+        return f'{prefix}-{year}-{next_num:03d}'
+    return f'{year}-{next_num:03d}'
 
 
 @app.route('/api/kooperationen/<int:kid>/rechnung/generate', methods=['POST'])
