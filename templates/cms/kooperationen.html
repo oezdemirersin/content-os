@@ -288,6 +288,16 @@
         </div>
       </div>
 
+      <!-- ── Leistungszeitraum ── -->
+      <div>
+        <label class="flabel">LEISTUNGSZEITRAUM</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <input id="koopStartDate" type="date" class="finput" placeholder="Von">
+          <input id="koopDeadline" type="date" class="finput" placeholder="Bis">
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Erscheint auf der Rechnung, unabhängig von den Posting-Daten unten.</div>
+      </div>
+
       <!-- ── Posting-Daten (mehrere) ── -->
       <div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -1060,6 +1070,10 @@ function openKoopModal(koop=null) {
   // Kampagnenname
   document.getElementById('koopCampaign').value = koop?.campaign_name || '';
 
+  // Leistungszeitraum
+  document.getElementById('koopStartDate').value = koop?.start_date || '';
+  document.getElementById('koopDeadline').value  = koop?.deadline   || '';
+
   // Posting-Daten — bei Neu: heute als Vorschlag
   document.getElementById('postingDateList').innerHTML = '';
   if (koop) {
@@ -1098,6 +1112,8 @@ async function saveKoop() {
     contact_country:     document.getElementById('koopContactCountry')?.value || 'Deutschland',
     vat_exempt:          document.getElementById('koopVatExempt')?.checked    || false,
     campaign_name:       document.getElementById('koopCampaign').value,
+    start_date:          document.getElementById('koopStartDate').value || null,
+    deadline:            document.getElementById('koopDeadline').value || null,
     deliverables:        getDeliverables(),
     posting_dates:       getPostingDates(),
     invoice_sent_at:     document.getElementById('koopInvoiceSent').value || null,
