@@ -1905,6 +1905,21 @@ def init_db():
             db.session.rollback()
             app.logger.warning(f'[Rosenheim Migration] {_e}')
 
+        # ── Rechnungsnummern-Zähler einmalig auf 137 anheben, damit die
+        # nächste generierte Rechnung mit 138 beginnt statt bei der
+        # bisherigen niedrigen Zahl weiterzulaufen ──
+        try:
+            if get_setting('invoice_counter_138_applied') != '1':
+                year = datetime.utcnow().year
+                current = int(get_setting(f'invoice_counter_{year}', '0') or '0')
+                if current < 137:
+                    set_setting(f'invoice_counter_{year}', '137')
+                set_setting('invoice_counter_138_applied', '1')
+                db.session.commit()
+        except Exception as _e:
+            db.session.rollback()
+            app.logger.warning(f'[Invoice Counter Migration] {_e}')
+
         # ── Trend Radar: einmalig trend_ig_accounts-Setting in TrendSource
         # migrieren (ersetzt die alte Komma-Liste durch echte Quellen-Zeilen).
         # Nutzt AppSettings/TrendSource direkt (nicht get_setting()/_TR_DEFAULT_
@@ -14123,6 +14138,7 @@ def koop_list():
             'contact_city': k.contact_city or '',
             'contact_country': k.contact_country or 'Deutschland',
             'vat_exempt': bool(k.vat_exempt),
+            'bill_via_management': bool(k.bill_via_management),
             'payment_status': k.payment_status or 'offen',
             'deliverables': delivs,
             'partner_rating': k.partner_rating,
@@ -14161,6 +14177,7 @@ def koop_create():
             contact_city=d.get('contact_city', '').strip() or None,
             contact_country=d.get('contact_country', '').strip() or 'Deutschland',
             vat_exempt=bool(d.get('vat_exempt')),
+            bill_via_management=bool(d.get('bill_via_management')),
             payment_status=d.get('payment_status', 'offen'),
             deliverables=json.dumps(d.get('deliverables', []), ensure_ascii=False) if d.get('deliverables') else None,
             partner_rating=int(d['partner_rating']) if d.get('partner_rating') else None,
@@ -14209,6 +14226,8 @@ def koop_update(kid):
     if contact_country is not None: k.contact_country = contact_country.strip() or 'Deutschland'
     if 'vat_exempt' in d:
         k.vat_exempt = bool(d['vat_exempt'])
+    if 'bill_via_management' in d:
+        k.bill_via_management = bool(d['bill_via_management'])
     k.payment_status  = d.get('payment_status', k.payment_status or 'offen')
     if 'campaign_name' in d:
         k.campaign_name = d['campaign_name'].strip() or None
@@ -15135,6 +15154,8 @@ INVOICE_SETTINGS_KEYS = [
     'invoice_sender_is_kleinunternehmer',
     'invoice_prefix', 'invoice_payment_days',
     'invoice_logo_b64',
+    'invoice_mgmt_name', 'invoice_mgmt_company', 'invoice_mgmt_street',
+    'invoice_mgmt_city', 'invoice_mgmt_country',
 ]
 
 
