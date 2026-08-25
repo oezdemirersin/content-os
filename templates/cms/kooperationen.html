@@ -392,6 +392,17 @@
           <label class="flabel">ZAHLUNGSNOTIZ</label>
           <input id="koopPayNotes" type="text" placeholder="z.B. 30 Tage Zahlungsziel, 50% Vorauszahlung…" class="finput">
         </div>
+
+        <!-- Zahlungsfrist -->
+        <div style="display:flex;align-items:start;gap:10px;padding:10px 0 0">
+          <input type="checkbox" id="koopHasDeadline" style="width:15px;height:15px;accent-color:var(--accent);margin-top:2px;flex-shrink:0"
+                 onchange="onKoopHasDeadlineChange()">
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600">Zahlungsfrist</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Erscheint auf der Rechnung als Zahlungsziel. Standard bei Aktivierung: 2 Wochen ab heute bzw. ab Rechnungsdatum.</div>
+            <input id="koopPaymentDueDate" type="date" class="finput" style="display:none">
+          </div>
+        </div>
       </div>
 
       <div style="display:flex;gap:10px;margin-top:4px">
@@ -1093,6 +1104,9 @@ function openKoopModal(koop=null) {
   document.getElementById('koopNotes').value     = koop?.notes || '';
   document.getElementById('koopInvoiceSent').value = koop?.invoice_sent_at || '';
   document.getElementById('koopPaidAt').value    = koop?.payment_received_at || '';
+  document.getElementById('koopHasDeadline').checked = !!koop?.payment_due_date;
+  document.getElementById('koopPaymentDueDate').value = koop?.payment_due_date || '';
+  document.getElementById('koopPaymentDueDate').style.display = koop?.payment_due_date ? 'block' : 'none';
   document.getElementById('koopPayNotes').value  = koop?.payment_notes || '';
 
   // Kampagnenname
@@ -1120,6 +1134,18 @@ function openKoopModal(koop=null) {
 }
 
 function closeKoopModal() { document.getElementById('koopModal').style.display='none'; }
+
+function onKoopHasDeadlineChange() {
+  const checked  = document.getElementById('koopHasDeadline').checked;
+  const dateEl   = document.getElementById('koopPaymentDueDate');
+  dateEl.style.display = checked ? 'block' : 'none';
+  if (checked && !dateEl.value) {
+    const sent = document.getElementById('koopInvoiceSent').value;
+    const base = sent ? new Date(sent + 'T00:00:00') : new Date();
+    base.setDate(base.getDate() + 14);
+    dateEl.value = base.toISOString().slice(0, 10);
+  }
+}
 function editKoop(id) { const k=koops.find(x=>x.id===id); if(k) openKoopModal(k); }
 
 async function saveKoop() {
@@ -1147,6 +1173,8 @@ async function saveKoop() {
     posting_dates:       getPostingDates(),
     invoice_sent_at:     document.getElementById('koopInvoiceSent').value || null,
     payment_received_at: document.getElementById('koopPaidAt').value || null,
+    payment_due_date:    document.getElementById('koopHasDeadline').checked
+                          ? (document.getElementById('koopPaymentDueDate').value || null) : null,
     payment_notes:       document.getElementById('koopPayNotes').value,
   };
   const url = id ? `/api/kooperationen/${id}` : '/api/kooperationen';

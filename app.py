@@ -15298,14 +15298,10 @@ def koop_rechnung(kid):
         except Exception:
             posting_dates = []
 
-    payment_due = None
-    if k.invoice_sent_at:
-        try:
-            days = int(settings.get('invoice_payment_days') or 14)
-            from datetime import timedelta
-            payment_due = k.invoice_sent_at + timedelta(days=days)
-        except Exception:
-            pass
+    # Zahlungsfrist ist eine bewusste Pro-Kooperation-Entscheidung
+    # (Checkbox im Koop-Formular) — kein automatischer Fallback mehr auf
+    # die globale invoice_payment_days-Einstellung.
+    payment_due = k.payment_due_date
 
     account = k.account
     return render_template(
