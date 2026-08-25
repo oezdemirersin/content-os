@@ -475,13 +475,9 @@
               {% set count = d.get('count', 1) | int %}
               {% set label = d.get('label') or d.get('type') or '' %}
               {% set text = d.get('text') or '' %}
-              {% set is_auto = label and (label|lower in text|lower) %}
               <div class="pos-desc"{% if not loop.first %} style="margin-top:4px"{% endif %}>
-                {{ label if is_auto else (text or (count ~ '× ' ~ label)) }}
+                {{ text or (count ~ '× ' ~ label) }}
               </div>
-              {% if text and label and not is_auto %}
-              <div class="pos-subdesc">Format: {{ label }}</div>
-              {% endif %}
               {% if d.get('note') %}
               <div class="pos-subdesc">{{ d.note }}</div>
               {% endif %}
