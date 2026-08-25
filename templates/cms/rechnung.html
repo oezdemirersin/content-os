@@ -482,11 +482,6 @@
               <div class="pos-subdesc">{{ d.note }}</div>
               {% endif %}
             {% endfor %}
-            {% if k.invoice_note %}
-            <div class="pos-subdesc">{{ k.invoice_note }}</div>
-            {% elif k.campaign_name %}
-            <div class="pos-subdesc">Kampagne: {{ k.campaign_name }}</div>
-            {% endif %}
           </td>
           <td class="unit-col">1</td>
           <td class="price-col">{{ (k.amount or 0)|de_num }} {{ k.currency or 'EUR' }}</td>
@@ -500,11 +495,6 @@
             <div class="pos-desc">
               Kooperation / {{ {'paid_post':'Paid Post','ugc':'UGC','collab':'Collab','sponsoring':'Sponsoring','product':'Produkt-Deal'}.get(k.koop_type, 'Kooperation') }}
             </div>
-            {% if k.invoice_note %}
-            <div class="pos-subdesc">{{ k.invoice_note }}</div>
-            {% elif k.campaign_name %}
-            <div class="pos-subdesc">Kampagne: {{ k.campaign_name }}</div>
-            {% endif %}
           </td>
           <td class="unit-col">1</td>
           <td class="price-col">
@@ -517,6 +507,13 @@
       {% endif %}
     </tbody>
   </table>
+
+  <!-- ANMERKUNG (allgemein, nicht an eine Position gebunden) -->
+  {% if k.invoice_note or k.campaign_name %}
+  <div style="font-size:9.5pt;color:#6b7280;margin:-10px 0 24px;line-height:1.6">
+    {{ k.invoice_note if k.invoice_note else 'Kampagne: ' + k.campaign_name }}
+  </div>
+  {% endif %}
 
   <!-- SUMMEN -->
   <div class="inv-totals">
