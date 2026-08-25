@@ -466,18 +466,17 @@
     </thead>
     <tbody>
       {% if deliverables %}
-        {% set ns = namespace(row=1) %}
-        {% for d in deliverables %}
-          {% set count = d.get('count', 1) | int %}
-          {% set label = d.get('label') or d.get('type') or '' %}
-          {% set text = d.get('text') or '' %}
-          {% set is_auto = label and (label|lower in text|lower) %}
-          {% set line_total = (k.amount or 0) / (deliverables | length) %}
-          {% set unit_price = (line_total / count) if count else line_total %}
-          <tr>
-            <td class="pos-num">{{ ns.row }}</td>
-            <td>
-              <div class="pos-desc">
+        <!-- Ein Gesamtpreis für alle Leistungen zusammen (kein Einzelpreis
+             pro Position vorhanden) -> genau 1 Rechnungsposition -->
+        <tr>
+          <td class="pos-num">1</td>
+          <td>
+            {% for d in deliverables %}
+              {% set count = d.get('count', 1) | int %}
+              {% set label = d.get('label') or d.get('type') or '' %}
+              {% set text = d.get('text') or '' %}
+              {% set is_auto = label and (label|lower in text|lower) %}
+              <div class="pos-desc"{% if not loop.first %} style="margin-top:4px"{% endif %}>
                 {{ label if is_auto else (text or (count ~ '× ' ~ label)) }}
               </div>
               {% if text and label and not is_auto %}
@@ -486,13 +485,15 @@
               {% if d.get('note') %}
               <div class="pos-subdesc">{{ d.note }}</div>
               {% endif %}
-            </td>
-            <td class="unit-col">{{ count }}</td>
-            <td class="price-col">{{ unit_price|de_num }} {{ k.currency or 'EUR' }}</td>
-            <td>{{ line_total|de_num }} {{ k.currency or 'EUR' }}</td>
-          </tr>
-          {% set ns.row = ns.row + 1 %}
-        {% endfor %}
+            {% endfor %}
+            {% if k.campaign_name %}
+            <div class="pos-subdesc">Kampagne: {{ k.campaign_name }}</div>
+            {% endif %}
+          </td>
+          <td class="unit-col">1</td>
+          <td class="price-col">{{ (k.amount or 0)|de_num }} {{ k.currency or 'EUR' }}</td>
+          <td>{{ (k.amount or 0)|de_num }} {{ k.currency or 'EUR' }}</td>
+        </tr>
       {% else %}
         <!-- Fallback: eine Position aus der Kooperation -->
         <tr>
