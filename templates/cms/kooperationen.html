@@ -542,6 +542,7 @@ const FORMAT_DEF = [
   { key:'story',    label:'Story',        icon:'fa-circle-half-stroke' },
 ];
 let formatCounts = { feed:0, reel:0, carousel:0, story:0 };
+let formatNotes  = { feed:'', reel:'', carousel:'', story:'' };
 
 const STATUS_CFG = {
   anfrage:       { bg:'rgba(245,158,11,.12)',  text:'var(--warning)', label:'Anfrage' },
@@ -1006,6 +1007,7 @@ function getPostingDates() {
 // ════════════════════════════════════════════════════════════
 function toggleFormat(key) {
   formatCounts[key] = formatCounts[key] > 0 ? 0 : 1;
+  if (formatCounts[key] === 0) formatNotes[key] = '';
   renderFormatCounts();
   updateFormatChips();
 }
@@ -1013,23 +1015,27 @@ function renderFormatCounts() {
   const container = document.getElementById('formatCounts');
   const active = FORMAT_DEF.filter(f => formatCounts[f.key] > 0);
   container.innerHTML = active.map(f => `
-    <div style="display:flex;align-items:center;justify-content:space-between;
-                padding:7px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
-      <span style="font-size:12px;font-weight:700"><i class="fa-solid ${f.icon} fa-xs"></i> ${f.label}</span>
-      <div style="display:flex;align-items:center;gap:6px">
-        <button type="button" onclick="changeCount('${f.key}',-1)"
-                style="width:24px;height:24px;border-radius:6px;border:1px solid var(--border);
-                       background:var(--surface);color:var(--text);cursor:pointer;font-size:14px;line-height:1">−</button>
-        <span id="cnt-${f.key}" style="font-size:14px;font-weight:700;min-width:20px;text-align:center">${formatCounts[f.key]}</span>
-        <button type="button" onclick="changeCount('${f.key}',+1)"
-                style="width:24px;height:24px;border-radius:6px;border:1px solid var(--border);
-                       background:var(--surface);color:var(--text);cursor:pointer;font-size:14px;line-height:1">+</button>
+    <div style="padding:7px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:12px;font-weight:700"><i class="fa-solid ${f.icon} fa-xs"></i> ${f.label}</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button type="button" onclick="changeCount('${f.key}',-1)"
+                  style="width:24px;height:24px;border-radius:6px;border:1px solid var(--border);
+                         background:var(--surface);color:var(--text);cursor:pointer;font-size:14px;line-height:1">−</button>
+          <span id="cnt-${f.key}" style="font-size:14px;font-weight:700;min-width:20px;text-align:center">${formatCounts[f.key]}</span>
+          <button type="button" onclick="changeCount('${f.key}',+1)"
+                  style="width:24px;height:24px;border-radius:6px;border:1px solid var(--border);
+                         background:var(--surface);color:var(--text);cursor:pointer;font-size:14px;line-height:1">+</button>
+        </div>
       </div>
+      <input type="text" value="${(formatNotes[f.key]||'').replace(/"/g,'&quot;')}" placeholder="Notiz/Info (optional, erscheint auf der Rechnung)"
+             oninput="formatNotes['${f.key}']=this.value" class="input-field"
+             style="margin-top:6px;font-size:11px;padding:5px 8px">
     </div>`).join('');
 }
 function changeCount(key, delta) {
   formatCounts[key] = Math.max(0, (formatCounts[key]||0) + delta);
-  if (formatCounts[key] === 0) updateFormatChips();
+  if (formatCounts[key] === 0) { updateFormatChips(); formatNotes[key] = ''; }
   renderFormatCounts();
 }
 function updateFormatChips() {
@@ -1041,12 +1047,13 @@ function updateFormatChips() {
 function getDeliverables() {
   return FORMAT_DEF
     .filter(f => formatCounts[f.key] > 0)
-    .map(f => ({ key:f.key, type:f.key, label:f.label, count:formatCounts[f.key], text:`${formatCounts[f.key]}× ${f.label}`, done:false }));
+    .map(f => ({ key:f.key, type:f.key, label:f.label, count:formatCounts[f.key], text:`${formatCounts[f.key]}× ${f.label}`, note:formatNotes[f.key]||'', done:false }));
 }
 function loadDeliverablesToPicker(delivs) {
   formatCounts = { feed:0, reel:0, carousel:0, story:0 };
+  formatNotes  = { feed:'', reel:'', carousel:'', story:'' };
   (delivs||[]).forEach(d => {
-    if (d.type && d.type in formatCounts) formatCounts[d.type] = d.count || 1;
+    if (d.type && d.type in formatCounts) { formatCounts[d.type] = d.count || 1; formatNotes[d.type] = d.note || ''; }
     else if (d.text) {
       // Versuche "2× Reel" zu parsen
       const m = d.text.match(/^(\d+)×\s*(.+)$/);

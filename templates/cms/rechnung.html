@@ -485,6 +485,9 @@
               {% if text and label and not is_auto %}
               <div class="pos-subdesc">Format: {{ label }}</div>
               {% endif %}
+              {% if d.get('note') %}
+              <div class="pos-subdesc">{{ d.note }}</div>
+              {% endif %}
             </td>
             <td class="unit-col">{{ count }}</td>
             <td class="price-col">—</td>
