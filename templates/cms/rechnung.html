@@ -466,16 +466,14 @@
     </thead>
     <tbody>
       {% if deliverables %}
-        {% set ns = namespace(row=1, total=0) %}
+        {% set ns = namespace(row=1) %}
         {% for d in deliverables %}
-          {% if d.get('text') or (d.get('type') and d.get('count')) %}
           {% set count = d.get('count', 1) | int %}
           {% set label = d.get('label') or d.get('type') or '' %}
           {% set text = d.get('text') or '' %}
-          {% set price = (k.amount or 0) / (deliverables | length) %}
-          {% set line_total = price %}
-          {% set ns.total = ns.total + line_total %}
           {% set is_auto = label and (label|lower in text|lower) %}
+          {% set line_total = (k.amount or 0) / (deliverables | length) %}
+          {% set unit_price = (line_total / count) if count else line_total %}
           <tr>
             <td class="pos-num">{{ ns.row }}</td>
             <td>
@@ -490,28 +488,11 @@
               {% endif %}
             </td>
             <td class="unit-col">{{ count }}</td>
-            <td class="price-col">—</td>
-            <td>—</td>
+            <td class="price-col">{{ unit_price|de_num }} {{ k.currency or 'EUR' }}</td>
+            <td>{{ line_total|de_num }} {{ k.currency or 'EUR' }}</td>
           </tr>
           {% set ns.row = ns.row + 1 %}
-          {% endif %}
         {% endfor %}
-        <!-- Gesamt-Zeile wenn kein Einzelpreissystem -->
-        <tr style="background:#f9fafb">
-          <td></td>
-          <td><strong>Kooperation gesamt</strong>
-            {% if k.campaign_name %}
-            <div class="pos-subdesc">Kampagne: {{ k.campaign_name }}</div>
-            {% endif %}
-          </td>
-          <td class="unit-col">1</td>
-          <td class="price-col">
-            {% if k.amount %}{{ k.amount|de_num }} {{ k.currency or 'EUR' }}{% else %}—{% endif %}
-          </td>
-          <td>
-            {% if k.amount %}<strong>{{ k.amount|de_num }} {{ k.currency or 'EUR' }}</strong>{% else %}—{% endif %}
-          </td>
-        </tr>
       {% else %}
         <!-- Fallback: eine Position aus der Kooperation -->
         <tr>

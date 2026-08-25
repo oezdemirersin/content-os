@@ -15288,6 +15288,10 @@ def koop_rechnung(kid):
                 d if isinstance(d, dict) else {'text': str(d), 'done': False}
                 for d in (raw if isinstance(raw, list) else [])
             ]
+            # Nur Einträge, die auch als Rechnungsposition gerendert werden —
+            # sonst würde der gleichmäßige Preis-Split unten auf zu viele
+            # Zeilen aufgeteilt (leere Einträge zählten sonst mit).
+            deliverables = [d for d in deliverables if d.get('text') or (d.get('type') and d.get('count'))]
         except Exception:
             deliverables = []
 
