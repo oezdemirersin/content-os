@@ -14188,6 +14188,7 @@ def koop_list():
             'contact_country': k.contact_country or 'Deutschland',
             'vat_exempt': bool(k.vat_exempt),
             'bill_via_management': bool(k.bill_via_management),
+            'invoice_note': k.invoice_note or '',
             'payment_status': k.payment_status or 'offen',
             'deliverables': delivs,
             'partner_rating': k.partner_rating,
@@ -14227,6 +14228,7 @@ def koop_create():
             contact_country=d.get('contact_country', '').strip() or 'Deutschland',
             vat_exempt=bool(d.get('vat_exempt')),
             bill_via_management=bool(d.get('bill_via_management')),
+            invoice_note=d.get('invoice_note', '').strip() or None,
             payment_status=d.get('payment_status', 'offen'),
             deliverables=json.dumps(d.get('deliverables', []), ensure_ascii=False) if d.get('deliverables') else None,
             partner_rating=int(d['partner_rating']) if d.get('partner_rating') else None,
@@ -14277,6 +14279,8 @@ def koop_update(kid):
         k.vat_exempt = bool(d['vat_exempt'])
     if 'bill_via_management' in d:
         k.bill_via_management = bool(d['bill_via_management'])
+    if 'invoice_note' in d:
+        k.invoice_note = d['invoice_note'].strip() or None
     k.payment_status  = d.get('payment_status', k.payment_status or 'offen')
     if 'campaign_name' in d:
         k.campaign_name = d['campaign_name'].strip() or None

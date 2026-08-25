@@ -354,6 +354,10 @@
         <div id="formatCounts" style="display:flex;flex-direction:column;gap:5px"></div>
       </div>
 
+      <!-- Notiz auf der Rechnung -->
+      <div><label class="flabel">NOTIZ AUF DER RECHNUNG</label>
+        <textarea id="koopInvoiceNote" rows="2" class="finput" placeholder="Steht auf der Rechnung unter der Leistung, statt der Kampagne — z.B. Zeitraum, Referenz…"></textarea></div>
+
       <!-- Notizen -->
       <div><label class="flabel">NOTIZEN</label>
         <textarea id="koopNotes" rows="2" class="finput" placeholder="Briefing, Besonderheiten…"></textarea></div>
@@ -1109,6 +1113,7 @@ function openKoopModal(koop=null) {
   document.getElementById('koopStatus').value    = koop?.status || 'anfrage';
   document.getElementById('koopAmount').value    = koop?.amount || '';
   document.getElementById('koopNotes').value     = koop?.notes || '';
+  document.getElementById('koopInvoiceNote').value = koop?.invoice_note || '';
   document.getElementById('koopInvoiceSent').value = koop?.invoice_sent_at || '';
   document.getElementById('koopPaidAt').value    = koop?.payment_received_at || '';
   document.getElementById('koopHasDeadline').checked = !!koop?.payment_due_date;
@@ -1166,6 +1171,7 @@ async function saveKoop() {
     status:              document.getElementById('koopStatus').value,
     amount:              document.getElementById('koopAmount').value || null,
     notes:               document.getElementById('koopNotes').value,
+    invoice_note:        document.getElementById('koopInvoiceNote').value,
     contact_name:        document.getElementById('koopContact').value,
     contact_company:     document.getElementById('koopContactCompany')?.value || '',
     contact_street:      document.getElementById('koopContactStreet')?.value  || '',

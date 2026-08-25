@@ -482,7 +482,9 @@
               <div class="pos-subdesc">{{ d.note }}</div>
               {% endif %}
             {% endfor %}
-            {% if k.campaign_name %}
+            {% if k.invoice_note %}
+            <div class="pos-subdesc">{{ k.invoice_note }}</div>
+            {% elif k.campaign_name %}
             <div class="pos-subdesc">Kampagne: {{ k.campaign_name }}</div>
             {% endif %}
           </td>
@@ -498,7 +500,9 @@
             <div class="pos-desc">
               Kooperation / {{ {'paid_post':'Paid Post','ugc':'UGC','collab':'Collab','sponsoring':'Sponsoring','product':'Produkt-Deal'}.get(k.koop_type, 'Kooperation') }}
             </div>
-            {% if k.campaign_name %}
+            {% if k.invoice_note %}
+            <div class="pos-subdesc">{{ k.invoice_note }}</div>
+            {% elif k.campaign_name %}
             <div class="pos-subdesc">Kampagne: {{ k.campaign_name }}</div>
             {% endif %}
           </td>
