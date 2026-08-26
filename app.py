@@ -1969,6 +1969,31 @@ def init_db():
             db.session.rollback()
             app.logger.warning(f'[Invoice Counter 081 Migration] {_e}')
 
+        # ── Korrektur: Rechnung Wolt soll wieder 2026-081 sein (der Zähler
+        # ist inzwischen weitergelaufen), Jahres-Zähler nochmal auf 80
+        # zurückgesetzt, damit die nächste NEUE Rechnung 082 wird ──
+        try:
+            flag = AppSettings.query.filter_by(key='invoice_number_081_reset_applied').first()
+            if not flag or flag.value != '1':
+                wolt = Kooperation.query.filter(Kooperation.partner_name.ilike('%wolt%')).first()
+                if wolt:
+                    wolt.invoice_number = '2026-081'
+                year = datetime.utcnow().year
+                counter_key = f'invoice_counter_{year}'
+                counter = AppSettings.query.filter_by(key=counter_key).first()
+                if counter:
+                    counter.value = '81'
+                else:
+                    db.session.add(AppSettings(key=counter_key, value='81'))
+                if not flag:
+                    db.session.add(AppSettings(key='invoice_number_081_reset_applied', value='1'))
+                else:
+                    flag.value = '1'
+                db.session.commit()
+        except Exception as _e:
+            db.session.rollback()
+            app.logger.warning(f'[Invoice 081 Reset] {_e}')
+
         # ── Trend Radar: einmalig trend_ig_accounts-Setting in TrendSource
         # migrieren (ersetzt die alte Komma-Liste durch echte Quellen-Zeilen).
         # Nutzt AppSettings/TrendSource direkt (nicht get_setting()/_TR_DEFAULT_
