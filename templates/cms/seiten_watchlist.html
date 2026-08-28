@@ -650,9 +650,16 @@
           <label class="form-label">Stadt *</label>
           <input type="text" x-model="form.stadt" class="input-field" placeholder="z.B. Rosenheim" autofocus>
         </div>
-        <div>
+        <div style="margin-bottom:12px">
           <label class="form-label">Einwohnerzahl</label>
           <input type="number" x-model.number="form.einwohner" class="input-field" placeholder="z.B. 67000" min="0">
+        </div>
+        <div>
+          <label class="form-label">Plattform</label>
+          <select x-model="form.platform" class="select-field">
+            <option value="Instagram">Instagram</option>
+            <option value="TikTok">TikTok</option>
+          </select>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -1223,6 +1230,7 @@ function watchlistApp() {
           stadt: stadtName, ziel_typ: 'stadtseite', wl_kategorie: 'stadtseite',
           ziel_name: stadtName + ' – Stadtseite',
           ziel_meta: ew ? 'ca. ' + ew.toLocaleString('de-DE') + ' Einwohner' : null,
+          platform: f.platform || 'Instagram',
           seiten_status: 'nicht_gesucht', kaufprioritaet: 'keine',
         };
         const r = await fetch('/api/watchlist/stadtseiten',{
