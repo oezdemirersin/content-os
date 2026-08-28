@@ -1915,6 +1915,20 @@ def init_db():
             db.session.rollback()
             app.logger.warning(f'[Rosenheim Migration] {_e}')
 
+        # ── Fulda: einmalig zur Stadtseiten-Watchlist hinzufügen ──
+        try:
+            existing_staedte_lower = {s.lower() for (s,) in db.session.query(WatchlistSeite.stadt)
+                .filter(WatchlistSeite.ziel_typ == 'stadtseite', WatchlistSeite.is_deleted == False).all()}
+            if 'fulda' not in existing_staedte_lower:
+                db.session.add(WatchlistSeite(
+                    stadt='Fulda', ziel_typ='stadtseite',
+                    ziel_name='Fulda – Stadtseite', ziel_meta='ca. 68.000 Einwohner',
+                ))
+                db.session.commit()
+        except Exception as _e:
+            db.session.rollback()
+            app.logger.warning(f'[Fulda Migration] {_e}')
+
         # ── Rechnungsnummern-Zähler einmalig auf 137 anheben, damit die
         # nächste generierte Rechnung mit 138 beginnt statt bei der
         # bisherigen niedrigen Zahl weiterzulaufen. get_setting/set_setting
