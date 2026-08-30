@@ -1929,6 +1929,35 @@ def init_db():
             db.session.rollback()
             app.logger.warning(f'[Fulda Migration] {_e}')
 
+        # ── geocash_berlin: aktuelle Follower-Zahlen eintragen (live von
+        # Instagram abgerufen am 2026-08-30, kein geschätzter Wert) —
+        # Account muss bereits existieren, wird hier nicht neu angelegt ──
+        try:
+            flag = AppSettings.query.filter_by(key='geocash_berlin_analytics_seeded').first()
+            if not flag or flag.value != '1':
+                acc = Account.query.filter(
+                    db.func.lower(db.func.replace(Account.handle, '@', '')) == 'geocash_berlin'
+                ).first()
+                if acc:
+                    acc.follower_count  = 34443
+                    acc.following_count = 87
+                    acc.post_count      = 290
+                    today = datetime.utcnow().date()
+                    existing_snap = AnalyticsSnapshot.query.filter_by(account_id=acc.id)\
+                        .filter(db.func.date(AnalyticsSnapshot.recorded_at) == today).first()
+                    if not existing_snap:
+                        db.session.add(AnalyticsSnapshot(
+                            account_id=acc.id, followers=34443, following=87, posts=290,
+                        ))
+                if not flag:
+                    db.session.add(AppSettings(key='geocash_berlin_analytics_seeded', value='1'))
+                else:
+                    flag.value = '1'
+                db.session.commit()
+        except Exception as _e:
+            db.session.rollback()
+            app.logger.warning(f'[geocash_berlin Analytics] {_e}')
+
         # ── Rechnungsnummern-Zähler einmalig auf 137 anheben, damit die
         # nächste generierte Rechnung mit 138 beginnt statt bei der
         # bisherigen niedrigen Zahl weiterzulaufen. get_setting/set_setting
